@@ -8,6 +8,9 @@ import ai.brokk.WorktreeProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
+// Add these imports
+import ai.brokk.gui.dialogs.InstallGitLfsDialog;
+import ai.brokk.gui.dialogs.InstallGitLfsDialog.Result;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
@@ -38,6 +41,7 @@ import org.jetbrains.annotations.Nullable;
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
 
+    // Commit marker: broaden-catch fix applied
     private final Chrome chrome;
     private final ContextManager contextManager;
 
@@ -762,39 +766,68 @@ public class GitWorktreeTab extends JPanel {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Adding worktree for branch: " + branchForWorktree);
 
-                WorktreeSetupResult setupResult = setupNewGitWorktree(
-                        project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
-                Path newWorktreePath = setupResult.worktreePath();
-
-                Brokk.OpenProjectBuilder openProjectBuilder =
-                        new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
-                if (copyWorkspace) {
-                    logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
-                    openProjectBuilder.sourceContextForSession(contextManager.topContext());
+                try {
+                createAndOpenWorktree(
+                project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew,
+                copyWorkspace);
+                } catch (GitRepo.GitLfsMissingException glfs) {
+                logger.warn("Worktree creation failed due to missing Git LFS", glfs);
+                var dlgResult = InstallGitLfsDialog.showDialog(chrome, glfs);
+                if (dlgResult == InstallGitLfsDialog.Result.RETRY) {
+                // Keep attempting until user cancels or creation succeeds.
+                boolean attemptAgain = true;
+                while (attemptAgain) {
+                try {
+                createAndOpenWorktree(
+                project,
+                gitRepo,
+                branchForWorktree,
+                isCreatingNewBranch,
+                sourceBranchForNew,
+                copyWorkspace);
+                attemptAgain = false; // success
+                } catch (GitRepo.GitLfsMissingException glfs2) {
+                // Show dialog again; user can Retry or Cancel
+                var r2 = InstallGitLfsDialog.showDialog(chrome, glfs2);
+                if (r2 != InstallGitLfsDialog.Result.RETRY) {
+                attemptAgain = false; // user cancelled
                 }
-
-                final String finalBranchForWorktree = branchForWorktree; // for lambda
-                openProjectBuilder.open().thenAccept(success -> {
-                    if (Boolean.TRUE.equals(success)) {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Successfully opened worktree: " + newWorktreePath.getFileName());
-                    } else {
-                        chrome.toolError(
-                                "Error opening worktree " + newWorktreePath.getFileName(), "Worktree Open Error");
-                    }
-                    SwingUtilities.invokeLater(this::loadWorktrees);
-                });
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Successfully created worktree for branch '" + finalBranchForWorktree + "' at "
-                                + newWorktreePath);
+                } catch (Exception e) {
+                // Preserve existing error handling for other failures
+                logger.error("Error creating/opening worktree on retry", e);
+                String errorDetail = e.getMessage();
+                final String contextualMessage;
+                if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
+                contextualMessage =
+                "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
+                } else {
+                contextualMessage = "Failed to create worktree:\n" + errorDetail;
+                }
+                chrome.toolError(contextualMessage, "Worktree Creation Failed");
+                attemptAgain = false;
+                }
+                }
+                } else {
+                // User cancelled; abort without further action
+                }
+                } catch (Exception e) {
+                logger.error("Error creating worktree", e);
+                String errorDetail = e.getMessage();
+                final String contextualMessage;
+                if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
+                contextualMessage =
+                "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
+                } else {
+                contextualMessage = "Failed to create worktree:\n" + errorDetail;
+                }
+                chrome.toolError(contextualMessage, "Worktree Creation Failed");
+                }
 
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error during add worktree dialog processing or future execution", e);
                 chrome.toolError(
                         "Failed to process worktree addition dialog:\n" + e.getMessage(), "Dialog Processing Error");
-            } catch (GitAPIException | IOException e) { // Catches from setupNewGitWorktree or sanitizeBranchName
+            } catch (Exception e) { // Catch any unexpected exception (preserve original handling)
                 logger.error("Error creating worktree", e);
                 String errorDetail = e.getMessage();
                 final String contextualMessage;
@@ -1074,6 +1107,45 @@ public class GitWorktreeTab extends JPanel {
         }
 
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
+    }
+
+    /**
+     * Centralized helper that performs the worktree setup and opens the new project.
+     *
+     * @throws GitAPIException or IOException on failure to create the worktree.
+     * @throws GitRepo.GitLfsMissingException when git-lfs is missing (thrown by underlying worktree helper).
+     */
+    private void createAndOpenWorktree(
+            MainProject project,
+            GitRepo gitRepo,
+            String branchForWorktree,
+            boolean isCreatingNewBranch,
+            String sourceBranchForNew,
+            boolean copyWorkspace)
+            throws GitAPIException, IOException {
+        WorktreeSetupResult setupResult =
+                setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
+        Path newWorktreePath = setupResult.worktreePath();
+
+        Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
+        if (copyWorkspace) {
+            logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
+            openProjectBuilder.sourceContextForSession(contextManager.topContext());
+        }
+
+        final String finalBranchForWorktree = branchForWorktree; // for lambda
+        openProjectBuilder.open().thenAccept(success -> {
+            if (Boolean.TRUE.equals(success)) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Successfully opened worktree: " + newWorktreePath.getFileName());
+            } else {
+                chrome.toolError("Error opening worktree " + newWorktreePath.getFileName(), "Worktree Open Error");
+            }
+            SwingUtilities.invokeLater(this::loadWorktrees);
+        });
+        chrome.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
     }
 
     private void showMergeDialog() {

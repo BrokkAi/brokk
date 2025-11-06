@@ -2054,6 +2054,71 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
+    /**
+     * Thrown when `git lfs` is missing or LFS-related filters fail during an operation that used the system git
+     * executable. Carries additional diagnostics that higher layers (UI) may present to the user.
+     *
+     * This exception is a checked {@link GitRepoException} so callers can handle it explicitly and show a tailored UI.
+     */
+    public static class GitLfsMissingException extends GitRepoException {
+        private final String command;
+        private final Path workingDir;
+        private final String gitVersion;
+        private final @Nullable String lfsVersion;
+        private final @Nullable String gitPath;
+        private final String output;
+
+        public GitLfsMissingException(
+                String command,
+                Path workingDir,
+                String gitVersion,
+                @Nullable String lfsVersion,
+                @Nullable String gitPath,
+                String output,
+                Throwable cause) {
+            super("Git LFS appears to be missing or misconfigured: " + output, cause);
+            this.command = command;
+            this.workingDir = workingDir;
+            this.gitVersion = gitVersion;
+            this.lfsVersion = lfsVersion;
+            this.gitPath = gitPath;
+            this.output = output;
+        }
+
+        /** The exact command that was attempted (e.g., the `git worktree` invocation). */
+        public String getCommand() {
+            return command;
+        }
+
+        /** The working directory where the command was executed (typically the repository top-level). */
+        public Path getWorkingDir() {
+            return workingDir;
+        }
+
+        /** The output of `git --version` at the time of the failure (best-effort). May be empty when unknown. */
+        public String getGitVersion() {
+            return gitVersion;
+        }
+
+        /** The output of `git lfs version` if available, otherwise {@code null}. */
+        public @Nullable String getLfsVersion() {
+            return lfsVersion;
+        }
+
+        /**
+         * Best-effort discovered path to the `git` executable (platform-specific probe).
+         * May be {@code null} when unknown.
+         */
+        public @Nullable String getGitPath() {
+            return gitPath;
+        }
+
+        /** Combined stdout/stderr returned from the failing git invocation. */
+        public String getOutput() {
+            return output;
+        }
+    }
+
     /** Factory method to create CommitInfo from a JGit RevCommit. Assumes this is NOT a stash commit. */
     public CommitInfo fromRevCommit(RevCommit commit) {
         return new CommitInfo(

@@ -19,6 +19,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Repository;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Helper class extracted from GitRepo to encapsulate worktree operations.
@@ -34,6 +35,96 @@ public class GitRepoWorktrees {
     public GitRepoWorktrees(GitRepo repo) {
         this.repo = repo;
         this.repository = repo.getRepository();
+    }
+
+    // Pattern to detect common git-lfs missing/errors lines in git output (case-insensitive).
+    // Matches examples like:
+    //   git: 'lfs' is not a git command
+    //   git-lfs: command not found
+    //   external filter 'git-lfs filter-process' failed
+    //   This repository is configured for Git LFS
+    //   'git-lfs' is not recognized as an internal or external command
+    private static final Pattern LFS_MISSING_PATTERN = Pattern.compile(
+            "(?i)(git:\\s*'lfs' is not a git command|git-lfs.*not found|external filter 'git-lfs filter-process' failed|this repository is configured for git lfs|is not recognized as an internal or external command|smudge filter lfs failed|filter-process.*failed)");
+
+    private boolean isLfsMissing(String output) {
+        if (output == null || output.isBlank()) {
+            return false;
+        }
+        return LFS_MISSING_PATTERN.matcher(output).find();
+    }
+
+    /** Probe system 'git --version' in a best-effort way; returns empty string on failure. */
+    private String probeGitVersion() {
+        try {
+            String out = Environment.instance.runShellCommand(
+                    "git --version", repo.getGitTopLevel(), o -> {}, Environment.GIT_TIMEOUT);
+            return out == null ? "" : out.trim();
+        } catch (Environment.SubprocessException e) {
+            // Best-effort: return empty to indicate unknown
+            return "";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        }
+    }
+
+    /**
+     * Probe system 'git lfs version' in a best-effort way.
+     * Returns the trimmed output if present, or null if git-lfs appears missing/unavailable.
+     */
+    private @Nullable String probeGitLfsVersion() {
+        try {
+            String out = Environment.instance.runShellCommand(
+                    "git lfs version", repo.getGitTopLevel(), o -> {}, Environment.GIT_TIMEOUT);
+            if (out == null || out.isBlank()) return null;
+            return out.trim();
+        } catch (Environment.SubprocessException e) {
+            // git-lfs may be absent; signal by returning null
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /**
+     * Best-effort probe for a path to the `git` executable. On Windows runs `where git`, on macOS/Linux runs
+     * `command -v git`. Returns the first non-empty line of output, trimmed, or null on failure.
+     */
+    private @Nullable String probeGitPath() {
+        try {
+            String cmd = Environment.isWindows() ? "where git" : "command -v git";
+            String out = Environment.instance.runShellCommand(
+                    cmd, repo.getGitTopLevel(), o -> {}, Environment.GIT_TIMEOUT);
+            if (out == null || out.isBlank()) return null;
+            var lines = Splitter.on(Pattern.compile("\\R")).splitToList(out);
+            if (lines.isEmpty()) return null;
+            String first = lines.get(0).trim();
+            return first.isEmpty() ? null : first;
+        } catch (Environment.SubprocessException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /**
+     * Create a preview of the given output: first maxLines lines, truncated to maxChars if needed.
+     * This is intended for concise logging/UI summaries (we still keep full output in the exception).
+     */
+    private static String previewOutput(@Nullable String output, int maxLines, int maxChars) {
+        if (output == null || output.isEmpty()) return "<no output>";
+        var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output);
+        boolean moreLines = lines.size() > maxLines;
+        String joined = lines.stream().limit(maxLines).collect(Collectors.joining("\n"));
+        if (joined.length() > maxChars) {
+            joined = joined.substring(0, maxChars) + "\n...(truncated)";
+        } else if (moreLines) {
+            joined = joined + "\n...(truncated)";
+        }
+        return joined;
     }
 
     /** Lists worktrees and invalid paths (those that don't exist on disk). */
@@ -111,13 +202,26 @@ public class GitRepoWorktrees {
 
     /** Adds a new worktree at the specified path for the given branch. */
     public void addWorktree(String branch, Path path) throws GitAPIException {
+        String command = "";
+        // Best-effort provenance collection (do not let failures affect primary flow)
+        String gitVersion = probeGitVersion(); // returns "" on failure
+        String lfsVersion = probeGitLfsVersion(); // returns null on failure
+        String gitPath = probeGitPath(); // returns null on failure
+
+        logger.debug(
+                "Worktree add provenance: branch='{}', path='{}', gitVersion='{}', gitLfsVersion='{}', gitPath='{}'",
+                branch,
+                path,
+                gitVersion,
+                lfsVersion,
+                gitPath);
+
         try {
             // Ensure path is absolute for the command
             var absolutePath = path.toAbsolutePath().normalize();
 
             // Check if branch exists locally
             List<String> localBranches = repo.listLocalBranches();
-            String command;
             if (localBranches.contains(branch)) {
                 // Branch exists, checkout the existing branch
                 command = String.format("git worktree add %s %s", absolutePath, branch);
@@ -127,9 +231,31 @@ public class GitRepoWorktrees {
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
+            String output = e.getOutput();
+            if (isLfsMissing(output)) {
+                // Prepare a concise preview for logs and UI (first N lines / limited chars)
+                final int PREVIEW_MAX_LINES = 50;
+                final int PREVIEW_MAX_CHARS = 4000;
+                String outputPreview = previewOutput(output, PREVIEW_MAX_LINES, PREVIEW_MAX_CHARS);
+
+                // Single structured WARN log to help correlate user reports with captured diagnostics.
+                logger.warn(
+                        "Git LFS missing during worktree add: gitVersion='{}', lfsVersion='{}', gitPath='{}', command='{}', repoTop='{}', outputPreview='{}'",
+                        gitVersion == null ? "<unknown>" : gitVersion,
+                        lfsVersion == null ? "<not available>" : lfsVersion,
+                        gitPath == null ? "<unknown>" : gitPath,
+                        command,
+                        repo.getGitTopLevel(),
+                        outputPreview);
+
+                // Surface a dedicated exception so UI can show a helpful LFS-install dialog with diagnostics.
+                throw new GitRepo.GitLfsMissingException(
+                        command, repo.getGitTopLevel(), gitVersion, lfsVersion, gitPath, output, e);
+            }
             throw new GitRepo.GitRepoException(
-                    "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
+                    "Failed to add worktree at " + path + " for branch " + branch + ": " + output, e);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
     }
