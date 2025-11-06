@@ -389,7 +389,7 @@ public class ToolRegistry {
                     .formatted(headline, argsYaml);
         } catch (ToolValidationException e) {
             logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
-            return "Skip invalid tool request.";
+            return "";
         }
     }
 

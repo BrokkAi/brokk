@@ -690,7 +690,7 @@ public class ContextAgent {
         if (showBatch1Reasoning) {
             cm.getIo()
                     .llmOutput(
-                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…",
+                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
                             ChatMessageType.AI,
                             false,
                             true);
