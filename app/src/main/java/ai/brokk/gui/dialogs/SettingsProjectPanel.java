@@ -181,36 +181,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         int row = 0;
 
-        // Migration button (visible only if migration is pending)
-        var migrateButton = new MaterialButton("Migrate style.md to AGENTS.md");
-        migrateButton.addActionListener(e -> {
-            var mp = chrome.getProject();
-            if (mp instanceof MainProject mainProject) {
-                migrateButton.setEnabled(false);
-                mainProject.performStyleMdToAgentsMdMigration(chrome);
-                SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
-            }
-        });
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridwidth = 2;
-        generalPanel.add(migrateButton, gbc);
-        
-        // Hide migration button if already migrated or declined
-        try {
-            var brokkDir = chrome.getProject().getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
-            boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
-            boolean agentsExists = java.nio.file.Files.exists(brokkDir.resolve("AGENTS.md"));
-            migrateButton.setVisible(styleExists && !agentsExists);
-        } catch (Exception ex) {
-            migrateButton.setVisible(false);
-        }
-        row++;
-        gbc.gridwidth = 1;
-
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
@@ -243,6 +213,47 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(0, 2, 8, 2);
         generalPanel.add(styleGuideInfo, gbc);
 
+        gbc.insets = new Insets(2, 2, 2, 2);
+
+        // Migration button (visible only if migration is pending)
+        var migrateButton = new MaterialButton("Migrate style.md to AGENTS.md");
+        migrateButton.addActionListener(e -> {
+            var mp = chrome.getProject();
+            if (mp instanceof MainProject mainProject) {
+                migrateButton.setEnabled(false);
+                boolean success = mainProject.performStyleMdToAgentsMdMigration(chrome);
+                if (success) {
+                    // Migration succeeded - hide button and refresh UI
+                    migrateButton.setVisible(false);
+                    SwingUtilities.invokeLater(() -> loadSettings());
+                } else {
+                    // Migration failed - re-enable button
+                    SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
+                }
+            }
+        });
+
+        // Check if migration button should be visible
+        try {
+            var brokkDir = chrome.getProject().getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
+            boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
+            boolean agentsExists = java.nio.file.Files.exists(brokkDir.resolve("AGENTS.md"));
+            migrateButton.setVisible(styleExists && !agentsExists);
+        } catch (Exception ex) {
+            migrateButton.setVisible(false);
+        }
+
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(5, 2, 15, 2); // Extra bottom padding to separate from next section
+        generalPanel.add(migrateButton, gbc);
+
+        // Reset for next components
+        gbc.gridwidth = 1;
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.gridx = 0;
         gbc.gridy = row;
