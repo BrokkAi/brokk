@@ -977,6 +977,33 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
+    @Override
+    protected int definitionOverridePriority(CodeUnit cu) {
+        // Prefer implementations over declarations for C/C++ functions.
+        // Short rationale: returning implementation first lets clients reliably "pick first" and get the .c/.cpp body.
+        // Priority ordering (lower is better):
+        // -2: function with body in .c/.cc/.cpp/.cxx
+        // -1: function with body in header (inline/template)
+        //  0: everything else (declarations)
+        if (!cu.isFunction()) {
+            return PRIORITY_DEFAULT;
+        }
+
+        boolean hasBody = withCodeUnitProperties(props -> {
+            var p = props.get(cu);
+            return p != null && p.hasBody();
+        });
+
+        if (!hasBody) {
+            return PRIORITY_DEFAULT;
+        }
+
+        String ext = cu.source().extension().toLowerCase(Locale.ROOT);
+        boolean isSource = ext.equals(".c") || ext.equals(".cc") || ext.equals(".cpp") || ext.equals(".cxx");
+
+        return isSource ? PRIORITY_HIGH - 1 : PRIORITY_HIGH;
+    }
+
     public String getCacheStatistics() {
         // Count non-null parsed trees in fileState
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
