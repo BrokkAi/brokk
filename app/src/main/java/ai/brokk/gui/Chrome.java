@@ -842,7 +842,7 @@ public class Chrome
                     content += "/.brokk/sessions/\n"; // Ignore sessions dir in main repo
                     content += "/.brokk/dependencies/\n"; // Ignore dependencies dir in main repo
                     content += "/.brokk/history.zip\n"; // Ignore legacy history zip
-                    content += "!.brokk/style.md\n"; // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/AGENTS.md\n"; // DO track AGENTS.md (which lives in masterRoot/.brokk)
                     content += "!.brokk/review.md\n"; // DO track review.md (which lives in masterRoot/.brokk)
                     content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
@@ -861,13 +861,13 @@ public class Chrome
                 Files.createDirectories(sharedBrokkDir);
 
                 // Add specific shared files to git
-                var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var agentsMdPath = sharedBrokkDir.resolve("AGENTS.md");
                 var reviewMdPath = sharedBrokkDir.resolve("review.md");
                 var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
                 // Create shared files if they don't exist (empty files)
-                if (!Files.exists(styleMdPath)) {
-                    Files.writeString(styleMdPath, "# Style Guide\n");
+                if (!Files.exists(agentsMdPath)) {
+                    Files.writeString(agentsMdPath, "# Agents Guide\n");
                 }
                 if (!Files.exists(reviewMdPath)) {
                     Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
@@ -879,7 +879,7 @@ public class Chrome
                 // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
                 // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/AGENTS.md"));
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
@@ -889,7 +889,7 @@ public class Chrome
                 gitRepo.add(filesToAdd);
                 showNotification(
                         NotificationRole.INFO,
-                        "Added shared .brokk project files (style.md, review.md, project.properties) to git");
+                        "Added shared .brokk project files (AGENTS.md, review.md, project.properties) to git");
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
@@ -899,7 +899,7 @@ public class Chrome
                     // Get the files that were just staged (including .gitignore if it was added)
                     var filesToCommit = new ArrayList<ProjectFile>();
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/AGENTS.md"));
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
