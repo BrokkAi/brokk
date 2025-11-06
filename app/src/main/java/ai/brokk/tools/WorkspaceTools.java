@@ -342,7 +342,7 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Retrieves summaries (fields and method signatures) for all classes defined within specified project files and adds them to the Workspace.
+                  Retrieves summaries (class fields, method and top-level function signatures) of top-level symbols defined within specified project files and adds them to the Workspace.
                   Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                   Faster and more efficient than reading entire files when you just need the API definitions.
                   (But if you don't know where what you want is located, you should use Search Agent instead.)
@@ -370,7 +370,7 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Retrieves the full source code of specific methods and adds to the Workspace each as a separate read-only text fragment.
+                  Retrieves the full source code of specific methods (not functions) and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
     public String addMethodsToWorkspace(

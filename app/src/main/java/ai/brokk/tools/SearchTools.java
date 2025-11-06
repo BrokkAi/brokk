@@ -108,7 +108,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
+                    Retrieves summaries (fields and method signatures) for all classes and top-level functions defined within specified project files.
                     Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                     This is a fast and efficient way to read multiple related files at once.
                     (But if you don't know where what you want is located, you should use searchSymbols instead.)
@@ -170,7 +170,7 @@ public class SearchTools {
                     symbol|kind|file1,file2,...
 
                     - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (field), mod (module)
-                    - files: comma-separated, deduplicated, sorted, normalized to forward slashes
+                    - files: comma-separated (relative to the project root)
                     - multiple files appear if the symbol has more than one definition (e.g., .cc and .hh)
                     - methods are member functions of classes/types; functions are free/top-level (pseudo owners like "_module_" are treated as functions)
 
@@ -380,8 +380,8 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the file paths where the specified symbols are defined.
-                    Use this after searchSymbols to locate where interesting symbols live,
+                    Returns the file paths (relative to the project root) where the specified symbols are defined.
+                    Use this to locate where interesting symbols live,
                     then use getFileSummaries to get an overview of those files.
                     Accepts all symbol types: classes, methods, fields, and modules.
                     """)
@@ -420,7 +420,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    Returns the full source code of specific methods (not functions). Use this to examine the implementation of particular methods without retrieving the entire classes.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
@@ -537,7 +537,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns file names whose text contents match Java regular expression patterns.
+                    Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
                     This is slower than searchSymbols but can find references to external dependencies and comment strings.
                     """)
     public String searchSubstrings(
@@ -650,7 +650,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
+                    Returns the full contents of the specified files. Use this after searchFilenames, searchSubstrings or searchSymbols or when you need the content of a non-code file.
                     This can be expensive for large files.
                     """)
     public String getFileContents(
