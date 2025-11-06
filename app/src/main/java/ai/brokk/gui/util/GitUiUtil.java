@@ -437,7 +437,7 @@ public final class GitUiUtil {
      * @param repo The repository name (trimmed)
      * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
      */
-    public static Optional<String> validateOwnerRepo(String owner, String repo) {
+    public static Optional<String> validateOwnerRepo(@Nullable String owner, @Nullable String repo) {
         // Trim inputs
         String trimmedOwner = (owner == null) ? "" : owner.trim();
         String trimmedRepo = (repo == null) ? "" : repo.trim();
@@ -477,7 +477,7 @@ public final class GitUiUtil {
      * @param full The full repository identifier in "owner/repo" format
      * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
      */
-    public static Optional<String> validateFullRepoName(String full) {
+    public static Optional<String> validateFullRepoName(@Nullable String full) {
         if (full == null || full.isBlank()) {
             return Optional.of(INVALID_REPO_FORMAT_MSG);
         }
