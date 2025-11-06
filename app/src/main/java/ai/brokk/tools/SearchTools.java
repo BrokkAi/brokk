@@ -168,16 +168,16 @@ public class SearchTools {
                     Search for symbols (class/method/function/field/module definitions) using static analysis.
                     Output is grouped by file, then by symbol kind within each file.
 
-                    - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (class/struct field), gvar (top-level/module variable), mod (module)
+                    - kinds: classes, methods (member functions), functions (free/top-level), fields (class/struct), globals (top-level/module variables), modules
                     - methods are member functions of classes/types; functions are free/top-level
-                    - top-level variables (including C/C++ file-scope 'static') are reported as gvar
+                    - top-level variables (including C/C++ file-scope 'static') are reported as globals
                     - empty kind sections are omitted
 
                     Examples:
                     <file path="src/main/java/com/example/Foo.java">
-                    [cls]
+                    [classes]
                     - com.example.Foo
-                    [mtd]
+                    [methods]
                     - com.example.Foo.bar
                     </file>
                     """)
@@ -226,7 +226,7 @@ public class SearchTools {
                     result.append("<file path=\"").append(filePath).append("\">\n");
 
                     // Emit kind sections in a stable order
-                    var kindOrder = List.of("cls", "mtd", "fld", "fn", "gvar", "mod");
+                    var kindOrder = List.of("classes", "methods", "fields", "functions", "globals", "modules");
                     kindOrder.forEach(kind -> {
                         var symbols = kindGroups.get(kind);
                         if (symbols != null && !symbols.isEmpty()) {
@@ -246,15 +246,15 @@ public class SearchTools {
     }
 
     /**
-     * Determines the short kind abbreviation for a CodeUnit
+     * Determines the output kind group name for a CodeUnit.
      *
-     * Kinds:
-     * - cls: class/struct/enum/trait
-     * - mtd: method (member function) — cu.isFunction() AND cu.classUnit().isPresent() AND owner is not a pseudo owner
-     * - fn : free/top-level function — otherwise (no real class owner)
-     * - fld: class/struct field (instance or static) — cu.isField() AND cu.classUnit().isPresent() AND owner not pseudo
-     * - gvar: top-level/module variable — otherwise (includes C/C++ file-scope static, TS/JS module vars)
-     * - mod: module
+     * Groups:
+     * - classes: class/struct/enum/trait
+     * - methods: member functions (class/struct/enum methods) — owner is a real class/type (not a pseudo owner)
+     * - functions: free/top-level functions — otherwise (no real class owner)
+     * - fields: class/struct fields (instance or static) — owner is a real class/type (not a pseudo owner)
+     * - globals: top-level/module variables — otherwise (includes C/C++ file-scope static, TS/JS module vars)
+     * - modules: module-level units
      *
      * Why the pseudo-owner check?
      * - Some analyzers encode top-level items using either a synthetic owner "_module_" or the file stem as "moduleName".
@@ -263,27 +263,27 @@ public class SearchTools {
      */
     private static String codeUnitKind(CodeUnit cu) {
         if (cu.isClass()) {
-            return "cls";
+            return "classes";
         }
 
         if (cu.isFunction()) {
             var owner = ownerShortName(cu);
             if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
-                return "mtd";
+                return "methods";
             }
-            return "fn";
+            return "functions";
         }
 
         if (cu.isField()) {
             var owner = ownerShortName(cu);
             if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
-                return "fld";
+                return "fields";
             }
-            return "gvar";
+            return "globals";
         }
 
         if (cu.isModule()) {
-            return "mod";
+            return "modules";
         }
 
         logger.debug("Unknown CodeUnitType for CodeUnit: {}", cu);
@@ -504,7 +504,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full source code of specific methods (not functions). Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    Returns the full source code of specific methods or functions. Use this to examine the implementation of particular methods without retrieving the entire classes.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")

@@ -370,7 +370,7 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Retrieves the full source code of specific methods (not functions) and adds to the Workspace each as a separate read-only text fragment.
+                  Retrieves the full source code of specific methods or functions and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
     public String addMethodsToWorkspace(
