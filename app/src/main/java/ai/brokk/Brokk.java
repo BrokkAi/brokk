@@ -1040,8 +1040,7 @@ public class Brokk {
             }
 
             logger.debug(
-                    "Detected style.md without AGENTS.md in {}. Prompting user for migration.",
-                    brokkDir.getFileName());
+                    "Detected style.md without AGENTS.md in {}. Prompting user for migration.", brokkDir.getFileName());
 
             // Get the Chrome instance for showing the dialog
             Chrome chrome = findOpenProjectWindow(mainProject.getRoot());
@@ -1051,29 +1050,29 @@ public class Brokk {
             }
 
             String message =
-            """
+                    """
             This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
-            
+
             Would you like to migrate `style.md` to `AGENTS.md`? This will:
             - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
             - Stage the change in Git (if the project is a Git repository)
             - You can then review and commit the changes
             """;
-            
+
             int confirm = chrome.showConfirmDialog(
-            chrome.getFrame(),
-            message,
-            "Migrate Style Guide to AGENTS.md",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.QUESTION_MESSAGE);
-            
+                    chrome.getFrame(),
+                    message,
+                    "Migrate Style Guide to AGENTS.md",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
             if (confirm == JOptionPane.YES_OPTION) {
-            mainProject.performStyleMdToAgentsMdMigration(chrome);
+                mainProject.performStyleMdToAgentsMdMigration(chrome);
             } else {
-            mainProject.setMigrationDeclined(true);
-            logger.info(
-            "User declined style.md to AGENTS.md migration for project {}. Decision stored.",
-            mainProject.getRoot().getFileName());
+                mainProject.setMigrationDeclined(true);
+                logger.info(
+                        "User declined style.md to AGENTS.md migration for project {}. Decision stored.",
+                        mainProject.getRoot().getFileName());
             }
         } catch (Exception e) {
             logger.error(
