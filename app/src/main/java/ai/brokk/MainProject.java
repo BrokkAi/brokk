@@ -51,6 +51,7 @@ public final class MainProject extends AbstractProject {
     private final Path propertiesFile;
     private final Properties projectProps;
     private final Path styleGuidePath;
+    private final Path legacyStyleGuidePath;
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
@@ -166,7 +167,8 @@ public final class MainProject extends AbstractProject {
         super(root); // Initializes this.root and this.repo
 
         this.propertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
-        this.styleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(STYLE_GUIDE_FILE);
+        this.styleGuidePath = this.masterRootPathForConfig.resolve(STYLE_GUIDE_FILE);
+        this.legacyStyleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
@@ -766,7 +768,6 @@ public final class MainProject extends AbstractProject {
             logger.error("Error reading style guide from AGENTS.md: {}", e.getMessage());
         }
 
-        var legacyStyleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
         try {
             if (Files.exists(legacyStyleGuidePath)) {
                 logger.info("Reading style guide from legacy style.md (consider migrating to AGENTS.md)");
@@ -788,7 +789,6 @@ public final class MainProject extends AbstractProject {
             targetPath = styleGuidePath;
             targetDescription = "AGENTS.md";
         } else {
-            var legacyStyleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
             if (Files.exists(legacyStyleGuidePath)) {
                 targetPath = legacyStyleGuidePath;
                 targetDescription = "legacy style.md";
