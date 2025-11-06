@@ -588,7 +588,7 @@ public class GitHubAuth {
         var validationError = GitUiUtil.validateOwnerRepo(owner, repoName);
         if (validationError.isPresent()) {
             logger.warn(
-                    "Invalid owner/repo format in connect(): owner='{}', repo='{}'. Validation error: {}",
+                    "Validation failed for repository identifier: owner='{}', repo='{}'. Validation error: {}",
                     owner,
                     repoName,
                     validationError.get());
@@ -618,7 +618,12 @@ public class GitHubAuth {
                 builder.withOAuthToken(token);
                 this.githubClient = builder.build();
                 try {
-                    this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                    String repoSlug = owner + "/" + repoName;
+                    logger.debug(
+                            "Calling getRepository with slug '{}' on host '{}' (authenticated)",
+                            repoSlug,
+                            targetHostDisplay);
+                    this.ghRepository = this.githubClient.getRepository(repoSlug);
                 } catch (IllegalArgumentException iae) {
                     logger.warn(
                             "Illegal repository identifier {}/{}: {}",
@@ -670,7 +675,12 @@ public class GitHubAuth {
                         targetHostDisplay);
                 this.githubClient = builder.build(); // Will use default endpoint or the one set for GHES
                 try {
-                    this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                    String repoSlug = owner + "/" + repoName;
+                    logger.debug(
+                            "Calling getRepository with slug '{}' on host '{}' (anonymous)",
+                            repoSlug,
+                            targetHostDisplay);
+                    this.ghRepository = this.githubClient.getRepository(repoSlug);
                 } catch (IllegalArgumentException iae) {
                     logger.warn(
                             "Illegal repository identifier {}/{}: {}",
