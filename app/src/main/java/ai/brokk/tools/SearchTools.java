@@ -267,23 +267,17 @@ public class SearchTools {
         }
 
         if (cu.isFunction()) {
-            var ownerOpt = cu.classUnit();
-            if (ownerOpt.isPresent()) {
-                var ownerShort = ownerOpt.get().shortName();
-                if (!isPseudoOwner(cu, ownerShort)) {
-                    return "mtd";
-                }
+            var owner = ownerShortName(cu);
+            if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
+                return "mtd";
             }
             return "fn";
         }
 
         if (cu.isField()) {
-            var ownerOpt = cu.classUnit();
-            if (ownerOpt.isPresent()) {
-                var ownerShort = ownerOpt.get().shortName();
-                if (!isPseudoOwner(cu, ownerShort)) {
-                    return "fld";
-                }
+            var owner = ownerShortName(cu);
+            if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
+                return "fld";
             }
             return "gvar";
         }
@@ -294,6 +288,20 @@ public class SearchTools {
 
         logger.debug("Unknown CodeUnitType for CodeUnit: {}", cu);
         return "unknown";
+    }
+
+    /**
+     * Parses the "owner" portion of a CodeUnit short name.
+     * For FUNCTION or FIELD short names this is the substring before the last dot, e.g. "ClassName" in "ClassName.member".
+     * Returns empty when there is no owner (top-level function/variable).
+     */
+    private static Optional<String> ownerShortName(CodeUnit cu) {
+        var sn = cu.shortName();
+        int lastDot = sn.lastIndexOf('.');
+        if (lastDot > 0) {
+            return Optional.of(sn.substring(0, lastDot));
+        }
+        return Optional.empty();
     }
 
     /**
