@@ -303,9 +303,6 @@ public final class BlitzForge {
             listener.onComplete(finalResult);
             return finalResult;
         } catch (RuntimeException ex) {
-            logger.error(
-                    "executeParallel encountered an unhandled exception; dialog may not close if onComplete is skipped",
-                    ex);
             throw ex;
         }
     }
