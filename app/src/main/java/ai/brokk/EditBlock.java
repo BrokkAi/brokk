@@ -106,6 +106,30 @@ public class EditBlock {
     /**
      * Parse the LLM response for SEARCH/REPLACE blocks and apply them.
      *
+     * Two-phase strategy:
+     * 1) Pre-plan: For each block, resolve its target ProjectFile and pre-resolve any semantic-aware SEARCH markers
+     *    (BRK_CLASS / BRK_FUNCTION) to concrete source text via resolveBrkSnippet. Resolution happens BEFORE any file
+     *    mutations to ensure offsets are computed against original content.
+     * 2) Apply: Execute replacements using the pre-resolved SEARCH payloads in original order, tracking per-file
+     *    original contents and recording any per-block failures.
+     *
+     * Failure handling:
+     * - If BRK_CLASS / BRK_FUNCTION cannot be resolved, we add a FailedBlock with reason NO_MATCH or AMBIGUOUS_MATCH,
+     *   along with analyzer-derived commentary/suggestions. We do NOT attempt a fallback to line-based matching.
+     * - For normal line-based matching, failures are likewise recorded as FailedBlock(NO_MATCH or AMBIGUOUS_MATCH).
+     * - IO or git staging issues may be surfaced via exceptions or notifications, depending on severity.
+     *
+     * Reporting:
+     * - Callers (e.g. CodeAgent.applyPhase) receive an {@link EditResult} containing both original file snapshots for
+     *   any successful edits and the list of {@link FailedBlock} entries. The {@code CodeAgent} uses these failures to
+     *   build a retry prompt (via {@code CodePrompts.getApplyFailureMessage}) and may retry up to a limit, after which
+     *   it reports {@code APPLY_ERROR}.
+     *
+     * Telemetry:
+     * - The retry loop and failure counts are reported by {@code CodeAgent.Metrics}. At task completion, telemetry is
+     *   emitted to {@code System.err} as JSON (see {@code CodeAgent.Metrics#print}) including apply retries and
+     *   failed edit block counts.
+     *
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
@@ -714,8 +738,33 @@ public class EditBlock {
     private record ContentLines(String original, List<String> lines, boolean originalEndsWithNewline) {}
 
     /**
-     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null
-     * if the target is not a BRK marker. Throws on not found or ambiguous cases.
+     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files.
+     *
+     * Syntax:
+     * - {@code BRK_CLASS <fully.qualified.ClassName>}
+     *   Resolves to the exact source text of the declared class body (not package/imports).
+     * - {@code BRK_FUNCTION <fully.qualified.OwnerClass.methodName>}
+     *   Resolves to the exact source text of the method body. Overloaded methods are rejected as ambiguous.
+     *
+     * Behavior:
+     * - When a BRK_ marker is detected, this method uses {@link AnalyzerUtil} and an analyzer that supports
+     *   {@link SourceCodeProvider} to retrieve the corresponding source snippet. The returned snippet is then used
+     *   as the SEARCH payload for a normal line-based match.
+     *
+     * Failure modes:
+     * - If the target entity cannot be found, throws {@link NoMatchException} with commentary that may include
+     *   suggestions (for example, “Did you mean …”) based on {@code analyzer.searchDefinitions}.
+     * - If {@code BRK_FUNCTION} matches multiple overloads, throws {@link AmbiguousMatchException} with guidance
+     *   to use a non-overloaded unique name or switch to a line-based SEARCH that uniquely identifies the method body.
+     *
+     * Integration notes:
+     * - This method returns {@code null} when the SEARCH payload is not a BRK marker; in that case normal line-based
+     *   matching is performed by the caller.
+     * - In {@link #apply(IContextManager, IConsoleIO, java.util.Collection)}, exceptions thrown here during the
+     *   pre-resolution phase are caught and converted to {@link FailedBlock} entries with
+     *   {@link EditBlockFailureReason#NO_MATCH} or {@link EditBlockFailureReason#AMBIGUOUS_MATCH} along with the
+     *   analyzer-derived commentary. There is <strong>no automatic fallback</strong> to line-based matching for
+     *   semantic failures; the retry loop in {@code CodeAgent} asks the LLM to correct the block.
      */
     private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {

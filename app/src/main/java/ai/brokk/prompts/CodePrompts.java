@@ -93,6 +93,32 @@ public abstract class CodePrompts {
                 ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
+    /**
+     * Determine which instruction capabilities to advertise to the LLM for the current workspace.
+     *
+     * Behavior:
+     * - This method decides whether to include the SYNTAX_AWARE capability in the prompt instructions. When present,
+     *   the instructions explicitly document the semantic-aware SEARCH markers:
+     *     - BRK_CLASS &lt;fully.qualified.ClassName&gt;
+     *     - BRK_FUNCTION &lt;fully.qualified.OwnerClass.methodName&gt;
+     *   These markers instruct the engine to look up the exact source text for the named class or method via the analyzer
+     *   and then perform a normal line-based replacement using the resolved snippet as the SEARCH payload.
+     *
+     * When SYNTAX_AWARE is enabled:
+     * - ALL editable files must be Java sources (case-insensitive ".java" extension), and there must be at least one
+     *   editable file.
+     *
+     * When SYNTAX_AWARE is disabled:
+     * - Any mixed-language workspace, the presence of a non-Java editable file, or an empty editable set will result
+     *   in the flag being omitted. Only line-based or full-file (BRK_ENTIRE_FILE) SEARCH instructions are advertised.
+     *
+     * Important:
+     * - This method only controls what we advertise to the LLM; it does not enforce usage. Resolution of BRK markers
+     *   (if the LLM emits them) occurs during apply via {@link ai.brokk.EditBlock#resolveBrkSnippet(ai.brokk.IContextManager, String)}.
+     * - There is no automatic fallback from BRK_CLASS/BRK_FUNCTION to plain line-based matching on failure. Instead,
+     *   failures are captured per block and surfaced to the LLM by {@link #getApplyFailureMessage(java.util.List, int)}.
+     * - See also Issue #1688: “Enable semantic edits for Java”.
+     */
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
@@ -417,7 +443,26 @@ public abstract class CodePrompts {
         return new UserMessage(text);
     }
 
-    /** Generates a message based on parse/apply errors from failed edit blocks */
+    /**
+     * Generates a user message asking the LLM to correct only the failed SEARCH/REPLACE blocks.
+     *
+     * Behavior and content:
+     * - Groups failures by filename and renders each failed block along with its failure reason.
+     * - Includes a {@code <commentary>} section for each block. The commentary typically originates in
+     *   {@link EditBlock#resolveBrkSnippet(IContextManager, String)} (for semantic-aware BRK_CLASS/BRK_FUNCTION failures)
+     *   or from the editor's matching logic, and can include analyzer-derived suggestions (e.g., “Did you mean …”).
+     * - Enriches commentary with additional guidance for common semantic failures:
+     *   - NO_MATCH for BRK_CLASS/BRK_FUNCTION: verify fully qualified names and consider switching to a line-based SEARCH
+     *     that targets the desired class or method body if necessary.
+     *   - AMBIGUOUS_MATCH for BRK_FUNCTION (overloads): BRK_FUNCTION does not disambiguate overloads; use a
+     *     line-based SEARCH that contains enough unique lines within the target method to ensure a single match.
+     *
+     * Important:
+     * - There is <strong>no automatic fallback</strong> from semantic-aware markers to plain line-based search in apply.
+     *   The LLM must produce corrected blocks on retry, based on current workspace content and the commentary.
+     * - {@code CodeAgent.applyPhase} will retry up to {@code MAX_APPLY_FAILURES} times; after that it stops with
+     *   {@code APPLY_ERROR} and telemetry includes {@code editBlocksFailed} and {@code applyRetries}.
+     */
     public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
         if (failedBlocks.isEmpty()) {
             return "";
