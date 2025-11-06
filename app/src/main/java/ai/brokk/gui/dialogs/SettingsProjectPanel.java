@@ -235,10 +235,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Check if migration button should be visible
         try {
-            var brokkDir = chrome.getProject().getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
+            var projectRoot = chrome.getProject().getMasterRootPathForConfig();
+            var brokkDir = projectRoot.resolve(AbstractProject.BROKK_DIR);
             boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
-            boolean agentsExists = java.nio.file.Files.exists(brokkDir.resolve("AGENTS.md"));
+            boolean agentsExists = java.nio.file.Files.exists(projectRoot.resolve("AGENTS.md"));
             migrateButton.setVisible(styleExists && !agentsExists);
+            if (migrateButton.isVisible()) {
+                migrateButton.setToolTipText("Migrate .brokk/style.md to AGENTS.md at project root");
+            }
         } catch (Exception ex) {
             migrateButton.setVisible(false);
         }
