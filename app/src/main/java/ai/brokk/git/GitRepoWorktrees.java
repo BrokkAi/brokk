@@ -165,6 +165,12 @@ public class GitRepoWorktrees {
      * @throws GitAPIException if a different Git error occurs.
      */
     public void removeWorktree(Path path, boolean force) throws GitAPIException {
+        // Proactively check if worktree is locked when not forcing removal
+        if (!force && isWorktreeLocked(path)) {
+            throw new GitRepo.WorktreeNeedsForceException(
+                    "Worktree at " + path + " requires force for removal: is locked; use --force to override", null);
+        }
+
         try {
             var absolutePath = path.toAbsolutePath().normalize();
             String command;
@@ -270,6 +276,66 @@ public class GitRepoWorktrees {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
             return false;
+        }
+    }
+
+    /**
+     * Checks if the specified worktree is locked using locale-independent porcelain output parsing.
+     *
+     * @param path The path to the worktree to check.
+     * @return true if the worktree is locked, false otherwise.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public boolean isWorktreeLocked(Path path) throws GitAPIException {
+        try {
+            var command = "git worktree list --porcelain";
+            var output = Environment.instance.runShellCommand(
+                    command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
+            var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output);
+
+            Path normalizedPath;
+            try {
+                normalizedPath = path.toAbsolutePath().normalize().toRealPath();
+            } catch (IOException e) {
+                // If path doesn't exist, it can't be locked
+                return false;
+            }
+
+            Path currentPath = null;
+            boolean currentIsLocked = false;
+
+            for (var line : lines) {
+                if (line.startsWith("worktree ")) {
+                    // If we were tracking a worktree and it matches, return the result
+                    if (currentPath != null && currentPath.equals(normalizedPath)) {
+                        return currentIsLocked;
+                    }
+                    // Reset for next worktree entry
+                    currentIsLocked = false;
+                    var pathStr = line.substring("worktree ".length());
+                    try {
+                        currentPath = Path.of(pathStr).toRealPath();
+                    } catch (IOException e) {
+                        currentPath = null; // Invalid path, skip this worktree
+                    }
+                } else if (line.equals("locked")) {
+                    if (currentPath != null) {
+                        currentIsLocked = true;
+                    }
+                }
+            }
+
+            // Check the last worktree if it matches
+            if (currentPath != null && currentPath.equals(normalizedPath)) {
+                return currentIsLocked;
+            }
+
+            return false;
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepo.GitRepoException("Failed to check worktree lock status: " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepo.GitRepoException("Checking worktree lock status was interrupted", e);
         }
     }
 }
