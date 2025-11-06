@@ -165,10 +165,23 @@ public class GitRepoWorktrees {
      * @throws GitAPIException if a different Git error occurs.
      */
     public void removeWorktree(Path path, boolean force) throws GitAPIException {
-        // Proactively check if worktree is locked when not forcing removal
-        if (!force && isWorktreeLocked(path)) {
-            throw new GitRepo.WorktreeNeedsForceException(
-                    "Worktree at " + path + " requires force for removal: is locked; use --force to override", null);
+        // Proactively check worktree state when not forcing removal
+        if (!force) {
+            if (isWorktreeLocked(path)) {
+                throw new GitRepo.WorktreeNeedsForceException(
+                        "Worktree at " + path + " requires force for removal: is locked; use --force to override",
+                        null);
+            }
+
+            try {
+                if (isWorktreeDirty(path)) {
+                    throw new GitRepo.WorktreeNeedsForceException(
+                            "Worktree at " + path + " requires force for removal: contains uncommitted or untracked files; use --force to override",
+                            null);
+                }
+            } catch (IOException e) {
+                throw new GitRepo.GitRepoException("Failed to check worktree state at " + path, e);
+            }
         }
 
         try {
@@ -185,17 +198,6 @@ public class GitRepoWorktrees {
             SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
-            // If 'force' was false and the command failed because force is needed,
-            // throw WorktreeNeedsForceException
-            if (!force
-                    && (output.contains("use --force")
-                            || output.contains("not empty")
-                            || output.contains("dirty")
-                            || output.contains("locked working tree"))) {
-                throw new GitRepo.WorktreeNeedsForceException(
-                        "Worktree at " + path + " requires force for removal: " + output, e);
-            }
-            // Otherwise, throw a general GitRepoException
             String failMessage = String.format(
                     "Failed to remove worktree at %s%s: %s", path, (force ? " (with force)" : ""), output);
             throw new GitRepo.GitRepoException(failMessage, e);
@@ -280,23 +282,29 @@ public class GitRepoWorktrees {
     }
 
     /**
-     * Checks if the specified worktree directory contains uncommitted changes or untracked files by inspecting the
-     * filesystem. A worktree is considered dirty if it contains any files or directories other than `.git`.
+     * Checks if the specified worktree directory contains uncommitted changes or untracked files using locale-independent
+     * porcelain output. A worktree is considered dirty if `git status --porcelain` returns any output.
      *
      * @param path The path to the worktree to check.
-     * @return true if the worktree contains files other than `.git`, false otherwise.
-     * @throws IOException if an I/O error occurs while reading the directory.
+     * @return true if the worktree has uncommitted changes or untracked files, false otherwise.
+     * @throws IOException if an I/O error occurs or if the Git command fails.
      */
     public boolean isWorktreeDirty(Path path) throws IOException {
         if (!Files.exists(path)) {
             return false;
         }
 
-        try (var stream = Files.list(path)) {
-            return stream
-                    .filter(p -> !p.getFileName().toString().equals(".git"))
-                    .findAny()
-                    .isPresent();
+        try {
+            var command = "git status --porcelain";
+            var output = Environment.instance.runShellCommand(
+                    command, path, out -> {}, Environment.GIT_TIMEOUT);
+            // If output is empty, worktree is clean; otherwise it's dirty
+            return !output.trim().isEmpty();
+        } catch (Environment.SubprocessException e) {
+            throw new IOException("Failed to check worktree status at " + path + ": " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Checking worktree status was interrupted", e);
         }
     }
 
