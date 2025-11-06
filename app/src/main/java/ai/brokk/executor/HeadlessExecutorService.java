@@ -213,6 +213,10 @@ public final class HeadlessExecutorService implements AutoCloseable {
         return currentJobId.get();
     }
 
+    public java.util.UUID getExecId() {
+        return execId;
+    }
+
     @Override
     public void close() throws Exception {
         Exception last = null;

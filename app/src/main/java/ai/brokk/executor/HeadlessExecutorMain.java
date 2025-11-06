@@ -1,40 +1,29 @@
 package ai.brokk.executor;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import ai.brokk.BuildInfo;
-import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
-import ai.brokk.SessionManager;
-import ai.brokk.executor.http.SimpleHttpServer;
-import ai.brokk.executor.jobs.JobSpec;
-import ai.brokk.executor.jobs.JobStore;
-import ai.brokk.executor.model.ErrorPayload;
-import com.google.common.base.Splitter;
-import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import com.google.common.base.Splitter;
 
 /**
  * HTTP host that delegates all business logic to HeadlessExecutorService.
  * Keeps request parsing/validation and response writing local to the HTTP layer.
+ *
+ * This refactored Main delegates HTTP serving to HeadlessExecutorHost which binds
+ * a HeadlessExecutorService to a SimpleHttpServer. The CLI remains a thin single-executor entrypoint.
  */
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
     private final UUID execId;
-    private final SimpleHttpServer server;
+    private final HeadlessExecutorHost host;
     private final HeadlessExecutorService service;
 
     /**
@@ -94,7 +83,7 @@ public final class HeadlessExecutorMain {
         if (parts.size() != 2) {
             throw new IllegalArgumentException("LISTEN_ADDR must be in format host:port, got: " + listenAddr);
         }
-        var host = parts.get(0);
+        var listenHost = parts.get(0);
         int port;
         try {
             port = Integer.parseInt(parts.get(1));
@@ -105,7 +94,7 @@ public final class HeadlessExecutorMain {
         logger.info(
                 "Initializing HeadlessExecutorMain: execId={}, listen={}:{}, workspace={}",
                 execId,
-                host,
+                listenHost,
                 port,
                 workspaceDir);
 
@@ -115,62 +104,15 @@ public final class HeadlessExecutorMain {
         // Initialize service which owns ContextManager, SessionManager, JobStore and JobRunner
         this.service = new HeadlessExecutorService(execId, workspaceDir, sessionsDir);
 
-        // Create HTTP server with authentication
-        this.server = new SimpleHttpServer(host, port, authToken, 4);
-
-        // Register endpoints
-        this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
-        this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
-        this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
-        this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
-        this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        // Create host that binds the service to an HTTP server
+        this.host = new HeadlessExecutorHost(this.service, listenHost, port, Objects.requireNonNull(authToken), 4);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
 
-    private void handleHealthLive(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
-
-        SimpleHttpServer.sendJsonResponse(exchange, response);
-    }
-
-    private void handleHealthReady(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        var sessionId = this.service.getCurrentSessionId();
-        if (sessionId == null) {
-            var error = Map.of("status", "not_ready", "reason", "No session loaded");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return;
-        }
-
-        var response = Map.of("status", "ready", "sessionId", sessionId.toString());
-
-        SimpleHttpServer.sendJsonResponse(exchange, response);
-    }
-
-    private void handleExecutor(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("GET")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        var response = Map.of("execId", this.execId.toString(), "version", BuildInfo.version, "protocolVersion", 1);
-
-        SimpleHttpServer.sendJsonResponse(exchange, response);
-    }
-
     public void start() {
-        this.server.start();
-        logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.");
+        this.host.start();
+        logger.info("HeadlessExecutorMain HTTP server started");
     }
 
     public void stop(int delaySeconds) {
@@ -179,7 +121,7 @@ public final class HeadlessExecutorMain {
         } catch (Exception e) {
             logger.warn("Error closing HeadlessExecutorService", e);
         }
-        this.server.stop(delaySeconds);
+        this.host.stop(delaySeconds);
         logger.info("HeadlessExecutorMain stopped");
     }
 
@@ -189,341 +131,8 @@ public final class HeadlessExecutorMain {
      * @return the listening port number
      */
     public int getPort() {
-        return this.server.getPort();
+        return this.host.getPort();
     }
-
-    // ============================================================================
-    // Helpers
-    // ============================================================================
-
-    /**
-     * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
-     */
-    static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
-        var parts = Splitter.on('/').splitToList(path);
-        if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
-            return parts.get(3);
-        }
-        return null;
-    }
-
-    /**
-     * Parse query string into a map.
-     */
-    static Map<String, String> parseQueryParams(@org.jetbrains.annotations.Nullable String query) {
-        var params = new HashMap<String, String>();
-        if (query == null || query.isBlank()) {
-            return params;
-        }
-
-        for (var pair : Splitter.on('&').split(query)) {
-            var keyValue = pair.split("=", 2);
-            var key = keyValue[0];
-            var value = keyValue.length > 1 ? keyValue[1] : "";
-            params.put(key, value);
-        }
-        return params;
-    }
-
-    // ============================================================================
-    // Router for /v1/jobs endpoints
-    // ============================================================================
-
-    /**
-     * Route requests to /v1/jobs and sub-paths based on method and path.
-     */
-    void handleJobsRouter(HttpExchange exchange) throws IOException {
-        var path = exchange.getRequestURI().getPath();
-        var method = exchange.getRequestMethod();
-
-        // POST /v1/jobs - create job
-        if (path.equals("/v1/jobs") && method.equals("POST")) {
-            handlePostJobs(exchange);
-            return;
-        }
-
-        // Extract jobId from path for other operations
-        var jobId = extractJobIdFromPath(path);
-        if (jobId == null) {
-            SimpleHttpServer.sendErrorResponse(exchange, 400, "Invalid job path");
-            return;
-        }
-
-        // GET /v1/jobs/{jobId} - get job status
-        if (path.equals("/v1/jobs/" + jobId) && method.equals("GET")) {
-            handleGetJob(exchange, jobId);
-            return;
-        }
-
-        // GET /v1/jobs/{jobId}/events - get job events
-        if (path.equals("/v1/jobs/" + jobId + "/events") && method.equals("GET")) {
-            handleGetJobEvents(exchange, jobId);
-            return;
-        }
-
-        // POST /v1/jobs/{jobId}/cancel - cancel job
-        if (path.equals("/v1/jobs/" + jobId + "/cancel") && method.equals("POST")) {
-            handleCancelJob(exchange, jobId);
-            return;
-        }
-
-        // GET /v1/jobs/{jobId}/diff - get diff
-        if (path.equals("/v1/jobs/" + jobId + "/diff") && method.equals("GET")) {
-            handleGetJobDiff(exchange, jobId);
-            return;
-        }
-
-        // Unknown endpoint
-        SimpleHttpServer.sendErrorResponse(exchange, 404, "Not found");
-    }
-
-    // ============================================================================
-    // Session and Job Handlers
-    // ============================================================================
-
-    /**
-     * POST /v1/session - Accept zip file, store it, switch ContextManager to the session.
-     */
-    void handlePostSession(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("POST")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        try {
-            // Get sessionId from header or generate new one
-            var sessionIdHeader = exchange.getRequestHeaders().getFirst("X-Session-Id");
-            var sessionId = sessionIdHeader != null && !sessionIdHeader.isBlank()
-                    ? UUID.fromString(sessionIdHeader)
-                    : UUID.randomUUID();
-
-            // Read zip data from request body
-            byte[] zipData;
-            try (InputStream requestBody = exchange.getRequestBody()) {
-                zipData = requestBody.readAllBytes();
-            }
-
-            // Delegate to service to import and switch
-            this.service.importSessionZip(zipData, sessionId);
-
-            var response = Map.of("sessionId", sessionId.toString());
-            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
-        } catch (IllegalArgumentException e) {
-            logger.warn("Invalid session ID in header", e);
-            var error = ErrorPayload.validationError("Invalid X-Session-Id header: " + e.getMessage());
-            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/session", e);
-            var error = ErrorPayload.internalError("Failed to process session upload", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * POST /v1/jobs - Create job with idempotency key.
-     */
-    void handlePostJobs(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("POST")) {
-            SimpleHttpServer.sendErrorResponse(exchange, 405, "Method not allowed");
-            return;
-        }
-
-        try {
-            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
-            if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                var error = ErrorPayload.validationError("Idempotency-Key header is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                return;
-            }
-
-            // Parse JobSpec payload from request body
-            var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
-            if (jobSpecRequest == null) {
-                var error = ErrorPayload.validationError("Invalid JobSpec in request body");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                return;
-            }
-
-            var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
-                    .strip();
-            if (plannerModel.isBlank()) {
-                var error = ErrorPayload.validationError("plannerModel is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                return;
-            }
-
-            var tags = jobSpecRequest.tags();
-            Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
-            var jobSpec = JobSpec.of(
-                    jobSpecRequest.sessionId(),
-                    jobSpecRequest.taskInput(),
-                    jobSpecRequest.autoCommit(),
-                    jobSpecRequest.autoCompress(),
-                    plannerModel,
-                    jobSpecRequest.codeModel(),
-                    safeTags);
-
-            // Delegate creation to service (idempotent)
-            JobStore.JobCreateResult createResult;
-            try {
-                createResult = this.service.createJob(idempotencyKey, jobSpec);
-            } catch (IllegalStateException ise) {
-                // Mirror previous HTTP-layer behavior: conflict when a job is executing
-                var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
-                SimpleHttpServer.sendJsonResponse(exchange, 409, error);
-                return;
-            }
-
-            var jobId = createResult.jobId();
-            var isNewJob = createResult.isNewJob();
-
-            logger.info("Job {}: isNewJob={}, jobId={}", idempotencyKey, isNewJob, jobId);
-
-            // Load job status from service
-            var status = this.service.getJobStatus(jobId);
-            var state = status != null ? status.state() : "queued";
-
-            var response = Map.of(
-                    "jobId", jobId,
-                    "state", state);
-
-            int statusCode = isNewJob ? 201 : 200;
-            SimpleHttpServer.sendJsonResponse(exchange, statusCode, response);
-
-            // No further action required: the service has started execution for new jobs.
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/jobs", e);
-            var error = ErrorPayload.internalError("Failed to create job", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * GET /v1/jobs/{jobId} - Get job status.
-     */
-    void handleGetJob(HttpExchange exchange, String jobId) throws IOException {
-        try {
-
-            var status = service.getJobStatus(jobId);
-            if (status == null) {
-                var error = ErrorPayload.jobNotFound(jobId);
-                SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-                return;
-            }
-
-            SimpleHttpServer.sendJsonResponse(exchange, status);
-        } catch (Exception e) {
-            logger.error("Error handling GET /v1/jobs/{jobId}", e);
-            var error = ErrorPayload.internalError("Failed to retrieve job status", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * GET /v1/jobs/{jobId}/events - Get job events.
-     */
-    void handleGetJobEvents(HttpExchange exchange, String jobId) throws IOException {
-        try {
-
-            // Parse query parameters
-            var queryParams = parseQueryParams(exchange.getRequestURI().getQuery());
-            long afterSeq = -1;
-            int limit = 100;
-
-            if (queryParams.containsKey("after")) {
-                try {
-                    afterSeq = Long.parseLong(queryParams.get("after"));
-                } catch (NumberFormatException e) {
-                    var error = ErrorPayload.validationError("Invalid 'after' parameter");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                    return;
-                }
-            }
-
-            if (queryParams.containsKey("limit")) {
-                try {
-                    limit = Math.min(1000, Integer.parseInt(queryParams.get("limit")));
-                } catch (NumberFormatException e) {
-                    var error = ErrorPayload.validationError("Invalid 'limit' parameter");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                    return;
-                }
-            }
-
-            var eventsResult = this.service.getJobEvents(jobId, afterSeq, limit);
-            var response = Map.of(
-                    "events", eventsResult.events(),
-                    "nextAfter", eventsResult.nextAfter());
-
-            SimpleHttpServer.sendJsonResponse(exchange, response);
-        } catch (Exception e) {
-            logger.error("Error handling GET /v1/jobs/{jobId}/events", e);
-            var error = ErrorPayload.internalError("Failed to retrieve events", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * POST /v1/jobs/{jobId}/cancel - Cancel job execution.
-     */
-    void handleCancelJob(HttpExchange exchange, String jobId) throws IOException {
-        try {
-
-            // Delegate cancellation to service
-            service.cancelJob(jobId);
-            logger.info("Cancelled job: {}", jobId);
-
-            exchange.sendResponseHeaders(202, 0);
-            exchange.close();
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/jobs/{jobId}/cancel", e);
-            var error = ErrorPayload.internalError("Failed to cancel job", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    /**
-     * GET /v1/jobs/{jobId}/diff - Get git diff for job.
-     */
-    void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
-        try {
-
-            var status = service.getJobStatus(jobId);
-            if (status == null) {
-                var error = ErrorPayload.jobNotFound(jobId);
-                SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-                return;
-            }
-
-            try {
-                var diff = service.getDiff();
-
-                exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=UTF-8");
-                exchange.sendResponseHeaders(200, diff.getBytes(UTF_8).length);
-                try (var os = exchange.getResponseBody()) {
-                    os.write(diff.getBytes(UTF_8));
-                }
-                exchange.close();
-            } catch (UnsupportedOperationException e) {
-                logger.info("Git not available for job {}", jobId);
-                var error = ErrorPayload.of("NO_GIT", "Git is not available in this workspace");
-                SimpleHttpServer.sendJsonResponse(exchange, 409, error);
-            }
-        } catch (Exception e) {
-            logger.error("Error handling GET /v1/jobs/{jobId}/diff", e);
-            var error = ErrorPayload.internalError("Failed to compute diff", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-        }
-    }
-
-    private record JobSpecRequest(
-            String sessionId,
-            String taskInput,
-            boolean autoCommit,
-            boolean autoCompress,
-            @Nullable String plannerModel,
-            @Nullable String codeModel,
-            @Nullable Map<String, String> tags) {}
 
     public static void main(String[] args) {
         try {
@@ -569,7 +178,7 @@ public final class HeadlessExecutorMain {
                     workspaceDir,
                     sessionsDir);
 
-            // Create and start executor
+            // Create and start executor (service + host)
             var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, workspaceDir, sessionsDir);
             executor.start();
 
