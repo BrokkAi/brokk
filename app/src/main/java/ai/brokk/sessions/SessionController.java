@@ -2,6 +2,7 @@ package ai.brokk.sessions;
 
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -9,8 +10,10 @@ import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,6 +30,8 @@ public class SessionController {
             Pattern.compile("^/api/sessions/([^/]+)/prompt$");
     private static final Pattern STREAM_PATH_PATTERN =
             Pattern.compile("^/api/sessions/([^/]+)/stream$");
+    private static final Pattern MERGE_PATH_PATTERN =
+            Pattern.compile("^/api/sessions/([^/]+)/merge$");
     private static final String CORS_ORIGIN = "http://localhost:5174";
 
     private final SessionRegistry registry;
@@ -63,6 +68,12 @@ public class SessionController {
         var streamMatcher = STREAM_PATH_PATTERN.matcher(path);
         if (streamMatcher.matches()) {
             handleStream(exchange, streamMatcher.group(1));
+            return;
+        }
+
+        var mergeMatcher = MERGE_PATH_PATTERN.matcher(path);
+        if (mergeMatcher.matches()) {
+            handleMerge(exchange, mergeMatcher.group(1));
             return;
         }
 
@@ -295,6 +306,148 @@ public class SessionController {
         } finally {
             exchange.close();
         }
+    }
+
+    private void handleMerge(HttpExchange exchange, String sessionIdStr) throws IOException {
+        if (!"POST".equals(exchange.getRequestMethod())) {
+            sendError(
+                    exchange,
+                    405,
+                    ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed"));
+            return;
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(sessionIdStr);
+        } catch (IllegalArgumentException e) {
+            sendError(
+                    exchange,
+                    400,
+                    ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid session ID format"));
+            return;
+        }
+
+        var sessionInfo = registry.get(sessionId);
+        if (sessionInfo == null) {
+            sendError(
+                    exchange,
+                    404,
+                    ErrorPayload.of(
+                            ErrorPayload.Code.JOB_NOT_FOUND,
+                            "Session not found: " + sessionId));
+            return;
+        }
+
+        MergeRequest request;
+        try {
+            request = SimpleHttpServer.parseJsonRequest(exchange, MergeRequest.class);
+            if (request == null) {
+                request = new MergeRequest(null, false);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to parse merge request: {}", e.getMessage());
+            sendError(
+                    exchange,
+                    400,
+                    ErrorPayload.validationError("Invalid request body: " + e.getMessage()));
+            return;
+        }
+
+        try {
+            var worktreePath = sessionInfo.worktreePath();
+            var sessionBranch = sessionInfo.branch();
+
+            try (var repo = new GitRepo(worktreePath)) {
+                var defaultBranch = repo.getDefaultBranch();
+
+                logger.info(
+                        "Merging session {} branch {} into {} in worktree {}",
+                        sessionId,
+                        sessionBranch,
+                        defaultBranch,
+                        worktreePath);
+
+                repo.checkout(defaultBranch);
+
+                var mergeMode = parseMergeMode(request.mode());
+                var result = repo.performMerge(sessionBranch, mergeMode);
+
+                var conflicts = GitRepo.hasConflicts(result);
+                var success = GitRepo.isMergeSuccessful(result, mergeMode);
+                var message = GitRepo.describeMergeResult(result, mergeMode);
+                var mergeStatusStr = result.getMergeStatus().toString();
+                var fastForward = mergeStatusStr.contains("FAST_FORWARD");
+
+                String status;
+                if (success) {
+                    status = "merged";
+                } else if (conflicts) {
+                    status = "conflicts";
+                } else if (mergeStatusStr.contains("ALREADY_UP_TO_DATE")) {
+                    status = "up_to_date";
+                } else {
+                    status = mergeStatusStr.toLowerCase().replace('_', '-');
+                }
+
+                logger.info(
+                        "Merge result for session {}: status={}, conflicts={}, success={}",
+                        sessionId,
+                        status,
+                        conflicts,
+                        success);
+
+                if (success && request.close()) {
+                    logger.info("Closing session {} after successful merge", sessionId);
+                    try {
+                        sessionInfo.process().destroy();
+                        var terminated =
+                                sessionInfo.process().waitFor(2, TimeUnit.SECONDS);
+                        if (!terminated) {
+                            logger.warn(
+                                    "Session {} process did not terminate gracefully",
+                                    sessionId);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.warn("Interrupted while waiting for process termination", e);
+                    } finally {
+                        registry.delete(sessionId);
+                    }
+                }
+
+                var response =
+                        new MergeResponse(
+                                status,
+                                mergeMode.toString(),
+                                defaultBranch,
+                                sessionBranch,
+                                fastForward,
+                                conflicts,
+                                message);
+
+                int statusCode = conflicts ? 409 : 200;
+                SimpleHttpServer.sendJsonResponse(exchange, statusCode, response);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to merge session {}", sessionId, e);
+            sendError(
+                    exchange,
+                    500,
+                    ErrorPayload.internalError("Merge operation failed: " + e.getMessage(), e));
+        }
+    }
+
+    private GitRepo.MergeMode parseMergeMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return GitRepo.MergeMode.MERGE_COMMIT;
+        }
+
+        return switch (mode.toLowerCase()) {
+            case "squash" -> GitRepo.MergeMode.SQUASH_COMMIT;
+            case "rebase" -> GitRepo.MergeMode.REBASE_MERGE;
+            default -> GitRepo.MergeMode.MERGE_COMMIT;
+        };
     }
 
     private void addCorsHeaders(HttpExchange exchange) {
