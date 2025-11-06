@@ -284,7 +284,7 @@ public final class HeadlessExecutorMain {
 
         // Extract jobId from path for other operations
         var jobId = extractJobIdFromPath(path);
-        if (jobId == null) {
+        if (jobId == null || jobId.isBlank()) {
             var error = ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid job path");
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
             return;
