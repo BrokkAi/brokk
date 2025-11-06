@@ -768,6 +768,8 @@ public class EditBlock {
      */
     private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
+        // Only support BRK markers for Java entities. In multi-language projects, we restrict resolution to Java
+        // so that syntax-aware edits don't unexpectedly target other languages.
         var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
         if (!markerMatcher.matches()) {
             return null;
@@ -781,33 +783,66 @@ public class EditBlock {
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
+        var scp = scpOpt.get();
 
         if ("CLASS".equals(kind)) {
-            Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);
-            if (opt.isEmpty()) {
-                var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
-                var suggestions = analyzer.searchDefinitions(shortName).stream()
-                        .map(CodeUnit::fqName)
-                        .filter(n -> {
-                            int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
-                            return n.substring(idx + 1).equals(shortName);
-                        })
-                        .limit(3)
-                        .toList();
-                var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
-                throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+            // Prefer exact definition lookup, then ensure it's a Java class.
+            var def = analyzer.getDefinition(fqName);
+            if (def.isPresent()) {
+                var cu = def.get();
+                if (!"java".equalsIgnoreCase(cu.source().extension())) {
+                    throw new NoMatchException(
+                            "BRK_CLASS is only supported for Java in this workspace. "
+                                    + "Found a non-Java symbol with that name. Use a line-based SEARCH instead.");
+                }
+                var src = scp.getClassSource(cu, true);
+                if (src.isEmpty()) {
+                    throw new NoMatchException("No class source found for '" + fqName + "'.");
+                }
+                return src.get();
             }
-            return opt.get();
+
+            // No exact match; suggest up to 3 similarly named Java classes
+            var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+            var suggestions = analyzer.searchDefinitions(shortName).stream()
+                    .filter(cu -> "java".equalsIgnoreCase(cu.source().extension()))
+                    .map(CodeUnit::fqName)
+                    .filter(n -> {
+                        int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
+                        return n.substring(idx + 1).equals(shortName);
+                    })
+                    .limit(3)
+                    .toList();
+            var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+            throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
-            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
-            if (sources.isEmpty()) {
+            // FUNCTION: Restrict to Java methods and handle overloads explicitly.
+            var matches = analyzer.searchDefinitions(fqName).stream()
+                    .filter(cu -> "java".equalsIgnoreCase(cu.source().extension()))
+                    .toList();
+
+            if (matches.isEmpty()) {
                 var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                 var suggestions = analyzer.searchDefinitions(methodKey).stream()
+                        .filter(cu -> "java".equalsIgnoreCase(cu.source().extension()))
                         .map(CodeUnit::fqName)
                         .limit(3)
                         .toList();
                 var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
-                throw new NoMatchException("No method source found for '" + fqName + "'." + extra);
+                throw new NoMatchException(
+                        "No method source found for '" + fqName + "'. " + "BRK_FUNCTION is only supported for Java. "
+                                + "Use a line-based SEARCH if you intend to edit a non-Java function." + extra);
+            }
+
+            if (matches.size() > 1) {
+                throw new AmbiguousMatchException("Multiple overloads found for '" + fqName + "' (" + matches.size()
+                        + "). Please provide a non-overloaded, unique name and re-run.");
+            }
+
+            var cu = matches.getFirst();
+            var sources = scp.getMethodSources(cu, true);
+            if (sources.isEmpty()) {
+                throw new NoMatchException("No method source found for '" + fqName + "'.");
             }
             if (sources.size() > 1) {
                 throw new AmbiguousMatchException("Multiple overloads found for '" + fqName + "' (" + sources.size()

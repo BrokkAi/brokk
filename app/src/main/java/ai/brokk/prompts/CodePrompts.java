@@ -125,26 +125,27 @@ public abstract class CodePrompts {
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
-        // Enable SYNTAX_AWARE only if all editable files are Java
-        var nonJava = fileContents.keySet().stream()
-                .filter(f -> {
-                    var ext = f.extension();
-                    return ext.isEmpty() || !ext.equalsIgnoreCase("java");
-                })
-                .collect(Collectors.toSet());
+        // Enable SYNTAX_AWARE if: (a) there is at least one editable file,
+        // (b) at least one editable file is a Java source, and
+        // (c) the project analyzer includes Java (e.g., MultiAnalyzer has a Java delegate).
+        var hasAnyEditable = !fileContents.isEmpty();
+        var hasJavaEditable =
+                fileContents.keySet().stream().anyMatch(f -> "java".equalsIgnoreCase(f.extension()));
+        var projectHasJava = project.getAnalyzerLanguages().contains(ai.brokk.analyzer.Languages.JAVA);
 
-        if (nonJava.isEmpty() && !fileContents.isEmpty()) {
+        if (hasAnyEditable && hasJavaEditable && projectHasJava) {
             flags.add(InstructionsFlags.SYNTAX_AWARE);
             IContextManager.logger.debug(
-                    "Syntax-aware edits enabled: all editable files are Java ({} file{})",
-                    fileContents.size(),
-                    fileContents.size() == 1 ? "" : "s");
+                    "Syntax-aware edits enabled for Java in a {}-language workspace: {} editable Java file(s).",
+                    project.getAnalyzerLanguages().size(),
+                    fileContents.keySet().stream().filter(f -> "java".equalsIgnoreCase(f.extension())).count());
         } else {
-            if (fileContents.isEmpty()) {
+            if (!hasAnyEditable) {
                 IContextManager.logger.debug("Syntax-aware edits disabled: no editable files present.");
-            } else {
-                IContextManager.logger.debug(
-                        "Syntax-aware edits disabled: non-Java or unknown-extension files present: {}", nonJava);
+            } else if (!hasJavaEditable) {
+                IContextManager.logger.debug("Syntax-aware edits disabled: no editable Java files in workspace.");
+            } else if (!projectHasJava) {
+                IContextManager.logger.debug("Syntax-aware edits disabled: project analyzer does not include Java.");
             }
         }
 
