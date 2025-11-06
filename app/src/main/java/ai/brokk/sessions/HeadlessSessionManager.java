@@ -159,7 +159,7 @@ public class HeadlessSessionManager {
      * @throws IOException if health check fails
      */
     private void healthCheck(SessionInfo sessionInfo) throws IOException {
-        var url = "http://127.0.0.1:" + sessionInfo.port() + "/health/ready";
+        var url = "http://127.0.0.1:" + sessionInfo.port() + "/health/live";
         var uri = URI.create(url);
 
         logger.debug("Health checking session {} at {}", sessionInfo.id(), url);

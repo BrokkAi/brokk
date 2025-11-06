@@ -209,6 +209,7 @@ public final class HeadlessExecutorMain {
 
     public void start() {
         this.server.start();
+        System.out.println("Listening on port " + getPort());
         logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.");
     }
 

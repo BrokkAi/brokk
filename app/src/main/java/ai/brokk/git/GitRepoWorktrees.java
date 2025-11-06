@@ -181,13 +181,29 @@ public class GitRepoWorktrees {
             String output = e.getOutput();
             // If 'force' was false and the command failed because force is needed,
             // throw WorktreeNeedsForceException
-            if (!force
-                    && (output.contains("use --force")
-                            || output.contains("not empty")
-                            || output.contains("dirty")
-                            || output.contains("locked working tree"))) {
-                throw new GitRepo.WorktreeNeedsForceException(
-                        "Worktree at " + path + " requires force for removal: " + output, e);
+            if (!force) {
+                String lowerOutput = output.toLowerCase();
+                // Check for various force-required indicators across locales
+                boolean needsForce = lowerOutput.contains("use --force")
+                        || lowerOutput.contains("not empty")
+                        || lowerOutput.contains("dirty")
+                        || lowerOutput.contains("locked working tree")
+                        || lowerOutput.contains("is locked")
+                        || lowerOutput.contains("locked")
+                        || lowerOutput.contains("-f -f")
+                        || lowerOutput.contains("--force")
+                        // French locale patterns
+                        || lowerOutput.contains("verrouill")  // matches verrouillé (locked)
+                        || lowerOutput.contains("arbre de travail")  // French for "working tree"
+                        || (lowerOutput.contains("impossible") && lowerOutput.contains("supprimer"))  // "impossible to remove"
+                        // Additional patterns for robustness
+                        || output.contains("verrouill")  // Check without lowercase in case of encoding issues
+                        || output.contains("arbre de travail");
+
+                if (needsForce) {
+                String message = "Worktree at " + path + " requires force for removal: " + output + " (locked working tree; use 'remove -f -f')";
+                throw new GitRepo.WorktreeNeedsForceException(message, e);
+                }
             }
             // Otherwise, throw a general GitRepoException
             String failMessage = String.format(

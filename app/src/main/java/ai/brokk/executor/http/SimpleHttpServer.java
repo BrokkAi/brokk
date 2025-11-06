@@ -23,7 +23,8 @@ public final class SimpleHttpServer {
     private static final Logger logger = LogManager.getLogger(SimpleHttpServer.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final AtomicInteger workerThreadCounter = new AtomicInteger(0);
-    private static final String ALLOWED_ORIGIN = "http://localhost:5174";
+    private static final String RESOLVED_ALLOWED_ORIGIN =
+            System.getenv().getOrDefault("CORS_ALLOWED_ORIGIN", "http://localhost:5174");
 
     private final HttpServer httpServer;
     private final String authToken;
@@ -205,7 +206,7 @@ public final class SimpleHttpServer {
      */
     private static void addCorsHeaders(HttpExchange exchange) {
         var headers = exchange.getResponseHeaders();
-        headers.add("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+        headers.add("Access-Control-Allow-Origin", RESOLVED_ALLOWED_ORIGIN);
         headers.add("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
     }

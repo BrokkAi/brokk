@@ -32,12 +32,13 @@ public class SessionController {
             Pattern.compile("^/api/sessions/([^/]+)/stream$");
     private static final Pattern MERGE_PATH_PATTERN =
             Pattern.compile("^/api/sessions/([^/]+)/merge$");
-    private static final String CORS_ORIGIN = "http://localhost:5174";
 
     private final SessionRegistry registry;
+    private final String corsOrigin;
 
     public SessionController(SessionRegistry registry) {
         this.registry = registry;
+        this.corsOrigin = System.getenv().getOrDefault("CORS_ALLOWED_ORIGIN", "http://localhost:5174");
     }
 
     /**
@@ -308,7 +309,7 @@ public class SessionController {
         }
     }
 
-    private void handleMerge(HttpExchange exchange, String sessionIdStr) throws IOException {
+    void handleMerge(HttpExchange exchange, String sessionIdStr) throws IOException {
         if (!"POST".equals(exchange.getRequestMethod())) {
             sendError(
                     exchange,
@@ -419,7 +420,7 @@ public class SessionController {
                 var response =
                         new MergeResponse(
                                 status,
-                                mergeMode.toString(),
+                                mergeMode.name(),
                                 defaultBranch,
                                 sessionBranch,
                                 fastForward,
@@ -452,7 +453,7 @@ public class SessionController {
 
     private void addCorsHeaders(HttpExchange exchange) {
         var headers = exchange.getResponseHeaders();
-        headers.add("Access-Control-Allow-Origin", CORS_ORIGIN);
+        headers.add("Access-Control-Allow-Origin", this.corsOrigin);
         headers.add("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
