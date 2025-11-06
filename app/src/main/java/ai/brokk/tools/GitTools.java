@@ -127,7 +127,8 @@ public class GitTools {
                 var messages = MergePrompts.instance.collectMessages(preprocessedDiff, revision, revision);
                 response = llm.sendRequest(messages);
             } else {
-                var messages = SummarizerPrompts.instance.collectMessages(preprocessedDiff, 100);
+                var messages =
+                        SummarizerPrompts.instance.collectMessages(preprocessedDiff, SummarizerPrompts.WORD_BUDGET_100);
                 response = llm.sendRequest(messages);
             }
 
