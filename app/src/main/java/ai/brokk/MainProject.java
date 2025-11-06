@@ -759,11 +759,23 @@ public final class MainProject extends AbstractProject {
     public String getStyleGuide() {
         try {
             if (Files.exists(styleGuidePath)) {
+                logger.debug("Reading style guide from AGENTS.md");
                 return Files.readString(styleGuidePath);
             }
         } catch (IOException e) {
-            logger.error("Error reading style guide: {}", e.getMessage());
+            logger.error("Error reading style guide from AGENTS.md: {}", e.getMessage());
         }
+
+        var legacyStyleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
+        try {
+            if (Files.exists(legacyStyleGuidePath)) {
+                logger.info("Reading style guide from legacy style.md (consider migrating to AGENTS.md)");
+                return Files.readString(legacyStyleGuidePath);
+            }
+        } catch (IOException e) {
+            logger.error("Error reading legacy style guide from style.md: {}", e.getMessage());
+        }
+
         return "";
     }
 
