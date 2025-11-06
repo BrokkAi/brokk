@@ -166,20 +166,20 @@ public class SearchTools {
     @Tool(
             """
                     Search for symbols (class/method/function/field/module definitions) using static analysis.
-                    Output is compact, one line per symbol:
-                    symbol|kind|file1,file2,...
+                    Output is grouped by file, then by symbol kind within each file.
 
                     - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (class/struct field), gvar (top-level/module variable), mod (module)
-                    - files: comma-separated (relative to the project root)
-                    - multiple files appear if the symbol has more than one definition (e.g., .cc and .hh)
                     - methods are member functions of classes/types; functions are free/top-level
                     - top-level variables (including C/C++ file-scope 'static') are reported as gvar
+                    - empty kind sections are omitted
 
                     Examples:
-                    com.example.Foo|cls|src/main/java/com/example/Foo.java
-                    com.example.Foo.bar|mtd|src/main/java/com/example/Foo.java
-                    bmo_spin_exec|fn|src/core/spin.cc,include/spin.hh
-                    bmo_spin_def|gvar|src/core/spin.cc
+                    <file path="src/main/java/com/example/Foo.java">
+                    [cls]
+                    - com.example.Foo
+                    [mtd]
+                    - com.example.Foo.bar
+                    </file>
                     """)
     public String searchSymbols(
             @P(
@@ -209,30 +209,40 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        // Group by FQN to collect all definition files per symbol
-        var symbolMap = allDefinitions.stream()
+        // Group by file, then by kind within each file
+        var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
-                        CodeUnit::fqName,
-                        Collectors.mapping(
-                                cu -> cu.source().toString().replace('\\', '/'),
-                                Collectors.toCollection(HashSet::new))));
+                        cu -> cu.source().toString().replace('\\', '/'),
+                        Collectors.groupingBy(SearchTools::codeUnitKind)));
 
-        var references = symbolMap.entrySet().stream()
-                .map(entry -> {
-                    var fqn = entry.getKey();
-                    var files = entry.getValue().stream().sorted().collect(Collectors.toList());
-                    // Find a representative CodeUnit to determine kind
-                    var kind = allDefinitions.stream()
-                            .filter(cu -> cu.fqName().equals(fqn))
-                            .findFirst()
-                            .map(SearchTools::codeUnitKind)
-                            .orElse("unknown");
-                    return fqn + "|" + kind + "|" + String.join(",", files);
-                })
-                .sorted()
-                .collect(Collectors.joining("\n"));
+        // Build output: sorted files, sorted kinds per file, sorted symbols per kind
+        var result = new StringBuilder();
+        fileGroups.entrySet().stream()
+                .sorted((a, b) -> a.getKey().compareTo(b.getKey()))
+                .forEach(fileEntry -> {
+                    var filePath = fileEntry.getKey();
+                    var kindGroups = fileEntry.getValue();
 
-        return references;
+                    result.append("<file path=\"").append(filePath).append("\">\n");
+
+                    // Emit kind sections in a stable order
+                    var kindOrder = List.of("cls", "mtd", "fld", "fn", "gvar", "mod");
+                    kindOrder.forEach(kind -> {
+                        var symbols = kindGroups.get(kind);
+                        if (symbols != null && !symbols.isEmpty()) {
+                            result.append("[").append(kind).append("]\n");
+                            symbols.stream()
+                                    .map(CodeUnit::fqName)
+                                    .distinct()
+                                    .sorted()
+                                    .forEach(fqn -> result.append("- ").append(fqn).append("\n"));
+                        }
+                    });
+
+                    result.append("</file>\n");
+                });
+
+        return result.toString();
     }
 
     /**
@@ -282,6 +292,7 @@ public class SearchTools {
             return "mod";
         }
 
+        logger.debug("Unknown CodeUnitType for CodeUnit: {}", cu);
         return "unknown";
     }
 
