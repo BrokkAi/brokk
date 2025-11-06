@@ -1,7 +1,12 @@
 import { useState } from 'react'
+import ConfigPanel, { ExecutorConfig } from './components/ConfigPanel'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [config, setConfig] = useState<ExecutorConfig | null>(null)
+
+  const handleConfigChange = (newConfig: ExecutorConfig) => {
+    setConfig(newConfig)
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800">
@@ -10,21 +15,17 @@ function App() {
           Brokk MOP Executor UI
         </h1>
         
-        <div className="bg-slate-700 rounded-lg shadow-lg p-6 text-white">
-          <p className="text-lg mb-4">
-            React + TypeScript + Vite + Tailwind CSS scaffolding complete!
-          </p>
+        <div className="grid gap-8">
+          <ConfigPanel onConfigChange={handleConfigChange} />
           
-          <button
-            onClick={() => setCount((count) => count + 1)}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
-          >
-            count is {count}
-          </button>
-          
-          <p className="mt-4 text-sm text-slate-300">
-            Edit <code className="bg-slate-800 px-2 py-1 rounded">src/App.tsx</code> and save to test HMR
-          </p>
+          {config && (
+            <div className="bg-slate-700 rounded-lg shadow-lg p-6 text-white">
+              <h2 className="text-2xl font-bold mb-4">Status</h2>
+              <p className="text-green-400">
+                ✓ Configuration loaded and connection established
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
