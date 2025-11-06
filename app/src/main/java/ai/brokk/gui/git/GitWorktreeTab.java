@@ -9,10 +9,9 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 // Add these imports
-import ai.brokk.gui.dialogs.InstallGitLfsDialog;
-import ai.brokk.gui.dialogs.InstallGitLfsDialog.Result;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.InstallGitLfsDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.MergeDialogUtil;
 import java.awt.*;
@@ -767,60 +766,66 @@ public class GitWorktreeTab extends JPanel {
                         IConsoleIO.NotificationRole.INFO, "Adding worktree for branch: " + branchForWorktree);
 
                 try {
-                createAndOpenWorktree(
-                project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew,
-                copyWorkspace);
+                    createAndOpenWorktree(
+                            project,
+                            gitRepo,
+                            branchForWorktree,
+                            isCreatingNewBranch,
+                            sourceBranchForNew,
+                            copyWorkspace);
                 } catch (GitRepo.GitLfsMissingException glfs) {
-                logger.warn("Worktree creation failed due to missing Git LFS", glfs);
-                var dlgResult = InstallGitLfsDialog.showDialog(chrome, glfs);
-                if (dlgResult == InstallGitLfsDialog.Result.RETRY) {
-                // Keep attempting until user cancels or creation succeeds.
-                boolean attemptAgain = true;
-                while (attemptAgain) {
-                try {
-                createAndOpenWorktree(
-                project,
-                gitRepo,
-                branchForWorktree,
-                isCreatingNewBranch,
-                sourceBranchForNew,
-                copyWorkspace);
-                attemptAgain = false; // success
-                } catch (GitRepo.GitLfsMissingException glfs2) {
-                // Show dialog again; user can Retry or Cancel
-                var r2 = InstallGitLfsDialog.showDialog(chrome, glfs2);
-                if (r2 != InstallGitLfsDialog.Result.RETRY) {
-                attemptAgain = false; // user cancelled
-                }
+                    logger.warn("Worktree creation failed due to missing Git LFS", glfs);
+                    var dlgResult = InstallGitLfsDialog.showDialog(chrome, glfs);
+                    if (dlgResult == InstallGitLfsDialog.Result.RETRY) {
+                        // Keep attempting until user cancels or creation succeeds.
+                        boolean attemptAgain = true;
+                        while (attemptAgain) {
+                            try {
+                                createAndOpenWorktree(
+                                        project,
+                                        gitRepo,
+                                        branchForWorktree,
+                                        isCreatingNewBranch,
+                                        sourceBranchForNew,
+                                        copyWorkspace);
+                                attemptAgain = false; // success
+                            } catch (GitRepo.GitLfsMissingException glfs2) {
+                                // Show dialog again; user can Retry or Cancel
+                                var r2 = InstallGitLfsDialog.showDialog(chrome, glfs2);
+                                if (r2 != InstallGitLfsDialog.Result.RETRY) {
+                                    attemptAgain = false; // user cancelled
+                                }
+                            } catch (Exception e) {
+                                // Preserve existing error handling for other failures
+                                logger.error("Error creating/opening worktree on retry", e);
+                                String errorDetail = e.getMessage();
+                                final String contextualMessage;
+                                if (e instanceof GitAPIException
+                                        && errorDetail != null
+                                        && errorDetail.contains("LOCK_FAILURE")) {
+                                    contextualMessage =
+                                            "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
+                                } else {
+                                    contextualMessage = "Failed to create worktree:\n" + errorDetail;
+                                }
+                                chrome.toolError(contextualMessage, "Worktree Creation Failed");
+                                attemptAgain = false;
+                            }
+                        }
+                    } else {
+                        // User cancelled; abort without further action
+                    }
                 } catch (Exception e) {
-                // Preserve existing error handling for other failures
-                logger.error("Error creating/opening worktree on retry", e);
-                String errorDetail = e.getMessage();
-                final String contextualMessage;
-                if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
-                contextualMessage =
-                "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
-                } else {
-                contextualMessage = "Failed to create worktree:\n" + errorDetail;
-                }
-                chrome.toolError(contextualMessage, "Worktree Creation Failed");
-                attemptAgain = false;
-                }
-                }
-                } else {
-                // User cancelled; abort without further action
-                }
-                } catch (Exception e) {
-                logger.error("Error creating worktree", e);
-                String errorDetail = e.getMessage();
-                final String contextualMessage;
-                if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
-                contextualMessage =
-                "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
-                } else {
-                contextualMessage = "Failed to create worktree:\n" + errorDetail;
-                }
-                chrome.toolError(contextualMessage, "Worktree Creation Failed");
+                    logger.error("Error creating worktree", e);
+                    String errorDetail = e.getMessage();
+                    final String contextualMessage;
+                    if (e instanceof GitAPIException && errorDetail != null && errorDetail.contains("LOCK_FAILURE")) {
+                        contextualMessage =
+                                "Failed to create worktree due to Git lock conflict. This may occur if another Git operation is in progress.";
+                    } else {
+                        contextualMessage = "Failed to create worktree:\n" + errorDetail;
+                    }
+                    chrome.toolError(contextualMessage, "Worktree Creation Failed");
                 }
 
             } catch (InterruptedException | ExecutionException e) {
@@ -1137,7 +1142,8 @@ public class GitWorktreeTab extends JPanel {
         openProjectBuilder.open().thenAccept(success -> {
             if (Boolean.TRUE.equals(success)) {
                 chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Successfully opened worktree: " + newWorktreePath.getFileName());
+                        IConsoleIO.NotificationRole.INFO,
+                        "Successfully opened worktree: " + newWorktreePath.getFileName());
             } else {
                 chrome.toolError("Error opening worktree " + newWorktreePath.getFileName(), "Worktree Open Error");
             }

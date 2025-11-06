@@ -95,8 +95,8 @@ public class GitRepoWorktrees {
     private @Nullable String probeGitPath() {
         try {
             String cmd = Environment.isWindows() ? "where git" : "command -v git";
-            String out = Environment.instance.runShellCommand(
-                    cmd, repo.getGitTopLevel(), o -> {}, Environment.GIT_TIMEOUT);
+            String out =
+                    Environment.instance.runShellCommand(cmd, repo.getGitTopLevel(), o -> {}, Environment.GIT_TIMEOUT);
             if (out == null || out.isBlank()) return null;
             var lines = Splitter.on(Pattern.compile("\\R")).splitToList(out);
             if (lines.isEmpty()) return null;

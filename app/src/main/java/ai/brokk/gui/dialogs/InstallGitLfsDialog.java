@@ -1,7 +1,7 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.gui.Chrome;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.Chrome;
 import ai.brokk.util.Environment;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -12,7 +12,6 @@ import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.Path;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -205,8 +204,8 @@ public class InstallGitLfsDialog extends JDialog {
             JOptionPane.showMessageDialog(this, successMessage, "Copied", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
             logger.warn("Failed to copy to clipboard", e);
-            JOptionPane.showMessageDialog(this, "Failed to copy to clipboard: " + e.getMessage(), "Copy failed",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, "Failed to copy to clipboard: " + e.getMessage(), "Copy failed", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -219,7 +218,8 @@ public class InstallGitLfsDialog extends JDialog {
         if (Environment.isMacOs()) {
             return "brew install git-lfs && git lfs install";
         } else if (Environment.isWindows()) {
-            return String.join("\n",
+            return String.join(
+                    "\n",
                     "Recommended (Chocolatey):",
                     "  choco install git-lfs && git lfs install",
                     "",
@@ -229,7 +229,8 @@ public class InstallGitLfsDialog extends JDialog {
                     "Or download the installer from: https://github.com/git-lfs/git-lfs/releases");
         } else if (Environment.isLinux()) {
             // Provide common distro package manager commands for convenience
-            return String.join("\n",
+            return String.join(
+                    "\n",
                     "Debian / Ubuntu (apt):",
                     "  curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash && sudo apt-get update && sudo apt-get install git-lfs && git lfs install",
                     "",
@@ -295,19 +296,24 @@ public class InstallGitLfsDialog extends JDialog {
         // Diagnostic summary (concise) — intended to match the structured WARN log for correlation.
         sb.append("Diagnostic summary (first ").append(PREVIEW_MAX_LINES).append(" lines):\n");
         sb.append("Git version: ")
-                .append(exception.getGitVersion() == null || exception.getGitVersion().isEmpty()
-                        ? "<unknown>"
-                        : exception.getGitVersion())
+                .append(
+                        exception.getGitVersion() == null
+                                        || exception.getGitVersion().isEmpty()
+                                ? "<unknown>"
+                                : exception.getGitVersion())
                 .append("\n");
         sb.append("Git LFS version: ")
-                .append(exception.getLfsVersion() == null || exception.getLfsVersion().isEmpty()
-                        ? "<not available>"
-                        : exception.getLfsVersion())
+                .append(
+                        exception.getLfsVersion() == null
+                                        || exception.getLfsVersion().isEmpty()
+                                ? "<not available>"
+                                : exception.getLfsVersion())
                 .append("\n");
         sb.append("Git executable path: ")
-                .append(exception.getGitPath() == null || exception.getGitPath().isEmpty()
-                        ? "<unknown>"
-                        : exception.getGitPath())
+                .append(
+                        exception.getGitPath() == null || exception.getGitPath().isEmpty()
+                                ? "<unknown>"
+                                : exception.getGitPath())
                 .append("\n");
         sb.append("Attempted command: ").append(exception.getCommand()).append("\n");
         sb.append("Repository top-level: ").append(exception.getWorkingDir()).append("\n\n");
@@ -323,16 +329,21 @@ public class InstallGitLfsDialog extends JDialog {
         sb.append("Attempted command: ").append(exception.getCommand()).append("\n");
         sb.append("Working directory: ").append(exception.getWorkingDir()).append("\n");
         sb.append("Git version: ")
-                .append(exception.getGitVersion() == null || exception.getGitVersion().isEmpty()
-                        ? "<unknown>"
-                        : exception.getGitVersion())
+                .append(
+                        exception.getGitVersion() == null
+                                        || exception.getGitVersion().isEmpty()
+                                ? "<unknown>"
+                                : exception.getGitVersion())
                 .append("\n");
         String lfs = exception.getLfsVersion();
-        sb.append("Git LFS version: ").append(lfs == null || lfs.isEmpty() ? "<not available>" : lfs).append("\n");
+        sb.append("Git LFS version: ")
+                .append(lfs == null || lfs.isEmpty() ? "<not available>" : lfs)
+                .append("\n");
         sb.append("Git executable path: ")
-                .append(exception.getGitPath() == null || exception.getGitPath().isEmpty()
-                        ? "<unknown>"
-                        : exception.getGitPath())
+                .append(
+                        exception.getGitPath() == null || exception.getGitPath().isEmpty()
+                                ? "<unknown>"
+                                : exception.getGitPath())
                 .append("\n");
 
         return sb.toString();
@@ -344,7 +355,10 @@ public class InstallGitLfsDialog extends JDialog {
      */
     private void openTerminalAtWorkingDir(Path wd, Component parent) {
         if (wd == null) {
-            JOptionPane.showMessageDialog(parent, "Working directory is unknown. Cannot open terminal.", "Open Terminal",
+            JOptionPane.showMessageDialog(
+                    parent,
+                    "Working directory is unknown. Cannot open terminal.",
+                    "Open Terminal",
                     JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -353,7 +367,8 @@ public class InstallGitLfsDialog extends JDialog {
             if (Environment.isWindows()) {
                 // Use start to create a new console window and run cmd in that directory
                 String cmd = "cmd.exe";
-                String arg = String.format("/K cd /d \"%s\"", wd.toAbsolutePath().toString());
+                String arg =
+                        String.format("/K cd /d \"%s\"", wd.toAbsolutePath().toString());
                 new ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", arg).start();
             } else if (Environment.isMacOs()) {
                 // macOS: open Terminal app in directory
@@ -362,10 +377,10 @@ public class InstallGitLfsDialog extends JDialog {
                 // Try common terminal emulators in order
                 String dir = wd.toAbsolutePath().toString();
                 String[][] tryCmds = new String[][] {
-                        {"x-terminal-emulator", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
-                        {"gnome-terminal", "--", "bash", "-c", "cd '" + dir + "'; exec bash"},
-                        {"konsole", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
-                        {"xterm", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
+                    {"x-terminal-emulator", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
+                    {"gnome-terminal", "--", "bash", "-c", "cd '" + dir + "'; exec bash"},
+                    {"konsole", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
+                    {"xterm", "-e", "bash", "-c", "cd '" + dir + "'; exec bash"},
                 };
                 boolean started = false;
                 for (var tc : tryCmds) {
@@ -389,7 +404,8 @@ public class InstallGitLfsDialog extends JDialog {
             }
         } catch (Exception e) {
             logger.warn("Failed to open terminal at {}", wd, e);
-            JOptionPane.showMessageDialog(parent,
+            JOptionPane.showMessageDialog(
+                    parent,
                     "Unable to open a terminal automatically. You can run the following command manually:\n\n"
                             + getPlatformInstallCommand(),
                     "Open Terminal failed",
