@@ -584,6 +584,17 @@ public class GitHubAuth {
             return; // Already connected
         }
 
+        // Validate owner/repo format early to prevent invalid API calls
+        var validationError = GitUiUtil.validateOwnerRepo(owner, repoName);
+        if (validationError.isPresent()) {
+            logger.warn(
+                    "Invalid owner/repo format in connect(): owner='{}', repo='{}'. Validation error: {}",
+                    owner,
+                    repoName,
+                    validationError.get());
+            throw new IOException("Invalid GitHub repository identifier: " + validationError.get());
+        }
+
         // Try with token
         var token = getStoredToken();
         GitHubBuilder builder = new GitHubBuilder();
@@ -606,7 +617,17 @@ public class GitHubAuth {
                         targetHostDisplay);
                 builder.withOAuthToken(token);
                 this.githubClient = builder.build();
-                this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                try {
+                    this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                } catch (IllegalArgumentException iae) {
+                    logger.warn(
+                            "Illegal repository identifier {}/{}: {}",
+                            owner,
+                            repoName,
+                            iae.getMessage());
+                    throw new IOException("Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                            + iae.getMessage(), iae);
+                }
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} with token",
@@ -648,7 +669,17 @@ public class GitHubAuth {
                         repoName,
                         targetHostDisplay);
                 this.githubClient = builder.build(); // Will use default endpoint or the one set for GHES
-                this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                try {
+                    this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                } catch (IllegalArgumentException iae) {
+                    logger.warn(
+                            "Illegal repository identifier {}/{}: {}",
+                            owner,
+                            repoName,
+                            iae.getMessage());
+                    throw new IOException("Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                            + iae.getMessage(), iae);
+                }
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} anonymously",
