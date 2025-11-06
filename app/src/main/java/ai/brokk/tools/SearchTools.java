@@ -41,9 +41,9 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
-    // Some analyzers may encode top-level items under a pseudo "module" owner (e.g., "_module_").
+    // Some analyzers encode top-level items under a pseudo "module" owner (e.g., "_module_" in python).
     // Treat these owners as non-class containers when classifying methods vs. functions.
-    private static final Set<String> PSEUDO_METHOD_OWNERS = Set.of("_module_");
+    private static final Set<String> PSEUDO_OWNERS = Set.of("_module_");
 
     private final IContextManager contextManager; // Needed for file operations
 
@@ -169,15 +169,17 @@ public class SearchTools {
                     Output is compact, one line per symbol:
                     symbol|kind|file1,file2,...
 
-                    - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (field), mod (module)
+                    - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (class/struct field), gvar (top-level/module variable), mod (module)
                     - files: comma-separated (relative to the project root)
                     - multiple files appear if the symbol has more than one definition (e.g., .cc and .hh)
-                    - methods are member functions of classes/types; functions are free/top-level (pseudo owners like "_module_" are treated as functions)
+                    - methods are member functions of classes/types; functions are free/top-level
+                    - top-level variables (including C/C++ file-scope 'static') are reported as gvar
 
                     Examples:
                     com.example.Foo|cls|src/main/java/com/example/Foo.java
                     com.example.Foo.bar|mtd|src/main/java/com/example/Foo.java
                     bmo_spin_exec|fn|src/core/spin.cc,include/spin.hh
+                    bmo_spin_def|gvar|src/core/spin.cc
                     """)
     public String searchSymbols(
             @P(
@@ -234,27 +236,90 @@ public class SearchTools {
     }
 
     /**
-     * Determines the short kind abbreviation for a CodeUnit.
-     * Returns: cls (class), mtd (method), fn (free/top-level function), fld (field), mod (module), or unknown.
+     * Determines the short kind abbreviation for a CodeUnit
+     *
+     * Kinds:
+     * - cls: class/struct/enum/trait
+     * - mtd: method (member function) — cu.isFunction() AND cu.classUnit().isPresent() AND owner is not a pseudo owner
+     * - fn : free/top-level function — otherwise (no real class owner)
+     * - fld: class/struct field (instance or static) — cu.isField() AND cu.classUnit().isPresent() AND owner not pseudo
+     * - gvar: top-level/module variable — otherwise (includes C/C++ file-scope static, TS/JS module vars)
+     * - mod: module
+     *
+     * Why the pseudo-owner check?
+     * - Some analyzers encode top-level items using either a synthetic owner "_module_" or the file stem as "moduleName".
+     *   Those are not classes; we must not treat them as class containers, or we would misclassify top-level functions/vars
+     *   as methods/fields.
      */
     private static String codeUnitKind(CodeUnit cu) {
         if (cu.isClass()) {
             return "cls";
-        } else if (cu.isFunction()) {
+        }
+
+        if (cu.isFunction()) {
             var ownerOpt = cu.classUnit();
             if (ownerOpt.isPresent()) {
                 var ownerShort = ownerOpt.get().shortName();
-                if (!PSEUDO_METHOD_OWNERS.contains(ownerShort)) {
+                if (!isPseudoOwner(cu, ownerShort)) {
                     return "mtd";
                 }
             }
             return "fn";
-        } else if (cu.isField()) {
-            return "fld";
-        } else if (cu.isModule()) {
+        }
+
+        if (cu.isField()) {
+            var ownerOpt = cu.classUnit();
+            if (ownerOpt.isPresent()) {
+                var ownerShort = ownerOpt.get().shortName();
+                if (!isPseudoOwner(cu, ownerShort)) {
+                    return "fld";
+                }
+            }
+            return "gvar";
+        }
+
+        if (cu.isModule()) {
             return "mod";
         }
+
         return "unknown";
+    }
+
+    /**
+     * Returns true if the "owner" part of a shortName is a synthetic/pseudo container rather than a real class.
+     *
+     * Two common patterns across Tree-sitter analyzers:
+     * 1) Synthetic "_module_" owner (TypeScript/Go/Rust) used to keep shortName in "Owner.member" form for top-level symbols.
+     * 2) Module-as-filename (Python/JavaScript): owner equals the file stem (filename without extension), e.g. "my_file.foo".
+     */
+    private static boolean isPseudoOwner(CodeUnit cu, String ownerShort) {
+        // 1) Known synthetic owner tokens (e.g. "_module_")
+        if (PSEUDO_OWNERS.contains(ownerShort)) {
+            return true;
+        }
+        // 2) File-stem-as-module: compare against the source filename without extension
+        var stem = fileStem(cu.source());
+        return ownerShort.equals(stem);
+    }
+
+    /**
+     * Extracts the filename without extension (the "file stem").
+     * Used to detect the Python/JavaScript convention where the module name equals the file stem,
+     * e.g. "moduleName.symbol".
+     */
+    private static String fileStem(ProjectFile pf) {
+        // Prefer ProjectFile.getFileName() if available; fall back to toString()
+        try {
+            var base = pf.getFileName().toString();
+            int dot = base.lastIndexOf('.');
+            return dot > 0 ? base.substring(0, dot) : base;
+        } catch (Exception ignored) {
+            var path = pf.toString().replace('\\', '/');
+            int slash = path.lastIndexOf('/');
+            String base = slash >= 0 ? path.substring(slash + 1) : path;
+            int dot = base.lastIndexOf('.');
+            return dot > 0 ? base.substring(0, dot) : base;
+        }
     }
 
     @Tool(
