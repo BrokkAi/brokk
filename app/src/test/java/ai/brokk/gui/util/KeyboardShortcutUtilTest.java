@@ -67,10 +67,14 @@ public class KeyboardShortcutUtilTest {
         KeyStroke ks = KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1);
         String formatted = KeyboardShortcutUtil.formatKeyStroke(ks);
         assertNotNull(formatted);
-        // Should contain key '1'
-        assertTrue(formatted.contains("1"), "Should contain key '1', got: " + formatted);
+        assertFalse(formatted.isEmpty());
         // Should contain '+' separator
         assertTrue(formatted.contains("+"), "Should contain '+' separator, got: " + formatted);
+        // Should have at least 2 parts (modifier + key)
+        String[] parts = formatted.split("\\+");
+        assertTrue(parts.length >= 2, "Should have at least 2 parts (modifier+key), got: " + formatted);
+        // Should contain key '1' in one of the parts
+        assertTrue(formatted.contains("1"), "Should contain key '1', got: " + formatted);
     }
 
     @Test
