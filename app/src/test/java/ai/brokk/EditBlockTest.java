@@ -789,10 +789,17 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
         assertEquals(1, result.failedBlocks().size(), "One failed block expected");
+        var fb = result.failedBlocks().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                fb.reason(),
                 "Overloads must be rejected as ambiguous");
+        assertTrue(
+                fb.commentary().contains("Multiple overloads found for 'B.foo'"),
+                "Expected commentary to explain overload ambiguity");
+        assertTrue(
+                fb.commentary().contains("Please provide a non-overloaded, unique name"),
+                "Expected guidance in commentary for resolving ambiguity");
     }
 
     @Test
@@ -863,6 +870,88 @@ class EditBlockTest {
         String updatedContent2 = Files.readString(file2);
         assertEquals("lineA\nline B\n", updatedContent2);
         assertTrue(updatedContent2.endsWith("\n"));
+    }
+
+    @Test
+    void testBrkClass_NotFound_ProducesNoMatchWithCommentary() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_CLASS NoSuchClass
+                =======
+                public class NoSuchClass { }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance.parseEditBlocks(response, ctx.getFilesInContext()).blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown class");
+        var fb = result.failedBlocks().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
+        assertTrue(
+                fb.commentary().contains("No class source found for 'NoSuchClass'"),
+                "Commentary should include helpful context from analyzer");
+    }
+
+    @Test
+    void testBrkFunction_NotFound_ProducesNoMatchWithCommentary() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_FUNCTION A.missingMethod
+                =======
+                public int missingMethod() { return -1; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance.parseEditBlocks(response, ctx.getFilesInContext()).blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown method");
+        var fb = result.failedBlocks().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
+        assertTrue(
+                fb.commentary().contains("No method source found for 'A.missingMethod'"),
+                "Commentary should include helpful context from analyzer");
     }
 
     // ----------------------------------------------------
