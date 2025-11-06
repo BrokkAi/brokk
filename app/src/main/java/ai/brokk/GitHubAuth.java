@@ -625,13 +625,11 @@ public class GitHubAuth {
                             targetHostDisplay);
                     this.ghRepository = this.githubClient.getRepository(repoSlug);
                 } catch (IllegalArgumentException iae) {
-                    logger.warn(
-                            "Illegal repository identifier {}/{}: {}",
-                            owner,
-                            repoName,
-                            iae.getMessage());
-                    throw new IOException("Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
-                            + iae.getMessage(), iae);
+                    logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
+                    throw new IOException(
+                            "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                                    + iae.getMessage(),
+                            iae);
                 }
                 if (this.ghRepository != null) {
                     logger.info(
@@ -682,13 +680,11 @@ public class GitHubAuth {
                             targetHostDisplay);
                     this.ghRepository = this.githubClient.getRepository(repoSlug);
                 } catch (IllegalArgumentException iae) {
-                    logger.warn(
-                            "Illegal repository identifier {}/{}: {}",
-                            owner,
-                            repoName,
-                            iae.getMessage());
-                    throw new IOException("Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
-                            + iae.getMessage(), iae);
+                    logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
+                    throw new IOException(
+                            "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                                    + iae.getMessage(),
+                            iae);
                 }
                 if (this.ghRepository != null) {
                     logger.info(
