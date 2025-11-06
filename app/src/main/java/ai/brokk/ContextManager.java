@@ -2072,7 +2072,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 project.saveStyleGuide(styleGuide);
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to .brokk/style.md");
+                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to AGENTS.md");
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
             }
