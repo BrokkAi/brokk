@@ -1091,22 +1091,22 @@ public final class MainProject extends AbstractProject {
         try {
             Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
             Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = brokkDir.resolve("AGENTS.md");
+            Path agentsFile = getMasterRootPathForConfig().resolve("AGENTS.md");
 
             if (!Files.exists(styleFile)) {
                 logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.ERROR,
-                        "Migration failed: style.md not found at " + styleFile);
+                        "Migration failed: .brokk/style.md not found");
                 return false;
             }
 
-            logger.info("Starting style.md to AGENTS.md migration for {}", getRoot().getFileName());
+            logger.info("Starting .brokk/style.md to AGENTS.md (root) migration for {}", getRoot().getFileName());
 
-            // Copy content from style.md to AGENTS.md
+            // Copy content from style.md to AGENTS.md at project root
             String content = Files.readString(styleFile);
             Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md with content from style.md");
+            logger.debug("Created AGENTS.md at project root with content from .brokk/style.md");
 
             // If this is a Git repository, stage the changes
             if (hasGit()) {
@@ -1144,11 +1144,11 @@ public final class MainProject extends AbstractProject {
 
             // Mark migration as complete by resetting the declined flag
             setMigrationDeclined(false);
-            logger.info("Completed style.md to AGENTS.md migration for {}", getRoot().getFileName());
+            logger.info("Completed .brokk/style.md to AGENTS.md (root) migration for {}", getRoot().getFileName());
 
             chrome.showNotification(
                     IConsoleIO.NotificationRole.INFO,
-                    "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
+                    "Migration complete: .brokk/style.md has been renamed to AGENTS.md at project root and staged in Git.");
             return true;
         } catch (Exception e) {
             logger.error(
