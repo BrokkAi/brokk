@@ -1,8 +1,10 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
+import ai.brokk.MainProject;
 import ai.brokk.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
@@ -200,8 +202,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Hide migration button if already migrated or declined
         try {
             var brokkDir = chrome.getProject().getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
-            boolean styleExists = Files.exists(brokkDir.resolve("style.md"));
-            boolean agentsExists = Files.exists(brokkDir.resolve("AGENTS.md"));
+            boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
+            boolean agentsExists = java.nio.file.Files.exists(brokkDir.resolve("AGENTS.md"));
             migrateButton.setVisible(styleExists && !agentsExists);
         } catch (Exception ex) {
             migrateButton.setVisible(false);
