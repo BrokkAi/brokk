@@ -577,8 +577,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
 
-        // Prefer language-specific override priority (e.g., C++: implementation with body in .cpp) before generic ordering.
-        // Short rationale: callers often "pick the first" definition; by prioritizing implementations over declarations,
+        // Prefer language-specific override priority (e.g., C++: implementation with body in .cpp) before generic
+        // ordering.
+        // Short rationale: callers often "pick the first" definition; by prioritizing implementations over
+        // declarations,
         // we return the most useful definition first, enabling tools like addMethodsToWorkspace to load .c/.cpp bodies.
         var prioritizedComparator = Comparator.<CodeUnit>comparingInt(this::definitionOverridePriority)
                 .thenComparing(DEFINITION_COMPARATOR);

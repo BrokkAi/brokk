@@ -235,7 +235,8 @@ public class SearchTools {
                                     .map(CodeUnit::fqName)
                                     .distinct()
                                     .sorted()
-                                    .forEach(fqn -> result.append("- ").append(fqn).append("\n"));
+                                    .forEach(fqn ->
+                                            result.append("- ").append(fqn).append("\n"));
                         }
                     });
 
