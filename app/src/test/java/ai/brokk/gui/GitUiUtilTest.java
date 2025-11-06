@@ -15,6 +15,26 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 public class GitUiUtilTest {
+    /*
+     * Test Suite for GitUiUtil Validation and Normalization
+     *
+     * VALIDATION STRATEGY:
+     * - Owner validation enforces stricter rules than permissive GitHub allowance to fail early and consistently.
+     *   Rules: 1-39 characters, alphanumeric and hyphens only, no leading/trailing/consecutive hyphens, no underscores/dots.
+     * - Repository validation allows underscores and dots (except leading/trailing dots) to support common naming patterns.
+     *   Rules: 1-100 characters, alphanumeric/hyphens/underscores/dots, no leading/trailing dots, not "." or "..".
+     * - Host validation for GitHub Enterprise: alphanumeric labels, hyphens, dots, optional port 1-65535.
+     *   Rules: Each label 1-63 chars, no leading/trailing hyphens in labels, no consecutive dots, port range 1-65535.
+     * - All validation errors use INVALID_REPO_FORMAT_MSG which includes "owner/repo" guidance for user clarity.
+     * - Normalization trims inputs, strips .git suffix from repo, and validates before returning.
+     *
+     * KEY INVARIANTS:
+     * - validateOwnerRepo accepts owner/repo separately; validateFullRepoName accepts "owner/repo" combined.
+     * - parseOwnerRepoFlexible handles URLs, SSH URLs, and raw slugs flexibly, returning Optional.empty on parse/validation failure.
+     * - parseOwnerRepoFromUrl extracts last two segments from various URL formats.
+     * - buildRepoSlug combines normalized owner/repo into "owner/repo" format.
+     * - All error messages contain "owner/repo" guidance for consistent user experience.
+     */
 
     @TempDir
     Path tempDir;
@@ -120,6 +140,20 @@ public class GitUiUtilTest {
     void testValidateOwnerRepo_ValidWithUnderscoreDotInRepo() {
         var result = GitUiUtil.validateOwnerRepo("owner", "repo_name.lib");
         assertTrue(result.isEmpty(), "Valid repo with underscore and dot should return empty Optional");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerWithUnderscore_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("octo_cat", "repo");
+        assertTrue(result.isPresent(), "Owner with underscore should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerWithDot_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("octo.cat", "repo");
+        assertTrue(result.isPresent(), "Owner with dot should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 
     @Test
@@ -235,6 +269,117 @@ public class GitUiUtilTest {
     void testValidateOwnerRepo_RepoWithGitSuffix() {
         var result = GitUiUtil.validateOwnerRepo("octocat", "Hello-World.git");
         assertTrue(result.isEmpty(), "Repo with .git suffix should be accepted and stripped by normalizer");
+    }
+
+    // ============ Owner/Repo Boundary Tests ============
+
+    @Test
+    void testValidateOwnerRepo_OwnerExactly39Chars_Valid() {
+        String owner39 = "a".repeat(39);
+        var result = GitUiUtil.validateOwnerRepo(owner39, "repo");
+        assertTrue(result.isEmpty(), "Owner with exactly 39 characters should be valid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerExactly40Chars_Invalid() {
+        String owner40 = "a".repeat(40);
+        var result = GitUiUtil.validateOwnerRepo(owner40, "repo");
+        assertTrue(result.isPresent(), "Owner with exactly 40 characters should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoExactly100Chars_Valid() {
+        String repo100 = "a".repeat(100);
+        var result = GitUiUtil.validateOwnerRepo("owner", repo100);
+        assertTrue(result.isEmpty(), "Repo with exactly 100 characters should be valid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoExactly101Chars_Invalid() {
+        String repo101 = "a".repeat(101);
+        var result = GitUiUtil.validateOwnerRepo("owner", repo101);
+        assertTrue(result.isPresent(), "Repo with exactly 101 characters should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    // ============ Owner Hyphen Positioning Tests ============
+
+    @Test
+    void testValidateOwnerRepo_OwnerLeadingHyphen_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("-owner", "repo");
+        assertTrue(result.isPresent(), "Owner with leading hyphen should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerTrailingHyphen_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("owner-", "repo");
+        assertTrue(result.isPresent(), "Owner with trailing hyphen should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerConsecutiveHyphens_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("own--er", "repo");
+        assertTrue(result.isPresent(), "Owner with consecutive hyphens should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerMultipleConsecutiveHyphens_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("own---er", "repo");
+        assertTrue(result.isPresent(), "Owner with multiple consecutive hyphens should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerSingleCharWithHyphen_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("-", "repo");
+        assertTrue(result.isPresent(), "Owner that is only hyphen should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    // ============ Repo Dot Positioning Tests ============
+
+    @Test
+    void testValidateOwnerRepo_RepoLeadingDot_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", ".repo");
+        assertTrue(result.isPresent(), "Repo with leading dot should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoTrailingDot_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", "repo.");
+        assertTrue(result.isPresent(), "Repo with trailing dot should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoOnlyDot_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", ".");
+        assertTrue(result.isPresent(), "Repo that is only '.' should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoOnlyDoubleDot_Invalid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", "..");
+        assertTrue(result.isPresent(), "Repo that is only '..' should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoMiddleDots_Valid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", "my..repo");
+        assertTrue(result.isEmpty(), "Repo with consecutive dots in middle should be valid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoWithUnderscoreDotMix_Valid() {
+        var result = GitUiUtil.validateOwnerRepo("owner", "my_repo.lib");
+        assertTrue(result.isEmpty(), "Repo with underscore and dot in middle should be valid");
     }
 
     @Test
@@ -354,6 +499,36 @@ public class GitUiUtilTest {
     void testValidateFullRepoName_ValidWithGitSuffix() {
         var result = GitUiUtil.validateFullRepoName("octocat/Hello-World.git");
         assertTrue(result.isEmpty(), "Full repo name with .git suffix should be stripped and valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_OwnerExactly39Chars() {
+        String owner39 = "a".repeat(39);
+        var result = GitUiUtil.validateFullRepoName(owner39 + "/repo");
+        assertTrue(result.isEmpty(), "Full repo name with owner at limit should be valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_OwnerExactly40Chars() {
+        String owner40 = "a".repeat(40);
+        var result = GitUiUtil.validateFullRepoName(owner40 + "/repo");
+        assertTrue(result.isPresent(), "Full repo name with owner over limit should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_RepoExactly100Chars() {
+        String repo100 = "a".repeat(100);
+        var result = GitUiUtil.validateFullRepoName("owner/" + repo100);
+        assertTrue(result.isEmpty(), "Full repo name with repo at limit should be valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_RepoExactly101Chars() {
+        String repo101 = "a".repeat(101);
+        var result = GitUiUtil.validateFullRepoName("owner/" + repo101);
+        assertTrue(result.isPresent(), "Full repo name with repo over limit should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 
     @Test
@@ -490,6 +665,90 @@ public class GitUiUtilTest {
     void testParseOwnerRepoFlexible_Blank() {
         var result = GitUiUtil.parseOwnerRepoFlexible("   ");
         assertTrue(result.isEmpty(), "Blank input should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_InvalidOwnerWithDot() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("octo.cat/hello-world");
+        assertTrue(result.isEmpty(), "Flexible parse with invalid owner (dot) should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_InvalidRepoWithLeadingDot() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner/.repo");
+        assertTrue(result.isEmpty(), "Flexible parse with invalid repo (leading dot) should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_ValidWithHyphens() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("my-org/my-repo");
+        assertTrue(result.isPresent());
+        assertEquals("my-org", result.get().owner());
+        assertEquals("my-repo", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_HttpsUrlWithPort() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("https://github.example.com:8443/octocat/hello-world.git");
+        assertTrue(result.isPresent());
+        assertEquals("octocat", result.get().owner());
+        assertEquals("hello-world", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_SshUrlWithAlternativePort() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("ssh://git@github.com:22/octocat/hello-world");
+        assertTrue(result.isPresent());
+        assertEquals("octocat", result.get().owner());
+        assertEquals("hello-world", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_HttpUrl() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("http://github.com/octocat/hello-world.git");
+        assertTrue(result.isPresent());
+        assertEquals("octocat", result.get().owner());
+        assertEquals("hello-world", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_SshUrlStandardForm() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("git@github.com:octocat/hello-world.git");
+        assertTrue(result.isPresent());
+        assertEquals("octocat", result.get().owner());
+        assertEquals("hello-world", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_UrlWithTrailingSlash() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("https://github.com/octocat/hello-world/");
+        assertTrue(result.isPresent());
+        assertEquals("octocat", result.get().owner());
+        assertEquals("hello-world", result.get().repo());
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_UrlMissingRepo() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("https://github.com/octocat");
+        assertTrue(result.isEmpty(), "URL with missing repo should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_MalformedUrl() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("https://");
+        assertTrue(result.isEmpty(), "Malformed URL should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_MultipleSlashes() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner//repo");
+        assertTrue(result.isEmpty(), "Input with multiple consecutive slashes should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_InvalidOwnerCharacters() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("octo@cat/hello-world");
+        assertTrue(result.isEmpty(), "Flexible parse with invalid characters in owner should return empty");
     }
 
     // ============ normalizeGitHubHost tests ============
@@ -676,6 +935,16 @@ public class GitUiUtilTest {
         var r6 = GitUiUtil.validateOwnerRepo("owner", "   ");
         assertTrue(r6.isPresent());
         assertTrue(r6.get().contains("owner/repo"));
+
+        // Owner with underscore (stricter rule)
+        var r7 = GitUiUtil.validateOwnerRepo("own_er", "repo");
+        assertTrue(r7.isPresent());
+        assertTrue(r7.get().contains("owner/repo"));
+
+        // Owner with dot (stricter rule)
+        var r8 = GitUiUtil.validateOwnerRepo("own.er", "repo");
+        assertTrue(r8.isPresent());
+        assertTrue(r8.get().contains("owner/repo"));
     }
 
     @Test
@@ -697,5 +966,25 @@ public class GitUiUtilTest {
         var i3 = GitUiUtil.validateFullRepoName("/repo");
         assertTrue(i3.isPresent());
         assertTrue(i3.get().contains("owner/repo"));
+    }
+
+    @Test
+    void testValidateFullRepoName_WithSpaces() {
+        var result = GitUiUtil.validateFullRepoName("  owner / repo  ");
+        assertTrue(result.isEmpty(), "Full repo name with spaces should be trimmed and valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_InvalidOwnerWithDot() {
+        var result = GitUiUtil.validateFullRepoName("octo.cat/hello-world");
+        assertTrue(result.isPresent(), "Full repo name with dot in owner should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_InvalidRepoWithLeadingDot() {
+        var result = GitUiUtil.validateFullRepoName("owner/.repo");
+        assertTrue(result.isPresent(), "Full repo name with leading dot in repo should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 }
