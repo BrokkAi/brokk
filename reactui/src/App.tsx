@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ConfigPanel, { ExecutorConfig } from './components/ConfigPanel'
 import SessionUploader from './components/SessionUploader'
 import JobCreator from './components/JobCreator'
+import JobControls from './components/JobControls'
 import EventViewer from './components/EventViewer'
 
 function App() {
@@ -52,7 +53,10 @@ function App() {
           )}
 
           {config && jobId && (
-            <EventViewer config={config} jobId={jobId} />
+            <>
+              <JobControls config={config} jobId={jobId} />
+              <EventViewer config={config} jobId={jobId} />
+            </>
           )}
         </div>
       </div>
