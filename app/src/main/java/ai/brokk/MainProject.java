@@ -781,11 +781,29 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveStyleGuide(String styleGuide) {
+        Path targetPath;
+        String targetDescription;
+
+        if (Files.exists(styleGuidePath)) {
+            targetPath = styleGuidePath;
+            targetDescription = "AGENTS.md";
+        } else {
+            var legacyStyleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
+            if (Files.exists(legacyStyleGuidePath)) {
+                targetPath = legacyStyleGuidePath;
+                targetDescription = "legacy style.md";
+            } else {
+                targetPath = styleGuidePath;
+                targetDescription = "AGENTS.md (new default)";
+            }
+        }
+
         try {
-            Files.createDirectories(styleGuidePath.getParent());
-            AtomicWrites.atomicOverwrite(styleGuidePath, styleGuide);
+            Files.createDirectories(targetPath.getParent());
+            AtomicWrites.atomicOverwrite(targetPath, styleGuide);
+            logger.debug("Saved style guide to {}", targetDescription);
         } catch (IOException e) {
-            logger.error("Error saving style guide: {}", e.getMessage());
+            logger.error("Error saving style guide to {}: {}", targetDescription, e.getMessage());
         }
     }
 
