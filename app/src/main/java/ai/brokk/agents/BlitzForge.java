@@ -101,7 +101,8 @@ public final class BlitzForge {
 
             if (files.isEmpty()) {
                 // No files → produce an empty successful TaskResult whose resultingContext is the current top context
-                Context resultingCtx = cm.topContext();
+                // TaskResult requires a live (unfrozen) context, as enforced by an assertion in the constructor
+                Context resultingCtx = Context.unfreeze(cm.topContext());
                 var meta = new TaskResult.TaskMeta(
                         TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
                 var emptyResult = new TaskResult(
