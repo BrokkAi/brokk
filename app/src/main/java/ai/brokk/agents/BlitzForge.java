@@ -104,15 +104,13 @@ public final class BlitzForge {
 
             if (files.isEmpty()) {
                 // No files → produce an empty successful TaskResult whose resultingContext is the current top context
-                // TaskResult requires a live (unfrozen) context, as enforced by an assertion in the constructor
-                Context resultingCtx = Context.unfreeze(cm.topContext());
                 var meta = new TaskResult.TaskMeta(
                         TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
                 var emptyResult = new TaskResult(
                         cm,
                         config.instructions(),
                         List.of(),
-                        resultingCtx,
+                        createLiveResultingContext(),
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
                         meta);
                 listener.onComplete(emptyResult);
@@ -282,9 +280,7 @@ public final class BlitzForge {
                     : new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
 
             // Build a resulting Context that represents the current topContext with any changed files added as editable
-            // TaskResult requires a live (unfrozen) context, as enforced by an assertion in its constructor
-            var top = Context.unfreeze(cm.topContext());
-            var resultingCtx = top.addPathFragments(cm.toPathFragments(changedFiles));
+            var resultingCtx = createLiveResultingContext().addPathFragments(cm.toPathFragments(changedFiles));
 
             var meta = new TaskResult.TaskMeta(
                     TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
@@ -306,6 +302,19 @@ public final class BlitzForge {
         }
     }
 
+    /**
+     * Creates a live (unfrozen) Context from the current top context.
+     *
+     * <p>TaskResult requires a live (unfrozen) context as enforced by an assertion in its
+     * constructor. This helper centralizes the invariant and eliminates duplication across
+     * multiple result-building code paths.
+     *
+     * @return an unfrozen Context representing the current top context state
+     */
+    private Context createLiveResultingContext() {
+        return Context.unfreeze(cm.topContext());
+    }
+
     private static long fileSize(ProjectFile file) {
         try {
             return Files.size(file.absPath());
@@ -323,8 +332,7 @@ public final class BlitzForge {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
-        // TaskResult requires a live (unfrozen) Context; unfreeze the top context to ensure invariant compliance
-        var tr = new TaskResult(cm, config.instructions(), List.of(), Context.unfreeze(cm.topContext()), sd, meta);
+        var tr = new TaskResult(cm, config.instructions(), List.of(), createLiveResultingContext(), sd, meta);
         logger.debug(
                 "BlitzForge.interruptedResult delivering onComplete before listener.onComplete call, thread={}",
                 Thread.currentThread().getName());
