@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ConfigPanel, { ExecutorConfig } from './components/ConfigPanel'
 import SessionUploader from './components/SessionUploader'
+import JobCreator from './components/JobCreator'
 
 function App() {
   const [config, setConfig] = useState<ExecutorConfig | null>(null)
@@ -38,6 +39,10 @@ function App() {
                 Session ID: <code className="bg-slate-600 px-2 py-1 rounded">{sessionId}</code>
               </p>
             </div>
+          )}
+
+          {config && sessionId && (
+            <JobCreator config={config} sessionId={sessionId} />
           )}
         </div>
       </div>
