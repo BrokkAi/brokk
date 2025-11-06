@@ -95,26 +95,32 @@ public abstract class CodePrompts {
 
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
-        var languages = project.getAnalyzerLanguages();
-
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
-        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
-        var unsupported = fileContents.keySet().stream()
+        // Enable SYNTAX_AWARE only if all editable files are Java
+        var nonJava = fileContents.keySet().stream()
                 .filter(f -> {
                     var ext = f.extension();
-                    return ext.isEmpty()
-                            || languages.stream()
-                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
+                    return ext.isEmpty() || !ext.equalsIgnoreCase("java");
                 })
                 .collect(Collectors.toSet());
-        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
-        if (false) {
+
+        if (nonJava.isEmpty() && !fileContents.isEmpty()) {
             flags.add(InstructionsFlags.SYNTAX_AWARE);
+            IContextManager.logger.debug(
+                    "Syntax-aware edits enabled: all editable files are Java ({} file{})",
+                    fileContents.size(),
+                    fileContents.size() == 1 ? "" : "s");
         } else {
-            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+            if (fileContents.isEmpty()) {
+                IContextManager.logger.debug("Syntax-aware edits disabled: no editable files present.");
+            } else {
+                IContextManager.logger.debug(
+                        "Syntax-aware edits disabled: non-Java or unknown-extension files present: {}",
+                        nonJava);
+            }
         }
 
         // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
