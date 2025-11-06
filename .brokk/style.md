@@ -1,45 +1,93 @@
+Here's a concise coding style guide based on the provided Java code, focusing on conventions that leverage new or uncommon features and specific codebase practices.
+
+---
+
 # Coding Style Guide
 
-## General principles
+This guide outlines the preferred coding conventions, emphasizing modern Java features and patterns specific to this codebase.
 
-1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. 
-Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull 
-(static import from java.util.Objects) when the static type is @Nullable but our code path expects it to be non-null.
-Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil) 
-when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map 
-returned by Collectors.partitioningBy. You do not need either requireNonNull or castNonNull when a field, parameter,
-or return value is not annotated @Nullable.
-1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
-1. **@NullMarked**: Add `@org.jspecify.annotations.NullMarked` to `package-info.java` for any new Java source code packages.
-1. **Java 21 features**: The codebase leverages Java features up to JDK 21. Embrace the lambdas! and also getFirst/getLast, Collectors.toList, pattern matching for instanceof, records and record patterns, etc.
-1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
-1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
-1. **Provide Comprehensive Logging**: Log relevant information using log4j, including request/response details, errors, and other important events.
-1. **Use `var`**: Prefer `var` for local variable declarations. Exception: numeric types, such as `int`, `float`, etc.
-1. **Use asserts to validate assumptions**: Use `assert` to validate assumptions, and prefer making reasonable assumptions backed by assert to defensive `if` checks.
-1. **DRY**: Don't Repeat Yourself. Refactor similar code into a common method. But feature flag parameters are a design smell; if you would need to add flags, write separate methods instead.
-1. **Parsimony**: If you can write a general case that also generates correct results in the special case (empty input, maximum size, etc), then do so. Don't write special cases unless they are necessary.
-1. **Use imports**: Avoid raw, fully qualified class names unless necessary to disambiguate; otherwise import them. EXCEPTION: if you are editing from individual method sources or usages call sites, use FQ names since you can't add easily add imports.
-1. **YAGNI**: Follow the principle of You Ain't Gonna Need It; implement the simplest solution that meets the requirements, unless you have specific knowledge that a more robust solution is needed to meet near-future requirements.
-1. **Keep related code together**: Don't split out code into a separate function, class, or file unless it is completely self-contained or called from multiple sites. It's easier to understand a short computation inline with its context, than split out to a separate location.
+## 1. Java Language Features
 
-## Things to avoid
+*   **Text Blocks (`"""..."""`)**: Use text blocks for multi-line strings, especially for prompts, system messages, and any longer descriptive text. Combine with `.formatted()` for dynamic content.
+    ```java
+    new SystemMessage(
+        """
+        <instructions>
+        You are the Search Agent.
+        Your job is to be the **Code Agent's preparer**.
+        ...
+        </instructions>
+        """.formatted(supportedTypes, reminder)
+    );
+    ```
+*   **Switch Expressions (`switch` with `->`)**: Prefer `switch` expressions for concise conditional logic that returns a value.
+    ```java
+    return switch (toolName) {
+        case "answer", "createTaskList" -> ToolCategory.TERMINAL;
+        case "dropWorkspaceFragments" -> ToolCategory.WORKSPACE_HYGIENE;
+        default -> ToolCategory.RESEARCH;
+    };
+    ```
+*   **Records (`record`)**: Use Java records for immutable data carriers where the primary purpose is to hold data.
+    ```java
+    private record TerminalObjective(String type, String text) {}
+    ```
+*   **`var` Keyword**: Use `var` for local variable declarations when the type is immediately obvious from the initializer, enhancing readability and reducing boilerplate.
+    ```java
+    var wst = new WorkspaceTools(context);
+    var toolSpecs = tr.getTools(allAllowed);
+    ```
+*   **Numeric Literals with Underscores**: Use underscores to improve the readability of large numeric literals.
+    ```java
+    private static final int SUMMARIZE_THRESHOLD = 1_000;
+    ```
 
-1. **No Reflection**: Don't use reflection unless it's specifically requested by the user. Especially don't use reflection to work around member visibility issues; ask the user to add the necessary file to the Workspace so you can relax the visibility, instead.
-1. **No Unicode**: Don't use unicode characters in code. No fancy quotes, no fancy dashes, no fancy spaces, just plain ASCII.
-1. **No DI, no mocking frameworks**: these usually lead to bad patterns where you spend more time refactoring tests than actually doing useful things. instead we give interfaces default implementations (UnsupportedOperationException is fine) to minimize boilerplate in tests.
-1. **No StringBuilder**: prefer joins or interpolated text blocks where possible. Use stripIndent() with text blocks.
-1. **Overcautious Exception Handling**: Let unexpected exceptions propagate up where they will be logged by a global handler. Don't catch unless you have context-specific handling to apply.
+## 2. Annotations and Framework Specifics
 
-## Project-specific guidelines
+*   **AI Agent Tooling (`@Tool`, `@P`)**: All methods exposed as tools for AI agents **must** be `public` and annotated with `@Tool`. Parameters should be annotated with `@P` for clear descriptions.
+    ```java
+    @Tool("Provide a final answer to a purely informational request.")
+    public String answer(
+            @P("Comprehensive explanation that answers the query.")
+            String explanation) {
+        // ...
+    }
+    ```
+*   **Nullability Annotations (`@Nullable`)**: Use `org.jetbrains.annotations.Nullable` to explicitly mark parameters or return types that can legitimately be null.
+    ```java
+    public String callMcpTool(
+            String toolName,
+            @Nullable Map<String, Object> arguments) {
+        // ...
+    }
+    ```
 
-1. **Use ProjectFile to represent files**. String and File and Path all have issues that ProjectFile resolves. If you're dealing with files but you don't have the ProjectFile API available, stop and ask the user to provide it.
+## 3. Code Structure and Readability
 
-## GUI standards
+*   **Custom Import Order**: Imports are grouped and ordered as follows:
+    1.  Project-specific imports (`ai.brokk.*`)
+    2.  External library imports (e.g., `com.fasterxml.*`, `dev.langchain4j.*`, `org.apache.*`, `org.jetbrains.*`)
+    3.  Standard JDK imports (`java.*`)
+*   **Static Imports**: Use static imports for frequently used utility methods, particularly `java.util.Objects.requireNonNull`.
+    ```java
+    import static java.util.Objects.requireNonNull;
+    // ...
+    var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
+    ```
+*   **Class/Method Grouping Comments**: In large classes, use `// ======================= ... =======================` style comments to visually group related methods, improving navigation and understanding.
+*   **Constructor Parameter Formatting**: For constructors with a large number of parameters, each parameter should be placed on a new line for improved readability.
+    ```java
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Set<Terminal> allowedTerminals,
+            ContextManager.TaskScope scope) {
+        // ...
+    }
+    ```
+*   **Defensive Programming**: Explicitly use `Objects.requireNonNull` to validate essential dependencies or arguments at key points (e.g., constructor, method entry points) to ensure robust behavior and fast failures.
 
-1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)
-1. **Popup dialogs**: IConsoleIO (implemented by Chrome) offers `systemNotify(String message, String title, int messageType)` and `toolError(String message, String title)` methods backed by JMessageDialog, prefer these for simple "OK" notifications 
-1. **Named components**: Avoid navigating component hierarchies to retrieve a specific component by index or text. Save a reference as a field instead.
-1. **Buttons**: Use ai.brokk.gui.components.MaterialButton instead of JButton. Use ai.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
-1. **Dialogs**: When building dialogs have buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it ai.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal ai.brokk.gui.components.MaterialButton with the text Cancel.
-1. **Notifications**: Use IConsoleIO.showNotification for informational messages, and IConsoleIO.toolError for modal errors. If you do not have the IConsoleIO API available in the Workspace, stop and ask the user to provide it.
+## 4. Application-Specific Patterns
+
+*   **Agent Task Result Handling**: Instead of throwing exceptions for expected control flow (e.g., task completion, planned abortion), agents should return `TaskResult` objects with appropriate `StopDetails` to indicate the outcome of an execution cycle. Exceptions are reserved for truly unexpected or unrecoverable errors.
