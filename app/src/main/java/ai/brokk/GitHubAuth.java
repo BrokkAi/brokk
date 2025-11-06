@@ -67,6 +67,8 @@ public class GitHubAuth {
         String effectiveHost = null; // For GHES
         boolean usingOverride = false;
 
+        // Normalize and validate host if present (early in the flow)
+
         if (provider.type() == IssueProviderType.GITHUB
                 && provider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
             // Check if any part of the GithubConfig is non-default.
@@ -116,6 +118,26 @@ public class GitHubAuth {
             }
         }
 
+        // Normalize and validate host if present
+        if (effectiveHost != null && !effectiveHost.isBlank()) {
+            var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(effectiveHost);
+            if (normalizedHostOpt.isPresent()) {
+                var hostValidationError = GitUiUtil.validateGitHubHost(normalizedHostOpt.get());
+                if (hostValidationError.isPresent()) {
+                    logger.warn(
+                            "Invalid GitHub host for project '{}': '{}'. Validation error: {}",
+                            project.getRoot().getFileName().toString(),
+                            effectiveHost,
+                            hostValidationError.get());
+                    throw new IOException("Invalid GitHub Enterprise host for project '"
+                            + project.getRoot().getFileName().toString()
+                            + "': "
+                            + hostValidationError.get());
+                }
+                effectiveHost = normalizedHostOpt.get();
+            }
+        }
+
         if (effectiveOwner == null
                 || effectiveOwner.isBlank()
                 || effectiveRepoName == null
@@ -134,21 +156,23 @@ public class GitHubAuth {
                     + "). Check git remote or GitHub override settings for owner/repo.");
         }
 
-        // Validate owner/repo format early to prevent connecting with invalid values
-        var validationError = GitUiUtil.validateOwnerRepo(effectiveOwner, effectiveRepoName);
-        if (validationError.isPresent()) {
+        // Validate and normalize owner/repo using centralized slug builder
+        String normalizedSlug;
+        try {
+            normalizedSlug = GitUiUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
+        } catch (IllegalArgumentException e) {
             String source = usingOverride ? "GitHub config override" : "git remote URL";
             logger.warn(
-                    "Invalid owner/repo format for project '{}': owner='{}', repo='{}' (from {}). Validation error: {}",
+                    "Invalid owner/repo format for project '{}': owner='{}', repo='{}' (from {}). Error: {}",
                     project.getRoot().getFileName().toString(),
                     effectiveOwner,
                     effectiveRepoName,
                     source,
-                    validationError.get());
+                    e.getMessage());
             throw new IOException("Invalid GitHub repository identifier for project '"
                     + project.getRoot().getFileName().toString()
                     + "': "
-                    + validationError.get());
+                    + e.getMessage());
         }
 
         // Compare all three: owner, repo, and host
@@ -584,15 +608,17 @@ public class GitHubAuth {
             return; // Already connected
         }
 
-        // Validate owner/repo format early to prevent invalid API calls
-        var validationError = GitUiUtil.validateOwnerRepo(owner, repoName);
-        if (validationError.isPresent()) {
+        // Build and validate slug early to prevent invalid API calls
+        String slug;
+        try {
+            slug = GitUiUtil.buildRepoSlug(owner, repoName);
+        } catch (IllegalArgumentException e) {
             logger.warn(
-                    "Validation failed for repository identifier: owner='{}', repo='{}'. Validation error: {}",
+                    "Validation failed for repository identifier: owner='{}', repo='{}'. Error: {}",
                     owner,
                     repoName,
-                    validationError.get());
-            throw new IOException("Invalid GitHub repository identifier: " + validationError.get());
+                    e.getMessage());
+            throw new IOException("Invalid GitHub repository identifier: " + e.getMessage());
         }
 
         // Try with token
@@ -601,10 +627,10 @@ public class GitHubAuth {
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
-            // Ensure host does not have scheme, GitHubBuilder wants just the hostname for enterprise.
-            // It will construct https://{host}/api/v3 or similar internally.
-            String enterpriseHost = this.host.replaceFirst("^https?://", "").replaceFirst("/$", "");
-            builder.withEndpoint("https://" + enterpriseHost + "/api/v3"); // Explicitly set scheme and path for clarity
+            // Normalize host and ensure it does not have scheme for GitHubBuilder
+            var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(this.host);
+            String enterpriseHost = normalizedHostOpt.orElse(this.host);
+            builder.withEndpoint("https://" + enterpriseHost + "/api/v3"); // Explicitly set scheme and path
             logger.debug("Configuring GitHub client for enterprise host: {}", enterpriseHost);
         }
 
@@ -618,12 +644,11 @@ public class GitHubAuth {
                 builder.withOAuthToken(token);
                 this.githubClient = builder.build();
                 try {
-                    String repoSlug = owner + "/" + repoName;
                     logger.debug(
                             "Calling getRepository with slug '{}' on host '{}' (authenticated)",
-                            repoSlug,
+                            slug,
                             targetHostDisplay);
-                    this.ghRepository = this.githubClient.getRepository(repoSlug);
+                    this.ghRepository = this.githubClient.getRepository(slug);
                 } catch (IllegalArgumentException iae) {
                     logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
                     throw new IOException(
@@ -658,27 +683,20 @@ public class GitHubAuth {
         }
 
         // Try anonymous (if token failed or no token)
-        // Re-initialize builder if it was modified by token attempt and failed, or if no token.
-        // If host was set, it's already in builder. If not, builder is fresh or uses default endpoint.
-        // GitHubBuilder is stateful for endpoint, so if it was set above, it persists.
-        // If builder.withOAuthToken(token) failed, the endpoint setting is still there for anonymous.
-        if (this.githubClient == null) { // only if token attempt failed or no token was present
-            // builder already has endpoint if host was specified.
-            // builder.build() will now be anonymous.
+        if (this.githubClient == null) {
             try {
                 logger.debug(
                         "Attempting anonymous GitHub connection for {}/{} on host {}",
                         owner,
                         repoName,
                         targetHostDisplay);
-                this.githubClient = builder.build(); // Will use default endpoint or the one set for GHES
+                this.githubClient = builder.build();
                 try {
-                    String repoSlug = owner + "/" + repoName;
                     logger.debug(
                             "Calling getRepository with slug '{}' on host '{}' (anonymous)",
-                            repoSlug,
+                            slug,
                             targetHostDisplay);
-                    this.ghRepository = this.githubClient.getRepository(repoSlug);
+                    this.ghRepository = this.githubClient.getRepository(slug);
                 } catch (IllegalArgumentException iae) {
                     logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
                     throw new IOException(

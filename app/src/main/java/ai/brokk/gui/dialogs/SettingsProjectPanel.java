@@ -14,6 +14,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.IssueProviderType;
@@ -445,12 +446,83 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             githubRepoField.setEnabled(selected);
             githubHostField.setEnabled(selected);
             if (!selected) {
-                // Optionally clear or reset fields if needed when unchecked
+                // Clear fields when unchecked
                 githubOwnerField.setText("");
                 githubRepoField.setText("");
                 githubHostField.setText("");
             }
         });
+
+        // Add document listener to repo field for flexible parsing and auto-sanitization
+        githubRepoField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            private void onRepoFieldChanged() {
+                String repoText = githubRepoField.getText().trim();
+                if (!repoText.isEmpty()) {
+                    // Try flexible parsing (could be a URL or owner/repo)
+                    var parseResult = GitUiUtil.parseOwnerRepoFlexible(repoText);
+                    if (parseResult.isPresent()) {
+                        // Auto-populate owner and repo from parsed result
+                        var ownerRepo = parseResult.get();
+                        githubOwnerField.setText(ownerRepo.owner());
+                        githubRepoField.setText(ownerRepo.repo());
+                    }
+                }
+            }
+        });
+
+        // Add document listener to host field for normalization and validation
+        githubHostField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                onHostFieldChanged();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                onHostFieldChanged();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                onHostFieldChanged();
+            }
+
+            private void onHostFieldChanged() {
+                String hostText = githubHostField.getText();
+                if (!hostText.isEmpty()) {
+                    var normalizedOpt = GitUiUtil.normalizeGitHubHost(hostText);
+                    if (normalizedOpt.isPresent()) {
+                        String normalized = normalizedOpt.get();
+                        var validationError = GitUiUtil.validateGitHubHost(normalized);
+                        if (validationError.isPresent()) {
+                            logger.debug("GitHub host validation error: {}", validationError.get());
+                            // In a real implementation, we could show an error tooltip or label here
+                        } else {
+                            // Update field with normalized value
+                            if (!normalized.equals(hostText)) {
+                                githubHostField.setText(normalized);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         // Initial state
         githubOwnerField.setEnabled(false);
         githubRepoField.setEnabled(false);
@@ -1063,6 +1135,35 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String owner = githubOwnerField.getText().trim();
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
+
+                    // Validate owner/repo before persisting
+                    var validationError = GitUiUtil.validateOwnerRepo(owner, repo);
+                    if (validationError.isPresent()) {
+                        JOptionPane.showMessageDialog(
+                                parentDialog,
+                                "Invalid GitHub configuration: " + validationError.get(),
+                                "GitHub Configuration Error",
+                                JOptionPane.ERROR_MESSAGE);
+                        return false; // Do not apply settings if validation fails
+                    }
+
+                    // Validate host if present
+                    if (!host.isEmpty()) {
+                        var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(host);
+                        if (normalizedHostOpt.isPresent()) {
+                            var hostValidationError = GitUiUtil.validateGitHubHost(normalizedHostOpt.get());
+                            if (hostValidationError.isPresent()) {
+                                JOptionPane.showMessageDialog(
+                                        parentDialog,
+                                        "Invalid GitHub host: " + hostValidationError.get(),
+                                        "GitHub Host Error",
+                                        JOptionPane.ERROR_MESSAGE);
+                                return false;
+                            }
+                            host = normalizedHostOpt.get(); // Use normalized host
+                        }
+                    }
+
                     newProviderToSet = IssueProvider.github(owner, repo, host);
                 } else {
                     newProviderToSet = IssueProvider.github(); // Default GitHub (empty owner, repo, host)
