@@ -2602,6 +2602,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
+    /**
+     * Replaces the current console I/O implementation. This should only be called immediately after
+     * createHeadless() and before any tasks are submitted.
+     *
+     * @param newIo The new console I/O implementation to use
+     */
+    public void replaceIo(IConsoleIO newIo) {
+        this.io = newIo;
+        this.userActions.setIo(newIo);
+    }
+
     public void createHeadless() {
         createHeadless(BuildDetails.EMPTY);
     }

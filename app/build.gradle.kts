@@ -118,6 +118,10 @@ dependencies {
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
 
+    // Jetty 12 - Jakarta EE 10 (Servlet 6.0)
+    implementation("org.eclipse.jetty:jetty-server:12.1.3")
+    implementation("org.eclipse.jetty.ee10:jetty-ee10-servlet:12.1.3")
+
     // Java Decompiler
     implementation(libs.java.decompiler)
 
@@ -537,6 +541,29 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
+}
+
+// Http Server :app:shadowHttpJar
+tasks.register<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowHttpJar") {
+    group = "build"
+    description = "Builds the Brokk HTTP server shadow jar"
+
+    archiveBaseName.set("brokk-http")
+    archiveClassifier.set("")
+    from(sourceSets.main.get().output)
+
+    configurations = listOf(project.configurations.runtimeClasspath.get())
+
+    manifest {
+        attributes["Main-Class"] = "ai.brokk.http.HttpMain"
+    }
+    mergeServiceFiles()
+
+    isZip64 = true
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/MANIFEST.MF")
+
+    isReproducibleFileOrder = true
+    isPreserveFileTimestamps = false
 }
 
 tasks.shadowJar {

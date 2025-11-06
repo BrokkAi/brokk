@@ -47,6 +47,21 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import ai.brokk.gui.PrTitleFormatter;
+import ai.brokk.util.SyntaxDetector;
+import dev.langchain4j.data.message.AiMessage;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import java.util.UUID;
 import picocli.CommandLine;
 
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
@@ -134,6 +149,10 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String lutzLitePrompt;
 
+    @CommandLine.Option(names = "--review", description = "Run a PR review for the given PR number or URL.")
+    @Nullable
+    private String reviewPrompt;
+
     @CommandLine.Option(names = "--merge", description = "Run Merge agent to resolve repository conflicts (no prompt).")
     private boolean merge = false;
 
@@ -145,6 +164,10 @@ public final class BrokkCli implements Callable<Integer> {
             description = "Create a detached worktree at the given path, from the default branch's HEAD.")
     @Nullable
     private Path worktreePath;
+
+    @CommandLine.Option(names = "--session", description = "Use existing session by UUID for this run.")
+    @Nullable
+    private UUID SessionId;
 
     //  Model overrides
     @CommandLine.Option(names = "--planmodel", description = "Override the planning model to use.")
@@ -214,6 +237,7 @@ public final class BrokkCli implements Callable<Integer> {
         long actionCount = Stream.of(
                         architectPrompt,
                         codePrompt,
+                        reviewPrompt,
                         askPrompt,
                         searchAnswerPrompt,
                         lutzPrompt,
@@ -317,6 +341,11 @@ public final class BrokkCli implements Callable<Integer> {
         logger.info("Build Details: " + buildDetails);
 
         cm.createHeadless(buildDetails);
+
+        if (reviewPrompt != null) {
+            cm.replaceIo(new SilentConsole());
+        }
+
         var io = cm.getIo();
 
         //  Model Overrides initialization
@@ -509,6 +538,8 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = requireNonNull(askPrompt);
         } else if (merge) {
             scopeInput = "Merge";
+        } else if (reviewPrompt != null) {
+            scopeInput = "Review";
         } else if (searchAnswerPrompt != null) {
             scopeInput = requireNonNull(searchAnswerPrompt);
         } else if (build) {
@@ -550,6 +581,182 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                     result = InstructionsPanel.executeAskCommand(cm, codeModel, askPrompt);
                     context = scope.append(result);
+                } else if (reviewPrompt != null) {
+                    if (codeModel == null) {
+                        System.err.println("Error: --review requires --codemodel to be specified.");
+                        return 1;
+                    }
+                    if (SessionId != null) {
+                        cm.switchSessionAsync(SessionId).join();
+                    }
+                    Map<String, Object> prData;
+                    try {
+                        prData = parseReviewInput(reviewPrompt);
+                    } catch (Exception e) {
+                        System.err.println("Error: Invalid review input. Expected either:");
+                        System.err.println("  1. Path to a JSON file containing PR data");
+                        System.err.println("  2. Direct JSON string with PR data");
+                        System.err.println("Details: " + e.getMessage());
+                        return 1;
+                    }
+
+                    if (!validatePrData(prData)) {
+                        System.err.println("Error: PR data is missing required fields.");
+                        System.err.println("Required fields: pr_number, title, author, base_branch, head_branch, changed_files");
+                        return 1;
+                    }
+
+                    int prNumber = ((Number) prData.get("pr_number")).intValue();
+                    String prTitle = (String) prData.get("title");
+                    String descriptionText = (String) prData.get("body");
+                    String baseBranch = (String) prData.get("base_branch");
+                    String headBranch = (String) prData.get("head_branch");
+
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, String>> changedFilesData = (List<Map<String, String>>) prData.get("changed_files");
+                    StringBuilder diffBuilder = new StringBuilder();
+                    List<String> filenames = new ArrayList<>();
+                    if (changedFilesData != null && !changedFilesData.isEmpty()) {
+                        for (Map<String, String> fileData : changedFilesData) {
+                            String filename = fileData.get("filename");
+                            String patch = fileData.get("patch");
+                            if (filename != null) {
+                                filenames.add(filename);
+                            }
+                            if (filename != null && patch != null && !patch.isEmpty()) {
+                                diffBuilder
+                                    .append("diff --git a/").append(filename).append(" b/").append(filename).append("\n")
+                                    .append("--- a/").append(filename).append("\n")
+                                    .append("+++ b/").append(filename).append("\n")
+                                    .append(patch);
+                                if (!patch.endsWith("\n")) {
+                                    diffBuilder.append("\n");
+                                }
+                                diffBuilder.append("\n");
+                            }
+                        }
+                    }
+
+                    String diff = diffBuilder.toString();
+
+                    if (!diff.isEmpty()) {
+                        String fileNamesSummary = filenames.isEmpty()
+                                ? "(no files)"
+                                : filenames.stream().collect(Collectors.joining(", "));
+                        String description = String.format(
+                                "Diff of PR #%d (%s): %s [HEAD branch: %s vs Base branch: %s]",
+                                prNumber,
+                                prTitle,
+                                fileNamesSummary,
+                                headBranch,
+                                baseBranch);
+
+                        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                        if (!filenames.isEmpty()) {
+                            String first = filenames.getFirst();
+                            int dot = first.lastIndexOf('.');
+                            String ext = dot >= 0 ? first.substring(dot + 1) : "";
+                            syntaxStyle = SyntaxDetector.fromExtension(ext);
+                        }
+
+                        var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+                        cm.addVirtualFragment(fragment);
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));
+                    } else {
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("No differences found for PR #%d", prNumber));
+                    }
+
+                    if (changedFilesData != null && !changedFilesData.isEmpty()) {
+                        List<ProjectFile> textFiles = new ArrayList<>();
+                        for (Map<String, String> fileData : changedFilesData) {
+                            String rootStr = fileData.get("root");
+                            String relPathStr = fileData.get("relPath");
+
+                            if (rootStr != null && relPathStr != null) {
+                                try {
+                                    Path root = Paths.get(new URI(rootStr));
+                                    Path relPath = Paths.get(new URI(relPathStr));
+                                    ProjectFile file = new ProjectFile(root, relPath);
+                                    textFiles.add(file);
+                                } catch (URISyntaxException | IllegalArgumentException e) {
+                                    logger.warn("Invalid path for file: root={}, relPath={}", rootStr, relPathStr);
+                                }
+                            }
+                        }
+
+                        if (!textFiles.isEmpty()) {
+                            cm.addFiles(new HashSet<>(textFiles));
+                            io.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    String.format(
+                                            "Added %d changed file(s) from PR #%d to editable context",
+                                            textFiles.size(), prNumber));
+                        }
+                    }
+
+                    if (descriptionText != null && !descriptionText.isBlank()) {
+                        var descriptionFragment = new ContextFragment.StringFragment(
+                                cm,
+                                descriptionText,
+                                PrTitleFormatter.formatDescriptionTitle(prNumber),
+                                "markdown");
+                        cm.addVirtualFragment(descriptionFragment);
+                        io.showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                String.format("Added PR description fragment for PR #%d", prNumber));
+                    }
+
+                    String reviewGuide = project.getReviewGuide();
+
+                    String reviewPromptFormatted = formatReviewPrompt(prNumber, prTitle, reviewGuide, prData);
+                    result = InstructionsPanel.executeAskCommand(cm, codeModel, reviewPromptFormatted);
+                    var msg = (AiMessage) result.output().messages().getLast();
+
+                    Map<String, Object> reviewOutput;
+                    String rawText = msg.text();
+                    try {
+                        String cleaned = rawText;
+
+                        int jsonStart = rawText.indexOf("{");
+                        int jsonEnd = rawText.lastIndexOf("}");
+                        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                            cleaned = rawText.substring(jsonStart, jsonEnd + 1);
+                        }
+
+                        cleaned = cleaned.replaceAll("(?s)^```json\\s*|\\s*```$", "").trim();
+
+                        ObjectMapper mapper = new ObjectMapper();
+                        reviewOutput = mapper.readValue(cleaned, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                        if (!reviewOutput.containsKey("action") || !reviewOutput.containsKey("comments") || !reviewOutput.containsKey("summary")) {
+                            throw new IllegalArgumentException("Missing required fields in model output");
+                        }
+
+                        logger.info("Successfully parsed structured review JSON from model");
+                    } catch (Exception e) {
+                        // Fallback: wrap prose in safe structure
+                        logger.warn("Model did not return valid structured JSON, using fallback: {}", e.getMessage());
+                        reviewOutput = new LinkedHashMap<>();
+                        reviewOutput.put("action", "COMMENT");
+                        reviewOutput.put("comments", List.of());
+                        reviewOutput.put("summary", rawText);
+                    }
+
+                    reviewOutput.put("pr_number", prNumber);
+                    reviewOutput.put("pr_title", prTitle);
+                    reviewOutput.put("timestamp", java.time.Instant.now().toString());
+
+                    ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+                    String reviewJson = mapper.writeValueAsString(reviewOutput);
+                    Files.writeString(Paths.get("review.json"), reviewJson, StandardCharsets.UTF_8);
+
+                    String displayText = reviewOutput.containsKey("summary") ? (String) reviewOutput.get("summary") : rawText;
+                    io.showNotification(IConsoleIO.NotificationRole.INFO,"=== CODE REVIEW ===\n PR #" + prNumber + ": " + prTitle + "\n\n" + displayText + "\n\nReview saved to review.json");
+
+                    scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
                         System.err.println("Error: --merge requires --planmodel to be specified.");
@@ -691,6 +898,82 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         return 0;
+    }
+
+    public static boolean validatePrData(Map<String, Object> prData) {
+        String[] requiredFields = {
+            "pr_number", "title", "author", "base_branch", "head_branch", "changed_files"
+        };
+
+        for (String field : requiredFields) {
+            if (!prData.containsKey(field) || prData.get(field) == null) {
+                System.err.println("Missing required field: " + field);
+                return false;
+            }
+        }
+
+        return true;
+    }
+    public static Map<String, Object> parseReviewInput(String input) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        Path filePath = Paths.get(input);
+        if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+            String jsonContent = Files.readString(filePath, StandardCharsets.UTF_8);
+            return mapper.readValue(jsonContent, new TypeReference<Map<String, Object>>() {});
+        }
+
+        try {
+            return mapper.readValue(input, new TypeReference<Map<String, Object>>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                "Input is neither a valid file path nor a valid JSON string: " + input, e);
+        }
+    }
+
+    private static final String JSON_REVIEW_PROMPT_TEMPLATE = """
+    Please review the following Pull Request:
+
+    PR #%d: %s
+    Author: %s
+
+    %s
+    Review Guidelines:
+    %s
+
+    Please provide a thorough code review based on the diff and files in context.
+
+    IMPORTANT: You must output ONLY valid JSON with this exact schema (no markdown fences, no extra text):
+    {
+      "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+      "comments": [
+        {
+          "file": "relative/path/to/file",
+          "line": 123,
+          "comment": "Specific issue description"
+        }
+      ],
+      "summary": "Overall review summary"
+    }
+
+    For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
+    Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
+    """;
+
+    public static String formatReviewPrompt(int prNumber, String prTitle, String reviewGuide, Map<String, Object> prData) {
+        var author = prData.get("author");
+        var description = (String) prData.get("body");
+
+        var descriptionSection = (description != null && !description.isBlank())
+            ? "Description:\n" + description + "\n\n"
+            : "";
+
+        return JSON_REVIEW_PROMPT_TEMPLATE.formatted(
+            prNumber,
+            prTitle,
+            author,
+            descriptionSection,
+            reviewGuide
+        );
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
@@ -847,6 +1130,13 @@ public final class BrokkCli implements Callable<Integer> {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize models list", e);
         }
+    }
+
+    /**
+     * Features that require project path.
+     */
+    private boolean requiresProject() {
+        return build || deepScan || merge;
     }
 
     /**
