@@ -93,6 +93,14 @@ public final class BlitzForge {
     /**
      * Execute a set of per-file tasks in parallel, using AdaptiveExecutor token-aware scheduling when possible. The
      * provided processor should be thread-safe.
+     *
+     * <p><strong>Invariant:</strong> Any returned {@link TaskResult} carries a live (unfrozen) {@link Context}.
+     * This is enforced by an assertion in the {@code TaskResult} constructor. All context creation for the result
+     * must use {@link #createLiveResultingContext()} to ensure compliance with this invariant.
+     *
+     * @param files the collection of files to process in parallel
+     * @param processor a thread-safe function that processes each file and returns a {@link FileResult}
+     * @return a {@link TaskResult} containing aggregated results, with a live context
      */
     public TaskResult executeParallel(Collection<ProjectFile> files, Function<ProjectFile, FileResult> processor) {
         try {
