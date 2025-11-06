@@ -18,6 +18,16 @@ fi
 # Use the most recently modified brokk-*.jar as the classpath
 CLASSPATH="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
 
+# Determine which BrokkCli class exists in the JAR
+if jar -tf "$CLASSPATH" | grep -q '^ai/brokk/cli/BrokkCli\.class$'; then
+  CLASS_NAME="ai.brokk.cli.BrokkCli"
+elif jar -tf "$CLASSPATH" | grep -q '^io/github/jbellis/brokk/cli/BrokkCli\.class$'; then
+  CLASS_NAME="io.github.jbellis.brokk.cli.BrokkCli"
+else
+  echo "Error: BrokkCli class not found in $CLASSPATH" >&2
+  exit 1
+fi
+
 # Launch BrokkCli.
 # We use PGC because it's more space-efficient than the default G1,
 # and in cli mode we're not latency sensitive.
@@ -119,17 +129,9 @@ if $DEBUG_ENABLED && ! $jdwp_specified; then
   echo "Debugging enabled on port $DEBUG_PORT (suspend=$DEBUG_SUSPEND)" >&2
 fi
 
-# Launch BrokkCli with the JVM flags first, then classpath, then app args
-# Try the first class name; if it fails, try the fallback
-java \
-     "${EFFECTIVE_JVM_ARGS[@]}" \
-     -cp "$CLASSPATH" \
-     ai.brokk.cli.BrokkCli \
-     "${APP_ARGS[@]-}" && exit 0
-
-# Fallback to alternative class name
+# Launch BrokkCli with the determined class name
 exec java \
      "${EFFECTIVE_JVM_ARGS[@]}" \
      -cp "$CLASSPATH" \
-     io.github.jbellis.brokk.cli.BrokkCli \
+     "$CLASS_NAME" \
      "${APP_ARGS[@]-}"
