@@ -168,6 +168,7 @@ public class KeyboardShortcutUtilTest {
         formatted = KeyboardShortcutUtil.formatKeyStroke(space);
         assertNotNull(formatted);
         assertFalse(formatted.isEmpty());
+        assertFalse(formatted.contains("+"), "Space key without modifiers should not contain '+'");
     }
 
     @Test
