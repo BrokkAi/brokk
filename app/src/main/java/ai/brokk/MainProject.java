@@ -83,6 +83,7 @@ public final class MainProject extends AbstractProject {
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
+    private static final String MIGRATION_DECLINED_KEY = "styleMdMigrationDeclined";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -1044,6 +1045,15 @@ public final class MainProject extends AbstractProject {
     public void setMigrationsToSessionsV3Complete(boolean complete) {
         workspaceProps.setProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, String.valueOf(complete));
         saveWorkspaceProperties();
+    }
+
+    public boolean getMigrationDeclined() {
+        return Boolean.parseBoolean(projectProps.getProperty(MIGRATION_DECLINED_KEY, "false"));
+    }
+
+    public void setMigrationDeclined(boolean declined) {
+        projectProps.setProperty(MIGRATION_DECLINED_KEY, String.valueOf(declined));
+        saveProjectProperties();
     }
 
     public static String getGitHubToken() {
