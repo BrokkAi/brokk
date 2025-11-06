@@ -65,6 +65,7 @@ public class ModelBenchmarkData {
         addModel("claude-4-1-opus", Service.ReasoningLevel.HIGH, 93, 84, 69);
         addModel("claude-4-1-opus", Service.ReasoningLevel.DISABLE, 93, 68, 54);
         addModel("claude-haiku-4-5", Service.ReasoningLevel.MEDIUM, 85, 72, 50);
+        addModel("claude-haiku-4-5", Service.ReasoningLevel.DISABLE, 85, 72, 50);
 
         // O models
         addModel("o3", Service.ReasoningLevel.DEFAULT, 85, 75, 34);

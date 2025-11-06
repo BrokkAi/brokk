@@ -329,6 +329,8 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         return update(changedFiles);
     }
 
-    // Other IAnalyzer methods (CPG, advanced summarization, etc.)
-    // will throw UnsupportedOperationException as per IAnalyzer default implementations.
+    @Override
+    public Set<Language> languages() {
+        return Set.of(Languages.SQL);
+    }
 }

@@ -1738,7 +1738,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
         var future = new CompletableFuture<String>();
 
-        var worker = new SummarizeWorker(this, input, 5) {
+        var worker = new SummarizeWorker(this, input, SummarizerPrompts.WORD_BUDGET_5) {
             @Override
             protected void done() {
                 try {
