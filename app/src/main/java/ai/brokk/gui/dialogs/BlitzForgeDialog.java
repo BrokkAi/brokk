@@ -1311,7 +1311,9 @@ public class BlitzForgeDialog extends JDialog {
 
         // Prepare listener dialog + cancel wiring with logging
         var progressDialog = new BlitzForgeProgressDialog(chrome, () -> {
-            logger.debug("BlitzForge cancel requested (Tools path) on thread {}", Thread.currentThread().getName());
+            logger.debug(
+                    "BlitzForge cancel requested (Tools path) on thread {}",
+                    Thread.currentThread().getName());
             cm.interruptLlmAction();
         });
 
@@ -1320,7 +1322,9 @@ public class BlitzForgeDialog extends JDialog {
         // Kick off background execution
         var analyzerWrapper = cm.getAnalyzerWrapper();
         cm.submitLlmAction(() -> {
-            logger.debug("BlitzForge parallel processing started (Tools path) on thread {}", Thread.currentThread().getName());
+            logger.debug(
+                    "BlitzForge parallel processing started (Tools path) on thread {}",
+                    Thread.currentThread().getName());
             analyzerWrapper.pause();
             try (var scope = cm.beginTask(instructions, false)) {
                 var parallelResult = runParallel(
@@ -1426,7 +1430,9 @@ public class BlitzForgeDialog extends JDialog {
             }
         });
         // Show the progress dialog (modeless)
-        logger.debug("Showing BlitzForgeProgressDialog on thread {}", Thread.currentThread().getName());
+        logger.debug(
+                "Showing BlitzForgeProgressDialog on thread {}",
+                Thread.currentThread().getName());
         progressDialog.setVisible(true);
     }
 
@@ -1453,7 +1459,10 @@ public class BlitzForgeDialog extends JDialog {
         // Per-file processor: mirrors the previous dialog's processSingleFile logic
         return engine.executeParallel(filesToProcessList, file -> {
             if (Thread.currentThread().isInterrupted()) {
-                logger.debug("BlitzForge per-file interruption observed for {} on thread {}", file, Thread.currentThread().getName());
+                logger.debug(
+                        "BlitzForge per-file interruption observed for {} on thread {}",
+                        file,
+                        Thread.currentThread().getName());
                 return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
             }
 

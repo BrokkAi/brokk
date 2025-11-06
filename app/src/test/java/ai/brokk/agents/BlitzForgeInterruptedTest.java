@@ -8,8 +8,6 @@ import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,9 +79,7 @@ class BlitzForgeInterruptedTest {
                         List.of(),
                         unfrozenContext,
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.BLITZFORGE,
-                                new Service.ModelConfig("test-model"))),
+                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
                 "TaskResult construction should succeed with unfrozen context");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
@@ -117,8 +113,8 @@ class BlitzForgeInterruptedTest {
                 "BlitzForge.executeParallel with empty files should not throw");
 
         assertNotNull(result, "Result should not be null");
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason(),
-                "Empty file run should return SUCCESS");
+        assertEquals(
+                TaskResult.StopReason.SUCCESS, result.stopDetails().reason(), "Empty file run should return SUCCESS");
     }
 
     @Test
@@ -138,9 +134,7 @@ class BlitzForgeInterruptedTest {
                         List.of(),
                         unfrozen,
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.BLITZFORGE,
-                                new Service.ModelConfig("test-model"))),
+                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
                 "Result from unfrozen context should be usable for TaskResult");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
@@ -162,9 +156,7 @@ class BlitzForgeInterruptedTest {
                         List.of(),
                         unfrozen,
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.BLITZFORGE,
-                                new Service.ModelConfig("test-model"))),
+                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
                 "TaskResult should be constructible from unfrozen context after freeze-unfreeze cycle");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
@@ -211,9 +203,8 @@ class BlitzForgeInterruptedTest {
         try {
             // Execute with the interrupted flag set. The warm-up path will detect the interrupt
             // and return an INTERRUPTED result via interruptedResult()
-            TaskResult result = blitzForge.executeParallel(
-                    List.of(testFile),
-                    f -> new BlitzForge.FileResult(f, false, null, ""));
+            TaskResult result =
+                    blitzForge.executeParallel(List.of(testFile), f -> new BlitzForge.FileResult(f, false, null, ""));
 
             // Assertions: result should indicate interruption
             assertNotNull(result, "Result should not be null");
