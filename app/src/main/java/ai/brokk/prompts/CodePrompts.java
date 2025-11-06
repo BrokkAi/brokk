@@ -563,10 +563,10 @@ public abstract class CodePrompts {
      * and appends actionable guidance depending on failure reason and marker type.
      */
     private static String enrichSemanticCommentary(EditBlock.FailedBlock f) {
-        var base = f.commentary() == null ? "" : f.commentary().trim();
+        var base = f.commentary().trim();
 
         // Try to detect semantic markers in the original SEARCH block
-        var before = f.block().beforeText() == null ? "" : f.block().beforeText().strip();
+        var before = f.block().beforeText().strip();
         var m = java.util.regex.Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", java.util.regex.Pattern.MULTILINE)
                 .matcher(before);
         if (!m.find()) {
@@ -575,7 +575,6 @@ public abstract class CodePrompts {
         }
 
         var kind = m.group(1); // "CLASS" or "FUNCTION"
-        var target = m.group(2).trim();
 
         var hints = new ArrayList<String>();
 

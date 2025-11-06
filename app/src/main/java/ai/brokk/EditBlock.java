@@ -183,7 +183,7 @@ public class EditBlock {
                 var reason = (ex instanceof NoMatchException)
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
-                failed.add(new FailedBlock(block, reason, ex.getMessage()));
+                failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
                 continue;
             }
 
