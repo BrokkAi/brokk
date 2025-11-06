@@ -3,9 +3,21 @@ package ai.brokk.context;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.AnalyzerUtil.CodeWithSource;
-import ai.brokk.analyzer.*;
+import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
+import ai.brokk.IProject;
+import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.analyzer.CallGraphProvider;
+import ai.brokk.analyzer.CallSite;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ExternalFile;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -1922,7 +1934,7 @@ public interface ContextFragment {
             if (unit == null) {
                 return Set.of();
             }
-            return unit.classUnit().map(Set::of).orElseThrow();
+            return Set.of(unit);
         }
 
         @Override
@@ -2042,11 +2054,9 @@ public interface ContextFragment {
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
+            // FIXME this is broken, needs to include the actual call sites as well
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDefinition(methodName)
-                    .flatMap(CodeUnit::classUnit) // Get the containing class CodeUnit
-                    .map(Set::of)
-                    .orElse(Set.of());
+            return analyzer.getDefinition(methodName).map(Set::of).orElse(Set.of());
         }
 
         @Override

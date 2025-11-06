@@ -171,7 +171,7 @@ public class ExtractClassNameTest {
     @DisplayName("Default analyzer - extractClassName returns empty by default")
     void testDefaultAnalyzerExtractClassName() {
         // Use DisabledAnalyzer which uses default implementation
-        var analyzer = new DisabledAnalyzer();
+        var analyzer = new DisabledAnalyzer(mockProject);
 
         // Default is now Optional.empty() and should not throw
         assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.myMethod"));

@@ -596,6 +596,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
         contextManager.submitBackgroundTask("Opening diff for uncommitted files", () -> {
             try {
+                // Do not write GlobalUiSettings here; BrokkDiffPanel persists view mode on user toggle (Fixes #1679)
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
                 for (var file : orderedFiles) {
@@ -643,6 +644,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         return; // Existing window raised, don't create new one
                     }
 
+                    // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
+                    // user's choice when they toggle view (Fixes #1679)
                     var panel = builder.build();
                     panel.showInFrame("Uncommitted Changes Diff");
                 });

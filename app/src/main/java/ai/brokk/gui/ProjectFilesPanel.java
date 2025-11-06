@@ -42,6 +42,7 @@ public class ProjectFilesPanel extends JPanel {
 
     private JTextField searchField;
     private MaterialButton refreshButton;
+    private JPanel buttonPanel;
     private ProjectTree projectTree;
     private OverlayPanel searchOverlay;
     private AutoCompletion ac;
@@ -70,7 +71,7 @@ public class ProjectFilesPanel extends JPanel {
         var layeredPane = searchOverlay.createLayeredPane(searchField);
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
@@ -92,10 +93,13 @@ public class ProjectFilesPanel extends JPanel {
         contentSplitPane.setResizeWeight(0.7); // 70% to project tree, 30% to dependencies
         contentSplitPane.setDividerSize(5); // Show divider
         contentSplitPane.setDividerLocation(0.7); // Set initial position
-        dependenciesPanel.addNotify(); // Trigger initialization
+        dependenciesPanel.ensureInitialized();
 
         add(contentSplitPane, BorderLayout.CENTER);
-        updateBorderTitle(); // Set initial title with branch name
+
+        // Initialize badge with current dependency count (also updates border title)
+        int liveCount = chrome.getProject().getLiveDependencies().size();
+        chrome.updateProjectFilesTabBadge(liveCount);
     }
 
     private void toggleDependenciesPanel() {
@@ -104,7 +108,7 @@ public class ProjectFilesPanel extends JPanel {
             contentSplitPane.setDividerSize(
                     contentSplitPane.getDividerSize() > 0 ? contentSplitPane.getDividerSize() : 5);
             contentSplitPane.setDividerLocation(0.7);
-            dependenciesPanel.addNotify(); // Trigger initialization
+            dependenciesPanel.ensureInitialized();
         } else {
             contentSplitPane.setDividerSize(0);
         }
@@ -115,9 +119,34 @@ public class ProjectFilesPanel extends JPanel {
         toggleDependenciesPanel();
     }
 
-    private void updateBorderTitle() {
+    /**
+     * Updates the panel border title with current branch name and dependency count. Fetches both values from their
+     * sources of truth. EDT-safe. This is the canonical method for updating the border title - all callers should
+     * use this to ensure consistency.
+     */
+    public void updateBorderTitle() {
         var branchName = GitUiUtil.getCurrentBranchName(project);
-        GitUiUtil.updatePanelBorderWithBranch(this, "Project Files", branchName);
+        int dependencyCount = chrome.getProject().getLiveDependencies().size();
+        updateBorderTitle(branchName, dependencyCount);
+    }
+
+    /**
+     * Updates the panel border title with branch name and dependency count. EDT-safe.
+     */
+    public void updateBorderTitle(String branchName, int dependencyCount) {
+        SwingUtilities.invokeLater(() -> {
+            var border = getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String baseTitle = "Project Files";
+                if (dependencyCount > 0) {
+                    baseTitle += " (" + dependencyCount + " dependenc" + (dependencyCount == 1 ? "y" : "ies") + ")";
+                }
+                String newTitle = !branchName.isBlank() ? baseTitle + " [" + branchName + "]" : baseTitle;
+                titledBorder.setTitle(newTitle);
+                revalidate();
+                repaint();
+            }
+        });
     }
 
     private void setupProjectTree() {

@@ -60,6 +60,17 @@ public final class GlobalUiSettings {
     private GlobalUiSettings() {}
 
     public static Path getConfigDir() {
+        // Testability hook: allow tests to override the config directory to avoid touching real user config.
+        // If set, this takes precedence over OS-specific logic.
+        var override = System.getProperty("brokk.ui.config.dir");
+        if (override != null && !override.isBlank()) {
+            try {
+                return Path.of(override);
+            } catch (Exception e) {
+                logger.warn("Invalid system property brokk.ui.config.dir='{}': {}", override, e.getMessage());
+            }
+        }
+
         var os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         if (os.contains("win")) {
             var appData = System.getenv("APPDATA");
@@ -447,5 +458,13 @@ public final class GlobalUiSettings {
         if (p <= 0.0 || p >= 1.0) return -1.0;
         // keep a safe margin to avoid degenerate layouts
         return Math.max(0.05, Math.min(0.95, p));
+    }
+
+    /**
+     * Test hook: clear the cached properties so a new config dir (e.g., via brokk.ui.config.dir)
+     * is picked up by the next loadProps() call.
+     */
+    public static synchronized void resetForTests() {
+        cachedProps = null;
     }
 }

@@ -1,5 +1,6 @@
 package ai.brokk.testutil;
 
+import ai.brokk.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -38,6 +39,31 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
+    public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<Language> languages() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public IAnalyzer update() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public List<CodeUnit> getAllDeclarations() {
         return allClasses;
     }
@@ -72,6 +98,16 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
         return Stream.concat(matchingClasses.stream(), matchingMethods.stream())
                 .distinct()
                 .toList();
+    }
+
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        return Optional.empty();
     }
 
     @Override
