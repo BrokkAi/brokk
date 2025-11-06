@@ -1,4 +1,4 @@
-package ai.brokk.executor.model;
+package ai.brokk.executor.jobs;
 
 import org.jetbrains.annotations.Nullable;
 
