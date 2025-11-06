@@ -902,7 +902,9 @@ class EditBlockTest {
                 ```
                 """;
 
-        var blocks = EditBlockParser.instance.parseEditBlocks(response, ctx.getFilesInContext()).blocks();
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
         assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown class");
@@ -943,7 +945,9 @@ class EditBlockTest {
                 ```
                 """;
 
-        var blocks = EditBlockParser.instance.parseEditBlocks(response, ctx.getFilesInContext()).blocks();
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
         assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown method");

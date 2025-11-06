@@ -1,5 +1,7 @@
 package ai.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.EditBlock;
 import ai.brokk.TaskResult;
 import ai.brokk.prompts.EditBlockParser;
@@ -11,8 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test: Verify CodeAgent's retry loop when semantic-aware edit blocks (BRK_CLASS/BRK_FUNCTION)
@@ -49,8 +49,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 "", // lastBuildError
                 (Set) Set.of(), // changedFiles
                 (Map) Map.of(), // originalFileContents
-                (Map) Map.of()  // javaLintDiagnostics
-        );
+                (Map) Map.of() // javaLintDiagnostics
+                );
 
         // Invoke apply phase, which should attempt to apply, fail, and then craft a retry request with feedback.
         var step = codeAgent.applyPhase(cs, es, null);
@@ -77,7 +77,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         // 1) Create a Java file that the analyzer can parse & index
         var cm = codeAgent.contextManager;
         var file = cm.toFile("src/main/java/p/A.java");
-        file.write("""
+        file.write(
+                """
                 package p;
 
                 public class A {
@@ -85,7 +86,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                         return "Hello, " + name;
                     }
                 }
-                """.stripIndent());
+                """
+                        .stripIndent());
 
         // Ensure analyzer is aware of this file
         cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
@@ -98,12 +100,12 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 public String greet(String name) {
                     return "Hi, " + name + "!";
                 }
-                """.stripIndent());
+                """
+                        .stripIndent());
 
         // 3) Run parsePhase to parse the block
         var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
-        var es = new CodeAgent.EditState(
-                List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
 
         var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
         assertTrue(parseStep instanceof CodeAgent.Step.Continue, "parsePhase should Continue on clean block");
@@ -136,10 +138,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
             setField(metrics, "applyRetries", 0);
 
             // Call print(Set<ProjectFile>, StopDetails)
-            var print = metricsClz.getDeclaredMethod(
-                    "print",
-                    Set.class,
-                    TaskResult.StopDetails.class);
+            var print = metricsClz.getDeclaredMethod("print", Set.class, TaskResult.StopDetails.class);
 
             print.setAccessible(true);
             var stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "");
@@ -147,7 +146,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
 
             var s = out.toString("UTF-8");
             assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
-            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length()).trim();
+            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length())
+                    .trim();
 
             var obj = new ObjectMapper().readTree(json);
             assertEquals("SUCCESS", obj.get("stopReason").asText());
@@ -163,7 +163,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         // 1) Create a Java file with a valid method
         var cm = codeAgent.contextManager;
         var file = cm.toFile("src/main/java/p/B.java");
-        file.write("""
+        file.write(
+                """
                 package p;
 
                 public class B {
@@ -171,7 +172,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                         return a + b;
                     }
                 }
-                """.stripIndent());
+                """
+                        .stripIndent());
         cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
 
         // 2) Simulate an LLM response with BRK_FUNCTION pointing to a non-existent method
@@ -182,11 +184,11 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 public int subtract(int a, int b) {
                     return a - b;
                 }
-                """.stripIndent());
+                """
+                        .stripIndent());
 
         var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
-        var es = new CodeAgent.EditState(
-                List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
 
         // parsePhase
         var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
@@ -217,10 +219,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
             setField(metrics, "failedEditBlocks", 1);
             setField(metrics, "applyRetries", 1);
 
-            var print = metricsClz.getDeclaredMethod(
-                    "print",
-                    Set.class,
-                    TaskResult.StopDetails.class);
+            var print = metricsClz.getDeclaredMethod("print", Set.class, TaskResult.StopDetails.class);
             print.setAccessible(true);
 
             var stop = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Unable to resolve method");
@@ -228,7 +227,8 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
 
             var s = out.toString("UTF-8");
             assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
-            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length()).trim();
+            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length())
+                    .trim();
 
             var obj = new ObjectMapper().readTree(json);
             assertEquals("APPLY_ERROR", obj.get("stopReason").asText());
@@ -250,7 +250,9 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 %s
                 >>>>>>> REPLACE
                 ```
-                """.stripIndent().formatted(filePath, search, replace);
+                """
+                .stripIndent()
+                .formatted(filePath, search, replace);
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

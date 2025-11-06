@@ -144,8 +144,7 @@ public abstract class CodePrompts {
                 IContextManager.logger.debug("Syntax-aware edits disabled: no editable files present.");
             } else {
                 IContextManager.logger.debug(
-                        "Syntax-aware edits disabled: non-Java or unknown-extension files present: {}",
-                        nonJava);
+                        "Syntax-aware edits disabled: non-Java or unknown-extension files present: {}", nonJava);
             }
         }
 
@@ -584,7 +583,8 @@ public abstract class CodePrompts {
                     hints.add("- Verify the fully qualified class name (package.ClassName).");
                     hints.add("- Ensure the class exists in the workspace and the file path is correct.");
                     hints.add("- If in doubt, open the file and copy the exact class declaration's package and name.");
-                    hints.add("- As a fallback, use a line-based SEARCH for the specific class body you want to replace.");
+                    hints.add(
+                            "- As a fallback, use a line-based SEARCH for the specific class body you want to replace.");
                 } else { // FUNCTION
                     hints.add("- Verify the fully qualified method name (package.ClassName.method).");
                     hints.add("- Ensure the owning class exists and is spelled correctly.");
@@ -594,8 +594,10 @@ public abstract class CodePrompts {
             case AMBIGUOUS_MATCH -> {
                 if ("FUNCTION".equals(kind)) {
                     hints.add("- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
-                    hints.add("- Use a line-based SEARCH that includes enough unique lines from the target method body.");
-                    hints.add("- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
+                    hints.add(
+                            "- Use a line-based SEARCH that includes enough unique lines from the target method body.");
+                    hints.add(
+                            "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
                 }
                 // For BRK_CLASS ambiguity we don't add extra guidance (not a typical case).
             }
