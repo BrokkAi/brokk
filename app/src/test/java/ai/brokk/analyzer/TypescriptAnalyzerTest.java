@@ -1643,4 +1643,92 @@ public class TypescriptAnalyzerTest {
         assertTrue(instanceCount.isPresent(), "Instance property 'count' should be found");
         assertTrue(staticCount.isPresent(), "Static property 'count' should be found");
     }
+
+    @Test
+    void testFunctionOverloadSignatures() {
+        ProjectFile overloadsFile = new ProjectFile(project.getRoot(), "Overloads.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(overloadsFile);
+        assertFalse(skeletons.isEmpty(), "Skeletons map for Overloads.ts should not be empty");
+
+        // Test 1: Basic overload - add function
+        // TypeScript merges overloads into a single CodeUnit with multiple signatures
+        CodeUnit addFunc = skeletons.keySet().stream()
+                .filter(cu -> cu.shortName().equals("add") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("add function not found"));
+
+        List<String> addSignatures = analyzer.signaturesOf(addFunc);
+        assertEquals(3, addSignatures.size(), "Should have 3 signature variants for add function");
+
+        // Check that signatures contain the expected parameter types
+        assertTrue(
+                addSignatures.stream().anyMatch(s -> s.contains("number") && s.contains("number")),
+                "Should have signature with (number, number)");
+        assertTrue(
+                addSignatures.stream().anyMatch(s -> s.contains("string") && s.contains("string")),
+                "Should have signature with (string, string)");
+        assertTrue(addSignatures.stream().anyMatch(s -> s.contains("any")), "Should have signature with any");
+
+        // Test 2: Optional parameter - query function
+        CodeUnit queryFunc = skeletons.keySet().stream()
+                .filter(cu -> cu.shortName().equals("query") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("query function not found"));
+
+        List<String> querySignatures = analyzer.signaturesOf(queryFunc);
+        assertEquals(3, querySignatures.size(), "Should have 3 signature variants for query function");
+
+        // Check for optional parameter marker
+        assertTrue(
+                querySignatures.stream().anyMatch(s -> s.contains("?")),
+                "Should have signature with optional parameter (?)");
+
+        // Test 3: Rest parameter - combine function
+        CodeUnit combineFunc = skeletons.keySet().stream()
+                .filter(cu -> cu.shortName().equals("combine") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("combine function not found"));
+
+        List<String> combineSignatures = analyzer.signaturesOf(combineFunc);
+        assertEquals(3, combineSignatures.size(), "Should have 3 signature variants for combine function");
+
+        // Check for rest parameter marker
+        assertTrue(
+                combineSignatures.stream().anyMatch(s -> s.contains("...")),
+                "Should have signature with rest parameter (...)");
+
+        // Test 4: Complex generic types - map function
+        CodeUnit mapFunc = skeletons.keySet().stream()
+                .filter(cu -> cu.shortName().equals("map") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("map function not found"));
+
+        List<String> mapSignatures = analyzer.signaturesOf(mapFunc);
+        assertEquals(3, mapSignatures.size(), "Should have 3 signature variants for map function");
+
+        // Verify at least one signature contains array types and function types
+        assertTrue(
+                mapSignatures.stream().anyMatch(s -> s.contains("[]") && s.contains("=>")),
+                "Map signatures should contain array types and function types");
+
+        // Test 5: Class method overloads
+        Optional<CodeUnit> multiplyMethodOpt = skeletons.keySet().stream()
+                .filter(cu -> cu.fqName().contains("multiply"))
+                .findFirst();
+
+        if (multiplyMethodOpt.isPresent()) {
+            CodeUnit multiplyMethod = multiplyMethodOpt.get();
+            List<String> multiplySignatures = analyzer.signaturesOf(multiplyMethod);
+            assertEquals(
+                    3, multiplySignatures.size(), "Should have 3 signature variants for " + multiplyMethod.fqName());
+
+            // Verify both overload parameter types are present
+            assertTrue(
+                    multiplySignatures.stream().anyMatch(s -> s.contains("number") && s.contains("number")),
+                    "Should have (number, number) signature for multiply");
+            assertTrue(
+                    multiplySignatures.stream().anyMatch(s -> s.contains("string") && s.contains("number")),
+                    "Should have (string, number) signature for multiply");
+        }
+    }
 }

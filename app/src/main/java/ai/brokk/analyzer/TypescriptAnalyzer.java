@@ -1362,4 +1362,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 localSignatures,
                 localSourceRanges);
     }
+
+    @Override
+    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+        // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
+        // We should NOT set the signature field on individual CodeUnits because it makes them unequal.
+        // Instead, signature information is extracted during skeleton building and stored in
+        // CodeUnitProperties.signatures list.
+        // Return null to avoid setting CodeUnit.signature field.
+        return null;
+    }
 }
