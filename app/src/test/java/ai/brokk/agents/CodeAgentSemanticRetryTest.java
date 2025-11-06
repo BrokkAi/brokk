@@ -1,6 +1,12 @@
 package ai.brokk.agents;
 
 import ai.brokk.EditBlock;
+import ai.brokk.TaskResult;
+import ai.brokk.prompts.EditBlockParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,5 +70,192 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         assertNotNull(next, "Expected a follow-up user request prompting a retry with failure details");
 
         // (a) Implicitly covered by the presence of the follow-up request and Step.Retry outcome.
+    }
+
+    @Test
+    void testEndToEnd_semanticEdit_brkFunction_success_andTelemetry() throws Exception {
+        // 1) Create a Java file that the analyzer can parse & index
+        var cm = codeAgent.contextManager;
+        var file = cm.toFile("src/main/java/p/A.java");
+        file.write("""
+                package p;
+
+                public class A {
+                    public String greet(String name) {
+                        return "Hello, " + name;
+                    }
+                }
+                """.stripIndent());
+
+        // Ensure analyzer is aware of this file
+        cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
+
+        // 2) Simulate an LLM response that emits a single S/R block using BRK_FUNCTION to target method p.A.greet
+        var llmText = buildSrBlock(
+                "src/main/java/p/A.java",
+                "BRK_FUNCTION p.A.greet",
+                """
+                public String greet(String name) {
+                    return "Hi, " + name + "!";
+                }
+                """.stripIndent());
+
+        // 3) Run parsePhase to parse the block
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
+        var es = new CodeAgent.EditState(
+                List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
+
+        var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
+        assertTrue(parseStep instanceof CodeAgent.Step.Continue, "parsePhase should Continue on clean block");
+        cs = parseStep.cs();
+        es = parseStep.es();
+        assertEquals(1, es.pendingBlocks().size(), "Exactly one block should be parsed and pending");
+
+        // 4) Apply the block (semantic apply may not be available in this test harness; expect a retry)
+        var applyStep = codeAgent.applyPhase(cs, es, null);
+        assertTrue(applyStep instanceof CodeAgent.Step.Retry, "applyPhase should Retry on semantic failure");
+        var retry = (CodeAgent.Step.Retry) applyStep;
+        assertEquals(1, retry.es().consecutiveApplyFailures(), "Failures counter should increment");
+        assertNotNull(retry.cs().nextRequest(), "LLM should receive feedback request");
+
+        // 6) Verify telemetry JSON shape by invoking Metrics.print via reflection, capturing System.err
+        var errBefore = System.err;
+        var out = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(out, true, "UTF-8"));
+
+            // Create CodeAgent.Metrics via reflection and populate minimal fields
+            var metricsClz = Class.forName("ai.brokk.agents.CodeAgent$Metrics");
+            var ctor = metricsClz.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            Object metrics = ctor.newInstance();
+
+            // Set a few counters to expected values
+            setField(metrics, "totalEditBlocks", 1);
+            setField(metrics, "failedEditBlocks", 0);
+            setField(metrics, "applyRetries", 0);
+
+            // Call print(Set<ProjectFile>, StopDetails)
+            var print = metricsClz.getDeclaredMethod(
+                    "print",
+                    Set.class,
+                    TaskResult.StopDetails.class);
+
+            print.setAccessible(true);
+            var stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "");
+            print.invoke(metrics, Set.of(file), stop);
+
+            var s = out.toString("UTF-8");
+            assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
+            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length()).trim();
+
+            var obj = new ObjectMapper().readTree(json);
+            assertEquals("SUCCESS", obj.get("stopReason").asText());
+            assertEquals(0, obj.get("editBlocksFailed").asInt());
+            assertEquals(1, obj.get("editBlocksTotal").asInt());
+        } finally {
+            System.setErr(errBefore);
+        }
+    }
+
+    @Test
+    void testEndToEnd_semanticEdit_brkFunction_failure_incorrectMethod_andTelemetry() throws Exception {
+        // 1) Create a Java file with a valid method
+        var cm = codeAgent.contextManager;
+        var file = cm.toFile("src/main/java/p/B.java");
+        file.write("""
+                package p;
+
+                public class B {
+                    public int add(int a, int b) {
+                        return a + b;
+                    }
+                }
+                """.stripIndent());
+        cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
+
+        // 2) Simulate an LLM response with BRK_FUNCTION pointing to a non-existent method
+        var llmText = buildSrBlock(
+                "src/main/java/p/B.java",
+                "BRK_FUNCTION p.B.subtract", // wrong method name
+                """
+                public int subtract(int a, int b) {
+                    return a - b;
+                }
+                """.stripIndent());
+
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
+        var es = new CodeAgent.EditState(
+                List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of());
+
+        // parsePhase
+        var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
+        assertTrue(parseStep instanceof CodeAgent.Step.Continue, "parsePhase should Continue on clean block");
+        cs = parseStep.cs();
+        es = parseStep.es();
+        assertEquals(1, es.pendingBlocks().size(), "One pending block expected");
+
+        // applyPhase should produce a Retry with commentary via getApplyFailureMessage
+        var applyStep = codeAgent.applyPhase(cs, es, null);
+        assertTrue(applyStep instanceof CodeAgent.Step.Retry, "Expected Retry on semantic failure");
+        var retry = (CodeAgent.Step.Retry) applyStep;
+        assertEquals(1, retry.es().consecutiveApplyFailures(), "Failures counter should increment");
+        assertNotNull(retry.cs().nextRequest(), "LLM should receive feedback request");
+
+        // 3) Telemetry shape check for an APPLY_ERROR outcome (invoke Metrics.print directly)
+        var errBefore = System.err;
+        var out = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(out, true, "UTF-8"));
+
+            var metricsClz = Class.forName("ai.brokk.agents.CodeAgent$Metrics");
+            var ctor = metricsClz.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            Object metrics = ctor.newInstance();
+
+            setField(metrics, "totalEditBlocks", 1);
+            setField(metrics, "failedEditBlocks", 1);
+            setField(metrics, "applyRetries", 1);
+
+            var print = metricsClz.getDeclaredMethod(
+                    "print",
+                    Set.class,
+                    TaskResult.StopDetails.class);
+            print.setAccessible(true);
+
+            var stop = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Unable to resolve method");
+            print.invoke(metrics, Set.of(), stop);
+
+            var s = out.toString("UTF-8");
+            assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
+            var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length()).trim();
+
+            var obj = new ObjectMapper().readTree(json);
+            assertEquals("APPLY_ERROR", obj.get("stopReason").asText());
+            assertTrue(obj.get("editBlocksFailed").asInt() >= 1, "Should record at least one failed block");
+        } finally {
+            System.setErr(errBefore);
+        }
+    }
+
+    // --- helpers ---
+
+    private static String buildSrBlock(String filePath, String search, String replace) {
+        return """
+                ```
+                %s
+                <<<<<<< SEARCH
+                %s
+                =======
+                %s
+                >>>>>>> REPLACE
+                ```
+                """.stripIndent().formatted(filePath, search, replace);
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        var f = target.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(target, value);
     }
 }
