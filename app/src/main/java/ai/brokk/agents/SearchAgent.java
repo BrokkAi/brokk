@@ -1,5 +1,7 @@
 package ai.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -595,7 +597,7 @@ public class SearchAgent {
                     """);
         }
 
-        if (hasAnswer) {
+        if (hasAnswer && !hasTaskList) {
             assert !hasWorkspace;
             return new TerminalObjective(
                     "query",
@@ -604,7 +606,7 @@ public class SearchAgent {
                     """);
         }
 
-        if (hasTaskList) {
+        if (hasTaskList && !hasAnswer) {
             assert !hasWorkspace;
             return new TerminalObjective(
                     "task",
@@ -614,6 +616,7 @@ public class SearchAgent {
         }
 
         if (hasWorkspace) {
+            assert !hasAnswer && !hasTaskList;
             return new TerminalObjective(
                     "task",
                     """
