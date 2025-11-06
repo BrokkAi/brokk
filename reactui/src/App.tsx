@@ -2,10 +2,12 @@ import { useState } from 'react'
 import ConfigPanel, { ExecutorConfig } from './components/ConfigPanel'
 import SessionUploader from './components/SessionUploader'
 import JobCreator from './components/JobCreator'
+import EventViewer from './components/EventViewer'
 
 function App() {
   const [config, setConfig] = useState<ExecutorConfig | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
 
   const handleConfigChange = (newConfig: ExecutorConfig) => {
     setConfig(newConfig)
@@ -13,6 +15,10 @@ function App() {
 
   const handleSessionUpload = (uploadedSessionId: string) => {
     setSessionId(uploadedSessionId)
+  }
+
+  const handleJobCreated = (createdJobId: string) => {
+    setJobId(createdJobId)
   }
 
   return (
@@ -42,7 +48,11 @@ function App() {
           )}
 
           {config && sessionId && (
-            <JobCreator config={config} sessionId={sessionId} />
+            <JobCreator config={config} sessionId={sessionId} onJobCreated={handleJobCreated} />
+          )}
+
+          {config && jobId && (
+            <EventViewer config={config} jobId={jobId} />
           )}
         </div>
       </div>

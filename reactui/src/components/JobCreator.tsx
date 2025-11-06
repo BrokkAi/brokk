@@ -4,6 +4,7 @@ import { ExecutorConfig } from './ConfigPanel';
 interface JobCreatorProps {
   config: ExecutorConfig | null;
   sessionId: string;
+  onJobCreated?: (jobId: string) => void;
 }
 
 interface JobCreationStatus {
@@ -128,6 +129,8 @@ export function JobCreator({ config, sessionId }: JobCreatorProps) {
         jobId,
         message: `Job created successfully`,
       });
+
+      onJobCreated?.(jobId);
 
       // Reset form
       setCommand('');
