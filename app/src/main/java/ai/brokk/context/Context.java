@@ -1000,6 +1000,9 @@ public class Context {
         if (ff.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
             return false;
         }
+        if (ff.files().isEmpty()) {
+            return false;
+        }
         IGitRepo repo = contextManager.getRepo();
         return !repo.getTrackedFiles().contains(ff.files().iterator().next());
     }

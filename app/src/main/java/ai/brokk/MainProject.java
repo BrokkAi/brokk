@@ -1392,7 +1392,8 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
             new Service.FavoriteModel(
                     "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.MEDIUM)));
+            new Service.FavoriteModel(
+                    "Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.DEFAULT)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
