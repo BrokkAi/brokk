@@ -12,7 +12,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.MenuBar;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.dialogs.AboutDialog;
-import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.dialogs.BrokkKeyDialog;
 import ai.brokk.gui.dialogs.OpenProjectDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -1051,30 +1050,30 @@ public class Brokk {
                 return;
             }
 
-            // Show migration prompt via AskHumanDialog
-            String question =
-                    """
-                    This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
-
-                    Would you like to migrate `style.md` to `AGENTS.md`? This will:
-                    - Rename `.brokk/style.md` to `.brokk/AGENTS.md`
-                    - Stage the change in Git (if the project is a Git repository)
-                    - You can then review and commit the changes
-
-                    Click "OK" to migrate, or "Cancel" to skip this migration.
-                    """;
-
-            String answer = AskHumanDialog.ask(chrome, question);
-
-            if (answer != null && !answer.trim().isEmpty()) {
-                // User accepted the migration
-                mainProject.performStyleMdToAgentsMdMigration(chrome);
+            String message =
+            """
+            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
+            
+            Would you like to migrate `style.md` to `AGENTS.md`? This will:
+            - Rename `.brokk/style.md` to `.brokk/AGENTS.md`
+            - Stage the change in Git (if the project is a Git repository)
+            - You can then review and commit the changes
+            """;
+            
+            int confirm = chrome.showConfirmDialog(
+            chrome.getFrame(),
+            message,
+            "Migrate Style Guide to AGENTS.md",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.QUESTION_MESSAGE);
+            
+            if (confirm == JOptionPane.YES_OPTION) {
+            mainProject.performStyleMdToAgentsMdMigration(chrome);
             } else {
-                // User declined; store the decision
-                mainProject.setMigrationDeclined(true);
-                logger.info(
-                        "User declined style.md to AGENTS.md migration for project {}. Decision stored.",
-                        mainProject.getRoot().getFileName());
+            mainProject.setMigrationDeclined(true);
+            logger.info(
+            "User declined style.md to AGENTS.md migration for project {}. Decision stored.",
+            mainProject.getRoot().getFileName());
             }
         } catch (Exception e) {
             logger.error(
