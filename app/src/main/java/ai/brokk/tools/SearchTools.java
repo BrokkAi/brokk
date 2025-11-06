@@ -41,6 +41,10 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
+    // Some analyzers may encode top-level items under a pseudo "module" owner (e.g., "_module_").
+    // Treat these owners as non-class containers when classifying methods vs. functions.
+    private static final Set<String> PSEUDO_METHOD_OWNERS = Set.of("_module_");
+
     private final IContextManager contextManager; // Needed for file operations
 
     public SearchTools(IContextManager contextManager) {
@@ -161,9 +165,19 @@ public class SearchTools {
 
     @Tool(
             """
-                    Search for symbols (class/method/field definitions) using static analysis.
-                    This should usually be the first step in a search.
-                    Returns symbol names with their file locations for quick navigation.
+                    Search for symbols (class/method/function/field/module definitions) using static analysis.
+                    Output is compact, one line per symbol:
+                    symbol|kind|file1,file2,...
+
+                    - kind abbreviations: cls (class), mtd (method), fn (free/top-level function), fld (field), mod (module)
+                    - files: comma-separated, deduplicated, sorted, normalized to forward slashes
+                    - multiple files appear if the symbol has more than one definition (e.g., .cc and .hh)
+                    - methods are member functions of classes/types; functions are free/top-level (pseudo owners like "_module_" are treated as functions)
+
+                    Examples:
+                    com.example.Foo|cls|src/main/java/com/example/Foo.java
+                    com.example.Foo.bar|mtd|src/main/java/com/example/Foo.java
+                    bmo_spin_exec|fn|src/core/spin.cc,include/spin.hh
                     """)
     public String searchSymbols(
             @P(
@@ -193,13 +207,54 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        var references = allDefinitions.stream()
-                .map(cu -> cu.fqName() + " -> " + cu.source().toString())
-                .distinct()
+        // Group by FQN to collect all definition files per symbol
+        var symbolMap = allDefinitions.stream()
+                .collect(Collectors.groupingBy(
+                        CodeUnit::fqName,
+                        Collectors.mapping(
+                                cu -> cu.source().toString().replace('\\', '/'),
+                                Collectors.toCollection(HashSet::new))));
+
+        var references = symbolMap.entrySet().stream()
+                .map(entry -> {
+                    var fqn = entry.getKey();
+                    var files = entry.getValue().stream().sorted().collect(Collectors.toList());
+                    // Find a representative CodeUnit to determine kind
+                    var kind = allDefinitions.stream()
+                            .filter(cu -> cu.fqName().equals(fqn))
+                            .findFirst()
+                            .map(SearchTools::codeUnitKind)
+                            .orElse("unknown");
+                    return fqn + "|" + kind + "|" + String.join(",", files);
+                })
                 .sorted()
                 .collect(Collectors.joining("\n"));
 
         return references;
+    }
+
+    /**
+     * Determines the short kind abbreviation for a CodeUnit.
+     * Returns: cls (class), mtd (method), fn (free/top-level function), fld (field), mod (module), or unknown.
+     */
+    private static String codeUnitKind(CodeUnit cu) {
+        if (cu.isClass()) {
+            return "cls";
+        } else if (cu.isFunction()) {
+            var ownerOpt = cu.classUnit();
+            if (ownerOpt.isPresent()) {
+                var ownerShort = ownerOpt.get().shortName();
+                if (!PSEUDO_METHOD_OWNERS.contains(ownerShort)) {
+                    return "mtd";
+                }
+            }
+            return "fn";
+        } else if (cu.isField()) {
+            return "fld";
+        } else if (cu.isModule()) {
+            return "mod";
+        }
+        return "unknown";
     }
 
     @Tool(

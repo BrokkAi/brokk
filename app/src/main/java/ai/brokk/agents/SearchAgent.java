@@ -354,13 +354,12 @@ public class SearchAgent {
                 Critical rules:
                   1) PRUNE FIRST at every turn.
                      - Remove fragments that are not directly useful for the goal.
-                     - Prefer concise, goal-focused summaries over full files.
-                     - When you pull information from a long fragment, first add your extraction, then drop the original.
+                     - Prefer concise, goal-focused summaries over full files when possible.
                      - Keep the Workspace focused on answering/solving the goal.
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single call when possible.
+                  4) Group related lookups into a single tool call when possible.
                   5) Make multiple tool calls at once when searching for different types of code.
                   6) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
