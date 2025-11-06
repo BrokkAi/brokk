@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -413,8 +414,95 @@ public final class GitUiUtil {
         }
     }
 
-    /** Holds a parsed "owner" and "repo" from a Git remote URL. */
+    /**
+     * Error message returned by validation methods when owner/repo format is invalid.
+     */
+    private static final String INVALID_REPO_FORMAT_MSG =
+            "Repository must be in the form 'owner/repo'. Check Settings → Project → Issues → GitHub or your git remote.";
+
+    /**
+     * Pattern for valid GitHub repository/owner names: alphanumeric, hyphens, underscores, dots.
+     */
+    private static final Pattern GITHUB_NAME_PATTERN = Pattern.compile("^[A-Za-z0-9_.-]+$");
+
+    /**
+     * Holds a parsed "owner" and "repo" from a Git remote URL.
+     */
     public record OwnerRepo(String owner, String repo) {}
+
+    /**
+     * Validates a separate owner and repo string pair.
+     *
+     * @param owner The repository owner (trimmed)
+     * @param repo The repository name (trimmed)
+     * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     */
+    public static Optional<String> validateOwnerRepo(String owner, String repo) {
+        // Trim inputs
+        String trimmedOwner = (owner == null) ? "" : owner.trim();
+        String trimmedRepo = (repo == null) ? "" : repo.trim();
+
+        // Strip trailing .git if present
+        if (trimmedRepo.endsWith(".git")) {
+            trimmedRepo = trimmedRepo.substring(0, trimmedRepo.length() - 4);
+        }
+
+        // Check for empty segments
+        if (trimmedOwner.isEmpty() || trimmedRepo.isEmpty()) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        // Check for slashes within either segment
+        if (trimmedOwner.contains("/") || trimmedRepo.contains("/")) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        // Check for .git suffix in owner
+        if (trimmedOwner.endsWith(".git")) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        // Validate characters: both owner and repo must match GitHub name pattern
+        if (!GITHUB_NAME_PATTERN.matcher(trimmedOwner).matches()
+                || !GITHUB_NAME_PATTERN.matcher(trimmedRepo).matches()) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Validates a combined "owner/repo" string.
+     *
+     * @param full The full repository identifier in "owner/repo" format
+     * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     */
+    public static Optional<String> validateFullRepoName(String full) {
+        if (full == null || full.isBlank()) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        String trimmed = full.trim();
+
+        // Strip trailing .git if present
+        if (trimmed.endsWith(".git")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 4);
+        }
+
+        // Split by '/' to get owner and repo
+        var parts = Splitter.on('/').omitEmptyStrings().splitToList(trimmed);
+
+        // Must have exactly 2 parts (owner and repo)
+        if (parts.size() != 2) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
+        String owner = parts.get(0);
+        String repo = parts.get(1);
+
+        // Delegate to validateOwnerRepo for consistency
+        return validateOwnerRepo(owner, repo);
+    }
 
     /**
      * Parse a Git remote URL of form: - https://github.com/OWNER/REPO.git - git@github.com:OWNER/REPO.git -

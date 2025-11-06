@@ -101,4 +101,147 @@ public class GitUiUtilTest {
         assertFalse(result.stream().anyMatch(f -> f.getFileName().equals("image.png")));
         assertFalse(result.stream().anyMatch(f -> f.getFileName().equals("logo.pdf")));
     }
+
+    // ============ validateOwnerRepo tests ============
+
+    @Test
+    void testValidateOwnerRepo_Valid() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", "Hello-World");
+        assertTrue(result.isEmpty(), "Valid owner/repo should return empty Optional");
+    }
+
+    @Test
+    void testValidateOwnerRepo_ValidWithUnderscoreAndDot() {
+        var result = GitUiUtil.validateOwnerRepo("octo_cat", "Hello.World");
+        assertTrue(result.isEmpty(), "Valid owner/repo with underscore and dot should return empty Optional");
+    }
+
+    @Test
+    void testValidateOwnerRepo_ValidWithSpaceTrimmed() {
+        var result = GitUiUtil.validateOwnerRepo("  octocat  ", "  Hello-World  ");
+        assertTrue(result.isEmpty(), "Owner/repo with spaces should be trimmed and valid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_EmptyOwner() {
+        var result = GitUiUtil.validateOwnerRepo("", "Hello-World");
+        assertTrue(result.isPresent(), "Empty owner should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention format");
+    }
+
+    @Test
+    void testValidateOwnerRepo_EmptyRepo() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", "");
+        assertTrue(result.isPresent(), "Empty repo should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerWithSlash() {
+        var result = GitUiUtil.validateOwnerRepo("octo/cat", "Hello-World");
+        assertTrue(result.isPresent(), "Owner containing slash should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoWithSlash() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", "Hello/World");
+        assertTrue(result.isPresent(), "Repo containing slash should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_RepoWithGitSuffix() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", "Hello-World.git");
+        assertTrue(result.isEmpty(), "Repo with .git suffix should be stripped and valid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_OwnerWithGitSuffix() {
+        var result = GitUiUtil.validateOwnerRepo("octocat.git", "Hello-World");
+        assertTrue(result.isPresent(), "Owner with .git suffix should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_NullOwner() {
+        var result = GitUiUtil.validateOwnerRepo(null, "Hello-World");
+        assertTrue(result.isPresent(), "Null owner should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_NullRepo() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", null);
+        assertTrue(result.isPresent(), "Null repo should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_InvalidCharactersInOwner() {
+        var result = GitUiUtil.validateOwnerRepo("octo@cat", "Hello-World");
+        assertTrue(result.isPresent(), "Owner with invalid character @ should be invalid");
+    }
+
+    @Test
+    void testValidateOwnerRepo_InvalidCharactersInRepo() {
+        var result = GitUiUtil.validateOwnerRepo("octocat", "Hello World");
+        assertTrue(result.isPresent(), "Repo with space should be invalid");
+    }
+
+    // ============ validateFullRepoName tests ============
+
+    @Test
+    void testValidateFullRepoName_Valid() {
+        var result = GitUiUtil.validateFullRepoName("octocat/Hello-World");
+        assertTrue(result.isEmpty(), "Valid full repo name should return empty Optional");
+    }
+
+    @Test
+    void testValidateFullRepoName_ValidWithGitSuffix() {
+        var result = GitUiUtil.validateFullRepoName("octocat/Hello-World.git");
+        assertTrue(result.isEmpty(), "Full repo name with .git suffix should be stripped and valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_ValidWithSpaces() {
+        var result = GitUiUtil.validateFullRepoName("  octocat/Hello-World  ");
+        assertTrue(result.isEmpty(), "Full repo name with spaces should be trimmed and valid");
+    }
+
+    @Test
+    void testValidateFullRepoName_BlankInput() {
+        var result = GitUiUtil.validateFullRepoName("   ");
+        assertTrue(result.isPresent(), "Blank input should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_NullInput() {
+        var result = GitUiUtil.validateFullRepoName(null);
+        assertTrue(result.isPresent(), "Null input should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_NoSlash() {
+        var result = GitUiUtil.validateFullRepoName("octocatHello-World");
+        assertTrue(result.isPresent(), "Full repo name without slash should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_TooManySlashes() {
+        var result = GitUiUtil.validateFullRepoName("org/octocat/Hello-World");
+        assertTrue(result.isPresent(), "Full repo name with too many slashes should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_EmptyOwner() {
+        var result = GitUiUtil.validateFullRepoName("/Hello-World");
+        assertTrue(result.isPresent(), "Full repo name with empty owner should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_EmptyRepo() {
+        var result = GitUiUtil.validateFullRepoName("octocat/");
+        assertTrue(result.isPresent(), "Full repo name with empty repo should be invalid");
+    }
+
+    @Test
+    void testValidateFullRepoName_InvalidCharacters() {
+        var result = GitUiUtil.validateFullRepoName("octo@cat/Hello#World");
+        assertTrue(result.isPresent(), "Full repo name with invalid characters should be invalid");
+    }
 }
