@@ -302,7 +302,8 @@ public final class BlitzForge {
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
-        var tr = new TaskResult(cm, config.instructions(), List.of(), cm.topContext(), sd, meta);
+        // TaskResult requires a live (unfrozen) Context; unfreeze the top context to ensure invariant compliance
+        var tr = new TaskResult(cm, config.instructions(), List.of(), Context.unfreeze(cm.topContext()), sd, meta);
         logger.debug("BlitzForge.interruptedResult delivering onComplete before listener.onComplete call, thread={}", Thread.currentThread().getName());
         listener.onComplete(tr);
         logger.debug("Interrupted; processed {} of {}", processed, files.size());
