@@ -289,7 +289,7 @@ public class Environment {
 
         if (exitCode != 0) {
             throw new FailureException(
-                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput);
+                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
         }
 
         return combinedOutput;
@@ -522,9 +522,16 @@ public class Environment {
 
     /** Exception thrown when a subprocess returns a non-zero exit code. */
     public static class FailureException extends SubprocessException {
-        public FailureException(String message, String output) {
-            super(message, output);
-        }
+    private final int exitCode;
+    
+    public FailureException(String message, String output, int exitCode) {
+    super(message, output);
+    this.exitCode = exitCode;
+    }
+    
+    public int getExitCode() {
+    return exitCode;
+    }
     }
 
     /** Determines if the current operating system is Windows. */
