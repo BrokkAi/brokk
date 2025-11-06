@@ -280,6 +280,27 @@ public class GitRepoWorktrees {
     }
 
     /**
+     * Checks if the specified worktree directory contains uncommitted changes or untracked files by inspecting the
+     * filesystem. A worktree is considered dirty if it contains any files or directories other than `.git`.
+     *
+     * @param path The path to the worktree to check.
+     * @return true if the worktree contains files other than `.git`, false otherwise.
+     * @throws IOException if an I/O error occurs while reading the directory.
+     */
+    public boolean isWorktreeDirty(Path path) throws IOException {
+        if (!Files.exists(path)) {
+            return false;
+        }
+
+        try (var stream = Files.list(path)) {
+            return stream
+                    .filter(p -> !p.getFileName().toString().equals(".git"))
+                    .findAny()
+                    .isPresent();
+        }
+    }
+
+    /**
      * Checks if the specified worktree is locked using locale-independent porcelain output parsing.
      *
      * @param path The path to the worktree to check.
