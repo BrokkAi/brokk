@@ -1,9 +1,11 @@
 package ai.brokk.executor.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.executor.jobs.ErrorPayload;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -19,6 +21,7 @@ class SimpleHttpServerTest {
     private SimpleHttpServer server;
     private String authToken;
     private int port;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setup() throws Exception {
@@ -72,7 +75,10 @@ class SimpleHttpServerTest {
         assertEquals(401, conn.getResponseCode());
         try (InputStream is = conn.getErrorStream()) {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            assertTrue(response.contains("Unauthorized") || response.contains("error"));
+            var errorPayload = objectMapper.readValue(response, ErrorPayload.class);
+            assertNotNull(errorPayload);
+            assertEquals(ErrorPayload.Code.UNAUTHORIZED, errorPayload.code());
+            assertEquals("Unauthorized", errorPayload.message());
         }
         conn.disconnect();
     }
@@ -91,7 +97,10 @@ class SimpleHttpServerTest {
         assertEquals(401, conn.getResponseCode());
         try (InputStream is = conn.getErrorStream()) {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            assertTrue(response.contains("Unauthorized") || response.contains("error"));
+            var errorPayload = objectMapper.readValue(response, ErrorPayload.class);
+            assertNotNull(errorPayload);
+            assertEquals(ErrorPayload.Code.UNAUTHORIZED, errorPayload.code());
+            assertEquals("Unauthorized", errorPayload.message());
         }
         conn.disconnect();
     }
@@ -172,7 +181,10 @@ class SimpleHttpServerTest {
         assertEquals(404, conn.getResponseCode());
         try (InputStream is = conn.getErrorStream()) {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            assertTrue(response.contains("Not found") || response.contains("error"));
+            var errorPayload = objectMapper.readValue(response, ErrorPayload.class);
+            assertNotNull(errorPayload);
+            assertEquals(ErrorPayload.Code.NOT_FOUND, errorPayload.code());
+            assertEquals("Not found", errorPayload.message());
         }
         conn.disconnect();
     }
