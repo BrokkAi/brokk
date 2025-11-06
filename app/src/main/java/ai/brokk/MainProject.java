@@ -761,20 +761,20 @@ public final class MainProject extends AbstractProject {
     public String getStyleGuide() {
         try {
             if (Files.exists(styleGuidePath)) {
-                logger.debug("Reading style guide from AGENTS.md");
+                logger.debug("Reading style guide from {}", styleGuidePath);
                 return Files.readString(styleGuidePath);
             }
         } catch (IOException e) {
-            logger.error("Error reading style guide from AGENTS.md: {}", e.getMessage());
+            logger.error("Error reading style guide from {}: {}", styleGuidePath, e.getMessage());
         }
 
         try {
             if (Files.exists(legacyStyleGuidePath)) {
-                logger.info("Reading style guide from legacy style.md (consider migrating to AGENTS.md)");
+                logger.info("Reading style guide from legacy location {} (consider migrating to AGENTS.md)", legacyStyleGuidePath);
                 return Files.readString(legacyStyleGuidePath);
             }
         } catch (IOException e) {
-            logger.error("Error reading legacy style guide from style.md: {}", e.getMessage());
+            logger.error("Error reading legacy style guide from {}: {}", legacyStyleGuidePath, e.getMessage());
         }
 
         return "";
@@ -783,27 +783,21 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveStyleGuide(String styleGuide) {
         Path targetPath;
-        String targetDescription;
 
         if (Files.exists(styleGuidePath)) {
             targetPath = styleGuidePath;
-            targetDescription = "AGENTS.md";
+        } else if (Files.exists(legacyStyleGuidePath)) {
+            targetPath = legacyStyleGuidePath;
         } else {
-            if (Files.exists(legacyStyleGuidePath)) {
-                targetPath = legacyStyleGuidePath;
-                targetDescription = "legacy style.md";
-            } else {
-                targetPath = styleGuidePath;
-                targetDescription = "AGENTS.md (new default)";
-            }
+            targetPath = styleGuidePath;
         }
 
         try {
             Files.createDirectories(targetPath.getParent());
             AtomicWrites.atomicOverwrite(targetPath, styleGuide);
-            logger.debug("Saved style guide to {}", targetDescription);
+            logger.debug("Saved style guide to {}", targetPath);
         } catch (IOException e) {
-            logger.error("Error saving style guide to {}: {}", targetDescription, e.getMessage());
+            logger.error("Error saving style guide to {}: {}", targetPath, e.getMessage());
         }
     }
 
