@@ -1,8 +1,10 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
+import ai.brokk.MainProject;
 import ai.brokk.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
@@ -211,6 +213,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(0, 2, 8, 2);
         generalPanel.add(styleGuideInfo, gbc);
 
+        gbc.insets = new Insets(2, 2, 2, 2);
+
+        // Migration button (visible only if migration is pending)
+        var migrateButton = new MaterialButton("Migrate style.md to AGENTS.md");
+        migrateButton.addActionListener(e -> {
+            var mp = chrome.getProject();
+            if (mp instanceof MainProject mainProject) {
+                migrateButton.setEnabled(false);
+                boolean success = mainProject.performStyleMdToAgentsMdMigration(chrome);
+                if (success) {
+                    // Migration succeeded - hide button and refresh UI
+                    migrateButton.setVisible(false);
+                    SwingUtilities.invokeLater(() -> loadSettings());
+                } else {
+                    // Migration failed - re-enable button
+                    SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
+                }
+            }
+        });
+
+        // Check if migration button should be visible
+        try {
+            var projectRoot = chrome.getProject().getMasterRootPathForConfig();
+            var brokkDir = projectRoot.resolve(AbstractProject.BROKK_DIR);
+            boolean styleExists = java.nio.file.Files.exists(brokkDir.resolve("style.md"));
+            boolean agentsExists = java.nio.file.Files.exists(projectRoot.resolve("AGENTS.md"));
+            migrateButton.setVisible(styleExists && !agentsExists);
+            if (migrateButton.isVisible()) {
+                migrateButton.setToolTipText("Migrate .brokk/style.md to AGENTS.md at project root");
+            }
+        } catch (Exception ex) {
+            migrateButton.setVisible(false);
+        }
+
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(5, 2, 15, 2); // Extra bottom padding to separate from next section
+        generalPanel.add(migrateButton, gbc);
+
+        // Reset for next components
+        gbc.gridwidth = 1;
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.gridx = 0;
         gbc.gridy = row;

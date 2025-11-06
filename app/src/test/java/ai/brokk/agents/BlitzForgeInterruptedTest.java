@@ -8,6 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +34,7 @@ class BlitzForgeInterruptedTest {
     @BeforeEach
     void setUp() throws Exception {
         // Create a minimal test context manager with a temporary directory
-        var tmpDir = java.nio.file.Files.createTempDirectory("blitzforge-test");
+        var tmpDir = Files.createTempDirectory("blitzforge-test");
         contextManager = new TestContextManager(tmpDir, new NoOpConsoleIO());
         service = contextManager.getService();
     }
