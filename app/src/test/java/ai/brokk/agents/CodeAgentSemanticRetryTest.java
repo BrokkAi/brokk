@@ -8,6 +8,7 @@ import ai.brokk.prompts.EditBlockParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +39,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """.stripIndent());
 
         // Minimal conversation and edit state; use raw generics to avoid direct ChatMessage dependency.
-        var cs = new CodeAgent.ConversationState((List) List.of(), null, 0);
+        var cs = new CodeAgent.ConversationState(List.of(), null, 0);
 
         var es = new CodeAgent.EditState(
                 List.of(badSemanticBlock), // pendingBlocks
@@ -47,9 +48,9 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 0, // consecutiveBuildFailures
                 0, // blocksAppliedWithoutBuild
                 "", // lastBuildError
-                (Set) Set.of(), // changedFiles
-                (Map) Map.of(), // originalFileContents
-                (Map) Map.of() // javaLintDiagnostics
+                Set.of(), // changedFiles
+                Map.of(), // originalFileContents
+                Map.of() // javaLintDiagnostics
                 );
 
         // Invoke apply phase, which should attempt to apply, fail, and then craft a retry request with feedback.
@@ -225,7 +226,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
             var stop = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Unable to resolve method");
             print.invoke(metrics, Set.of(), stop);
 
-            var s = out.toString("UTF-8");
+            var s = out.toString(StandardCharsets.UTF_8);
             assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
             var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length())
                     .trim();

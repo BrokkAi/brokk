@@ -595,7 +595,7 @@ public class SearchAgent {
                     """);
         }
 
-        if (hasAnswer && !hasTaskList) {
+        if (hasAnswer) {
             assert !hasWorkspace;
             return new TerminalObjective(
                     "query",
@@ -604,7 +604,7 @@ public class SearchAgent {
                     """);
         }
 
-        if (hasTaskList && !hasAnswer) {
+        if (hasTaskList) {
             assert !hasWorkspace;
             return new TerminalObjective(
                     "task",
@@ -614,7 +614,6 @@ public class SearchAgent {
         }
 
         if (hasWorkspace) {
-            assert !hasAnswer && !hasTaskList;
             return new TerminalObjective(
                     "task",
                     """
