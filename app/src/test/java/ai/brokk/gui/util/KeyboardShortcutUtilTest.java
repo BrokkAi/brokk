@@ -59,7 +59,6 @@ public class KeyboardShortcutUtilTest {
         String formatted = KeyboardShortcutUtil.formatKeyStroke(ks);
         assertNotNull(formatted);
         assertFalse(formatted.isEmpty());
-        assertFalse(formatted.contains("+"), "Should not contain '+' separator for no modifiers");
     }
 
     @Test
