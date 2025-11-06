@@ -152,7 +152,11 @@ public final class SimpleHttpServer {
      * @param statusCode The HTTP status code (e.g., 400, 401, 404, 500)
      * @param errorMessage The error message to include in the response
      * @throws IOException If writing to the exchange fails
+     * @deprecated Use {@link #sendJsonResponse(HttpExchange, int, Object)} with {@link ErrorPayload}
+     *             to return structured error responses with consistent schema.
+     *             For example: {@code sendJsonResponse(exchange, 404, ErrorPayload.of("NOT_FOUND", "Resource not found"))}
      */
+    @Deprecated
     public static void sendErrorResponse(HttpExchange exchange, int statusCode, String errorMessage)
             throws IOException {
         var response = Map.of("error", errorMessage);
