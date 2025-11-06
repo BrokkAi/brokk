@@ -522,16 +522,16 @@ public class Environment {
 
     /** Exception thrown when a subprocess returns a non-zero exit code. */
     public static class FailureException extends SubprocessException {
-    private final int exitCode;
-    
-    public FailureException(String message, String output, int exitCode) {
-    super(message, output);
-    this.exitCode = exitCode;
-    }
-    
-    public int getExitCode() {
-    return exitCode;
-    }
+        private final int exitCode;
+
+        public FailureException(String message, String output, int exitCode) {
+            super(message, output);
+            this.exitCode = exitCode;
+        }
+
+        public int getExitCode() {
+            return exitCode;
+        }
     }
 
     /** Determines if the current operating system is Windows. */

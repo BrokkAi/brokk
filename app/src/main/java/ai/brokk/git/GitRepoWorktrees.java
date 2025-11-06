@@ -169,15 +169,14 @@ public class GitRepoWorktrees {
         if (!force) {
             if (isWorktreeLocked(path)) {
                 throw new GitRepo.WorktreeNeedsForceException(
-                        "Worktree at " + path + " requires force for removal: is locked; use --force to override",
-                        null);
+                        "Worktree at " + path + " requires force for removal: is locked; use --force to override");
             }
 
             try {
                 if (isWorktreeDirty(path)) {
                     throw new GitRepo.WorktreeNeedsForceException(
-                            "Worktree at " + path + " requires force for removal: contains uncommitted or untracked files; use --force to override",
-                            null);
+                            "Worktree at " + path
+                                    + " requires force for removal: contains uncommitted or untracked files; use --force to override");
                 }
             } catch (IOException e) {
                 throw new GitRepo.GitRepoException("Failed to check worktree state at " + path, e);
@@ -197,16 +196,16 @@ public class GitRepoWorktrees {
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
             SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
-        // If not forcing and git returned exit code 128, it typically means force is required
-        if (!force && e instanceof Environment.FailureException failureEx && failureEx.getExitCode() == 128) {
-        throw new GitRepo.WorktreeNeedsForceException(
-        "Worktree at " + path + " requires force for removal; use --force to override", e);
-        }
-        
-        String output = e.getOutput();
-        String failMessage = String.format(
-        "Failed to remove worktree at %s%s: %s", path, (force ? " (with force)" : ""), output);
-        throw new GitRepo.GitRepoException(failMessage, e);
+            // If not forcing and git returned exit code 128, it typically means force is required
+            if (!force && e instanceof Environment.FailureException failureEx && failureEx.getExitCode() == 128) {
+                throw new GitRepo.WorktreeNeedsForceException(
+                        "Worktree at " + path + " requires force for removal; use --force to override", e);
+            }
+
+            String output = e.getOutput();
+            String failMessage = String.format(
+                    "Failed to remove worktree at %s%s: %s", path, (force ? " (with force)" : ""), output);
+            throw new GitRepo.GitRepoException(failMessage, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             String interruptMessage =
@@ -302,8 +301,7 @@ public class GitRepoWorktrees {
 
         try {
             var command = "git status --porcelain";
-            var output = Environment.instance.runShellCommand(
-                    command, path, out -> {}, Environment.GIT_TIMEOUT);
+            var output = Environment.instance.runShellCommand(command, path, out -> {}, Environment.GIT_TIMEOUT);
             // If output is empty, worktree is clean; otherwise it's dirty
             return !output.trim().isEmpty();
         } catch (Environment.SubprocessException e) {
