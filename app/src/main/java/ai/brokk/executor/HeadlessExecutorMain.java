@@ -233,11 +233,16 @@ public final class HeadlessExecutorMain {
 
     /**
      * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
+     * Returns null if the path is invalid or if the extracted jobId is blank.
      */
     static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
         var parts = Splitter.on('/').splitToList(path);
         if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
-            return parts.get(3);
+            var jobId = parts.get(3);
+            if (jobId == null || jobId.isBlank()) {
+                return null;
+            }
+            return jobId;
         }
         return null;
     }
