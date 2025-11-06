@@ -134,6 +134,23 @@ public class GitHubAuth {
                     + "). Check git remote or GitHub override settings for owner/repo.");
         }
 
+        // Validate owner/repo format early to prevent connecting with invalid values
+        var validationError = GitUiUtil.validateOwnerRepo(effectiveOwner, effectiveRepoName);
+        if (validationError.isPresent()) {
+            String source = usingOverride ? "GitHub config override" : "git remote URL";
+            logger.warn(
+                    "Invalid owner/repo format for project '{}': owner='{}', repo='{}' (from {}). Validation error: {}",
+                    project.getRoot().getFileName().toString(),
+                    effectiveOwner,
+                    effectiveRepoName,
+                    source,
+                    validationError.get());
+            throw new IOException("Invalid GitHub repository identifier for project '"
+                    + project.getRoot().getFileName().toString()
+                    + "': "
+                    + validationError.get());
+        }
+
         // Compare all three: owner, repo, and host
         boolean hostMatches =
                 (instance != null && instance.host == null && (effectiveHost == null || effectiveHost.isBlank()))
