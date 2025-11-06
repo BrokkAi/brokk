@@ -244,4 +244,67 @@ public class GitUiUtilTest {
         var result = GitUiUtil.validateFullRepoName("octo@cat/Hello#World");
         assertTrue(result.isPresent(), "Full repo name with invalid characters should be invalid");
     }
+
+    // ============ Consolidated validator tests ============
+
+    @Test
+    void testValidateOwnerRepo_validCases() {
+        assertTrue(GitUiUtil.validateOwnerRepo("owner", "repo").isEmpty());
+        assertTrue(GitUiUtil.validateOwnerRepo("  owner  ", "  repo  ").isEmpty());
+        assertTrue(GitUiUtil.validateOwnerRepo("owner", "my-repo_name").isEmpty());
+        // .git suffix on repo is accepted (stripped) and considered valid
+        assertTrue(GitUiUtil.validateOwnerRepo("owner", "repo.git").isEmpty());
+    }
+
+    @Test
+    void testValidateOwnerRepo_invalidCases() {
+        // Empty parts
+        var r1 = GitUiUtil.validateOwnerRepo("", "repo");
+        assertTrue(r1.isPresent());
+        assertTrue(r1.get().contains("owner/repo"));
+
+        var r2 = GitUiUtil.validateOwnerRepo("owner", "");
+        assertTrue(r2.isPresent());
+        assertTrue(r2.get().contains("owner/repo"));
+
+        // Owner with '/'
+        var r3 = GitUiUtil.validateOwnerRepo("own/er", "repo");
+        assertTrue(r3.isPresent());
+        assertTrue(r3.get().contains("owner/repo"));
+
+        // Repo with '/'
+        var r4 = GitUiUtil.validateOwnerRepo("owner", "rep/o");
+        assertTrue(r4.isPresent());
+        assertTrue(r4.get().contains("owner/repo"));
+
+        // Whitespace-only values
+        var r5 = GitUiUtil.validateOwnerRepo("   ", "repo");
+        assertTrue(r5.isPresent());
+        assertTrue(r5.get().contains("owner/repo"));
+
+        var r6 = GitUiUtil.validateOwnerRepo("owner", "   ");
+        assertTrue(r6.isPresent());
+        assertTrue(r6.get().contains("owner/repo"));
+    }
+
+    @Test
+    void testValidateFullRepoName_consolidatedCases() {
+        // Valid
+        assertTrue(GitUiUtil.validateFullRepoName("owner/repo").isEmpty());
+        // .git suffix on full name is accepted (stripped) and considered valid
+        assertTrue(GitUiUtil.validateFullRepoName("owner/repo.git").isEmpty());
+
+        // Invalid
+        var i1 = GitUiUtil.validateFullRepoName("owner/repo/extra");
+        assertTrue(i1.isPresent());
+        assertTrue(i1.get().contains("owner/repo"));
+
+        var i2 = GitUiUtil.validateFullRepoName("owner/");
+        assertTrue(i2.isPresent());
+        assertTrue(i2.get().contains("owner/repo"));
+
+        var i3 = GitUiUtil.validateFullRepoName("/repo");
+        assertTrue(i3.isPresent());
+        assertTrue(i3.get().contains("owner/repo"));
+    }
 }
