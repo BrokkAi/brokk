@@ -9,14 +9,22 @@ import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.util.Json;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -135,6 +143,7 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
         this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        this.server.registerAuthenticatedContext("/v1/stream", this::handleStreamCurrent);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -299,6 +308,12 @@ public final class HeadlessExecutorMain {
         // GET /v1/jobs/{jobId}/events - get job events
         if (path.equals("/v1/jobs/" + jobId + "/events") && method.equals("GET")) {
             handleGetJobEvents(exchange, jobId);
+            return;
+        }
+
+        // GET /v1/jobs/{jobId}/events/stream - stream job events (SSE)
+        if (path.equals("/v1/jobs/" + jobId + "/events/stream") && method.equals("GET")) {
+            handleGetJobEventsStream(exchange, jobId);
             return;
         }
 
@@ -584,6 +599,129 @@ public final class HeadlessExecutorMain {
             logger.error("Error handling GET /v1/jobs/{jobId}/diff", e);
             var error = ErrorPayload.internalError("Failed to compute diff", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * Write an SSE data event.
+     */
+    private void writeSseData(OutputStream os, String data) throws IOException {
+        os.write("data: ".getBytes(StandardCharsets.UTF_8));
+        os.write(data.getBytes(StandardCharsets.UTF_8));
+        os.write("\n\n".getBytes(StandardCharsets.UTF_8));
+        os.flush();
+    }
+
+    /**
+     * Write an SSE comment (for keep-alive).
+     */
+    private void writeSseComment(OutputStream os, String comment) throws IOException {
+        os.write(": ".getBytes(StandardCharsets.UTF_8));
+        os.write(comment.getBytes(StandardCharsets.UTF_8));
+        os.write("\n\n".getBytes(StandardCharsets.UTF_8));
+        os.flush();
+    }
+
+    /**
+     * GET /v1/jobs/{jobId}/events/stream - Stream job events as SSE.
+     */
+    void handleGetJobEventsStream(HttpExchange exchange, String jobId) throws IOException {
+        var status = jobStore.loadStatus(jobId);
+        if (status == null) {
+            var error = ErrorPayload.jobNotFound(jobId);
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+
+        exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=UTF-8");
+        exchange.getResponseHeaders().add("Cache-Control", "no-cache");
+        exchange.getResponseHeaders().add("Connection", "keep-alive");
+        exchange.sendResponseHeaders(200, 0);
+
+        try (var os = exchange.getResponseBody()) {
+            long afterSeq = -1;
+            int limit = 100;
+
+            while (true) {
+                try {
+                    var events = jobStore.readEvents(jobId, afterSeq, limit);
+                    if (!events.isEmpty()) {
+                        for (var ev : events) {
+                            String json = Json.toJson(ev);
+                            writeSseData(os, json);
+                        }
+                        afterSeq = events.getLast().seq();
+                    } else {
+                        writeSseComment(os, "keep-alive");
+                        Thread.sleep(500);
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (IOException e) {
+                    logger.debug("Client disconnected from job events stream: {}", jobId);
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            logger.debug("Error streaming job events for {}: {}", jobId, e.getMessage());
+        } finally {
+            exchange.close();
+        }
+    }
+
+    /**
+     * GET /v1/stream - Stream current job events as SSE.
+     */
+    void handleStreamCurrent(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=UTF-8");
+        exchange.getResponseHeaders().add("Cache-Control", "no-cache");
+        exchange.getResponseHeaders().add("Connection", "keep-alive");
+        exchange.sendResponseHeaders(200, 0);
+
+        try (var os = exchange.getResponseBody()) {
+            String activeJobId = null;
+            
+            while (true) {
+                try {
+                    if (activeJobId == null) {
+                        activeJobId = currentJobId.get();
+                        if (activeJobId == null) {
+                            writeSseComment(os, "waiting-for-job");
+                            Thread.sleep(1000);
+                            continue;
+                        }
+                        logger.debug("Started streaming current job: {}", activeJobId);
+                    }
+
+                    long afterSeq = -1;
+                    int limit = 100;
+
+                    while (activeJobId != null) {
+                        var events = jobStore.readEvents(activeJobId, afterSeq, limit);
+                        if (!events.isEmpty()) {
+                            for (var ev : events) {
+                                String json = Json.toJson(ev);
+                                writeSseData(os, json);
+                            }
+                            afterSeq = events.getLast().seq();
+                        } else {
+                            writeSseComment(os, "keep-alive");
+                            Thread.sleep(500);
+                        }
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (IOException e) {
+                    logger.debug("Client disconnected from current job stream");
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            logger.debug("Error streaming current job: {}", e.getMessage());
+        } finally {
+            exchange.close();
         }
     }
 

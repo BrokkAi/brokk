@@ -23,6 +23,7 @@ public final class SimpleHttpServer {
     private static final Logger logger = LogManager.getLogger(SimpleHttpServer.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final AtomicInteger workerThreadCounter = new AtomicInteger(0);
+    private static final String ALLOWED_ORIGIN = "http://localhost:5174";
 
     private final HttpServer httpServer;
     private final String authToken;
@@ -59,6 +60,13 @@ public final class SimpleHttpServer {
     public void registerUnauthenticatedContext(String path, CheckedHttpHandler handler) {
         this.httpServer.createContext(path, exchange -> {
             try {
+                addCorsHeaders(exchange);
+                
+                if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(204, -1);
+                    return;
+                }
+                
                 handler.handle(exchange);
             } catch (Exception e) {
                 logger.error("Unhandled exception in handler for {}", path, e);
@@ -77,6 +85,13 @@ public final class SimpleHttpServer {
     public void registerAuthenticatedContext(String path, CheckedHttpHandler handler) {
         this.httpServer.createContext(path, exchange -> {
             try {
+                addCorsHeaders(exchange);
+                
+                if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(204, -1);
+                    return;
+                }
+                
                 // Check Authorization header
                 var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
                 if (authHeader == null || !authHeader.equals("Bearer " + this.authToken)) {
@@ -133,6 +148,8 @@ public final class SimpleHttpServer {
      */
     public static void sendJsonResponse(HttpExchange exchange, int statusCode, Object responseObject)
             throws IOException {
+        addCorsHeaders(exchange);
+        
         var headers = exchange.getResponseHeaders();
         headers.add("Content-Type", "application/json; charset=UTF-8");
 
@@ -179,6 +196,18 @@ public final class SimpleHttpServer {
     public void stop(int delaySeconds) {
         this.httpServer.stop(delaySeconds);
         logger.info("SimpleHttpServer stopped");
+    }
+
+    /**
+     * Add CORS headers to the HTTP response.
+     *
+     * @param exchange The HTTP exchange
+     */
+    private static void addCorsHeaders(HttpExchange exchange) {
+        var headers = exchange.getResponseHeaders();
+        headers.add("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+        headers.add("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
     }
 
     /**

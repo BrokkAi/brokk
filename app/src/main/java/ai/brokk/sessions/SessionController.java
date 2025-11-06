@@ -25,6 +25,8 @@ public class SessionController {
     private static final Logger logger = LogManager.getLogger(SessionController.class);
     private static final Pattern PROMPT_PATH_PATTERN =
             Pattern.compile("^/api/sessions/([^/]+)/prompt$");
+    private static final Pattern STREAM_PATH_PATTERN =
+            Pattern.compile("^/api/sessions/([^/]+)/stream$");
     private static final String CORS_ORIGIN = "http://localhost:5174";
 
     private final SessionRegistry registry;
@@ -51,16 +53,23 @@ public class SessionController {
         }
 
         var path = exchange.getRequestURI().getPath();
-        var matcher = PROMPT_PATH_PATTERN.matcher(path);
-
-        if (matcher.matches()) {
-            handlePrompt(exchange, matcher.group(1));
-        } else {
-            sendError(
-                    exchange,
-                    404,
-                    ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Endpoint not found"));
+        
+        var promptMatcher = PROMPT_PATH_PATTERN.matcher(path);
+        if (promptMatcher.matches()) {
+            handlePrompt(exchange, promptMatcher.group(1));
+            return;
         }
+
+        var streamMatcher = STREAM_PATH_PATTERN.matcher(path);
+        if (streamMatcher.matches()) {
+            handleStream(exchange, streamMatcher.group(1));
+            return;
+        }
+
+        sendError(
+                exchange,
+                404,
+                ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Endpoint not found"));
     }
 
     private void handlePrompt(HttpExchange exchange, String sessionIdStr) throws IOException {
@@ -185,6 +194,106 @@ public class SessionController {
             logger.info("Successfully created job {} for session {}", jobId, sessionInfo.id());
 
             return new PromptResponse(jobId != null ? jobId : "unknown", status);
+        }
+    }
+
+    private void handleStream(HttpExchange exchange, String sessionIdStr) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+            sendError(
+                    exchange,
+                    405,
+                    ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed"));
+            return;
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(sessionIdStr);
+        } catch (IllegalArgumentException e) {
+            sendError(
+                    exchange,
+                    400,
+                    ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid session ID format"));
+            return;
+        }
+
+        var sessionInfo = registry.get(sessionId);
+        if (sessionInfo == null) {
+            sendError(
+                    exchange,
+                    404,
+                    ErrorPayload.of(
+                            ErrorPayload.Code.JOB_NOT_FOUND,
+                            "Session not found: " + sessionId));
+            return;
+        }
+
+        var executorUrl = "http://127.0.0.1:" + sessionInfo.port() + "/v1/stream";
+        
+        logger.debug("Proxying SSE stream from executor at {} for session {}", executorUrl, sessionId);
+
+        try {
+            var connection = (HttpURLConnection) URI.create(executorUrl).toURL().openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Authorization", "Bearer " + sessionInfo.authToken());
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(0);
+            connection.connect();
+
+            var responseCode = connection.getResponseCode();
+            if (responseCode >= 400) {
+                var errorStream = connection.getErrorStream();
+                String errorBody = "";
+                if (errorStream != null) {
+                    errorBody = new String(errorStream.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                logger.error("Executor returned error {} for stream: {}", responseCode, errorBody);
+                sendError(
+                        exchange,
+                        502,
+                        ErrorPayload.of(
+                                ErrorPayload.Code.INTERNAL_ERROR,
+                                "Executor stream failed with status " + responseCode +
+                                (errorBody.isEmpty() ? "" : ": " + errorBody)));
+                return;
+            }
+
+            addCorsHeaders(exchange);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=UTF-8");
+            exchange.getResponseHeaders().add("Cache-Control", "no-cache");
+            exchange.getResponseHeaders().add("Connection", "keep-alive");
+            exchange.sendResponseHeaders(200, 0);
+
+            try (var is = connection.getInputStream();
+                 var os = exchange.getResponseBody()) {
+                
+                var buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = is.read(buffer)) != -1) {
+                    os.write(buffer, 0, bytesRead);
+                    os.flush();
+                }
+            } catch (IOException e) {
+                logger.debug("Stream connection closed for session {}: {}", sessionId, e.getMessage());
+            }
+        } catch (SocketTimeoutException e) {
+            logger.error("Timeout connecting to executor stream for session {}", sessionId, e);
+            sendError(
+                    exchange,
+                    504,
+                    ErrorPayload.of(
+                            ErrorPayload.Code.TIMEOUT,
+                            "Timeout connecting to executor stream"));
+        } catch (IOException e) {
+            logger.error("Failed to proxy stream for session {}", sessionId, e);
+            sendError(
+                    exchange,
+                    502,
+                    ErrorPayload.of(
+                            ErrorPayload.Code.INTERNAL_ERROR,
+                            "Failed to connect to executor stream: " + e.getMessage()));
+        } finally {
+            exchange.close();
         }
     }
 
