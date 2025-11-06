@@ -320,8 +320,10 @@ public class TypescriptAnalyzerTest {
                 normalize.apply(innerClassSkel.get()),
                 "getSkeleton for nested class should return the reconstructed parent skeleton.");
 
-        // Type alias FQN is "MyModule._module_.InnerTypeAlias" (package="MyModule", shortName="_module_.InnerTypeAlias")
-        Optional<String> innerTypeAliasSkelViaParent = AnalyzerUtil.getSkeleton(analyzer, "MyModule._module_.InnerTypeAlias");
+        // Type alias FQN is "MyModule._module_.InnerTypeAlias" (package="MyModule",
+        // shortName="_module_.InnerTypeAlias")
+        Optional<String> innerTypeAliasSkelViaParent =
+                AnalyzerUtil.getSkeleton(analyzer, "MyModule._module_.InnerTypeAlias");
         assertTrue(
                 innerTypeAliasSkelViaParent.isPresent(),
                 "Skeleton for MyModule._module_.InnerTypeAlias should be part of MyModule's skeleton");
@@ -334,7 +336,8 @@ public class TypescriptAnalyzerTest {
         // With namespace-as-package semantics: package contains namespace, shortName contains class/field name
         assertTrue(declarations.contains(CodeUnit.cls(moduleTsFile, "MyModule.NestedNamespace", "DeeperClass")));
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule", "_module_.InnerTypeAlias")));
-        assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "MyModule.NestedNamespace", "_module_.DeepType")));
+        assertTrue(
+                declarations.contains(CodeUnit.field(moduleTsFile, "MyModule.NestedNamespace", "_module_.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
     }
 

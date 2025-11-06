@@ -101,9 +101,7 @@ public class NamespacePackageTest {
         var subdir = tempDir.resolve("src").resolve("utils");
         Files.createDirectories(subdir);
         var testFile = subdir.resolve("test.ts");
-        Files.writeString(
-                testFile,
-                """
+        Files.writeString(testFile, """
             export function helper() { }
             """);
 
@@ -117,10 +115,7 @@ public class NamespacePackageTest {
                 .findFirst();
 
         assertTrue(helperFunc.isPresent(), "helper function should be captured");
-        assertEquals(
-                "src.utils",
-                helperFunc.get().packageName(),
-                "Should fall back to directory-based package");
+        assertEquals("src.utils", helperFunc.get().packageName(), "Should fall back to directory-based package");
         logger.info("helper FQN: {}", helperFunc.get().fqName());
     }
 
@@ -148,10 +143,7 @@ public class NamespacePackageTest {
                 .findFirst();
 
         assertTrue(userModel.isPresent(), "UserModel should be captured");
-        assertEquals(
-                "Domain.User",
-                userModel.get().packageName(),
-                "Should prefer namespace over directory");
+        assertEquals("Domain.User", userModel.get().packageName(), "Should prefer namespace over directory");
         logger.info("UserModel FQN: {}", userModel.get().fqName());
     }
 
@@ -178,9 +170,9 @@ public class NamespacePackageTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("All declarations: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "All declarations: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         var formatFunc = declarations.stream()
                 .filter(cu -> cu.fqName().contains("format"))
@@ -227,9 +219,9 @@ public class NamespacePackageTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Complex nesting declarations: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Complex nesting declarations: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         var configInterface = declarations.stream()
                 .filter(cu -> cu.fqName().contains("Config"))
@@ -267,9 +259,9 @@ public class NamespacePackageTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Module test declarations: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Module test declarations: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         var legacyFunc = declarations.stream()
                 .filter(cu -> cu.fqName().contains("legacyFunc"))

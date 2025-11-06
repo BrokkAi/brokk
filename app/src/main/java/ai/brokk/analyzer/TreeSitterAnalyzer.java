@@ -234,12 +234,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
          * This is the expensive operation we want to avoid for candidates that won't survive.
          */
         String buildSignature(
-                TreeSitterAnalyzer analyzer,
-                String src,
-                byte[] srcBytes,
-                Map<NodeCacheKey, String> modifierCache) {
+                TreeSitterAnalyzer analyzer, String src, byte[] srcBytes, Map<NodeCacheKey, String> modifierCache) {
             return analyzer.buildSignatureString(
-                    node, simpleName, src, srcBytes, primaryCaptureName, modifierKeywords, file, skeletonType,
+                    node,
+                    simpleName,
+                    src,
+                    srcBytes,
+                    primaryCaptureName,
+                    modifierKeywords,
+                    file,
+                    skeletonType,
                     modifierCache);
         }
     }
@@ -867,10 +871,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else {
             // Render signatures if present
             for (var individualFullSignature : sigList) {
-            if (individualFullSignature.isBlank()) {
-                log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
-                continue;
-            }
+                if (individualFullSignature.isBlank()) {
+                    log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
+                    continue;
+                }
                 // Apply indent to each line of the current signature
                 String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
                 for (var line : signatureLines) {
@@ -1427,9 +1431,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Export preference: exported version wins
         if (newCandidate.isExported() && !existingCandidate.isExported()) {
-            log.warn(
-                    "Replacing non-exported candidate for {} with new EXPORTED candidate.",
-                    newCU.fqName());
+            log.warn("Replacing non-exported candidate for {} with new EXPORTED candidate.", newCU.fqName());
             return newCandidate; // New wins
         } else if (!newCandidate.isExported() && existingCandidate.isExported()) {
             log.trace(
@@ -1439,9 +1441,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else {
             // Both exported or both non-exported
             if (isBenignDuplicate(existingCU, newCU)) {
-                log.trace(
-                        "Duplicate CU FQName {} (distinct instances, benign pattern). Keeping both.",
-                        newCU.fqName());
+                log.trace("Duplicate CU FQName {} (distinct instances, benign pattern). Keeping both.", newCU.fqName());
                 return newCandidate; // Keep both
             } else {
                 log.warn(
@@ -2038,7 +2038,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             String signature = buildSignatureString(
-                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType, modifierCache);
+                    node,
+                    simpleName,
+                    src,
+                    fileBytes,
+                    primaryCaptureName,
+                    modifierKeywords,
+                    file,
+                    skeletonType,
+                    modifierCache);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2532,7 +2540,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (!capturedModifierKeywords.isEmpty()) {
             modifierTokens.addAll(capturedModifierKeywords);
         } else {
-            String fallback = getVisibilityPrefixCached(nodeForSignature, src, modifierCache).strip();
+            String fallback = getVisibilityPrefixCached(nodeForSignature, src, modifierCache)
+                    .strip();
             if (!fallback.isEmpty()) {
                 for (String tok :
                         Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {

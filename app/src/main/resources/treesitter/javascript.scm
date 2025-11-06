@@ -195,4 +195,39 @@
 ; Capture import statements to be part of the module preamble
 (import_statement) @module.import_statement
 
+; ============================================================================
+; RE-EXPORTS
+; ============================================================================
+; Re-export patterns for barrel files and module organization
+; These patterns capture export statements that re-export declarations from other modules
+
+; Re-export all: export * from './module'
+; Captures source - wildcard is detected by absence of symbols/namespace
+(export_statement
+  source: (string) @reexport.source)
+
+; Re-export named symbols: export { Foo, Bar } from './module'
+; Captures each symbol being re-exported
+(export_statement
+  (export_clause
+    (export_specifier
+      name: (identifier) @reexport.name))
+  source: (string) @reexport.source)
+
+; Re-export with alias: export { Foo as Bar } from './module'
+; Captures both original and aliased names
+(export_statement
+  (export_clause
+    (export_specifier
+      name: (identifier) @reexport.name
+      alias: (identifier) @reexport.alias))
+  source: (string) @reexport.source)
+
+; Re-export namespace: export * as Types from './types'
+; Captures namespace name for "export * as" pattern
+(export_statement
+  (namespace_export
+    (identifier) @reexport.namespace)
+  source: (string) @reexport.source)
+
 ; Ignore decorators / modifiers for now

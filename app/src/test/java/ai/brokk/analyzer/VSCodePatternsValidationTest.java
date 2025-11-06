@@ -21,9 +21,11 @@ public class VSCodePatternsValidationTest {
 
     @Test
     void testVSCodePatternsComprehensive(@TempDir Path tempDir) throws IOException {
-        // Copy the VSCode patterns file
-        var sourceFile = Path.of("/tmp/vscode_patterns_validation.ts");
-        var testFile = tempDir.resolve("vscode_patterns.ts");
+        // Load the VSCode patterns file from test resources
+        var resourceUrl = getClass().getResource("/testcode-ts/VSCodePatterns.ts");
+        assertNotNull(resourceUrl, "VSCodePatterns.ts resource should exist");
+        var sourceFile = Path.of(resourceUrl.getPath());
+        var testFile = tempDir.resolve("VSCodePatterns.ts");
         Files.copy(sourceFile, testFile);
 
         var project = new TestProject(tempDir, Languages.TYPESCRIPT);
@@ -32,24 +34,22 @@ public class VSCodePatternsValidationTest {
 
         var declarations = analyzer.getDeclarations(projectFile);
         logger.info("Total declarations found: {}", declarations.size());
-        logger.info("All FQNs: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .sorted()
-                .collect(Collectors.toList()));
+        logger.info(
+                "All FQNs: {}",
+                declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.toList()));
 
         // Test 1: Namespace-as-package semantics
         var disposableClass = declarations.stream()
                 .filter(cu -> cu.fqName().equals("vs.base.common.Disposable"))
                 .findFirst();
         assertTrue(disposableClass.isPresent(), "Should find Disposable class");
-        assertEquals("vs.base.common", disposableClass.get().packageName(),
-                "Package should be the namespace path");
-        assertEquals("Disposable", disposableClass.get().shortName(),
-                "ShortName should not include namespace");
+        assertEquals("vs.base.common", disposableClass.get().packageName(), "Package should be the namespace path");
+        assertEquals("Disposable", disposableClass.get().shortName(), "ShortName should not include namespace");
 
         // Test 2: Index signature capture
         var indexSig = declarations.stream()
-                .filter(cu -> cu.fqName().contains("IStringDictionary") && cu.fqName().contains("[index]"))
+                .filter(cu ->
+                        cu.fqName().contains("IStringDictionary") && cu.fqName().contains("[index]"))
                 .findFirst();
         assertTrue(indexSig.isPresent(), "Should capture index signature");
         logger.info("Index signature FQN: {}", indexSig.get().fqName());
@@ -67,8 +67,8 @@ public class VSCodePatternsValidationTest {
                 .filter(CodeUnit::isFunction)
                 .findFirst();
         assertTrue(createCancelable.isPresent(), "Should capture arrow function");
-        assertEquals("vs.base.common", createCancelable.get().packageName(),
-                "Arrow function should have namespace package");
+        assertEquals(
+                "vs.base.common", createCancelable.get().packageName(), "Arrow function should have namespace package");
 
         // Test 5: Nested namespace
         var formatFunc = declarations.stream()
@@ -76,8 +76,7 @@ public class VSCodePatternsValidationTest {
                 .filter(CodeUnit::isFunction)
                 .findFirst();
         assertTrue(formatFunc.isPresent(), "Should capture function in nested namespace");
-        assertEquals("vs.base.common.strings", formatFunc.get().packageName(),
-                "Nested namespace should be in package");
+        assertEquals("vs.base.common.strings", formatFunc.get().packageName(), "Nested namespace should be in package");
 
         // Test 6: Top-level arrow function
         var timeout = declarations.stream()
@@ -91,8 +90,7 @@ public class VSCodePatternsValidationTest {
                 .filter(cu -> cu.fqName().contains("Event") && !cu.isFunction())
                 .findFirst();
         assertTrue(eventType.isPresent(), "Should capture type alias in namespace");
-        assertEquals("vs.base.common", eventType.get().packageName(),
-                "Type alias should have namespace package");
+        assertEquals("vs.base.common", eventType.get().packageName(), "Type alias should have namespace package");
 
         logger.info("✅ All VSCode pattern validations passed!");
         logger.info("✅ Namespace-as-package: WORKING");

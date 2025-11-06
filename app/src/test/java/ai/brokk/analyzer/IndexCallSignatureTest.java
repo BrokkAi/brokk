@@ -34,9 +34,9 @@ public class IndexCallSignatureTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Declarations found: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Declarations found: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         var indexSig = declarations.stream()
                 .filter(cu -> cu.fqName().contains("[index]"))
@@ -65,9 +65,9 @@ public class IndexCallSignatureTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Declarations found: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Declarations found: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         var callSig = declarations.stream()
                 .filter(cu -> cu.fqName().contains("[call]"))
@@ -75,9 +75,7 @@ public class IndexCallSignatureTest {
 
         assertTrue(callSig.isPresent(), "Call signature should be captured");
         assertTrue(callSig.get().isFunction(), "Call signature should be function-like");
-        assertTrue(
-                callSig.get().fqName().contains("IDisposable"),
-                "Call signature should be within IDisposable");
+        assertTrue(callSig.get().fqName().contains("IDisposable"), "Call signature should be within IDisposable");
     }
 
     @Test
@@ -110,14 +108,15 @@ public class IndexCallSignatureTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("All declarations: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "All declarations: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
         // Count interfaces
         var interfaces = declarations.stream()
                 .filter(CodeUnit::isClass)
-                .filter(cu -> cu.fqName().contains("Interface") || cu.fqName().contains("Dictionary")
+                .filter(cu -> cu.fqName().contains("Interface")
+                        || cu.fqName().contains("Dictionary")
                         || cu.fqName().contains("Disposable"))
                 .toList();
         assertEquals(3, interfaces.size(), "Should have 3 interfaces");
@@ -128,16 +127,14 @@ public class IndexCallSignatureTest {
                 .filter(cu -> !cu.isClass()) // Not the interface itself
                 .toList();
 
-        logger.info("IComplexInterface members: {}", complexMembers.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "IComplexInterface members: {}",
+                complexMembers.stream().map(CodeUnit::fqName).toList());
 
         assertTrue(
-                complexMembers.stream().anyMatch(cu -> cu.fqName().contains("[index]")),
-                "Should have index signature");
+                complexMembers.stream().anyMatch(cu -> cu.fqName().contains("[index]")), "Should have index signature");
         assertTrue(
-                complexMembers.stream().anyMatch(cu -> cu.fqName().contains("[call]")),
-                "Should have call signature");
+                complexMembers.stream().anyMatch(cu -> cu.fqName().contains("[call]")), "Should have call signature");
         assertTrue(
                 complexMembers.stream().anyMatch(cu -> cu.fqName().contains("regularMethod")),
                 "Should have regular method");

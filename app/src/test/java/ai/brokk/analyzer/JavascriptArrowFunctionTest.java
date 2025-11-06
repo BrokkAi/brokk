@@ -35,25 +35,17 @@ public class JavascriptArrowFunctionTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Declarations found: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Declarations found: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
-        var functions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .toList();
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
 
         assertEquals(3, functions.size(), "Should capture 3 arrow functions");
 
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("myFunc")),
-                "Should capture myFunc");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("asyncFunc")),
-                "Should capture asyncFunc");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("anotherFunc")),
-                "Should capture anotherFunc");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("myFunc")), "Should capture myFunc");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("asyncFunc")), "Should capture asyncFunc");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("anotherFunc")), "Should capture anotherFunc");
     }
 
     @Test
@@ -76,21 +68,15 @@ public class JavascriptArrowFunctionTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("Declarations found: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "Declarations found: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
-        var functions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .toList();
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
 
         assertEquals(2, functions.size(), "Should capture 2 exported arrow functions");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("handler")),
-                "Should capture handler");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("middleware")),
-                "Should capture middleware");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("handler")), "Should capture handler");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("middleware")), "Should capture middleware");
     }
 
     @Test
@@ -116,13 +102,11 @@ public class JavascriptArrowFunctionTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("All declarations: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "All declarations: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
-        var functions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .toList();
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
 
         // Should have: regularFunc, arrowFunc, methodFunc
         assertEquals(3, functions.size(), "Should capture 3 functions total");
@@ -130,17 +114,11 @@ public class JavascriptArrowFunctionTest {
         assertTrue(
                 functions.stream().anyMatch(f -> f.fqName().contains("regularFunc")),
                 "Should capture regular function");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("arrowFunc")),
-                "Should capture arrow function");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("methodFunc")),
-                "Should capture class method");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("arrowFunc")), "Should capture arrow function");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("methodFunc")), "Should capture class method");
 
         // Verify class is also captured
-        var classes = declarations.stream()
-                .filter(CodeUnit::isClass)
-                .toList();
+        var classes = declarations.stream().filter(CodeUnit::isClass).toList();
         assertEquals(1, classes.size(), "Should capture MyClass");
     }
 
@@ -170,21 +148,16 @@ public class JavascriptArrowFunctionTest {
         var projectFile = new ProjectFile(tempDir, tempDir.relativize(testFile));
 
         var declarations = analyzer.getDeclarations(projectFile);
-        logger.info("React components found: {}", declarations.stream()
-                .map(CodeUnit::fqName)
-                .toList());
+        logger.info(
+                "React components found: {}",
+                declarations.stream().map(CodeUnit::fqName).toList());
 
-        var functions = declarations.stream()
-                .filter(CodeUnit::isFunction)
-                .toList();
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
 
         assertEquals(3, functions.size(), "Should capture all 3 React arrow functions");
+        assertTrue(functions.stream().anyMatch(f -> f.fqName().contains("MyComponent")), "Should capture MyComponent");
         assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("MyComponent")),
-                "Should capture MyComponent");
-        assertTrue(
-                functions.stream().anyMatch(f -> f.fqName().contains("useCustomHook")),
-                "Should capture useCustomHook");
+                functions.stream().anyMatch(f -> f.fqName().contains("useCustomHook")), "Should capture useCustomHook");
         assertTrue(
                 functions.stream().anyMatch(f -> f.fqName().contains("ComponentWithProps")),
                 "Should capture ComponentWithProps");

@@ -4,10 +4,15 @@ import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
 import com.google.common.base.Splitter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -82,12 +87,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             "type_parameters", // Standard field name for type parameters in TS
             // captureConfiguration - using unified naming convention
             Map.ofEntries(
-                    Map.entry(CaptureNames.TYPE_DEFINITION, SkeletonType.CLASS_LIKE), // Classes, interfaces, enums, namespaces
+                    Map.entry(
+                            CaptureNames.TYPE_DEFINITION,
+                            SkeletonType.CLASS_LIKE), // Classes, interfaces, enums, namespaces
                     Map.entry(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE), // Functions, methods
-                    Map.entry(CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE), // Arrow functions (Phase 2 optimization)
+                    Map.entry(
+                            CaptureNames.ARROW_FUNCTION_DEFINITION,
+                            SkeletonType.FUNCTION_LIKE), // Arrow functions (Phase 2 optimization)
                     Map.entry(CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE), // Variables, fields, constants
                     Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE), // Type aliases
-                    Map.entry(CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED), // Keep as UNSUPPORTED but handle differently
+                    Map.entry(
+                            CaptureNames.DECORATOR_DEFINITION,
+                            SkeletonType.UNSUPPORTED), // Keep as UNSUPPORTED but handle differently
                     Map.entry("keyword.modifier", SkeletonType.UNSUPPORTED)),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
@@ -218,16 +229,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     }
                 }
                 // Fields require "Container.field" format; use _module_. when no class container
-                finalShortName = adjustedClassChain.isEmpty()
-                        ? "_module_." + simpleName
-                        : adjustedClassChain + "." + simpleName;
+                finalShortName =
+                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
                 // Type aliases are fields and require "Container.alias" format; use _module_. when no class container
-                finalShortName = adjustedClassChain.isEmpty()
-                        ? "_module_." + simpleName
-                        : adjustedClassChain + "." + simpleName;
+                finalShortName =
+                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -865,7 +874,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // Enum + any other kind (enum + namespace is common)
-        if (existing.kind().toString().equals("enum") || candidate.kind().toString().equals("enum")) {
+        if (existing.kind().toString().equals("enum")
+                || candidate.kind().toString().equals("enum")) {
             return true;
         }
 
@@ -1110,7 +1120,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return super.extractSimpleName(decl, src);
     }
 
-
     @Override
     protected void buildFunctionSkeleton(
             TSNode funcNode,
@@ -1183,6 +1192,149 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractClassName(String reference) {
         return ClassNameExtractor.extractForJsTs(reference);
+    }
+
+    /**
+     * Extracts re-export information from a TypeScript/JavaScript file.
+     *
+     * <p>Re-exports are module patterns like:
+     * <ul>
+     *   <li>{@code export * from './users'} - wildcard re-export
+     *   <li>{@code export { User, Role } from './models'} - named re-export
+     *   <li>{@code export { User as PublicUser } from './internal'} - renamed re-export
+     *   <li>{@code export * as Types from './types'} - namespace re-export
+     * </ul>
+     *
+     * @param file the file to analyze for re-exports
+     * @return list of ReexportInfo objects representing each re-export statement
+     */
+    @Override
+    public List<ReexportInfo> getReexports(ProjectFile file) {
+        // Read file content
+        String src;
+        try {
+            src = Files.readString(file.absPath(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return List.of();
+        }
+        var srcBytes = src.getBytes(StandardCharsets.UTF_8);
+
+        // Parse the file on-demand
+        var parser = getTSParser();
+        var tree = parser.parseString(null, src);
+        if (tree == null) {
+            return List.of();
+        }
+
+        var rootNode = tree.getRootNode();
+
+        // Execute query to find re-export statements
+        var tsQuery = getThreadLocalQuery();
+        var cursor = new org.treesitter.TSQueryCursor();
+        cursor.exec(tsQuery, rootNode);
+
+        // Group captures by export_statement node position
+        // Use position as key since TSNode doesn't have proper equals/hashCode
+        record NodePosition(int startByte, int endByte) {}
+        Map<NodePosition, ReexportCapture> capturesByStatement = new HashMap<>();
+
+        var match = new org.treesitter.TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (var capture : match.getCaptures()) {
+                String captureName = tsQuery.getCaptureNameForId(capture.getIndex());
+
+                if (captureName.startsWith("reexport.")) {
+                    var node = capture.getNode();
+
+                    // Find the definition node (export_statement)
+                    TSNode defNode = node;
+                    if (!"export_statement".equals(node.getType())) {
+                        // Navigate up to find export_statement
+                        TSNode parent = node.getParent();
+                        while (parent != null && !parent.isNull()) {
+                            if ("export_statement".equals(parent.getType())) {
+                                defNode = parent;
+                                break;
+                            }
+                            parent = parent.getParent();
+                        }
+                    }
+
+                    var nodePos = new NodePosition(defNode.getStartByte(), defNode.getEndByte());
+                    capturesByStatement
+                            .computeIfAbsent(nodePos, k -> new ReexportCapture())
+                            .addCapture(captureName, node, srcBytes);
+                }
+            }
+        }
+
+        // Convert captures to ReexportInfo objects
+        return capturesByStatement.values().stream()
+                .map(ReexportCapture::toReexportInfo)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Helper class to group re-export captures by statement.
+     */
+    private static class ReexportCapture {
+        String source;
+        Set<String> symbols = new LinkedHashSet<>(); // Use Set to avoid duplicates
+        Map<String, String> renamed = new HashMap<>();
+        String namespace;
+        String lastSeenName; // Track last name for alias processing
+
+        void addCapture(String captureName, TSNode node, byte[] srcBytes) {
+            String text = textSlice(node, srcBytes);
+
+            switch (captureName) {
+                case "reexport.source" -> {
+                    // Extract string literal value, removing quotes
+                    if (text.length() >= 2) {
+                        this.source = text.substring(1, text.length() - 1);
+                    }
+                }
+                case "reexport.name" -> {
+                    symbols.add(text);
+                    lastSeenName = text; // Track for potential alias
+                }
+                case "reexport.alias" -> {
+                    if (lastSeenName != null) {
+                        renamed.put(lastSeenName, text);
+                    }
+                }
+                case "reexport.namespace" -> {
+                    this.namespace = text;
+                }
+            }
+        }
+
+        ReexportInfo toReexportInfo() {
+            if (source == null) {
+                return null;
+            }
+
+            var symbolsList = List.copyOf(symbols); // Convert Set to List
+            if (namespace != null) {
+                return ReexportInfo.namespace(source, namespace);
+            } else if (symbolsList.isEmpty()) {
+                // No symbols and no namespace = wildcard export
+                return ReexportInfo.wildcard(source);
+            } else {
+                // Has symbols
+                if (!renamed.isEmpty()) {
+                    return ReexportInfo.renamed(source, symbolsList, renamed);
+                } else {
+                    return ReexportInfo.named(source, symbolsList);
+                }
+            }
+        }
+
+        private static String textSlice(TSNode node, byte[] srcBytes) {
+            return new String(
+                    srcBytes, node.getStartByte(), node.getEndByte() - node.getStartByte(), StandardCharsets.UTF_8);
+        }
     }
 
     @Override
