@@ -96,6 +96,101 @@ class HeadlessExecutorMainIntegrationTest {
         conn.setRequestMethod("GET");
 
         assertEquals(503, conn.getResponseCode());
+        
+        // Verify ErrorPayload JSON structure
+        InputStream stream = conn.getErrorStream();
+        if (stream == null) {
+            stream = conn.getInputStream();
+        }
+        assertNotNull(stream, "Expected error response body");
+        try (InputStream is = stream) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
+            assertTrue(response.contains("NOT_READY"), "Response should contain 'NOT_READY' code: " + response);
+            assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
+            assertTrue(response.contains("No session loaded"), "Response should contain appropriate message: " + response);
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testHealthLiveEndpoint_WrongMethod() throws Exception {
+        var url = new URL(baseUrl + "/health/live");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+
+        assertEquals(405, conn.getResponseCode());
+        
+        // Verify ErrorPayload JSON structure
+        InputStream stream = conn.getErrorStream();
+        if (stream == null) {
+            stream = conn.getInputStream();
+        }
+        assertNotNull(stream, "Expected error response body");
+        try (InputStream is = stream) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
+            assertTrue(response.contains("METHOD_NOT_ALLOWED"), "Response should contain 'METHOD_NOT_ALLOWED' code: " + response);
+            assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
+            assertTrue(response.contains("Method not allowed"), "Response should contain appropriate message: " + response);
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testJobsRouter_UnknownSubpath() throws Exception {
+        uploadSession();
+        var jobId = createJob("test-unknown-subpath");
+
+        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/unknown-endpoint");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(404, conn.getResponseCode());
+        
+        // Verify ErrorPayload JSON structure
+        InputStream stream = conn.getErrorStream();
+        if (stream == null) {
+            stream = conn.getInputStream();
+        }
+        assertNotNull(stream, "Expected error response body");
+        try (InputStream is = stream) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
+            assertTrue(response.contains("NOT_FOUND"), "Response should contain 'NOT_FOUND' code: " + response);
+            assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
+            assertTrue(response.contains("Not found"), "Response should contain appropriate message: " + response);
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testJobsRouter_MalformedPath() throws Exception {
+        uploadSession();
+
+        // Request to /v1/jobs//events (empty jobId)
+        var url = new URL(baseUrl + "/v1/jobs//events");
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(400, conn.getResponseCode());
+        
+        // Verify ErrorPayload JSON structure
+        InputStream stream = conn.getErrorStream();
+        if (stream == null) {
+            stream = conn.getInputStream();
+        }
+        assertNotNull(stream, "Expected error response body");
+        try (InputStream is = stream) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
+            assertTrue(response.contains("BAD_REQUEST"), "Response should contain 'BAD_REQUEST' code: " + response);
+            assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
+            assertTrue(response.contains("Invalid job path"), "Response should contain appropriate message: " + response);
+        }
         conn.disconnect();
     }
 
