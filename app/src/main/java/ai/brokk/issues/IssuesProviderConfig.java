@@ -1,9 +1,11 @@
 package ai.brokk.issues;
 
+import ai.brokk.gui.util.GitUiUtil;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 /** Marker parent. Concrete records hold the supplier‐specific data. */
@@ -39,6 +41,46 @@ public sealed interface IssuesProviderConfig
             return (owner == null || owner.isBlank())
                     && (repo == null || repo.isBlank())
                     && (host == null || host.isBlank());
+        }
+
+        /**
+         * Returns the trimmed owner, or empty string if null.
+         *
+         * @return trimmed owner string
+         */
+        @JsonIgnore
+        public String ownerTrimmed() {
+            return (owner == null) ? "" : owner.trim();
+        }
+
+        /**
+         * Returns the trimmed repo, or empty string if null.
+         *
+         * @return trimmed repo string
+         */
+        @JsonIgnore
+        public String repoTrimmed() {
+            return (repo == null) ? "" : repo.trim();
+        }
+
+        /**
+         * Validates the owner and repo using {@link GitUiUtil#validateOwnerRepo}. Returns empty if either is empty
+         * (incomplete config, treated as valid default), or if validation passes.
+         *
+         * @return Optional.empty() if valid or incomplete, or Optional.of(errorMessage) if invalid
+         */
+        @JsonIgnore
+        public Optional<String> validationError() {
+            String trimmedOwner = ownerTrimmed();
+            String trimmedRepo = repoTrimmed();
+
+            // If either is empty, treat as incomplete (valid default)
+            if (trimmedOwner.isEmpty() || trimmedRepo.isEmpty()) {
+                return Optional.empty();
+            }
+
+            // Validate only when both are non-empty
+            return GitUiUtil.validateOwnerRepo(trimmedOwner, trimmedRepo);
         }
     }
 
