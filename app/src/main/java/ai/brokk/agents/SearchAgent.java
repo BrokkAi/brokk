@@ -351,8 +351,9 @@ public class SearchAgent {
 
                 Critical rules:
                   1) PRUNE FIRST at every turn.
-                     - Remove fragments that are not directly useful for the goal.
+                     - Remove fragments that are not directly useful for the goal (add a reason).
                      - Prefer concise, goal-focused summaries over full files when possible.
+                     - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
                      - Keep the Workspace focused on answering/solving the goal.
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                   3) The symbol-based tools only have visibility into the following file types: %s

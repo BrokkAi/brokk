@@ -187,7 +187,7 @@ public class WorkspaceTools {
 
     @Tool(
             value =
-                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you will need to edit as part of your current task, unless the edits are localized to a single function.")
+                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
             @P(
                             "Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty. 'Discarded Context' fragment is not itself drop-able.")
