@@ -1056,6 +1056,174 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
+    /**
+     * Performs the actual style.md to AGENTS.md migration.
+     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
+     *
+     * @param chrome the Chrome instance for showing notifications
+     * @return true if migration succeeded, false otherwise
+     */
+    public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
+        try {
+            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
+            Path styleFile = brokkDir.resolve("style.md");
+            Path agentsFile = brokkDir.resolve("AGENTS.md");
+
+            if (!Files.exists(styleFile)) {
+                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.ERROR,
+                        "Migration failed: style.md not found at " + styleFile);
+                return false;
+            }
+
+            logger.info("Starting style.md to AGENTS.md migration for {}", getRoot().getFileName());
+
+            // Copy content from style.md to AGENTS.md
+            String content = Files.readString(styleFile);
+            Files.writeString(agentsFile, content);
+            logger.debug("Created AGENTS.md with content from style.md");
+
+            // If this is a Git repository, stage the changes
+            if (hasGit()) {
+                GitRepo gitRepo = (GitRepo) getRepo();
+
+                try {
+                    // Use GitRepo.move to handle the rename with proper Git staging
+                    String relStylePath = getMasterRootPathForConfig().relativize(styleFile).toString();
+                    String relAgentsPath = getMasterRootPathForConfig().relativize(agentsFile).toString();
+
+                    gitRepo.move(relStylePath, relAgentsPath);
+                    logger.info("Staged style.md -> AGENTS.md rename in Git for {}", getRoot().getFileName());
+                } catch (Exception gitEx) {
+                    logger.warn(
+                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
+                            gitEx.getMessage());
+                    // If GitRepo.move fails, just delete the old file manually
+                    // The new file will have been created above
+                    try {
+                        Files.delete(styleFile);
+                        logger.debug("Deleted style.md manually");
+                    } catch (IOException deleteEx) {
+                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                    }
+                }
+            } else {
+                // Not a Git repository; just delete the old file
+                try {
+                    Files.delete(styleFile);
+                    logger.debug("Deleted style.md (non-Git project)");
+                } catch (IOException deleteEx) {
+                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                }
+            }
+
+            // Mark migration as complete by resetting the declined flag
+            setMigrationDeclined(false);
+            logger.info("Completed style.md to AGENTS.md migration for {}", getRoot().getFileName());
+
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
+            return true;
+        } catch (Exception e) {
+            logger.error(
+                    "Error performing style.md to AGENTS.md migration for {}: {}",
+                    getRoot().getFileName(),
+                    e.getMessage(),
+                    e);
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.ERROR,
+                    "Migration failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * DEPRECATED: Use performStyleMdToAgentsMdMigration(Chrome) instead.
+     * Performs the actual style.md to AGENTS.md migration.
+     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
+     *
+     * @param chrome the Chrome instance for showing notifications
+     * @return true if migration succeeded, false otherwise
+     */
+    @Deprecated
+    public boolean performStyleMdToAgentsMdMigrationOld(Chrome chrome) {
+        try {
+            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
+            Path styleFile = brokkDir.resolve("style.md");
+            Path agentsFile = brokkDir.resolve("AGENTS.md");
+
+            if (!Files.exists(styleFile)) {
+                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.ERROR,
+                        "Migration failed: style.md not found at " + styleFile);
+                return false;
+            }
+
+            logger.info("Starting style.md to AGENTS.md migration for {}", getRoot().getFileName());
+
+            // Copy content from style.md to AGENTS.md
+            String content = Files.readString(styleFile);
+            Files.writeString(agentsFile, content);
+            logger.debug("Created AGENTS.md with content from style.md");
+
+            // If this is a Git repository, stage the changes
+            if (hasGit()) {
+                GitRepo gitRepo = (GitRepo) getRepo();
+
+                try {
+                    // Use GitRepo.move to handle the rename with proper Git staging
+                    String relStylePath = getMasterRootPathForConfig().relativize(styleFile).toString();
+                    String relAgentsPath = getMasterRootPathForConfig().relativize(agentsFile).toString();
+
+                    gitRepo.move(relStylePath, relAgentsPath);
+                    logger.info("Staged style.md -> AGENTS.md rename in Git for {}", getRoot().getFileName());
+                } catch (Exception gitEx) {
+                    logger.warn(
+                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
+                            gitEx.getMessage());
+                    // If GitRepo.move fails, just delete the old file manually
+                    // The new file will have been created above
+                    try {
+                        Files.delete(styleFile);
+                        logger.debug("Deleted style.md manually");
+                    } catch (IOException deleteEx) {
+                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                    }
+                }
+            } else {
+                // Not a Git repository; just delete the old file
+                try {
+                    Files.delete(styleFile);
+                    logger.debug("Deleted style.md (non-Git project)");
+                } catch (IOException deleteEx) {
+                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                }
+            }
+
+            // Mark migration as complete by resetting the declined flag
+            setMigrationDeclined(false);
+            logger.info("Completed style.md to AGENTS.md migration for {}", getRoot().getFileName());
+
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
+            return true;
+        } catch (Exception e) {
+            logger.error(
+                    "Error performing style.md to AGENTS.md migration for {}: {}",
+                    getRoot().getFileName(),
+                    e.getMessage(),
+                    e);
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.ERROR,
+                    "Migration failed: " + e.getMessage());
+            return false;
+        }
+    }
+
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");

@@ -1020,7 +1020,7 @@ public class Brokk {
      * - AGENTS.md does not exist
      * - User has not previously declined the migration
      *
-     * If migration is offered and user accepts, performs the file rename and Git operations.
+     * If migration is offered and user accepts, delegates to MainProject for the actual migration.
      * If user declines, marks the decision as declined so the prompt is not shown again.
      *
      * @param project the project to check for migration
@@ -1068,7 +1068,7 @@ public class Brokk {
 
             if (answer != null && !answer.trim().isEmpty()) {
                 // User accepted the migration
-                performStyleMdToAgentsMdMigration(mainProject, styleFile, agentsFile);
+                mainProject.performStyleMdToAgentsMdMigration(chrome);
             } else {
                 // User declined; store the decision
                 mainProject.setMigrationDeclined(true);
@@ -1082,86 +1082,6 @@ public class Brokk {
                     project.getRoot().getFileName(),
                     e.getMessage(),
                     e);
-        }
-    }
-
-    /**
-     * Performs the actual style.md to AGENTS.md migration.
-     *
-     * @param mainProject the main project being migrated
-     * @param styleFile path to style.md
-     * @param agentsFile path to AGENTS.md
-     */
-    private static void performStyleMdToAgentsMdMigration(MainProject mainProject, Path styleFile, Path agentsFile) {
-        try {
-            logger.info("Starting style.md to AGENTS.md migration for {}", mainProject.getRoot().getFileName());
-
-            // Copy content from style.md to AGENTS.md
-            String content = Files.readString(styleFile);
-            Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md with content from style.md");
-
-            // If this is a Git repository, stage the changes
-            if (mainProject.hasGit()) {
-                GitRepo gitRepo = (GitRepo) mainProject.getRepo();
-
-                try {
-                    // Use GitRepo.move to handle the rename with proper Git staging
-                    String relStylePath = mainProject.getMasterRootPathForConfig().relativize(styleFile).toString();
-                    String relAgentsPath = mainProject.getMasterRootPathForConfig().relativize(agentsFile).toString();
-
-                    gitRepo.move(relStylePath, relAgentsPath);
-                    logger.info("Staged style.md -> AGENTS.md rename in Git for {}", mainProject.getRoot().getFileName());
-                } catch (Exception gitEx) {
-                    logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
-                            gitEx.getMessage());
-                    // If GitRepo.move fails, just delete the old file manually
-                    // The new file will have been created above
-                    try {
-                        Files.delete(styleFile);
-                        logger.debug("Deleted style.md manually");
-                    } catch (IOException deleteEx) {
-                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                    }
-                }
-            } else {
-                // Not a Git repository; just delete the old file
-                try {
-                    Files.delete(styleFile);
-                    logger.debug("Deleted style.md (non-Git project)");
-                } catch (IOException deleteEx) {
-                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                }
-            }
-
-            // Mark migration as complete by storing the decision
-            mainProject.setMigrationDeclined(false); // Reset flag to indicate migration was handled
-            logger.info("Completed style.md to AGENTS.md migration for {}", mainProject.getRoot().getFileName());
-
-            // Notify user of successful migration
-            Chrome chrome = findOpenProjectWindow(mainProject.getRoot());
-            if (chrome != null) {
-                SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
-                });
-            }
-        } catch (Exception e) {
-            logger.error(
-                    "Error performing style.md to AGENTS.md migration for {}: {}",
-                    mainProject.getRoot().getFileName(),
-                    e.getMessage(),
-                    e);
-            Chrome chrome = findOpenProjectWindow(mainProject.getRoot());
-            if (chrome != null) {
-                SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.ERROR,
-                            "Migration failed: " + e.getMessage());
-                });
-            }
         }
     }
 
