@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -48,7 +48,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/auth");
+        var url = new URI("http://127.0.0.1:" + port + "/test/auth").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -67,7 +67,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/auth");
+        var url = new URI("http://127.0.0.1:" + port + "/test/auth").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         // No Authorization header
@@ -89,7 +89,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/auth");
+        var url = new URI("http://127.0.0.1:" + port + "/test/auth").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer invalid-token");
@@ -111,7 +111,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "ok"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/auth");
+        var url = new URI("http://127.0.0.1:" + port + "/test/auth").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Basic " + authToken); // Wrong scheme
@@ -126,7 +126,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "public"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/public");
+        var url = new URI("http://127.0.0.1:" + port + "/test/public").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         // No Authorization header
@@ -141,8 +141,6 @@ class SimpleHttpServerTest {
 
     @Test
     void testParseJsonRequest() throws Exception {
-        var expectedSpec = Map.of("key", "value");
-
         server.registerAuthenticatedContext("/test/json", exchange -> {
             var parsed = SimpleHttpServer.parseJsonRequest(exchange, Map.class);
             if (parsed != null && parsed.containsKey("key")) {
@@ -152,7 +150,7 @@ class SimpleHttpServerTest {
             }
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/json");
+        var url = new URI("http://127.0.0.1:" + port + "/test/json").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -174,7 +172,7 @@ class SimpleHttpServerTest {
             SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
         });
 
-        var url = new URL("http://127.0.0.1:" + port + "/test/error");
+        var url = new URI("http://127.0.0.1:" + port + "/test/error").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
 

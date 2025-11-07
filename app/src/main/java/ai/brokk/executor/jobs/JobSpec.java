@@ -12,7 +12,6 @@ import org.jetbrains.annotations.Nullable;
  * The {@code codeModel} field is optional and, when supplied, is used for CODE and ARCHITECT jobs.</p>
  */
 public record JobSpec(
-        @JsonProperty("sessionId") String sessionId,
         @JsonProperty("taskInput") String taskInput,
         @JsonProperty("autoCommit") boolean autoCommit,
         @JsonProperty("autoCompress") boolean autoCompress,
@@ -23,21 +22,20 @@ public record JobSpec(
     /**
      * Creates a JobSpec with minimal required fields.
      */
-    public static JobSpec of(String sessionId, String taskInput, String plannerModel) {
-        return new JobSpec(sessionId, taskInput, true, true, plannerModel, null, Map.of());
+    public static JobSpec of(String taskInput, String plannerModel) {
+        return new JobSpec(taskInput, true, true, plannerModel, null, Map.of());
     }
 
     /**
      * Creates a JobSpec with all fields.
      */
     public static JobSpec of(
-            String sessionId,
             String taskInput,
             boolean autoCommit,
             boolean autoCompress,
             String plannerModel,
             @Nullable String codeModel,
             Map<String, String> tags) {
-        return new JobSpec(sessionId, taskInput, autoCommit, autoCompress, plannerModel, codeModel, tags);
+        return new JobSpec(taskInput, autoCommit, autoCompress, plannerModel, codeModel, tags);
     }
 }

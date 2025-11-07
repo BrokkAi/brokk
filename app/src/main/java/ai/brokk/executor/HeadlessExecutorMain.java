@@ -81,6 +81,7 @@ public final class HeadlessExecutorMain {
      * Get configuration value from either parsed args or environment variable.
      * Returns null/blank only if both are absent.
      */
+    @Nullable
     private static String getConfigValue(Map<String, String> parsedArgs, String argKey, String envVarName) {
         var argValue = parsedArgs.get(argKey);
         if (argValue != null && !argValue.isBlank()) {
@@ -411,9 +412,8 @@ public final class HeadlessExecutorMain {
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-
         // Switch ContextManager to this session synchronously to avoid handler hangs
-        contextManager.updateActiveSession(sessionId);
+        contextManager.switchSessionAsync(sessionId).get();
         logger.info("Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
 
         // Mark executor as ready to serve requests that require a session.
@@ -458,7 +458,6 @@ public final class HeadlessExecutorMain {
             var tags = jobSpecRequest.tags();
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
-                    jobSpecRequest.sessionId(),
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
@@ -669,33 +668,33 @@ public final class HeadlessExecutorMain {
 
             // Get configuration from args or environment
             var execIdStr = getConfigValue(parsedArgs, "exec-id", "EXEC_ID");
-            if (execIdStr.isBlank()) {
+            if (execIdStr == null || execIdStr.isBlank()) {
                 throw new IllegalArgumentException(
                         "EXEC_ID must be provided via --exec-id argument or EXEC_ID environment variable");
             }
             var execId = UUID.fromString(execIdStr);
 
             var listenAddr = getConfigValue(parsedArgs, "listen-addr", "LISTEN_ADDR");
-            if (listenAddr.isBlank()) {
+            if (listenAddr == null || listenAddr.isBlank()) {
                 throw new IllegalArgumentException(
                         "LISTEN_ADDR must be provided via --listen-addr argument or LISTEN_ADDR environment variable");
             }
 
             var authToken = getConfigValue(parsedArgs, "auth-token", "AUTH_TOKEN");
-            if (authToken.isBlank()) {
+            if (authToken == null || authToken.isBlank()) {
                 throw new IllegalArgumentException(
                         "AUTH_TOKEN must be provided via --auth-token argument or AUTH_TOKEN environment variable");
             }
 
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
-            if (workspaceDirStr.isBlank()) {
+            if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
                         "WORKSPACE_DIR must be provided via --workspace-dir argument or WORKSPACE_DIR environment variable");
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
             var sessionsDirStr = getConfigValue(parsedArgs, "sessions-dir", "SESSIONS_DIR");
-            var sessionsDir = !sessionsDirStr.isBlank()
+            var sessionsDir = sessionsDirStr != null && !sessionsDirStr.isBlank()
                     ? Path.of(sessionsDirStr)
                     : workspaceDir.resolve(".brokk").resolve("sessions");
 
