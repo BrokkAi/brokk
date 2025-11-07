@@ -138,6 +138,7 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
         this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
+        this.server.registerAuthenticatedContext("/v1/sessions", this::handleCreateSession);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
@@ -357,6 +358,41 @@ public final class HeadlessExecutorMain {
     // ============================================================================
     // Session and Job Handlers
     // ============================================================================
+
+    /**
+     * POST /v1/sessions - Create a new session programmatically.
+     */
+    void handleCreateSession(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            var request = SimpleHttpServer.parseJsonRequest(exchange, CreateSessionRequest.class);
+            if (request == null || request.name() == null || request.name().isBlank()) {
+                var error = ErrorPayload.validationError("Session name is required and must not be blank");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var sessionName = request.name().strip();
+            contextManager.createSessionAsync(sessionName).get();
+
+            var sessionId = contextManager.getCurrentSessionId();
+            logger.info("Created new session: {} ({})", sessionName, sessionId);
+
+            sessionUploaded = true;
+
+            var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
+            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/sessions", e);
+            var error = ErrorPayload.internalError("Failed to create session", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     /**
      * POST /v1/session - Accept zip file, store it, switch ContextManager to the session.
@@ -651,6 +687,8 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
+
+    private record CreateSessionRequest(String name) {}
 
     private record JobSpecRequest(
             String sessionId,
