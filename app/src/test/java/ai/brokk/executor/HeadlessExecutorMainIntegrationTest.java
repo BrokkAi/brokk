@@ -202,6 +202,112 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     @Test
+    void testPostSessionsEndpoint_RequiresAuth() throws Exception {
+        var sessionRequest = Map.of("name", "Test Session");
+
+        // Test 1: Missing Authorization header should return 401
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        // No Authorization header
+
+        var json = toJson(sessionRequest);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(401, conn.getResponseCode());
+        conn.disconnect();
+
+        // Test 2: Invalid Authorization token should also return 401
+        var conn2 = (HttpURLConnection) url.openConnection();
+        conn2.setRequestMethod("POST");
+        conn2.setRequestProperty("Authorization", "Bearer wrong-token");
+        conn2.setRequestProperty("Content-Type", "application/json");
+        conn2.setDoOutput(true);
+
+        try (OutputStream os = conn2.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(401, conn2.getResponseCode());
+        conn2.disconnect();
+    }
+
+    @Test
+    void testPostSessionsEndpoint_WithValidAuth() throws Exception {
+        var sessionRequest = Map.of("name", "My New Session");
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        var json = toJson(sessionRequest);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+        try (InputStream is = conn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("sessionId"));
+            assertTrue(response.contains("My New Session"));
+
+            // Verify sessionId is a valid UUID
+            var sessionIdMarker = "\"sessionId\":\"";
+            var start = response.indexOf(sessionIdMarker);
+            assertTrue(start >= 0, "Response should contain sessionId field");
+            start += sessionIdMarker.length();
+            var end = response.indexOf("\"", start);
+            assertTrue(end > start, "Response sessionId should be properly formatted");
+            var sessionId = response.substring(start, end);
+            // This will throw if not a valid UUID
+            UUID.fromString(sessionId);
+        }
+        conn.disconnect();
+    }
+
+    @Test
+    void testHealthReadyEndpoint_AfterCreateSession() throws Exception {
+        // Create a session using the new endpoint
+        var sessionRequest = Map.of("name", "Test Session For Ready Check");
+
+        var createUrl = URI.create(baseUrl + "/v1/sessions").toURL();
+        var createConn = (HttpURLConnection) createUrl.openConnection();
+        createConn.setRequestMethod("POST");
+        createConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        createConn.setRequestProperty("Content-Type", "application/json");
+        createConn.setDoOutput(true);
+
+        var json = toJson(sessionRequest);
+        try (OutputStream os = createConn.getOutputStream()) {
+            os.write(json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        assertEquals(201, createConn.getResponseCode());
+        createConn.disconnect();
+
+        // Now verify /health/ready returns 200
+        var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
+        var readyConn = (HttpURLConnection) readyUrl.openConnection();
+        readyConn.setRequestMethod("GET");
+
+        assertEquals(200, readyConn.getResponseCode());
+        try (InputStream is = readyConn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            assertTrue(response.contains("status"));
+            assertTrue(response.contains("ready"));
+            assertTrue(response.contains("sessionId"));
+        }
+        readyConn.disconnect();
+    }
+
+    @Test
     void testPostSessionEndpoint_RequiresAuth() throws Exception {
         var sessionZip = createEmptyZip();
 
