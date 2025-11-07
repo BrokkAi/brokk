@@ -1,25 +1,6 @@
-; ============================================================================
-; TYPESCRIPT TREESITTER QUERY PATTERNS
-; ============================================================================
-; This file defines patterns for extracting code structure from TypeScript files.
-; The patterns identify and capture various TypeScript constructs including:
-; - Classes, interfaces, enums, and namespaces
-; - Functions, methods, and arrow functions
-; - Variables, fields, and properties
-; - Type aliases and ambient declarations
-;
-; Capture names used:
-; - @type.definition: Class-like structures (classes, interfaces, enums, namespaces)
-; - @function.definition: Function-like structures (functions, methods, arrow functions)
-; - @value.definition: Field-like structures (variables, properties, enum members)
-; - @typealias.definition: Type alias declarations
-; - @keyword.modifier: Keywords like export, async, static, etc.
-; - Various .name captures: Names of the captured elements
-; - @class.type_parameters, @function.type_parameters: Generic type parameters
+; TypeScript TreeSitter query patterns for code structure extraction
 
-; ============================================================================
-; EXPORTED DECLARATIONS
-; ============================================================================
+; Exported declarations
 
 ; Export statements for class-like declarations
 ; Matches: export class Foo<T> { }, export default class Bar { }, etc.
@@ -73,13 +54,7 @@
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
-; ============================================================================
-; ARROW FUNCTION ASSIGNMENTS (Explicit Detection - Phase 2 Optimization)
-; ============================================================================
-
 ; Exported arrow function assignments
-; Matches: export const myFunc = () => {}, export const asyncFunc = async () => {}
-; Phase 2: Direct query-time detection avoids runtime AST traversal
 (export_statement
   (lexical_declaration
     (variable_declarator
@@ -144,8 +119,6 @@
       name: (identifier) @value.name)) @value.definition)
 
 ; Top-level arrow function assignments (non-exported)
-; Matches: const myFunc = () => {}, const asyncFunc = async () => {}
-; Phase 2: Direct query-time detection avoids runtime AST traversal
 (program
   (lexical_declaration
     (variable_declarator

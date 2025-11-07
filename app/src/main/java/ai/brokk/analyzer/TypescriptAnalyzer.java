@@ -4,15 +4,10 @@ import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
 import com.google.common.base.Splitter;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -88,15 +83,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     Map.entry(
                             CaptureNames.TYPE_DEFINITION,
                             SkeletonType.CLASS_LIKE), // Classes, interfaces, enums, namespaces
-                    Map.entry(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE), // Functions, methods
-                    Map.entry(
-                            CaptureNames.ARROW_FUNCTION_DEFINITION,
-                            SkeletonType.FUNCTION_LIKE), // Arrow functions (Phase 2 optimization)
-                    Map.entry(CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE), // Variables, fields, constants
-                    Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE), // Type aliases
-                    Map.entry(
-                            CaptureNames.DECORATOR_DEFINITION,
-                            SkeletonType.UNSUPPORTED), // Keep as UNSUPPORTED but handle differently
+                    Map.entry(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE),
+                    Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
+                    Map.entry(CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED),
                     Map.entry("keyword.modifier", SkeletonType.UNSUPPORTED)),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
@@ -156,14 +147,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
-        // Phase 2 Optimization: Arrow functions are now detected directly by TreeSitter queries
-        // using the "arrow_function.definition" capture name (see typescript.scm).
-        // This eliminates the need for runtime AST traversal to detect arrow functions,
-        // providing 2-4% performance improvement by avoiding repeated getChildByFieldName()
-        // and getType() JNI calls.
-        //
-        // The query patterns explicitly capture variable declarators with arrow_function values,
-        // so no additional AST inspection is needed here.
         return super.refineSkeletonType(captureName, definitionNode, profile);
     }
 
@@ -275,45 +258,23 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
-        // In TypeScript, namespaces appear in BOTH packageName (from extractNamespacePath)
-        // and classChain (from walking up AST). To avoid duplication, we need to remove
-        // the namespace prefix from classChain when building the parent FQN.
-        //
-        // Example: for a function inside namespace "MyModule":
-        // - packageName = "MyModule" (from extractNamespacePath)
-        // - classChain = "MyModule" (from AST walk)
-        // - Without this fix: parentFqName = "MyModule.MyModule" (WRONG)
-        // - With this fix: parentFqName = "MyModule" (CORRECT)
-
         String packageName = cu.packageName();
 
-        // If package is a prefix of classChain, remove it to avoid duplication
         if (!packageName.isBlank() && !classChain.isBlank()) {
             if (classChain.equals(packageName)) {
-                // ClassChain is exactly the package - parent is the namespace itself
                 return packageName;
             } else if (classChain.startsWith(packageName)
                     && classChain.length() > packageName.length()
                     && classChain.charAt(packageName.length()) == '.') {
-                // ClassChain starts with package - remove the package prefix
-                // Optimized: avoid string concatenation and Stream overhead
                 String remainingChain = classChain.substring(packageName.length() + 1);
                 return remainingChain.isBlank() ? packageName : packageName + "." + remainingChain;
             }
         }
 
-        // Default behavior: package + classChain
         return super.buildParentFqName(cu, classChain);
     }
 
-    /**
-     * Extracts namespace path for a definition node by traversing up the AST.
-     * Returns namespace chain like "A.B.C" if node is inside nested namespaces
-     * but NOT inside a class (classes should keep namespace in their classChain).
-     * Handles both "namespace A.B.C { }" (dotted) and nested namespace declarations.
-     */
     private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
-
         var namespaces = new java.util.ArrayList<String>();
         TSNode current = definitionNode.getParent();
         boolean insideClass = false;
@@ -321,24 +282,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         while (current != null && !current.isNull()) {
             String nodeType = current.getType();
 
-            // Check if we're inside a class - if so, stop extracting namespace path
-            // Classes should keep their namespace in the classChain for proper scoping
             if (getLanguageSyntaxProfile().classLikeNodeTypes().contains(nodeType)
                     && !"internal_module".equals(nodeType)) {
                 insideClass = true;
                 break;
             }
 
-            if ("internal_module".equals(nodeType)) { // internal_module = namespace in TypeScript grammar
+            if ("internal_module".equals(nodeType)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String name = cachedTextSliceStripped(nameNode, src);
-                    // Handle dotted names: namespace A.B.C { } is equivalent to nested namespaces
-                    // Split on dots and prepend all parts
-                    // Optimized: use manual tokenization instead of regex split to reduce overhead
                     int dotIndex = name.indexOf('.');
                     if (dotIndex >= 0) {
-                        // Manual tokenization is faster than regex split
                         int start = 0;
                         var parts = new java.util.ArrayList<String>();
                         while (start < name.length()) {
@@ -351,9 +306,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                                 start = dotIndex + 1;
                             }
                         }
-                        namespaces.addAll(0, parts); // Prepend all parts (we're traversing up)
+                        namespaces.addAll(0, parts);
                     } else {
-                        namespaces.add(0, name); // Prepend single name
+                        namespaces.add(0, name);
                     }
                 }
             }
@@ -361,8 +316,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             current = current.getParent();
         }
 
-        // If we're inside a class, don't use namespace path for package
-        // The namespace will be part of the classChain instead
         if (insideClass || namespaces.isEmpty()) {
             return Optional.empty();
         }
@@ -372,19 +325,17 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        // Try namespace-based package name first
         var namespacePath = extractNamespacePath(definitionNode, src);
         if (namespacePath.isPresent()) {
             return namespacePath.get();
         }
 
-        // Fall back to directory-based package name
         var projectRoot = getProject().getRoot();
         var filePath = file.absPath();
         var parentDir = filePath.getParent();
 
         if (parentDir == null || parentDir.equals(projectRoot)) {
-            return ""; // File is in the project root
+            return "";
         }
 
         var relPath = projectRoot.relativize(parentDir);
@@ -402,12 +353,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
-        // Use text slicing approach for simpler rendering
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
-        // For arrow functions, handle specially
         if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
@@ -420,15 +369,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return indent + signature + " " + bodyPlaceholder();
         }
 
-        // For regular functions, use text slicing when possible
         if (hasBody) {
             String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
                     .strip();
 
-            // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
             if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
-                // Check if any word in the prefix is already in the signature to avoid duplicates
                 List<String> prefixWords = Splitter.on(Pattern.compile("\\s+")).splitToList(prefix);
                 StringBuilder uniquePrefix = new StringBuilder();
                 for (String word : prefixWords) {
@@ -444,7 +390,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return indent + signature + " " + bodyPlaceholder();
         }
 
-        // For signatures without bodies, build minimal signature
         String prefix = exportAndModifierPrefix.stripTrailing();
         String keyword = getKeywordForFunction(funcNode, functionName);
         String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
@@ -577,19 +522,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
-        // TypeScript modifier extraction - check node itself and immediate parent for export/declare wrappers
-        // Synthesizes modifiers when @keyword.modifier captures are not present.
         StringBuilder modifiers = new StringBuilder();
-
         TSNode nodeToCheck = node;
-        // Cache parent to avoid multiple getParent() calls (optimization)
         TSNode cachedParent = node.getParent();
 
-        // Check if the node itself is an export statement
         if ("export_statement".equals(node.getType())) {
             modifiers.append("export ");
 
-            // Check for default export
             if (node.getChildCount() > 1) {
                 TSNode secondChild = node.getChild(1);
                 if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
@@ -597,17 +536,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
             }
 
-            // Get the declaration inside the export statement for further modifier checks
             TSNode declaration = node.getChildByFieldName("declaration");
             if (declaration != null && !declaration.isNull()) {
                 nodeToCheck = declaration;
             }
         } else {
-            // Check if the parent is an export statement (for nodes like variable_declarator)
-            // Use cached parent instead of calling getParent() again
             if (cachedParent != null && !cachedParent.isNull() && "export_statement".equals(cachedParent.getType())) {
                 modifiers.append("export ");
-                // Check for default export
                 if (cachedParent.getChildCount() > 1) {
                     TSNode secondChild = cachedParent.getChild(1);
                     if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
@@ -617,11 +552,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        // Check if the node itself is an ambient declaration
         if ("ambient_declaration".equals(nodeToCheck.getType())) {
             modifiers.append("declare ");
 
-            // Get the declaration inside the ambient declaration for further modifier checks
             for (int i = 0; i < nodeToCheck.getChildCount(); i++) {
                 TSNode child = nodeToCheck.getChild(i);
                 if (child != null && !child.isNull() && !"declare".equals(cachedTextSliceStripped(child, src))) {
@@ -630,12 +563,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
             }
         } else {
-            // Check if the immediate parent or grandparent is an ambient declaration (for nodes like
-            // variable_declarator)
-            // But stop if we hit a body (which means we're nested and shouldn't inherit ambient from outer scope)
-            // Use cachedParent instead of calling getParent() again (optimization)
             if (cachedParent != null && !cachedParent.isNull()) {
-                // First check the immediate parent
                 if ("ambient_declaration".equals(cachedParent.getType())) {
                     modifiers.append("declare ");
                 } else if (!("class_body".equals(cachedParent.getType())
@@ -679,10 +607,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return modifiers.toString();
     }
 
-    /**
-     * Phase 3 Optimization: Cached version of getVisibilityPrefix to avoid repeated AST traversals.
-     * Uses NodeCacheKey (based on node position and type) as cache key.
-     */
     protected String getVisibilityPrefixCached(TSNode node, String src, Map<NodeCacheKey, String> modifierCache) {
         return modifierCache.computeIfAbsent(NodeCacheKey.of(node), k -> getVisibilityPrefix(node, src));
     }

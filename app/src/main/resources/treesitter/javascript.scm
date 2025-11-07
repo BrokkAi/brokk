@@ -8,10 +8,7 @@
   (function_declaration
     name: (identifier) @function.name) @function.definition)
 
-; Top-level const/let/var MyComponent = () => { ... }
-; This needs to be a direct child of program, or within a block that is a direct child of program.
-; For simplicity, anchoring to program for top-level lexical arrow functions.
-; Phase 2 Optimization: Direct query-time detection avoids runtime AST traversal
+; Top-level const/let/var arrow function assignments
 (program
   (lexical_declaration
     ["const" "let"] @keyword.modifier
@@ -186,7 +183,7 @@
       ["const" "let"] @keyword.modifier
       (variable_declarator
         name: (identifier) @arrow_function.name
-        value: ((arrow_function) @arrow_function.definition) ; Phase 2: Capture arrow_function explicitly
+        value: ((arrow_function) @arrow_function.definition)
       )
     )
   )

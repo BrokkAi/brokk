@@ -3,9 +3,6 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -30,10 +27,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             "parameters", // parametersFieldName
             "", // returnTypeFieldName (JS doesn't have a standard named child for return type)
             "", // typeParametersFieldName (JS doesn't have type parameters)
-            Map.of( // captureConfiguration
+            Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE, // Phase 2 optimization
+                    CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
