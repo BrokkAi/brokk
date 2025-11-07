@@ -374,6 +374,36 @@ public final class HeadlessExecutorMain {
 
     /**
      * POST /v1/sessions - Create a new session programmatically.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "name": "Session Name"
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (201 Created):</b>
+     * <pre>
+     * {
+     *   "sessionId": "uuid",
+     *   "name": "Session Name"
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Session name is required and must not be blank</li>
+     *   <li>Session name must not exceed 200 characters (after trimming)</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Creates a new session in the SessionManager</li>
+     *   <li>Switches ContextManager to the newly created session</li>
+     *   <li>Sets sessionLoaded flag to true, enabling /health/ready</li>
+     * </ul>
      */
     void handleCreateSession(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
@@ -434,7 +464,29 @@ public final class HeadlessExecutorMain {
     }
 
     /**
-     * POST /v1/session - Accept zip file, store it, switch ContextManager to the session.
+     * POST /v1/session - Upload and import a session from a zip file.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Headers:</b>
+     * <ul>
+     *   <li>X-Session-Id (optional): UUID for the session; generated if not provided</li>
+     *   <li>Content-Type: application/zip (binary zip data in request body)</li>
+     * </ul>
+     * <p>
+     * <b>Response (201 Created):</b>
+     * <pre>
+     * {
+     *   "sessionId": "uuid"
+     * }
+     * </pre>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Writes the zip file to sessionsDir/{sessionId}.zip</li>
+     *   <li>Switches ContextManager to the imported session</li>
+     *   <li>Sets sessionLoaded flag to true, enabling /health/ready</li>
+     * </ul>
      */
     void handlePostSession(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestMethod().equals("POST")) {
