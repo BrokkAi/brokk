@@ -97,12 +97,36 @@ public final class StyleGuideResolver {
     /**
      * Finds all AGENTS.md files in nearest-first order for each input path, de-duplicated
      * across all inputs while preserving the first occurrence order.
+     *
+     * Ordering across multiple inputs is done in "layers" (round-robin by depth):
+     * - First include the nearest AGENTS.md for each input (depth 0) in input order.
+     * - Then include the next level up for each input (depth 1), and so on,
+     *   stopping at the master root. Duplicates are removed while preserving first-seen order.
      */
     public List<Path> getOrderedAgentFiles() {
-        Set<Path> dedup = new LinkedHashSet<>();
+        if (normalizedInputs.isEmpty()) {
+            return List.of();
+        }
+
+        // Collect per-input lists (nearest-first) and compute the max depth.
+        var perInput = new ArrayList<List<Path>>(normalizedInputs.size());
+        int maxDepth = 0;
         for (var p : normalizedInputs) {
-            for (var found : collectAgentsForSingleInput(p)) {
-                dedup.add(found);
+            var lst = collectAgentsForSingleInput(p);
+            perInput.add(lst);
+            if (lst.size() > maxDepth) {
+                maxDepth = lst.size();
+            }
+        }
+
+        // Interleave by depth to ensure nearest-first across inputs, then go upwards.
+        Set<Path> dedup = new LinkedHashSet<>();
+        for (int depth = 0; depth < maxDepth; depth++) {
+            for (int i = 0; i < perInput.size(); i++) {
+                var lst = perInput.get(i);
+                if (depth < lst.size()) {
+                    dedup.add(lst.get(depth));
+                }
             }
         }
         return List.copyOf(dedup);
