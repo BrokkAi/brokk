@@ -15,6 +15,8 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
+import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.util.SyntaxDetector;
 import com.google.common.base.Splitter;
 import java.time.Duration;
@@ -23,14 +25,20 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.WeakHashMap;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.JOptionPane;
+import javax.swing.border.Border;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -49,7 +57,85 @@ import org.kohsuke.github.GHPullRequest;
 public final class GitUiUtil {
     private static final Logger logger = LogManager.getLogger(GitUiUtil.class);
 
+    /**
+     * Cache for storing original borders of text fields before validation feedback is applied.
+     * Uses WeakHashMap to avoid memory leaks when text fields are garbage collected.
+     */
+    private static final WeakHashMap<JTextField, Border> originalBorders =
+            new WeakHashMap<>();
+
     private GitUiUtil() {}
+
+    /**
+     * Creates a real-time validation listener for a JTextField that provides visual feedback
+     * on keystroke as the user types.
+     *
+     * <p>The listener validates input with a 200ms debounce using javax.swing.Timer. On validation
+     * failure, the text field border is set to a red RoundedLineBorder (2px thickness, 3px arc).
+     * On validation success, the original border (stored on first attachment) is restored.
+     *
+     * <p>Original borders are cached in a WeakHashMap to avoid memory leaks.
+     *
+     * @param textField The JTextField to attach validation feedback to
+     * @param validator A function that validates the text field's content and returns
+     *     Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     * @return A DocumentListener that can be attached to the text field's document
+     */
+    public static DocumentListener createRealtimeValidationListener(
+            JTextField textField, Function<String, Optional<String>> validator) {
+        // Store the original border if not already cached for this field
+        if (!originalBorders.containsKey(textField)) {
+            originalBorders.put(textField, textField.getBorder());
+        }
+
+        // Use array to store debounce timer (allows modification in lambda)
+        Timer[] debounceTimer = {null};
+
+        return new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            private void scheduleValidation() {
+                // Cancel any pending validation
+                if (debounceTimer[0] != null) {
+                    debounceTimer[0].stop();
+                }
+
+                // Schedule new validation after 200ms debounce
+                debounceTimer[0] = new Timer(200, evt -> {
+                    String text = textField.getText().trim();
+                    Optional<String> validationError = validator.apply(text);
+
+                    if (validationError.isPresent()) {
+                        // Validation failed: apply error border
+                        var errorBorder = new RoundedLineBorder(
+                                ThemeColors.getColor(ThemeColors.NOTIF_ERROR_BORDER), 2, 3);
+                        textField.setBorder(errorBorder);
+                    } else {
+                        // Validation succeeded: restore original border
+                        Border originalBorder = originalBorders.get(textField);
+                        if (originalBorder != null) {
+                            textField.setBorder(originalBorder);
+                        }
+                    }
+                });
+                debounceTimer[0].setRepeats(false);
+                debounceTimer[0].start();
+            }
+        };
+    }
 
     /**
      * Capture uncommitted diffs for the specified files, adding the result to the context. `selectedFiles` must not be
