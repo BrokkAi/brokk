@@ -997,19 +997,89 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 fetchedPrs = auth.listOpenPullRequests(apiState);
                 logger.debug("Fetched {} PRs", fetchedPrs.size());
-            } catch (Exception ex) {
-                logger.error("Failed to fetch pull requests", ex);
+            } catch (HttpException httpEx) {
+                logger.error("GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
+                String errorMessage;
+                int statusCode = httpEx.getResponseCode();
+                if (statusCode == 401) {
+                    errorMessage = "Authentication failed. Please check your GitHub token in Settings.";
+                } else if (statusCode == 403) {
+                    errorMessage = "Access forbidden. Check API rate limit or repository permissions in Settings.";
+                } else if (statusCode == 404) {
+                    errorMessage = "Repository not found. Verify owner/repo in Settings → Project → Issues → GitHub.";
+                } else {
+                    errorMessage = "GitHub API error (HTTP " + statusCode + "): " + httpEx.getMessage();
+                }
+                final String finalErrorMessage = errorMessage;
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
                     ciStatusCache.clear();
                     prCommitsCache.clear();
-                    prTableModel.setRowCount(0);
-                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
-                    disablePrButtonsAndClearCommitsAndMenus();
                     authorChoices.clear();
                     labelChoices.clear();
                     assigneeChoices.clear();
+                    showErrorInTable(finalErrorMessage);
+                    setReloadUiEnabled(true);
+                });
+                return null;
+            } catch (UnknownHostException unknownHostEx) {
+                logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
+                String errorMessage = "Network connection failed. Please check your internet connection.";
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
+                    setReloadUiEnabled(true);
+                });
+                return null;
+            } catch (SocketTimeoutException | ConnectException timeoutEx) {
+                logger.error("Request timed out or connection refused while fetching pull requests", timeoutEx);
+                String errorMessage = "Request timed out. Please try again or check your network.";
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
+                    setReloadUiEnabled(true);
+                });
+                return null;
+            } catch (IOException ioEx) {
+                logger.error("I/O error while fetching pull requests", ioEx);
+                String errorMessage = "I/O error: " + ioEx.getMessage();
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
+                    setReloadUiEnabled(true);
+                });
+                return null;
+            } catch (Exception ex) {
+                logger.error("Failed to fetch pull requests", ex);
+                String errorMessage = "Error fetching PRs: " + ex.getMessage();
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
                     setReloadUiEnabled(true);
                 });
                 return null;
