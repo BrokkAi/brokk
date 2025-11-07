@@ -37,6 +37,9 @@ public final class HeadlessExecutorMain {
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
+    // Indicates whether a session has been uploaded/imported at least once.
+    // Used to gate /health/ready until the first session arrives.
+    private volatile boolean sessionUploaded = false;
 
     /*
      * Parse command-line arguments into a map of normalized keys to values.
@@ -155,6 +158,13 @@ public final class HeadlessExecutorMain {
         if (!exchange.getRequestMethod().equals("GET")) {
             var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        if (!sessionUploaded) {
+            logger.info("/health/ready requested before session upload; returning 503");
+            var notReady = Map.of("status", "initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, notReady);
             return;
         }
 
@@ -402,6 +412,10 @@ public final class HeadlessExecutorMain {
         // Switch ContextManager to this session
         contextManager.switchSessionAsync(sessionId).join();
         logger.info("Switched to session: {}", sessionId);
+
+        // Mark executor as ready to serve requests that require a session.
+        sessionUploaded = true;
+        assert contextManager.getCurrentSessionId().equals(sessionId);
     }
 
     /**
