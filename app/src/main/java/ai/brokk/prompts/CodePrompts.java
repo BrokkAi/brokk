@@ -142,9 +142,8 @@ public abstract class CodePrompts {
                 })
                 .flatMap(Optional::stream)
                 .findFirst();
-        var analyzerLangsIncludeJava = maybeJavaLanguage.isPresent();
 
-        if (analyzerLangsIncludeJava) {
+        if (maybeJavaLanguage.isPresent()) {
             // Enable SYNTAX_AWARE if: (a)  at least one editable file is a Java source,
             // (b) the project analyzer includes Java (e.g., MultiAnalyzer has a Java delegate)
             var javaProject = maybeJavaLanguage.get();
