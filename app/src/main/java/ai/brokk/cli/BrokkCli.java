@@ -71,6 +71,7 @@ import picocli.CommandLine;
         description = "One-shot Brokk workspace and task runner.")
 public final class BrokkCli implements Callable<Integer> {
     private static final Logger logger = LogManager.getLogger(BrokkCli.class);
+    private static record ReviewExecution(TaskResult result, String reviewJson, String reviewSummary) {}
 
     @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
@@ -227,10 +228,29 @@ public final class BrokkCli implements Callable<Integer> {
             return 0;
         }
 
-        // Validate --project is provided when not using --build-commit or --list-models
-        if (projectPath == null) {
-            System.err.println("Error: --project is required.");
-            return 1;
+        // --- Validation ---
+        if (requiresProject()) {
+            if (projectPath == null) {
+                System.err.println("Error: --project is required for this command.");
+                return 1;
+            }
+            projectPath = projectPath.toAbsolutePath();
+            if (!Files.isDirectory(projectPath)) {
+                System.err.println("Project path is not a directory: " + projectPath);
+                return 1;
+            }
+            if (!GitRepoFactory.hasGitRepo(projectPath)) {
+                System.err.println("Brokk CLI requires to have a Git repo");
+                return 1;
+            }
+        } else {
+            // Create a dummy project root when no repo is required but ContextManager is still needed (e.g., --review )
+            if (projectPath == null) {
+                projectPath = Files.createTempDirectory("brokk-cli-sessions").toAbsolutePath();
+                logger.debug("Using temporary project root for session files: {}", projectPath); // for session files
+            } else {
+                projectPath = projectPath.toAbsolutePath();
+            }
         }
 
         // --- Action Validation ---
@@ -586,176 +606,21 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --review requires --codemodel to be specified.");
                         return 1;
                     }
-                    if (SessionId != null) {
-                        cm.switchSessionAsync(SessionId).join();
-                    }
-                    Map<String, Object> prData;
+                    ReviewExecution reviewExec;
                     try {
-                        prData = parseReviewInput(reviewPrompt);
+                        reviewExec = runReview(codeModel, reviewPrompt, io);
                     } catch (Exception e) {
-                        System.err.println("Error: Invalid review input. Expected either:");
-                        System.err.println("  1. Path to a JSON file containing PR data");
-                        System.err.println("  2. Direct JSON string with PR data");
+                        System.err.println("Error: Invalid review input. Expected structured JSON data.");
                         System.err.println("Details: " + e.getMessage());
                         return 1;
                     }
 
-                    if (!validatePrData(prData)) {
-                        System.err.println("Error: PR data is missing required fields.");
-                        System.err.println("Required fields: pr_number, title, author, base_branch, head_branch, changed_files");
-                        return 1;
-                    }
-
-                    int prNumber = ((Number) prData.get("pr_number")).intValue();
-                    String prTitle = (String) prData.get("title");
-                    String descriptionText = (String) prData.get("body");
-                    String baseBranch = (String) prData.get("base_branch");
-                    String headBranch = (String) prData.get("head_branch");
-
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, String>> changedFilesData = (List<Map<String, String>>) prData.get("changed_files");
-                    StringBuilder diffBuilder = new StringBuilder();
-                    List<String> filenames = new ArrayList<>();
-                    if (changedFilesData != null && !changedFilesData.isEmpty()) {
-                        for (Map<String, String> fileData : changedFilesData) {
-                            String filename = fileData.get("filename");
-                            String patch = fileData.get("patch");
-                            if (filename != null) {
-                                filenames.add(filename);
-                            }
-                            if (filename != null && patch != null && !patch.isEmpty()) {
-                                diffBuilder
-                                    .append("diff --git a/").append(filename).append(" b/").append(filename).append("\n")
-                                    .append("--- a/").append(filename).append("\n")
-                                    .append("+++ b/").append(filename).append("\n")
-                                    .append(patch);
-                                if (!patch.endsWith("\n")) {
-                                    diffBuilder.append("\n");
-                                }
-                                diffBuilder.append("\n");
-                            }
-                        }
-                    }
-
-                    String diff = diffBuilder.toString();
-
-                    if (!diff.isEmpty()) {
-                        String fileNamesSummary = filenames.isEmpty()
-                                ? "(no files)"
-                                : filenames.stream().collect(Collectors.joining(", "));
-                        String description = String.format(
-                                "Diff of PR #%d (%s): %s [HEAD branch: %s vs Base branch: %s]",
-                                prNumber,
-                                prTitle,
-                                fileNamesSummary,
-                                headBranch,
-                                baseBranch);
-
-                        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-                        if (!filenames.isEmpty()) {
-                            String first = filenames.getFirst();
-                            int dot = first.lastIndexOf('.');
-                            String ext = dot >= 0 ? first.substring(dot + 1) : "";
-                            syntaxStyle = SyntaxDetector.fromExtension(ext);
-                        }
-
-                        var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
-                        cm.addVirtualFragment(fragment);
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));
-                    } else {
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                String.format("No differences found for PR #%d", prNumber));
-                    }
-
-                    if (changedFilesData != null && !changedFilesData.isEmpty()) {
-                        List<ProjectFile> textFiles = new ArrayList<>();
-                        for (Map<String, String> fileData : changedFilesData) {
-                            String rootStr = fileData.get("root");
-                            String relPathStr = fileData.get("relPath");
-
-                            if (rootStr != null && relPathStr != null) {
-                                try {
-                                    Path root = Paths.get(new URI(rootStr));
-                                    Path relPath = Paths.get(new URI(relPathStr));
-                                    ProjectFile file = new ProjectFile(root, relPath);
-                                    textFiles.add(file);
-                                } catch (URISyntaxException | IllegalArgumentException e) {
-                                    logger.warn("Invalid path for file: root={}, relPath={}", rootStr, relPathStr);
-                                }
-                            }
-                        }
-
-                        if (!textFiles.isEmpty()) {
-                            cm.addFiles(new HashSet<>(textFiles));
-                            io.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    String.format(
-                                            "Added %d changed file(s) from PR #%d to editable context",
-                                            textFiles.size(), prNumber));
-                        }
-                    }
-
-                    if (descriptionText != null && !descriptionText.isBlank()) {
-                        var descriptionFragment = new ContextFragment.StringFragment(
-                                cm,
-                                descriptionText,
-                                PrTitleFormatter.formatDescriptionTitle(prNumber),
-                                "markdown");
-                        cm.addVirtualFragment(descriptionFragment);
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                String.format("Added PR description fragment for PR #%d", prNumber));
-                    }
-
-                    String reviewGuide = project.getReviewGuide();
-
-                    String reviewPromptFormatted = formatReviewPrompt(prNumber, prTitle, reviewGuide, prData);
-                    result = InstructionsPanel.executeAskCommand(cm, codeModel, reviewPromptFormatted);
-                    var msg = (AiMessage) result.output().messages().getLast();
-
-                    Map<String, Object> reviewOutput;
-                    String rawText = msg.text();
-                    try {
-                        String cleaned = rawText;
-
-                        int jsonStart = rawText.indexOf("{");
-                        int jsonEnd = rawText.lastIndexOf("}");
-                        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                            cleaned = rawText.substring(jsonStart, jsonEnd + 1);
-                        }
-
-                        cleaned = cleaned.replaceAll("(?s)^```json\\s*|\\s*```$", "").trim();
-
-                        ObjectMapper mapper = new ObjectMapper();
-                        reviewOutput = mapper.readValue(cleaned, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
-                        if (!reviewOutput.containsKey("action") || !reviewOutput.containsKey("comments") || !reviewOutput.containsKey("summary")) {
-                            throw new IllegalArgumentException("Missing required fields in model output");
-                        }
-
-                        logger.info("Successfully parsed structured review JSON from model");
-                    } catch (Exception e) {
-                        // Fallback: wrap prose in safe structure
-                        logger.warn("Model did not return valid structured JSON, using fallback: {}", e.getMessage());
-                        reviewOutput = new LinkedHashMap<>();
-                        reviewOutput.put("action", "COMMENT");
-                        reviewOutput.put("comments", List.of());
-                        reviewOutput.put("summary", rawText);
-                    }
-
-                    reviewOutput.put("pr_number", prNumber);
-                    reviewOutput.put("pr_title", prTitle);
-                    reviewOutput.put("timestamp", java.time.Instant.now().toString());
-
-                    ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-                    String reviewJson = mapper.writeValueAsString(reviewOutput);
-                    Files.writeString(Paths.get("review.json"), reviewJson, StandardCharsets.UTF_8);
-
-                    String displayText = reviewOutput.containsKey("summary") ? (String) reviewOutput.get("summary") : rawText;
-                    io.showNotification(IConsoleIO.NotificationRole.INFO,"=== CODE REVIEW ===\n PR #" + prNumber + ": " + prTitle + "\n\n" + displayText + "\n\nReview saved to review.json");
-
+                    result = reviewExec.result();
+                    String reviewJson = reviewExec.reviewJson();
+    
+                    String displayText = reviewExec.reviewSummary();
+                    io.showNotification(IConsoleIO.NotificationRole.INFO,"=== CODE REVIEW ===\n PR review completed\n\n" + displayText + "\n\nStructured review JSON printed to stdout");
+                    System.out.println(reviewJson);
                     scope.append(result);
                 } else if (merge) {
                     if (planModel == null) {
@@ -914,6 +779,164 @@ public final class BrokkCli implements Callable<Integer> {
 
         return true;
     }
+        /**
+     * Prepare context for a PR review, invoke the model and return both the TaskResult and structured JSON.
+     * This method intentionally does not write files to disk - callers can decide what to do with the returned JSON.
+     */
+    private ReviewExecution runReview(StreamingChatModel codeModel, String reviewPrompt, IConsoleIO io) 
+            throws Exception {
+        if (SessionId != null) {
+            cm.switchSessionAsync(SessionId).join();
+        }
+
+        Map<String, Object> prData = parseReviewInput(reviewPrompt);
+
+        if (!validatePrData(prData)) {
+            throw new IllegalArgumentException("PR data is missing required fields.");
+        }
+
+        int prNumber = ((Number) prData.get("pr_number")).intValue();
+        String prTitle = (String) prData.get("title"); 
+        String descriptionText = (String) prData.get("body");
+        String baseBranch = (String) prData.get("base_branch");
+        String headBranch = (String) prData.get("head_branch");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> changedFilesData = (List<Map<String, String>>) prData.get("changed_files");
+
+        var diffBuilder = new StringBuilder();
+        var filenames = new ArrayList<String>();
+        if (changedFilesData != null && !changedFilesData.isEmpty()) {
+            for (var fileData : changedFilesData) {
+                String filename = fileData.get("filename");
+                String patch = fileData.get("patch");
+                if (filename != null) filenames.add(filename);
+                if (filename != null && patch != null && !patch.isEmpty()) {
+                    diffBuilder
+                            .append("diff --git a/").append(filename).append(" b/").append(filename).append("\n")
+                            .append("--- a/").append(filename).append("\n")
+                            .append("+++ b/").append(filename).append("\n")
+                            .append(patch);
+                    if (!patch.endsWith("\n")) {
+                        diffBuilder.append("\n");
+                    }
+                    diffBuilder.append("\n");
+                }
+            }
+        }
+
+        String diff = diffBuilder.toString();
+
+        if (!diff.isEmpty()) {
+            String fileNamesSummary = filenames.isEmpty() ? "(no files)" : filenames.stream().collect(Collectors.joining(", "));
+            String description = String.format(
+                    "Diff of PR #%d (%s): %s [HEAD branch: %s vs Base branch: %s]",
+                    prNumber, prTitle, fileNamesSummary, headBranch, baseBranch);
+
+            String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (!filenames.isEmpty()) {
+                String first = filenames.get(0);
+                int dot = first.lastIndexOf('.');
+                String ext = dot >= 0 ? first.substring(dot + 1) : "";
+                syntaxStyle = SyntaxDetector.fromExtension(ext);
+            }
+
+            var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+            cm.addVirtualFragment(fragment);
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));
+        } else {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    String.format("No differences found for PR #%d", prNumber));
+        }
+
+        if (changedFilesData != null && !changedFilesData.isEmpty()) {
+            List<ProjectFile> textFiles = new ArrayList<>();
+            for (var fileData : changedFilesData) {
+                String rootStr = fileData.get("root");
+                String relPathStr = fileData.get("relPath");
+
+                if (rootStr != null && relPathStr != null) {
+                    try {
+                        Path root = Paths.get(new URI(rootStr));
+                        Path relPath = Paths.get(new URI(relPathStr));
+                        ProjectFile file = new ProjectFile(root, relPath);
+                        textFiles.add(file);
+                    } catch (URISyntaxException | IllegalArgumentException e) {
+                        logger.warn("Invalid path for file: root={}, relPath={}", rootStr, relPathStr);
+                    }
+                }
+            }
+
+            if (!textFiles.isEmpty()) {
+                cm.addFiles(new HashSet<>(textFiles));
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format("Added %d changed file(s) from PR #%d to editable context", 
+                                textFiles.size(), prNumber));
+            }
+        }
+
+        if (descriptionText != null && !descriptionText.isBlank()) {
+            var descriptionFragment = new ContextFragment.StringFragment(
+                    cm,
+                    descriptionText,
+                    PrTitleFormatter.formatDescriptionTitle(prNumber),
+                    "markdown");
+            cm.addVirtualFragment(descriptionFragment);
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    String.format("Added PR description fragment for PR #%d", prNumber));
+        }
+
+        String reviewGuide = project.getReviewGuide();
+        String reviewPromptFormatted = formatReviewPrompt(prNumber, prTitle, reviewGuide, prData);
+
+        TaskResult result = InstructionsPanel.executeAskCommand(cm, codeModel, reviewPromptFormatted);
+        var msg = (AiMessage) result.output().messages().getLast();
+
+        Map<String, Object> reviewOutput;
+        String rawText = msg.text();
+        try {
+            String cleaned = rawText;
+
+            int jsonStart = rawText.indexOf("{");
+            int jsonEnd = rawText.lastIndexOf("}");
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                cleaned = rawText.substring(jsonStart, jsonEnd + 1);
+            }
+
+            cleaned = cleaned.replaceAll("(?s)^```json\\s*|\\s*```$", "").trim();
+
+            ObjectMapper mapper = new ObjectMapper();
+            reviewOutput = mapper.readValue(cleaned, new TypeReference<Map<String, Object>>() {});
+            if (!reviewOutput.containsKey("action") || !reviewOutput.containsKey("comments") || !reviewOutput.containsKey("summary")) {
+                throw new IllegalArgumentException("Missing required fields in model output");
+            }
+
+            logger.info("Successfully parsed structured review JSON from model");
+        } catch (Exception e) {
+            logger.warn("Model did not return valid structured JSON, using fallback: {}", e.getMessage());
+            reviewOutput = new LinkedHashMap<>();
+            reviewOutput.put("action", "COMMENT");
+            reviewOutput.put("comments", List.of());
+            reviewOutput.put("summary", rawText);
+        }
+
+        reviewOutput.put("pr_number", prNumber);
+        reviewOutput.put("pr_title", prTitle);
+        reviewOutput.put("timestamp", java.time.Instant.now().toString());
+
+        ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+        String reviewJson = mapper.writeValueAsString(reviewOutput);
+
+        String displayText = reviewOutput.containsKey("summary") ? (String) reviewOutput.get("summary") : rawText;
+
+        return new ReviewExecution(result, reviewJson, displayText);
+    }
+
     public static Map<String, Object> parseReviewInput(String input) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         Path filePath = Paths.get(input);
