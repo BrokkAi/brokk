@@ -110,7 +110,7 @@ public class StyleGuideResolverTest {
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only root AGENTS.md should be present");
-        assertEquals(rootAgents.normalize(), ordered.getFirst());
+        assertEquals(new ProjectFile(master, master.relativize(rootAgents)), ordered.getFirst());
 
         String guide = resolver.resolveCompositeGuide();
         assertTrue(guide.contains("### AGENTS.md at ."), "Expected labeled section for root");
@@ -135,7 +135,7 @@ public class StyleGuideResolverTest {
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only nested AGENTS.md should be present");
-        assertEquals(nestedAgents.normalize(), ordered.getFirst());
+        assertEquals(new ProjectFile(master, master.relativize(nestedAgents)), ordered.getFirst());
 
         String guide = resolver.resolveCompositeGuide();
         assertTrue(guide.contains("### AGENTS.md at pkg"), "Expected labeled section for nested dir");
@@ -180,7 +180,11 @@ public class StyleGuideResolverTest {
 
         var ordered = resolver.getOrderedAgentFiles();
         // Expected nearest-first by input groups, preserving first-seen order: A, then B, then root
-        List<Path> expected = List.of(agentsA.normalize(), agentsB.normalize(), rootAgents.normalize());
+        List<ProjectFile> expected = List.of(
+                new ProjectFile(master, master.relativize(agentsA)),
+                new ProjectFile(master, master.relativize(agentsB)),
+                new ProjectFile(master, master.relativize(rootAgents))
+        );
         assertEquals(expected, ordered, "Expected nearest-first order with dedup across inputs");
 
         String guide = resolver.resolveCompositeGuide();

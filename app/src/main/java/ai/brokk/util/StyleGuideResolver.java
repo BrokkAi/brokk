@@ -1,9 +1,8 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
-import java.io.IOException;
+
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -46,33 +45,25 @@ public final class StyleGuideResolver {
     private List<ProjectFile> collectAgentsForSingleInput(ProjectFile input) {
         var ordered = new ArrayList<ProjectFile>();
 
-        // Determine starting relative directory
-        Path startRel;
-        if (Files.isDirectory(input.absPath())) {
-            startRel = input.getRelPath();
-        } else {
-            startRel = input.getParent(); // returns empty Path.of("") when no parent
-        }
+        // Determine starting directory relative to repo root
+        ProjectFile cursorDir;
+        cursorDir = Files.isDirectory(input.absPath()) ? input : new ProjectFile(input.getRoot(), input.getParent());
 
-        // Walk upwards from startRel to the repository root (empty relative path)
-        Path cursorRel = startRel;
-        Path root = input.getRoot();
+        // Walk upwards from start to the repository root (empty relative path)
         while (true) {
-            // Construct a candidate ProjectFile for "<cursor>/AGENTS.md"
-            Path candidateRel = cursorRel.resolve("AGENTS.md");
-            var candidate = new ProjectFile(root, candidateRel);
+            // Candidate "<cursorDir>/AGENTS.md"
+            var candidate = new ProjectFile(cursorDir.getRoot(), cursorDir.getRelPath().resolve("AGENTS.md"));
             if (Files.isRegularFile(candidate.absPath())) {
                 ordered.add(candidate);
             }
 
-            // Stop after processing the repository root (empty relative path)
-            if (cursorRel.toString().isEmpty()) {
+            // Stop after processing the repository root
+            if (cursorDir.absPath().equals(cursorDir.getRoot())) {
                 break;
             }
 
-            // Move up one level using ProjectFile.getParent()
-            var dirPf = new ProjectFile(root, cursorRel);
-            cursorRel = dirPf.getParent(); // returns empty path when at top
+            // Move up one level
+            cursorDir = new ProjectFile(cursorDir.getRoot(), cursorDir.getParent());
         }
 
         return ordered;
@@ -87,7 +78,7 @@ public final class StyleGuideResolver {
      * - Then include the next level up for each input (depth 1), and so on,
      *   stopping at the repository root. Duplicates are removed while preserving first-seen order.
      */
-    public List<Path> getOrderedAgentFiles() {
+    public List<ProjectFile> getOrderedAgentFiles() {
         if (inputs.isEmpty()) {
             return List.of();
         }
@@ -104,45 +95,22 @@ public final class StyleGuideResolver {
         }
 
         // Interleave by depth to ensure nearest-first across inputs, then go upwards.
-        Set<Path> dedup = new LinkedHashSet<>();
+        Set<ProjectFile> dedup = new LinkedHashSet<>();
         for (int depth = 0; depth < maxDepth; depth++) {
             for (List<ProjectFile> lst : perInput) {
                 if (depth < lst.size()) {
-                    dedup.add(lst.get(depth).absPath().normalize());
+                    dedup.add(lst.get(depth));
                 }
             }
         }
         return List.copyOf(dedup);
     }
 
-    private static String toUnix(Path p) {
-        return p.toString().replace('\\', '/');
-    }
-
-    private String relativeDirLabel(Path agentsFile) {
-        Path dir = agentsFile.getParent();
-        if (dir == null) {
-            return "."; // Shouldn't happen, but be safe
-        }
-        // Extract the root from any input ProjectFile to relativize
-        if (inputs.isEmpty()) {
-            return ".";
-        }
-        Path root = inputs.iterator().next().getRoot();
-        Path rel = root.relativize(dir);
-        String s = toUnix(rel);
-        return s.isEmpty() ? "." : s;
-    }
-
     private static int getCap(String propName, int defVal) {
-        try {
-            String v = System.getProperty(propName);
-            if (v == null || v.isBlank()) return defVal;
-            int parsed = Integer.parseInt(v.trim());
-            return parsed > 0 ? parsed : defVal;
-        } catch (Exception e) {
-            return defVal;
-        }
+        String v = System.getProperty(propName);
+        if (v == null || v.isBlank()) return defVal;
+        int parsed = Integer.parseInt(v.trim());
+        return parsed > 0 ? parsed : defVal;
     }
 
     /**
@@ -184,58 +152,54 @@ public final class StyleGuideResolver {
                 logger.debug("Stopping aggregation due to section cap: {} sections.", maxSections);
                 break;
             }
-            try {
-                String header = "### AGENTS.md at " + relativeDirLabel(agents);
-                String content = Files.readString(agents).strip();
+            String header = "### AGENTS.md at " + agents.getParent();
+            String content = agents.read().orElse("").strip();
 
-                // Compose the section payload with a blank line between header and content
-                String section = header + "\n\n" + content;
+            // Compose the section payload with a blank line between header and content
+            String section = header + "\n\n" + content;
 
-                // Account for the inter-section separator that will be added during join ("\n\n")
-                int separatorLen = sections.isEmpty() ? 0 : 2;
-                int projected = currentChars + separatorLen + section.length();
+            // Account for the inter-section separator that will be added during join ("\n\n")
+            int separatorLen = sections.isEmpty() ? 0 : 2;
+            int projected = currentChars + separatorLen + section.length();
 
-                if (projected <= maxChars) {
-                    // Add as-is
-                    if (separatorLen > 0) {
-                        currentChars += separatorLen;
-                    }
-                    sections.add(section);
-                    currentChars += section.length();
-                    included++;
-                } else {
-                    // Try to include a truncated version of this section if there is any space left
-                    int remaining = maxChars - currentChars - separatorLen;
-                    if (remaining > 0) {
-                        String headerWithSep = header + "\n\n";
-                        int headerLen = headerWithSep.length();
-
-                        if (headerLen < remaining) {
-                            int remainingForContent = remaining - headerLen;
-                            // Reserve a small suffix for a truncation marker
-                            String marker = "\n\n[Note: style guide truncated here to fit prompt budget]";
-                            int markerLen = marker.length();
-                            int finalContentLen = Math.max(0, remainingForContent - markerLen);
-                            String truncatedContent = content.substring(0, Math.min(content.length(), finalContentLen));
-                            String truncatedSection = headerWithSep + truncatedContent + marker;
-
-                            if (separatorLen > 0) {
-                                currentChars += separatorLen;
-                            }
-                            sections.add(truncatedSection);
-                            currentChars += truncatedSection.length();
-                            included++;
-                        } else {
-                            logger.debug("Insufficient space even for header, skipping partial add for {}", agents);
-                        }
-                    }
-                    truncated = true;
-                    logger.debug(
-                            "Stopping aggregation due to character cap at ~{} chars (cap {}).", currentChars, maxChars);
-                    break;
+            if (projected <= maxChars) {
+                // Add as-is
+                if (separatorLen > 0) {
+                    currentChars += separatorLen;
                 }
-            } catch (IOException e) {
-                logger.warn("Failed reading AGENTS.md at {}: {}", agents, e.getMessage());
+                sections.add(section);
+                currentChars += section.length();
+                included++;
+            } else {
+                // Try to include a truncated version of this section if there is any space left
+                int remaining = maxChars - currentChars - separatorLen;
+                if (remaining > 0) {
+                    String headerWithSep = header + "\n\n";
+                    int headerLen = headerWithSep.length();
+
+                    if (headerLen < remaining) {
+                        int remainingForContent = remaining - headerLen;
+                        // Reserve a small suffix for a truncation marker
+                        String marker = "\n\n[Note: style guide truncated here to fit prompt budget]";
+                        int markerLen = marker.length();
+                        int finalContentLen = Math.max(0, remainingForContent - markerLen);
+                        String truncatedContent = content.substring(0, Math.min(content.length(), finalContentLen));
+                        String truncatedSection = headerWithSep + truncatedContent + marker;
+
+                        if (separatorLen > 0) {
+                            currentChars += separatorLen;
+                        }
+                        sections.add(truncatedSection);
+                        currentChars += truncatedSection.length();
+                        included++;
+                    } else {
+                        logger.debug("Insufficient space even for header, skipping partial add for {}", agents);
+                    }
+                }
+                truncated = true;
+                logger.debug(
+                        "Stopping aggregation due to character cap at ~{} chars (cap {}).", currentChars, maxChars);
+                break;
             }
         }
 
