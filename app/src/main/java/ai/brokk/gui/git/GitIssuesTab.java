@@ -82,6 +82,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private MaterialButton copyIssueDescriptionButton;
     private MaterialButton openInBrowserButton;
     private MaterialButton captureButton;
+    private MaterialButton refreshButton;
 
     private FilterBox statusFilter;
 
@@ -192,7 +193,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
         // ── Refresh button ──────────────────────────────────────────────────────
         // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
+        refreshButton = new MaterialButton(); // Unicode clockwise arrow
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -725,6 +726,19 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
         issueDetailPanel.setVisible(false);
+    }
+
+    /** Enable or disable every widget that can trigger a new reload. Must be called on the EDT. */
+    private void setReloadUiEnabled(boolean enabled) {
+        refreshButton.setEnabled(enabled);
+        statusFilter.setEnabled(enabled);
+        authorFilter.setEnabled(enabled);
+        labelFilter.setEnabled(enabled);
+        assigneeFilter.setEnabled(enabled);
+        if (resolutionFilter != null) {
+            resolutionFilter.setEnabled(enabled);
+        }
+        searchBox.setEnabled(enabled);
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
