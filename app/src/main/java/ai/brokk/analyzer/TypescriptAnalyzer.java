@@ -702,14 +702,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // - function_declaration: fallback extractSimpleName works correctly
         // - construct_signature: intentionally has no name, uses default "new"
         // - call_signature: intentionally has no name, uses default "[call]"
-        if ("function.definition".equals(captureName)
+        if (CaptureNames.FUNCTION_DEFINITION.equals(captureName)
                 && ("function_declaration".equals(nodeType)
                         || "construct_signature".equals(nodeType)
                         || "call_signature".equals(nodeType))) {
             return true;
         }
         // - index_signature: intentionally has no name, uses default "[index]"
-        if ("value.definition".equals(captureName) && "index_signature".equals(nodeType)) {
+        if (CaptureNames.VALUE_DEFINITION.equals(captureName) && "index_signature".equals(nodeType)) {
             return true;
         }
         return false;
@@ -717,18 +717,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
-        // Skip method_definition nodes that are inside object literals
-        // This prevents duplicate FQNames when a class has both:
-        // - A field with name X
-        // - A getter/setter/method with name X inside an object literal assigned to another field
-        //
-        // Example from VSCode:
-        // class ExtHostTerminal {
-        //     shellIntegration: TerminalShellIntegration;     // field
-        //     value = {
-        //         get shellIntegration() { ... }               // getter in object literal - should be skipped
-        //     };
-        // }
+        // Skip method_definition nodes inside object literals to prevent duplicate FQNames.
+        // Example: class field "shellIntegration" vs getter in object literal value.
         if ("method_definition".equals(node.getType())) {
             // Walk up the AST to see if we're inside an object literal
             TSNode parent = node.getParent();
@@ -770,17 +760,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
-        // TypeScript has extensive declaration merging and overload support.
-        // Since shouldMergeSignaturesForSameFqn() returns true, we accumulate signatures
-        // for duplicates rather than replacing.
-        //
-        // Key benign patterns:
-        // 1. Function overloads (same name, different parameter types)
-        // 2. Interface merging (multiple interface declarations combine)
-        // 3. Function + namespace merging
-        // 4. Enum + namespace merging
-        //
-        // Be specific about which patterns are benign to avoid masking genuine bugs.
+        // TypeScript declaration merging: function overloads, interface merging,
+        // function+namespace merging, enum+namespace merging.
+        // Field-like duplicates are NOT benign (may indicate bugs).
 
         // Function overloads are benign
         if (existing.isFunction() && candidate.isFunction()) {

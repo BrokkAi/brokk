@@ -1,6 +1,25 @@
-; TypeScript TreeSitter query patterns for code structure extraction
+; ============================================================================
+; TYPESCRIPT TREESITTER QUERY PATTERNS
+; ============================================================================
+; This file defines patterns for extracting code structure from TypeScript files.
+; The patterns identify and capture various TypeScript constructs including:
+; - Classes, interfaces, enums, and namespaces
+; - Functions, methods, and arrow functions
+; - Variables, fields, and properties
+; - Type aliases and ambient declarations
+;
+; Capture names used:
+; - @type.definition: Class-like structures (classes, interfaces, enums, namespaces)
+; - @function.definition: Function-like structures (functions, methods, arrow functions)
+; - @value.definition: Field-like structures (variables, properties, enum members)
+; - @typealias.definition: Type alias declarations
+; - @keyword.modifier: Keywords like export, async, static, etc.
+; - Various .name captures: Names of the captured elements
+; - @class.type_parameters, @function.type_parameters: Generic type parameters
 
-; Exported declarations
+; ============================================================================
+; EXPORTED DECLARATIONS
+; ============================================================================
 
 ; Export statements for class-like declarations
 ; Matches: export class Foo<T> { }, export default class Bar { }, etc.
@@ -54,7 +73,9 @@
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
-; Exported arrow function assignments
+; Export arrow function declarations
+; Matches: export const myFunc = () => {}, export let handler = async () => {}
+; Note: Captures arrow functions with specific @arrow_function capture names (distinct from @value)
 (export_statement
   (lexical_declaration
     (variable_declarator

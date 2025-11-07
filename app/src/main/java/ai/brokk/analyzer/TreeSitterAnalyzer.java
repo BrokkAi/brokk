@@ -125,10 +125,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
-     *
-     * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
-     * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
-     * definition anywhere marks the CodeUnit as having a body.
+     * hasBody indicates a non-empty body exists; merged across files using logical OR.
      */
     public record CodeUnitProperties(
             List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
@@ -1080,30 +1077,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * This hook allows subclasses to perform cheap, idempotent, language-specific
      * reclassification of a captured node's SkeletonType based on AST structure.
      *
-     * <p>Example use cases:
-     * <ul>
-     *   <li>Reclassifying a {@code variable_declarator} holding an arrow function as {@code FUNCTION_LIKE}</li>
-     *   <li>Distinguishing between different kinds of declarations based on child node types</li>
-     * </ul>
-     *
      * <p><strong>Default behavior:</strong> Returns {@code getSkeletonTypeForCapture(captureName)},
      * which maps the capture name to a skeleton type without inspecting the AST structure.
-     *
-     * <p><strong>Implementation requirements:</strong>
-     * <ul>
-     *   <li>Must be inexpensive and deterministic (no heavy traversal or I/O)</li>
-     *   <li>Must be idempotent (same input always produces same output)</li>
-     *   <li>Should only examine immediate children or simple structural properties</li>
-     * </ul>
      *
      * <p><strong>When to override:</strong> Override when your language requires reclassification
      * that depends on AST structure rather than just the capture name (e.g., distinguishing
      * arrow functions from regular variable declarations in TypeScript/JavaScript).
-     *
-     * @param captureName the capture name from the query
-     * @param definitionNode the AST node for this definition
-     * @param profile the language syntax profile
-     * @return the refined skeleton type
      */
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
@@ -1114,32 +1093,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Creates a CodeUnit from capture and node information, with access to the refined skeleton type.
      * This overload provides subclasses with both the raw AST node and the refined SkeletonType
      * when constructing CodeUnit instances.
-     *
-     * <p><strong>Default behavior:</strong> Delegates to the existing 5-argument
-     * {@code createCodeUnit(file, captureName, simpleName, packageName, classChain)} for backward
-     * compatibility, ignoring the {@code definitionNode} and {@code skeletonType} parameters.
-     *
-     * <p><strong>When to override:</strong> Override this method when CodeUnit creation depends on:
-     * <ul>
-     *   <li>The refined skeleton type (e.g., to route arrow functions to {@code CodeUnit.fn}
-     *       instead of {@code CodeUnit.field})</li>
-     *   <li>AST context from the definition node (e.g., to detect ambient declarations or
-     *       export/default modifiers)</li>
-     *   <li>Language-specific structural details not available from the capture name alone</li>
-     * </ul>
-     *
-     * <p>If overriding, you typically want to switch on {@code skeletonType} and call the
-     * appropriate {@code CodeUnit} factory method ({@code CodeUnit.fn}, {@code CodeUnit.cls},
-     * {@code CodeUnit.field}, etc.) based on the refined type.
-     *
-     * @param file the source file
-     * @param captureName the capture name from the query
-     * @param simpleName the simple name of the code unit
-     * @param packageName the package/namespace name
-     * @param classChain the enclosing class chain
-     * @param definitionNode the AST node for this definition
-     * @param skeletonType the refined skeleton type
-     * @return the constructed CodeUnit
      */
     protected CodeUnit createCodeUnit(
             ProjectFile file,
@@ -1348,10 +1301,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Determines whether a duplicate is an expected/benign pattern that should only log at trace level.
      * This is used to suppress warnings for language-specific patterns like TypeScript declaration merging.
-     *
-     * @param existing The CodeUnit already registered
-     * @param candidate The new CodeUnit with duplicate FQName
-     * @return true if this is a benign duplicate that should only log at trace level
      */
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
         // Default: no language-specific benign patterns
@@ -1359,29 +1308,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
-     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
+     * Adds a CodeUnit to the top-level list with language-specific duplicate handling.
      *
-     * Definition vs Declaration (hasBody-based tie-breaker):
-     * - For function-like CodeUnits, we compute an AST-derived boolean hasBody during analysis and store it in
-     *   CodeUnitProperties.
-     * - When two CodeUnits share the same fqName, a candidate with hasBody == true (a definition) is preferred over
-     *   one with hasBody == false (a forward declaration). This preference applies both to top-level items and to
-     *   children (see addChildCodeUnit for analogous child handling).
-     * - This decision is based solely on the hasBody boolean and does NOT inspect signature strings or any
-     *   presentation placeholders.
-     * - If both candidates have the same hasBody value (both true or both false), existing duplicate/overload logic
-     *   still applies (signature comparison, language-specific policies, etc.).
-     * - When a replacement occurs, we remove the old CodeUnit and all its descendants from the local maps to avoid
-     *   orphaned children.
-     *
-     * Presentation-only placeholders:
-     * - bodyPlaceholder() may still be appended by language analyzers when rendering skeleton text purely for UI
-     *   clarity. It MUST NOT be used for semantic decisions like duplicate handling.
-     *
-     * Incremental updates:
-     * - The hasBody flag is merged across snapshots using logical OR semantics so that a definition discovered in
-     *   any pass/file marks the CodeUnit as having a body.
+     * For functions, prefers definitions (hasBody=true) over declarations (hasBody=false).
+     * The hasBody flag is AST-derived and stored in CodeUnitProperties. When both have the
+     * same hasBody value, applies signature comparison and language-specific policies.
+     * Replacements remove the old CodeUnit and its descendants to prevent orphaned children.
+     * The hasBody flag merges across snapshots using logical OR.
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1670,7 +1603,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 if (node != null && !node.isNull()) {
                     if ("keyword.modifier".equals(captureName)) {
                         modifierNodesForMatch.add(node);
-                    } else if ("decorator.definition".equals(captureName)) {
+                    } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
                         decoratorNodesForMatch.add(node);
                         log.trace(
                                 "  Decorator: '{}', Node: {} '{}'",
@@ -1730,7 +1663,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     String expectedNameCapture = captureName.replace(".definition", ".name");
                     TSNode nameNode = capturedNodesForMatch.get(expectedNameCapture);
 
-                    if ("lambda.definition".equals(captureName)) {
+                    if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
                         // Lambdas have no explicit name capture; synthesize an anonymous name via extractSimpleName
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     } else if (nameNode != null && !nameNode.isNull()) {
@@ -2038,7 +1971,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             boolean attachedToParent = false;
 
             // Prefer attaching lambdas under their nearest function-like (method/ctor) parent when available
-            if ("lambda.definition".equals(primaryCaptureName)) {
+            if (CaptureNames.LAMBDA_DEFINITION.equals(primaryCaptureName)) {
                 var enclosingFnNameOpt = findEnclosingFunctionName(node, src);
                 if (enclosingFnNameOpt.isPresent()) {
                     String enclosingFnName = enclosingFnNameOpt.get();
@@ -2217,10 +2150,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Formats the parameter list for a function. Subclasses may override to provide language-specific formatting using
      * the full AST subtree. The default implementation simply returns the raw text of {@code parametersNode}.
-     *
-     * @param parametersNode The TSNode representing the parameter list.
-     * @param src            The source code.
-     * @return The formatted parameter list text.
      */
     protected String formatParameterList(TSNode parametersNode, String src) {
         return parametersNode.isNull() ? "" : textSlice(parametersNode, src);
@@ -2232,10 +2161,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Formats the return-type portion of a function signature. Subclasses may override to provide language-specific
      * formatting. The default implementation returns the raw text of {@code returnTypeNode} (or an empty string if the
      * node is null).
-     *
-     * @param returnTypeNode The TSNode representing the return type.
-     * @param src            The source code.
-     * @return The formatted return type text.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
         return returnTypeNode == null || returnTypeNode.isNull() ? "" : textSlice(returnTypeNode, src);
@@ -2280,13 +2205,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Formats the complete signature for a field-like declaration. Subclasses must implement this to provide
      * language-specific formatting, including any necessary keywords, type annotations, and terminators (e.g.,
      * semicolon).
-     *
-     * @param fieldNode     The TSNode representing the field declaration.
-     * @param src           The source code.
-     * @param exportPrefix  The pre-determined export/visibility prefix (e.g., "export const ").
-     * @param signatureText The core text of the field signature (e.g., "fieldName: type = value").
-     * @param baseIndent    The indentation string for this line.
-     * @return The fully formatted field signature line.
      */
     protected String formatFieldSignature(
             TSNode fieldNode,
@@ -2329,16 +2247,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * <p>When the query does not capture modifier keywords (export, declare, async, etc.), this method
      * synthesizes them using getVisibilityPrefix. It also supports language-specific structural
      * unwrapping (export statements, variable declarators) via hooks.</p>
-     *
-     * @param definitionNode the AST node for this definition
-     * @param simpleName the simple name determined by captures or fallback extraction
-     * @param src the source code
-     * @param srcBytes the source code as bytes, for efficient slicing
-     * @param primaryCaptureName the primary capture name (e.g., "class.definition")
-     * @param capturedModifierKeywords modifier keywords captured by the query (sorted by start)
-     * @param file the source file
-     * @param skeletonType the refined skeleton type passed from the analysis pipeline
-     * @return the full signature string (possibly multi-line) or an empty string if not applicable
      */
     private String buildSignatureString(
             TSNode definitionNode,
@@ -3602,11 +3510,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Hook for subclasses to suppress DEBUG logging when the expected name capture is missing
      * from a query match but extractSimpleName will be used as fallback.
-     *
-     * @param captureName the capture name (e.g., "function.definition")
-     * @param nodeType the AST node type
-     * @param fileName the file being analyzed
-     * @return true if missing name captures are expected and logging should be suppressed
      */
     protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
         return false;

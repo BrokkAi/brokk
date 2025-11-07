@@ -8,7 +8,9 @@
   (function_declaration
     name: (identifier) @function.name) @function.definition)
 
-; Top-level const/let/var arrow function assignments
+; Top-level const/let/var MyComponent = () => { ... }
+; This needs to be a direct child of program, or within a block that is a direct child of program.
+; For simplicity, anchoring to program for top-level lexical arrow functions.
 (program
   (lexical_declaration
     ["const" "let"] @keyword.modifier
