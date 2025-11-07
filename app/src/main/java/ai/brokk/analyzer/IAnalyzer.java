@@ -315,25 +315,6 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Returns all re-export statements from the given file.
-     *
-     * <p>Re-exports are ES6 module patterns that re-export declarations from other modules, commonly
-     * used for barrel files and public API boundaries. Examples:
-     * <ul>
-     *   <li>{@code export * from './users'} - wildcard re-export
-     *   <li>{@code export { User, Role } from './models'} - named re-export
-     *   <li>{@code export { User as PublicUser } from './internal'} - renamed re-export
-     *   <li>{@code export * as Types from './types'} - namespace re-export
-     * </ul>
-     *
-     * @param file the file to analyze for re-exports
-     * @return list of re-export information, empty if file has no re-exports or language doesn't support re-exports
-     */
-    default List<ReexportInfo> getReexports(ProjectFile file) {
-        return List.of();
-    }
-
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
