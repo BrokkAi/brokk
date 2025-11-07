@@ -96,6 +96,7 @@ public final class QuickEditPrompts {
                 You will receive the original source file and the code to replace;
                 you must output the REPLACEMENT CODE fenced in triple backticks.
                 Always apply any relevant best practices or style guidelines to the snippet.
+                Do NOT propose edits for fragments marked read-only in the Workspace; explain that the file is locked.
                 """;
     }
 
@@ -105,6 +106,7 @@ public final class QuickEditPrompts {
                 You will receive a source file and other relevant context;
                 you must output the REPLACEMENT CODE for the ENTIRE FILE, fenced in triple backticks.
                 Always apply any relevant best practices or style guidelines to the snippet.
+                Do NOT propose edits for fragments marked read-only in the Workspace; explain that the file is locked.
                 """;
     }
     /** Example conversation that demonstrates how the quick edit should be returned. */

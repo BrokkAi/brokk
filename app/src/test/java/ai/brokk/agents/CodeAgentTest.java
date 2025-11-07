@@ -11,6 +11,8 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Environment;
@@ -850,5 +852,43 @@ class CodeAgentTest {
 
         // nextRequest should be null after sending (Task 3 semantics)
         assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
+    }
+
+    // RO-1: read-only ProjectPathFragment prevents edits via CodeAgent
+    @Test
+    void testReadOnly_preventsApplyForProjectPathFragment() throws IOException {
+        // Arrange: create a file and mark it read-only in the Workspace context
+        var file = contextManager.toFile("ro.txt");
+        file.write("hello");
+
+        // Create a ProjectPathFragment and set it read-only
+        var ppf = new ContextFragment.ProjectPathFragment(file, contextManager).withReadOnly(true);
+
+        // Build a custom context containing only this read-only file
+        var ctx = new Context(contextManager, null).addPathFragments(List.of((ContextFragment.ProjectPathFragment) ppf));
+
+        // LLM response proposing an edit to the read-only file
+        var llmResponse =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(file.toString());
+
+        var stubModel = new TestScriptedLanguageModel(llmResponse);
+        var agent = new CodeAgent(contextManager, stubModel, consoleIO);
+
+        // Act: Run task against the custom context
+        var result = agent.runTask(ctx, List.of(), "Change hello to goodbye", Set.of());
+
+        // Assert: CodeAgent must not edit the file and must report READ_ONLY_EDIT
+        assertEquals(TaskResult.StopReason.READ_ONLY_EDIT, result.stopDetails().reason());
+        assertEquals("hello", file.read().orElseThrow().strip(), "File content should remain unchanged for read-only");
     }
 }

@@ -633,6 +633,20 @@ public class CodeAgent {
     private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
+        // Preflight: if any target file is locked read-only in the Workspace, abort with a clear message
+        for (var b : blocksToApply) {
+            var raw = b.rawFileName();
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            var pf = contextManager.toFile(raw);
+            if (isFileReadOnlyInWorkspace(pf)) {
+                var msg = "Attempted to edit read-only file: " + pf
+                        + ". Unlock it in the Workspace to enable edits.";
+                throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, msg));
+            }
+        }
+
         EditBlock.EditResult editResult;
         try {
             editResult = EditBlock.apply(contextManager, io, blocksToApply);
@@ -642,6 +656,15 @@ public class CodeAgent {
             throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, eMessage));
         }
         return editResult;
+    }
+
+    private boolean isFileReadOnlyInWorkspace(ProjectFile pf) {
+        // A ProjectFile is read-only if any Workspace fragment referencing it is an EditableFragment marked read-only.
+        // Use the task-local context when available to respect per-task workspace state.
+        var ctx = this.context;
+        return ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.files().contains(pf))
+                .anyMatch(f -> (f instanceof ContextFragment.EditableFragment ef) && ef.isReadOnly());
     }
 
     Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {

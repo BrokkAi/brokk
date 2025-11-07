@@ -518,6 +518,18 @@ public abstract class CodePrompts {
 
         // --- Partition Read-Only Fragments ---
         var readOnlyFragments = ctx.getReadOnlyFragments().toList();
+
+        // Also include fragments that are "editable" by type but locked with readOnly=true
+        var readOnlyEditableFragments = ctx.getEditableFragments()
+                .filter(f -> (f instanceof ContextFragment.EditableFragment ef) && ef.isReadOnly())
+                .toList();
+        if (!readOnlyEditableFragments.isEmpty()) {
+            // prepend/edit: combine into read-only set so they are shown under read-only
+            var tmp = new ArrayList<ContextFragment>(readOnlyFragments.size() + readOnlyEditableFragments.size());
+            tmp.addAll(readOnlyFragments);
+            tmp.addAll(readOnlyEditableFragments);
+            readOnlyFragments = tmp;
+        }
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
                         .filter(ContextFragment.SummaryFragment.class::isInstance)
@@ -613,6 +625,10 @@ public abstract class CodePrompts {
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
         ctx.getEditableFragments().forEach(fragment -> {
+            // Skip fragments that are editable by type but locked as read-only
+            if (fragment instanceof ContextFragment.EditableFragment ef && ef.isReadOnly()) {
+                return;
+            }
             String formatted = fragment.format(); // format() on live fragment
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
@@ -916,8 +932,11 @@ public abstract class CodePrompts {
                 : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
 
         return """
-<rules>
-# EXTENDED *SEARCH/REPLACE block* Rules:
+        <rules>
+        # EXTENDED *SEARCH/REPLACE block* Rules:
+        
+        IMPORTANT: If a target filename or fragment is marked read-only in the Workspace, you MUST NOT propose edits for it.
+        Explain that the fragment is locked and must be unlocked before edits can proceed. Do not generate SEARCH/REPLACE blocks for read-only files.
 
 %sEvery *SEARCH/REPLACE block* must use this format:
 1. The opening fence: ```

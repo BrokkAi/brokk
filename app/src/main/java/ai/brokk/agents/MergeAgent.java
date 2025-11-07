@@ -371,9 +371,13 @@ public class MergeAgent {
 
             var annotated = conflictAnnotator.annotate(cf);
 
-            // Write annotated contents to our working path
+            // Write annotated contents to our working path, unless the file is locked read-only in the Workspace
             try {
-                pf.write(annotated.contents());
+                if (isFileReadOnlyInWorkspace(pf)) {
+                    logger.info("Skipping annotation write for read-only file {}", pf.getRelPath());
+                } else {
+                    pf.write(annotated.contents());
+                }
             } catch (IOException e) {
                 logger.error("Failed to write annotated contents for {}: {}", pf, e.toString(), e);
                 return;
@@ -622,6 +626,14 @@ public class MergeAgent {
             ProjectFile file, ConflictAnnotator.ConflictFileCommits ac, IConsoleIO console) {
         logger.debug("Executing merge for file: {}", file.getRelPath());
 
+        // Respect read-only: if this file is locked in the Workspace, do not attempt merge edits
+        if (isFileReadOnlyInWorkspace(file)) {
+            var detail = "File is read-only in Workspace; unlock to resolve: " + file;
+            codeAgentFailures.put(file, detail);
+            logger.warn("Skipping merge for read-only file {}", file.getRelPath());
+            return new BlitzForge.FileResult(file, false, detail, "");
+        }
+
         var mof = new MergeOneFile(cm, planningModel, codeModel, mode, baseCommitId, otherCommitId, ac, console);
         var outcome = mof.merge();
         logger.debug("MergeOneFile for {} completed with status: {}", file.getRelPath(), outcome.status());
@@ -650,6 +662,13 @@ public class MergeAgent {
         }
         logger.debug("Merge execution for {} completed.", file.getRelPath());
         return new BlitzForge.FileResult(file, edited, null, "");
+    }
+
+    private boolean isFileReadOnlyInWorkspace(ProjectFile pf) {
+        var top = cm.topContext();
+        return top.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f.files().contains(pf))
+                .anyMatch(f -> (f instanceof ContextFragment.EditableFragment ef) && ef.isReadOnly());
     }
 
     private Set<ProjectFile> allConflictFilesInWorkspace() {
