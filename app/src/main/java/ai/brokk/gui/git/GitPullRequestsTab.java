@@ -46,6 +46,7 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -116,6 +117,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prFilesTableModel;
     /** PR-details panel (commits & changed files); hidden until a PR is selected. */
     private JPanel prCommitsAndFilesPanel;
+
+    // Renderers for PR title column: rich (two-line) vs simple
+    private TableCellRenderer defaultStringCellRenderer;
+    private TableCellRenderer prTitleRichRenderer;
 
     private boolean isShowingError = false;
 
@@ -327,7 +332,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         // custom renderer similar to IssueHeader list style
-        prTable.getColumnModel().getColumn(PR_COL_TITLE).setCellRenderer(new PullRequestHeaderCellRenderer());
+        // Keep both the default and rich renderers and toggle based on state (error/empty vs normal)
+        defaultStringCellRenderer = prTable.getDefaultRenderer(String.class);
+        prTitleRichRenderer = new PullRequestHeaderCellRenderer();
+        setPrTitleRenderer(true);
 
         JScrollPane prTableScrollPane = new JScrollPane(prTable);
 
@@ -924,9 +932,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void showErrorInTable(String message) {
         isShowingError = true;
+        // Use a simple single-line renderer for error rows to avoid stray subtitle like "by"
+        setPrTitleRenderer(false);
         prTableModel.setRowCount(0);
         prTableModel.addRow(new Object[] {"", message, "", "", ""});
         disablePrButtonsAndClearCommitsAndMenus();
+    }
+
+    /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */
+    private void setPrTitleRenderer(boolean rich) {
+        assert SwingUtilities.isEventDispatchThread();
+        var column = prTable.getColumnModel().getColumn(PR_COL_TITLE);
+        column.setCellRenderer(rich ? prTitleRichRenderer : defaultStringCellRenderer);
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
@@ -1236,9 +1253,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTableModel.setRowCount(0);
         var today = LocalDate.now(ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
+            // Use simple renderer to avoid subtitle line ("by") for message rows
+            setPrTitleRenderer(false);
             prTableModel.addRow(new Object[] {"", "No matching PRs found", "", "", ""});
             disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
         } else {
+            // Use rich renderer for normal PR rows
+            setPrTitleRenderer(true);
             // Sort PRs by update date, newest first
             displayedPrs.sort(Comparator.comparing(
                     pr -> {
