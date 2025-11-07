@@ -337,7 +337,6 @@ public abstract class CodePrompts {
         var masterRoot = cm.getProject().getMasterRootPathForConfig();
         var projectFiles = topCtx.fileFragments()
                 .flatMap(cf -> cf.files().stream())
-                .filter(bf -> bf instanceof ProjectFile)
                 .map(bf -> (ProjectFile) bf)
                 .collect(Collectors.toSet());
 

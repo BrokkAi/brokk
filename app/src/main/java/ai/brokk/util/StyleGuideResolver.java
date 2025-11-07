@@ -1,15 +1,14 @@
 package ai.brokk.util;
 
+import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import ai.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,52 +48,52 @@ public final class StyleGuideResolver {
         this.masterRoot = masterRoot;
 
         var result = new ArrayList<ProjectFile>();
-        if (files != null) {
-            for (var pf : files) {
-                if (pf == null) continue;
-                try {
-                    if (pf.absPath().startsWith(masterRoot.absPath())) {
-                        result.add(pf);
-                    } else {
-                        logger.debug("Skipping ProjectFile outside master root: {} (masterRoot: {})", pf, masterRoot);
-                    }
-                } catch (Exception e) {
-                    logger.debug("Skipping ProjectFile due to error resolving path: {}", e.getMessage());
+
+        for (var pf : files) {
+            if (pf == null) continue;
+            try {
+                if (pf.absPath().startsWith(masterRoot.absPath())) {
+                    result.add(pf);
+                } else {
+                    logger.debug("Skipping ProjectFile outside master root: {} (masterRoot: {})", pf, masterRoot);
                 }
+            } catch (Exception e) {
+                logger.debug("Skipping ProjectFile due to error resolving path: {}", e.getMessage());
             }
         }
 
         this.normalizedInputs = result;
     }
 
-    private List<Path> collectAgentsForSingleInput(ProjectFile projectFile) {
-        var ordered = new ArrayList<Path>();
+    private List<ProjectFile> collectAgentsForSingleInput(ProjectFile input) {
+        var ordered = new ArrayList<ProjectFile>();
 
-        Path absPath = projectFile.absPath();
-        Path startDir;
-        if (Files.isDirectory(absPath)) {
-            startDir = absPath;
+        // Determine starting relative directory within the master root
+        Path startRel;
+        if (Files.isDirectory(input.absPath())) {
+            startRel = input.getRelPath();
         } else {
-            Path parent = absPath.getParent();
-            startDir = (parent != null) ? parent : masterRoot.absPath();
+            startRel = input.getParent(); // returns empty Path.of("") when no parent
         }
 
-        Path cursor = startDir;
-        while (cursor != null) {
-            if (!cursor.startsWith(masterRoot.absPath())) {
-                // Never walk above masterRoot
+        // Walk upwards from startRel to the repository root (empty relative path)
+        Path cursorRel = startRel;
+        while (true) {
+            // Construct a candidate ProjectFile for "<cursor>/AGENTS.md"
+            Path candidateRel = cursorRel.resolve("AGENTS.md");
+            var candidate = new ProjectFile(masterRoot.getRoot(), candidateRel);
+            if (Files.isRegularFile(candidate.absPath())) {
+                ordered.add(candidate);
+            }
+
+            // Stop after processing the master root (empty relative path)
+            if (cursorRel.toString().isEmpty()) {
                 break;
             }
 
-            Path candidate = cursor.resolve("AGENTS.md");
-            if (Files.isRegularFile(candidate)) {
-                ordered.add(candidate.normalize());
-            }
-
-            if (cursor.equals(masterRoot.absPath())) {
-                break;
-            }
-            cursor = cursor.getParent();
+            // Move up one level using ProjectFile.getParent()
+            var dirPf = new ProjectFile(masterRoot.getRoot(), cursorRel);
+            cursorRel = dirPf.getParent(); // returns empty path when at top
         }
 
         return ordered;
@@ -115,7 +114,7 @@ public final class StyleGuideResolver {
         }
 
         // Collect per-input lists (nearest-first) and compute the max depth.
-        var perInput = new ArrayList<List<Path>>(normalizedInputs.size());
+        var perInput = new ArrayList<List<ProjectFile>>(normalizedInputs.size());
         int maxDepth = 0;
         for (var pf : normalizedInputs) {
             var lst = collectAgentsForSingleInput(pf);
@@ -131,7 +130,7 @@ public final class StyleGuideResolver {
             for (int i = 0; i < perInput.size(); i++) {
                 var lst = perInput.get(i);
                 if (depth < lst.size()) {
-                    dedup.add(lst.get(depth));
+                    dedup.add(lst.get(depth).absPath().normalize());
                 }
             }
         }
@@ -287,5 +286,14 @@ public final class StyleGuideResolver {
      */
     public static String resolve(ProjectFile masterRoot, Iterable<ProjectFile> files) {
         return new StyleGuideResolver(masterRoot, files).resolveCompositeGuide();
+    }
+
+    /**
+     * Backwards-compatible overload for callers that still pass a Path masterRoot.
+     * Wraps the Path into a ProjectFile rooted at the repository root.
+     */
+    public static String resolve(Path masterRoot, Iterable<ProjectFile> files) {
+        var rootPf = new ProjectFile(masterRoot, Path.of(""));
+        return new StyleGuideResolver(rootPf, files).resolveCompositeGuide();
     }
 }
