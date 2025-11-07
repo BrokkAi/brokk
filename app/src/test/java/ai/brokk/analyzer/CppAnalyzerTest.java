@@ -748,9 +748,9 @@ public class CppAnalyzerTest {
         assertTrue(fOverloads.size() >= 3, "Should distinguish f() overloads by qualifiers");
 
         // Verify signatures are distinct
-        var signatures2 = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        var signatures = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
         assertTrue(
-                signatures2.size() >= 3,
+                signatures.size() >= 3,
                 "Should have at least 3 distinct signatures for f() overloads with different qualifiers");
     }
 
@@ -776,43 +776,42 @@ public class CppAnalyzerTest {
                 fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toList()));
 
         // Get their signatures
-        var signaturesSet = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+        var signatures = fOverloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
 
         logger.debug("Signature variants for f():");
-        signaturesSet.forEach(sig -> logger.debug("  - {}", sig));
+        signatures.forEach(sig -> logger.debug("  - {}", sig));
 
         // Assertion (a): Distinct signatures for volatile vs const volatile variants
-        var volatileSig = signaturesSet.stream()
+        var volatileSig = signatures.stream()
                 .filter(sig -> sig != null && sig.contains("volatile") && !sig.contains("const volatile"))
                 .findFirst();
-        var constVolatileSig = signaturesSet.stream()
+        var constVolatileSig = signatures.stream()
                 .filter(sig -> sig != null && sig.contains("const volatile"))
                 .findFirst();
 
         assertTrue(
                 volatileSig.isPresent(),
-                "Should have signature containing 'volatile' for volatile member function. Available: "
-                        + signaturesSet);
+                "Should have signature containing 'volatile' for volatile member function. Available: " + signatures);
         assertTrue(
                 constVolatileSig.isPresent(),
                 "Should have signature containing 'const volatile' for const volatile member function. Available: "
-                        + signaturesSet);
+                        + signatures);
         assertNotEquals(
                 volatileSig.get(),
                 constVolatileSig.get(),
                 "volatile and const volatile variants should have distinct signatures");
 
         // Assertion (b): Distinguish & vs && reference qualifiers
-        var lvalueRefSig = signaturesSet.stream()
+        var lvalueRefSig = signatures.stream()
                 .filter(sig -> sig != null && sig.contains("&") && !sig.contains("&&"))
                 .findFirst();
-        var rvalueRefSig = signaturesSet.stream()
+        var rvalueRefSig = signatures.stream()
                 .filter(sig -> sig != null && sig.contains("&&"))
                 .findFirst();
 
         assertTrue(
                 lvalueRefSig.isPresent() || rvalueRefSig.isPresent(),
-                "Should have at least one reference-qualified variant. Available: " + signaturesSet);
+                "Should have at least one reference-qualified variant. Available: " + signatures);
         if (lvalueRefSig.isPresent() && rvalueRefSig.isPresent()) {
             assertNotEquals(
                     lvalueRefSig.get(),
@@ -1018,6 +1017,73 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testDefinitionPreferredInSameFile() {
+        // Validate semantics don't rely on placeholder strings by using a file that contains:
+        // - a class method declaration inside the class
+        // - an out-of-line definition of that method later in the same file
+        //
+        // The analyzer should expose a single top-level function CodeUnit for the definition,
+        // even though the in-class declaration has a differently formatted signature (no body).
+        var file = testProject.getAllFiles().stream()
+                .filter(f -> f.absPath().toString().endsWith("decl_vs_def.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("decl_vs_def.h not found"));
+
+        // Declarations: ensure we only consider the out-of-line definition (scope-resolved name)
+        var decls = analyzer.getDeclarations(file);
+        var outOfLineFuncs = decls.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("declaration_only"))
+                .filter(cu -> cu.fqName().contains("::") || cu.shortName().contains("::"))
+                .collect(Collectors.toList());
+
+        // Deduplicate by signature to avoid double-captures of the same definition
+        var uniqueOutOfLineSigs = outOfLineFuncs.stream()
+                .map(CodeUnit::signature)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        assertEquals(
+                1,
+                uniqueOutOfLineSigs.size(),
+                "Should have exactly one unique out-of-line definition signature for 'declaration_only'. "
+                        + "Candidates: "
+                        + outOfLineFuncs.stream().map(CodeUnit::fqName).collect(Collectors.toList())
+                        + ", Signatures: " + uniqueOutOfLineSigs);
+
+        // Skeletons: confirm the corresponding skeleton contains a body placeholder for the definition
+        var skeletons = analyzer.getSkeletons(file);
+        var funcSkeletonEntry = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isFunction())
+                .filter(e -> getBaseFunctionName(e.getKey()).equals("declaration_only"))
+                .findFirst();
+
+        assertTrue(funcSkeletonEntry.isPresent(), "Should have skeleton for out-of-line definition");
+        String skeleton = funcSkeletonEntry.get().getValue();
+        assertTrue(
+                skeleton.contains("{...}"),
+                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + skeleton);
+
+        // Sanity: ensure in-class declaration is still present in the class skeleton and does not have body placeholder
+        var classSkeleton = skeletons.entrySet().stream()
+                .filter(e -> e.getKey().isClass())
+                .filter(e -> e.getKey().shortName().contains("DeclVsDef"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        assertTrue(classSkeleton.isPresent(), "DeclVsDef class skeleton should be present");
+        String classSkelText = classSkeleton.get();
+        var declLine = classSkelText
+                .lines()
+                .filter(line -> line.contains("declaration_only"))
+                .filter(line -> !line.contains("::"))
+                .findFirst()
+                .orElse("");
+        assertFalse(
+                declLine.contains("{...}") || declLine.contains("{"),
+                "Class-scope declaration should not include body placeholder");
+    }
+
+    @Test
     public void testTemplateFunctionPointerParameter() {
         var file = testProject.getAllFiles().stream()
                 .filter(f -> f.absPath().toString().endsWith("template_fpointers.h"))
@@ -1083,7 +1149,8 @@ public class CppAnalyzerTest {
             assertEquals("ns", cu.packageName(), "Package name should be 'ns' for free_func");
 
             // Verify NO package duplication in FQN
-            // FQN should be "ns.free_func" and parameters are in signature
+            // FQN should be "ns.free_func(int)" or "ns.free_func(double)"
+            // NOT "ns.ns.free_func(int)" or "ns.ns.free_func(double)"
             assertFalse(
                     cu.fqName().contains("ns.ns."),
                     "FQN should NOT contain duplicated package 'ns.ns.' but was: " + cu.fqName());
@@ -1112,6 +1179,8 @@ public class CppAnalyzerTest {
             assertEquals("ns", cu.packageName(), "Package name should be 'ns' for C.method");
 
             // Verify NO package duplication in FQN
+            // FQN should be "ns.C.method(int)" or "ns.C.method(double)"
+            // NOT "ns.ns.C.method(int)" or "ns.ns.C.method(double)"
             assertFalse(
                     cu.fqName().contains("ns.ns."),
                     "FQN should NOT contain duplicated package 'ns.ns.' but was: " + cu.fqName());
@@ -1119,7 +1188,7 @@ public class CppAnalyzerTest {
             // Verify FQN starts with package name exactly once
             assertTrue(cu.fqName().startsWith("ns."), "FQN should start with 'ns.' but was: " + cu.fqName());
 
-            // Verify shortName doesn't contain package prefix (should be "C.method")
+            // Verify shortName doesn't contain package prefix (should be "C.method(...)")
             assertFalse(
                     cu.shortName().startsWith("ns."),
                     "shortName should NOT start with package prefix 'ns.' but was: " + cu.shortName());
