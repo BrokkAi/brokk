@@ -127,14 +127,16 @@ public final class HeadlessExecutorMain {
         this.contextManager = new ContextManager(project);
 
         // Initialize headless context asynchronously to avoid blocking constructor
-        var initThread = new Thread(() -> {
-            try {
-                this.contextManager.createHeadless();
-                logger.info("ContextManager headless initialization complete");
-            } catch (Exception e) {
-                logger.warn("ContextManager headless initialization failed", e);
-            }
-        }, "ContextManager-Init");
+        var initThread = new Thread(
+                () -> {
+                    try {
+                        this.contextManager.createHeadless();
+                        logger.info("ContextManager headless initialization complete");
+                    } catch (Exception e) {
+                        logger.warn("ContextManager headless initialization failed", e);
+                    }
+                },
+                "ContextManager-Init");
         initThread.setDaemon(true);
         initThread.start();
 
@@ -558,7 +560,8 @@ public final class HeadlessExecutorMain {
      */
     void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
         // Write zip file to the directory ContextManager/SessionManager expect: <workspace>/.brokk/sessions
-        var cmSessionsDir = contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
+        var cmSessionsDir =
+                contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
         Files.createDirectories(cmSessionsDir);
         var sessionZipPath = cmSessionsDir.resolve(sessionId + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
