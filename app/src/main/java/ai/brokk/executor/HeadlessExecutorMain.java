@@ -197,12 +197,12 @@ public final class HeadlessExecutorMain {
      * Delegates to JobRunner and manages currentJobId lifecycle.
      */
     private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
-        logger.info("Starting job execution: {}", jobId);
+        logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             if (throwable != null) {
-                logger.error("Job {} execution failed", jobId, throwable);
+                logger.error("Job {} execution failed (session={})", jobId, contextManager.getCurrentSessionId(), throwable);
             } else {
-                logger.info("Job {} execution finished", jobId);
+                logger.info("Job {} execution finished (session={})", jobId, contextManager.getCurrentSessionId());
             }
             // Release reservation only if we still own it; CAS avoids clearing another job's reservation.
             jobReservation.releaseIfOwner(jobId);
@@ -211,7 +211,7 @@ public final class HeadlessExecutorMain {
 
     public void start() {
         this.server.start();
-        logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.");
+        logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.; cmSession={}", contextManager.getCurrentSessionId());
     }
 
     public void stop(int delaySeconds) {
@@ -474,7 +474,7 @@ public final class HeadlessExecutorMain {
             var jobId = createResult.jobId();
             var isNewJob = createResult.isNewJob();
 
-            logger.info("Job {}: isNewJob={}, jobId={}", idempotencyKey, isNewJob, jobId);
+            logger.info("Job {}: isNewJob={}, jobId={}, requestedSessionId={}", idempotencyKey, isNewJob, jobId, jobSpecRequest.sessionId());
 
             // Load job status
             var status = jobStore.loadStatus(jobId);
@@ -488,15 +488,16 @@ public final class HeadlessExecutorMain {
                 // Atomically reserve the job slot; fail fast if another job is in progress
                 if (!tryReserveJobSlot(jobId)) {
                     logger.info(
-                            "Job reservation failed; another job in progress: {}, requested jobId={}, idempotencyKey={}",
+                            "Job reservation failed; another job in progress: {}, requested jobId={}, idempotencyKey={}, cmSession={}",
                             jobReservation.current(),
                             jobId,
-                            idempotencyKey);
+                            idempotencyKey,
+                            contextManager.getCurrentSessionId());
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
                     return;
                 }
-                logger.info("Job reservation succeeded; jobId={}, idempotencyKey={}", jobId, idempotencyKey);
+                logger.info("Job reservation succeeded; jobId={}, idempotencyKey={}, cmSession={}", jobId, idempotencyKey, contextManager.getCurrentSessionId());
                 try {
                     // Start execution asynchronously; release reservation in callback or on failure
                     executeJobAsync(jobId, jobSpec);
@@ -504,10 +505,11 @@ public final class HeadlessExecutorMain {
                     // Release reservation if scheduling failed before the async pipeline was established
                     var rolledBack = jobReservation.releaseIfOwner(jobId);
                     logger.warn(
-                            "Reservation rollback after scheduling failure; jobId={}, idempotencyKey={}, rolledBack={}",
+                            "Reservation rollback after scheduling failure; jobId={}, idempotencyKey={}, rolledBack={}, cmSession={}",
                             jobId,
                             idempotencyKey,
-                            rolledBack);
+                            rolledBack,
+                            contextManager.getCurrentSessionId());
                     logger.error("Failed to start job {}", jobId, ex);
                     var error = ErrorPayload.internalError("Failed to start job execution", ex);
                     SimpleHttpServer.sendJsonResponse(exchange, 500, error);
@@ -599,7 +601,7 @@ public final class HeadlessExecutorMain {
 
             // Request job cancellation via JobRunner
             jobRunner.cancel(jobId);
-            logger.info("Cancelled job: {}", jobId);
+            logger.info("Cancelled job: {}, session={}", jobId, contextManager.getCurrentSessionId());
 
             exchange.sendResponseHeaders(202, 0);
             exchange.close();
@@ -634,7 +636,7 @@ public final class HeadlessExecutorMain {
                 }
                 exchange.close();
             } catch (UnsupportedOperationException e) {
-                logger.info("Git not available for job {}", jobId);
+                logger.info("Git not available for job {}, session={}", jobId, contextManager.getCurrentSessionId());
                 var error = ErrorPayload.of("NO_GIT", "Git is not available in this workspace");
                 SimpleHttpServer.sendJsonResponse(exchange, 409, error);
             }
