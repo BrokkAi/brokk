@@ -1032,6 +1032,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
             if (isFullUpdate) {
+                // Reset error state on successful issue load
+                isShowingError = false;
                 allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
                         "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
@@ -1045,8 +1047,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // Update table model
             issueTableModel.setRowCount(0);
             if (displayedIssues.isEmpty()) {
+                setIssueTitleRenderer(false); // Use simple renderer for empty state
                 disableIssueActions();
             } else {
+                setIssueTitleRenderer(true); // Use rich renderer for normal rows
                 var today = LocalDate.now(ZoneId.systemDefault());
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
@@ -1059,6 +1063,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // Manage button states based on selection
             if (issueTable.getSelectedRow() == -1) {
                 disableIssueActions();
+            }
+            
+            // Re-enable UI controls and stop loading after successful population
+            if (isFullUpdate) {
+                setReloadUiEnabled(true);
             }
             searchBox.setLoading(false, ""); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
