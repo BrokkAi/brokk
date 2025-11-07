@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -42,8 +41,6 @@ public final class StyleGuideResolver {
      *                  which AGENTS.md files are selected
      */
     public StyleGuideResolver(Path masterRoot, Collection<Path> filePaths) {
-        Objects.requireNonNull(masterRoot, "masterRoot");
-        Objects.requireNonNull(filePaths, "filePaths");
         this.masterRoot = masterRoot.toAbsolutePath().normalize();
         this.normalizedInputs = normalizeInputs(this.masterRoot, filePaths);
     }
