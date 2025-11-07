@@ -895,6 +895,56 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         });
     }
 
+    @Override
+    public void issueProviderChanged() {
+        SwingUtilities.invokeLater(() -> {
+            logger.debug("Issue provider changed. Initiating cancellation of active tasks and scheduling refresh.");
+
+            isShowingError = false;
+            setReloadUiEnabled(true);
+
+            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
+
+            if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
+                futuresToCancelAndAwait.add(activeCiFetcher);
+            }
+            if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+                futuresToCancelAndAwait.add(activePrFilesFetcher);
+            }
+
+            futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
+
+            logger.debug("Attempting to cancel {} futures.", futuresToCancelAndAwait.size());
+            for (Future<?> f : futuresToCancelAndAwait) {
+                if (!f.isDone()) {
+                    f.cancel(true);
+                    logger.trace("Requested cancellation for future: {}", f.toString());
+                }
+            }
+
+            if (futuresToCancelAndAwait.isEmpty()) {
+                logger.debug("No active tasks to wait for. Proceeding with PR list refresh directly.");
+                updatePrList();
+                return;
+            }
+
+            // Wait for the futures to complete or be cancelled to avoid potential race conditions
+            contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                logger.debug("Waiting for {} futures to complete cancellation.", futuresToCancelAndAwait.size());
+                for (Future<?> f : futuresToCancelAndAwait) {
+                    try {
+                        f.get();
+                    } catch (Exception e) {
+                        logger.trace("Task cancellation confirmed for: {}", f.toString());
+                    }
+                }
+                logger.debug("All identified tasks have completed cancellation. Scheduling PR list refresh.");
+                SwingUtilities.invokeLater(this::updatePrList);
+                return null;
+            });
+        });
+    }
+
     private void disablePrButtonsAndClearCommitsAndMenus() {
         prCommitsAndFilesPanel.setVisible(false);
         // Panel buttons
