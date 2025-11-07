@@ -22,6 +22,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -37,9 +39,9 @@ public final class HeadlessExecutorMain {
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
-    // Indicates whether a session has been uploaded/imported at least once.
-    // Used to gate /health/ready until the first session arrives.
-    private volatile boolean sessionUploaded = false;
+    // Indicates whether a session has been loaded (either uploaded or created) at least once.
+    // Used to gate /health/ready until the first session is available.
+    private volatile boolean sessionLoaded = false;
 
     /*
      * Parse command-line arguments into a map of normalized keys to values.
@@ -125,7 +127,18 @@ public final class HeadlessExecutorMain {
         // Initialize ContextManager
         var project = new MainProject(workspaceDir);
         this.contextManager = new ContextManager(project);
-        this.contextManager.createHeadless();
+
+        // Initialize headless context asynchronously to avoid blocking constructor
+        var initThread = new Thread(() -> {
+            try {
+                this.contextManager.createHeadless();
+                logger.info("ContextManager headless initialization complete");
+            } catch (Exception e) {
+                logger.warn("ContextManager headless initialization failed", e);
+            }
+        }, "ContextManager-Init");
+        initThread.setDaemon(true);
+        initThread.start();
 
         // Initialize JobRunner
         this.jobRunner = new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore);
@@ -163,8 +176,8 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        if (!sessionUploaded) {
-            logger.info("/health/ready requested before session upload; returning 503");
+        if (!sessionLoaded) {
+            logger.info("/health/ready requested before session is loaded; returning 503");
             var error = ErrorPayload.of("NOT_READY", "No session loaded");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
             return;
@@ -378,12 +391,18 @@ public final class HeadlessExecutorMain {
             }
 
             var sessionName = request.name().strip();
-            contextManager.createSessionAsync(sessionName).get();
+
+            // Create session with timeout to avoid indefinite blocking
+            try {
+                contextManager.createSessionAsync(sessionName).get(1, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
+            }
 
             var sessionId = contextManager.getCurrentSessionId();
             logger.info("Created new session: {} ({})", sessionName, sessionId);
 
-            sessionUploaded = true;
+            sessionLoaded = true;
 
             var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -448,13 +467,18 @@ public final class HeadlessExecutorMain {
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
-        // Switch ContextManager to this session synchronously to avoid handler hangs
-        contextManager.switchSessionAsync(sessionId).get();
-        logger.info("Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
+
+        // Switch ContextManager to this session with timeout to avoid indefinite blocking
+        try {
+            contextManager.switchSessionAsync(sessionId).get(1, TimeUnit.SECONDS);
+            logger.info(
+                    "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
+        } catch (TimeoutException e) {
+            logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
+        }
 
         // Mark executor as ready to serve requests that require a session.
-        sessionUploaded = true;
-        assert contextManager.getCurrentSessionId().equals(sessionId);
+        sessionLoaded = true;
     }
 
     /**
