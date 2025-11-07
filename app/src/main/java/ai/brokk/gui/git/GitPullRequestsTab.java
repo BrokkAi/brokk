@@ -130,84 +130,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     @Nullable
     private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
 
-    /**
-     * Checks if a commit's data is fully available and parsable in the local repository.
-     *
-     * @param repo The GitRepo instance.
-     * @param sha The commit SHA to check.
-     * @return true if the commit is resolvable and its object data is parsable, false otherwise.
-     */
-    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
-        ObjectId objectId = null;
-        try {
-            objectId = repo.resolveToCommit(sha);
-            // Try to parse the commit to ensure its data is present
-            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
-                revWalk.parseCommit(objectId);
-                return true; // Resolvable and parsable
-            }
-        } catch (MissingObjectException e) {
-            logger.debug(
-                    "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    repo.shortHash(sha),
-                    objectId.name(),
-                    e);
-            return false; // Resolvable but data is missing
-        } catch (IOException
-                | GitAPIException e) { // GitAPIException from repo.resolve, IOException from parseCommit (other than
-            // MissingObjectException)
-            logger.warn("Error checking local availability of commit {}: {}", repo.shortHash(sha), e.getMessage(), e);
-            return false; // Error during check, assume not available
-        }
-    }
-
-    /**
-     * Ensure a commit SHA is available locally and is fully parsable, fetching the specified refSpec from the remote if
-     * necessary.
-     *
-     * @param sha The commit SHA that must be present and parsable locally.
-     * @param repo GitRepo to operate on (non-null).
-     * @param refSpec The refSpec to fetch if the SHA is missing or not parsable (e.g.
-     *     "+refs/pull/123/head:refs/remotes/origin/pr/123/head").
-     * @param remoteName Which remote to fetch from (e.g. "origin").
-     * @return true if the SHA is now locally available and parsable, false otherwise.
-     */
-    private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
-        if (isCommitLocallyAvailable(repo, sha)) {
-            return true;
-        }
-
-        // If not available or missing, try to fetch
-        logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
-        try {
-            repo.getGit()
-                    .fetch()
-                    .setRemote(remoteName)
-                    .setRefSpecs(new RefSpec(refSpec))
-                    .call();
-            // After fetch, verify again
-            if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
-                return true;
-            } else {
-                logger.warn(
-                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        repo.shortHash(sha),
-                        refSpec,
-                        remoteName);
-                return false;
-            }
-        } catch (Exception e) {
-            // Includes GitAPIException, IOException, etc.
-            logger.warn(
-                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    repo.shortHash(sha),
-                    e.getMessage(),
-                    e);
-            return false;
-        }
-    }
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
@@ -1488,7 +1410,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     // Ensure head SHA is available
                     String headFetchRefSpec =
                             String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    headLocallyAvailable = ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
+                    headLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
 
                     if (!headLocallyAvailable) {
                         // If direct PR head fetch fails, try fetching the source branch if it's from origin
@@ -1502,7 +1424,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 headBranchName = headBranchName.substring("refs/heads/".length());
                             String headBranchFetchRefSpec = String.format(
                                     "+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
-                            headLocallyAvailable = ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
+                            headLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
                         } else {
                             logger.warn(
                                     "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.",
@@ -1516,7 +1438,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     String baseBranchName = pr.getBase().getRef(); // e.g. "main"
                     String baseFetchRefSpec =
                             String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                    baseLocallyAvailable = ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
+                    baseLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
 
                     if (headLocallyAvailable && baseLocallyAvailable) {
                         List<String> changedFiles;
@@ -1651,7 +1573,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!GitUiUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Capture Diff Error");
@@ -1659,7 +1581,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
                 // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
                 // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
-                ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
+                GitUiUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
 
                 GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
 
@@ -1788,13 +1710,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!GitUiUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
-                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                if (!GitUiUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
                     // This is a warning because prBaseSha might be an old commit not on the current tip of the base
                     // branch.
                     // listFilesChangedBetweenBranches might still work if it's an ancestor.

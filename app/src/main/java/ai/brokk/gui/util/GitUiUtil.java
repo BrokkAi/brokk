@@ -1296,8 +1296,14 @@ public final class GitUiUtil {
         });
     }
 
-    /** Helper method to check if a commit is locally available. */
-    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param repo The GitRepo instance.
+     * @param sha The commit SHA to check.
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise.
+     */
+    public static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
         ObjectId objectId = null;
         try {
             objectId = repo.resolveToCommit(sha);
@@ -1318,8 +1324,18 @@ public final class GitUiUtil {
         }
     }
 
-    /** Helper method to ensure a SHA is available locally by fetching if needed. */
-    private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
+    /**
+     * Ensure a commit SHA is available locally and is fully parsable, fetching the specified refSpec from the remote if
+     * necessary.
+     *
+     * @param sha The commit SHA that must be present and parsable locally.
+     * @param repo GitRepo to operate on (non-null).
+     * @param refSpec The refSpec to fetch if the SHA is missing or not parsable (e.g.
+     *     "+refs/pull/123/head:refs/remotes/origin/pr/123/head").
+     * @param remoteName Which remote to fetch from (e.g. "origin").
+     * @return true if the SHA is now locally available and parsable, false otherwise.
+     */
+    public static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
         if (isCommitLocallyAvailable(repo, sha)) {
             return true;
         }
