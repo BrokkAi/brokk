@@ -591,6 +591,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private class PrTableDoubleClickAdapter extends MouseAdapter {
         @Override
         public void mouseClicked(MouseEvent e) {
+            if (isShowingError) return;
             if (e.getClickCount() == 2) {
                 if (prTable.getSelectedRowCount() == 1) {
                     viewFullPrDiff();
@@ -635,6 +636,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
 
             private void handlePopup(MouseEvent e) {
+                if (isShowingError) return;
                 if (e.isPopupTrigger()) {
                     int row = prTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
