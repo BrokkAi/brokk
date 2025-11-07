@@ -306,7 +306,8 @@ public abstract class CodePrompts {
                 .map(masterRoot::resolve)
                 .collect(Collectors.toSet());
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project root guide.
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
+        // root guide.
         var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFilePaths);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 

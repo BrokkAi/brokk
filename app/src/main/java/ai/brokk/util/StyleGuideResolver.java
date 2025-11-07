@@ -228,8 +228,7 @@ public final class StyleGuideResolver {
                             String marker = "\n\n[Note: style guide truncated here to fit prompt budget]";
                             int markerLen = marker.length();
                             int finalContentLen = Math.max(0, remainingForContent - markerLen);
-                            String truncatedContent =
-                                    content.substring(0, Math.min(content.length(), finalContentLen));
+                            String truncatedContent = content.substring(0, Math.min(content.length(), finalContentLen));
                             String truncatedSection = headerWithSep + truncatedContent + marker;
 
                             if (separatorLen > 0) {
@@ -244,8 +243,7 @@ public final class StyleGuideResolver {
                     }
                     truncated = true;
                     logger.debug(
-                            "Stopping aggregation due to character cap at ~{} chars (cap {}).",
-                            currentChars, maxChars);
+                            "Stopping aggregation due to character cap at ~{} chars (cap {}).", currentChars, maxChars);
                     break;
                 }
             } catch (IOException e) {
@@ -256,18 +254,20 @@ public final class StyleGuideResolver {
         String result = sections.stream().filter(s -> !s.isBlank()).collect(Collectors.joining("\n\n"));
 
         if (truncated) {
-            String note =
-                    "\n\n[Note: Truncated aggregated style guide to "
-                            + included
-                            + " section(s) and "
-                            + currentChars
-                            + " characters to fit prompt budget. TODO: make this token-aware.]";
+            String note = "\n\n[Note: Truncated aggregated style guide to "
+                    + included
+                    + " section(s) and "
+                    + currentChars
+                    + " characters to fit prompt budget. TODO: make this token-aware.]";
             result = result + note;
         }
 
         logger.debug(
                 "Resolved composite style guide: included {} of {} files; chars {}; truncated={}",
-                included, totalCount, currentChars, truncated);
+                included,
+                totalCount,
+                currentChars,
+                truncated);
 
         return result;
     }

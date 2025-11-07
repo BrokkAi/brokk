@@ -27,7 +27,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 .map(masterRoot::resolve)
                 .collect(Collectors.toSet());
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project root guide.
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
+        // root guide.
         var resolvedGuide = StyleGuideResolver.resolve(masterRoot, projectFilePaths);
         return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
     }
