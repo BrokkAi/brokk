@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -84,12 +85,23 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    private volatile boolean isShuttingDown = false;
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         this.sessionExecutor = Executors.newFixedThreadPool(3, new SessionExecutorThreadFactory());
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
+    }
+
+    private <T> CompletableFuture<T> submitGuarded(String key, Callable<T> task) {
+        if (isShuttingDown) {
+            var future = new CompletableFuture<T>();
+            future.completeExceptionally(
+                    new IllegalStateException("SessionManager is shutting down, cannot submit new tasks"));
+            return future;
+        }
+        return sessionExecutorByKey.submit(key, task);
     }
 
     private Map<UUID, SessionInfo> loadSessions() {
@@ -120,7 +132,7 @@ public class SessionManager implements AutoCloseable {
         var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
         sessionsCache.put(sessionId, newSessionInfo);
 
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        submitGuarded(sessionId.toString(), () -> {
             Path sessionHistoryPath = getSessionHistoryPath(sessionId);
             try {
                 Files.createDirectories(sessionHistoryPath.getParent());
@@ -135,6 +147,7 @@ public class SessionManager implements AutoCloseable {
                 logger.error("Error creating new session files for {} ({}): {}", name, sessionId, e.getMessage());
                 throw new UncheckedIOException("Failed to create new session " + name, e);
             }
+            return null;
         });
         return newSessionInfo;
     }
@@ -148,7 +161,7 @@ public class SessionManager implements AutoCloseable {
         if (oldInfo != null) {
             var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
             sessionsCache.put(sessionId, updatedInfo);
-            sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            submitGuarded(sessionId.toString(), () -> {
                 try {
                     Path sessionHistoryPath = getSessionHistoryPath(sessionId);
                     writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
@@ -157,6 +170,7 @@ public class SessionManager implements AutoCloseable {
                     logger.error(
                             "Error writing updated manifest for renamed session {}: {}", sessionId, e.getMessage());
                 }
+                return null;
             });
         } else {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
@@ -165,7 +179,7 @@ public class SessionManager implements AutoCloseable {
 
     public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var deleteFuture = submitGuarded(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
                 boolean deleted = Files.deleteIfExists(historyZipPath);
@@ -179,6 +193,7 @@ public class SessionManager implements AutoCloseable {
                 logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
                 throw new RuntimeException("Failed to delete session " + sessionId, e);
             }
+            return null;
         });
         deleteFuture.get(); // Wait for deletion to complete
     }
@@ -197,7 +212,7 @@ public class SessionManager implements AutoCloseable {
         if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
             moveSessionToUnreadableSync(sessionId);
         } else {
-            var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            var future = submitGuarded(sessionId.toString(), () -> {
                 moveSessionToUnreadableSync(sessionId);
                 return null;
             });
@@ -366,7 +381,7 @@ public class SessionManager implements AutoCloseable {
     }
 
     private void moveZipToUnreadable(Path zipPath) {
-        var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
+        var future = submitGuarded(zipPath.toString(), () -> {
             Path unreadableDir = sessionsDir.resolve("unreadable");
             try {
                 Files.createDirectories(unreadableDir);
@@ -376,6 +391,7 @@ public class SessionManager implements AutoCloseable {
             } catch (IOException e) {
                 logger.error("Error moving unreadable history zip {}: {}", zipPath.getFileName(), e.getMessage());
             }
+            return null;
         });
         try {
             future.get();
@@ -414,7 +430,7 @@ public class SessionManager implements AutoCloseable {
         }
 
         final SessionInfo finalInfoToSave = infoToSave;
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        submitGuarded(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
 
@@ -456,6 +472,7 @@ public class SessionManager implements AutoCloseable {
                         sessionId,
                         e.getMessage());
             }
+            return null;
         });
     }
 
@@ -486,7 +503,7 @@ public class SessionManager implements AutoCloseable {
 
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        var future = sessionExecutorByKey.submit(
+        var future = submitGuarded(
                 sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
         try {
@@ -590,7 +607,7 @@ public class SessionManager implements AutoCloseable {
      */
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskList.TaskListData data) {
         Path zipPath = getSessionHistoryPath(sessionId);
-        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        return submitGuarded(sessionId.toString(), () -> {
             try {
                 var normalized = new TaskList.TaskListData(List.copyOf(data.tasks()));
                 String json = AbstractProject.objectMapper.writeValueAsString(normalized);
@@ -620,7 +637,7 @@ public class SessionManager implements AutoCloseable {
      */
     public CompletableFuture<TaskList.TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
-        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        return submitGuarded(sessionId.toString(), () -> {
             if (!Files.exists(zipPath)) {
                 return new TaskList.TaskListData(List.of());
             }
@@ -696,6 +713,7 @@ public class SessionManager implements AutoCloseable {
 
     @Override
     public void close() {
+        isShuttingDown = true;
         sessionExecutor.shutdown();
         try {
             if (!sessionExecutor.awaitTermination(30, TimeUnit.SECONDS)) {

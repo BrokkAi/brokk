@@ -9,6 +9,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.FrozenFragment;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -447,5 +449,91 @@ public class SessionManagerTest {
         assertTrue(copiedSessionInfo.created() >= originalSessionInfo.modified()); // Copied time is 'now'
 
         project.close();
+    }
+
+    @Test
+    void testSubmissionsAfterClose() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        var taskListData = new TaskList.TaskListData(List.of());
+        sessionManager.close();
+
+        // Submissions after close should complete exceptionally
+        var writeTaskListFuture = sessionManager.writeTaskList(sessionId, taskListData);
+        var readTaskListFuture = sessionManager.readTaskList(sessionId);
+
+        // Both futures should complete exceptionally with IllegalStateException
+        var writeException = assertThrows(ExecutionException.class, writeTaskListFuture::get);
+        assertInstanceOf(IllegalStateException.class, writeException.getCause());
+        assertTrue(writeException.getCause().getMessage().contains("shutting down"));
+
+        var readException = assertThrows(ExecutionException.class, readTaskListFuture::get);
+        assertInstanceOf(IllegalStateException.class, readException.getCause());
+        assertTrue(readException.getCause().getMessage().contains("shutting down"));
+    }
+
+    @Test
+    void testGracefulShutdownWithInflightWork() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        // Create a context with some content
+        Context context = new Context(mockContextManager, "Test content for in-flight work");
+        ContextHistory history = new ContextHistory(context);
+
+        // Submit a history save (in-flight work)
+        sessionManager.saveHistory(history, sessionId);
+
+        // Immediately call close - should wait for the in-flight work
+        long startTime = System.currentTimeMillis();
+        project.close();
+        long elapsedTime = System.currentTimeMillis() - startTime;
+
+        // close() should have waited for the task to complete (should be quick for this test)
+        assertTrue(elapsedTime < 60000, "close() should complete within reasonable time");
+
+        // Verify that the session file was actually saved (indicating in-flight work completed)
+        Path sessionZip = tempDir.resolve(".brokk").resolve("sessions").resolve(sessionId.toString() + ".zip");
+        assertTrue(Files.exists(sessionZip), "Session file should exist after close() completes");
+
+        // Try to submit after close - should fail with guard check
+        var taskListData = new TaskList.TaskListData(List.of());
+        var submitAfterCloseFuture = sessionManager.writeTaskList(sessionId, taskListData);
+
+        var exception = assertThrows(ExecutionException.class, submitAfterCloseFuture::get);
+        assertInstanceOf(IllegalStateException.class, exception.getCause());
+        assertTrue(exception.getCause().getMessage().contains("shutting down"));
+    }
+
+    @Test
+    void testSubmitGuardProtectsAllPublicApis() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        project.close();
+
+        // Test multiple API methods that use submitGuarded
+        var taskListData = new TaskList.TaskListData(List.of());
+        
+        // writeTaskList should be rejected
+        var writeFuture = sessionManager.writeTaskList(sessionId, taskListData);
+        var writeException = assertThrows(ExecutionException.class, writeFuture::get);
+        assertInstanceOf(IllegalStateException.class, writeException.getCause());
+
+        // readTaskList should be rejected
+        var readFuture = sessionManager.readTaskList(sessionId);
+        var readException = assertThrows(ExecutionException.class, readFuture::get);
+        assertInstanceOf(IllegalStateException.class, readException.getCause());
+
+        // Both exceptions should have the same clear message about shutdown
+        assertTrue(writeException.getCause().getMessage().contains("shutting down"));
+        assertTrue(readException.getCause().getMessage().contains("shutting down"));
     }
 }
