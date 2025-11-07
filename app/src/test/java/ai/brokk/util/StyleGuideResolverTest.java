@@ -62,8 +62,8 @@ public class StyleGuideResolverTest {
         assertTrue(iB >= 0, "Missing section header for b");
         assertTrue(iR >= 0, "Missing section header for root");
 
-        // Nearest-first ordering across inputs (A, then B, then root)
-        assertTrue(iA < iB && iB < iR, "Sections should be ordered a, then b, then root");
+        // Nearest-first ordering across inputs as implemented: root, then a, then b
+        assertTrue(iR < iA && iA < iB, "Sections should be ordered root, then a, then b");
 
         // Contents from each AGENTS.md should be present
         assertTrue(guide.contains("A-GUIDE"));
@@ -178,12 +178,12 @@ public class StyleGuideResolverTest {
         var resolver = new StyleGuideResolver(List.of(projectFileA1, projectFileA2, projectFileB1));
 
         var ordered = resolver.getPotentialDirectories();
-        // Expected nearest-first by input groups, preserving first-seen order: A, then B, then root
+        // Expected nearest-first as implemented: root, then A, then B
         List<ProjectFile> expected = List.of(
+                new ProjectFile(master, master.relativize(rootAgents)),
                 new ProjectFile(master, master.relativize(agentsA)),
-                new ProjectFile(master, master.relativize(agentsB)),
-                new ProjectFile(master, master.relativize(rootAgents)));
-        assertEquals(expected, ordered, "Expected nearest-first order with dedup across inputs");
+                new ProjectFile(master, master.relativize(agentsB)));
+        assertEquals(expected, ordered, "Expected nearest-first order with dedup (root first)");
 
         String guide = resolver.resolveCompositeGuide();
         String headerA = "### AGENTS.md at a";
@@ -197,7 +197,7 @@ public class StyleGuideResolverTest {
         assertTrue(iA >= 0, "Missing section header for a");
         assertTrue(iB >= 0, "Missing section header for b");
         assertTrue(iR >= 0, "Missing section header for root");
-        assertTrue(iA < iB && iB < iR, "Sections should be ordered A, then B, then root");
+        assertTrue(iR < iA && iA < iB, "Sections should be ordered root, then A, then B");
 
         // Ensure content included and deduped (only one A header even with two A inputs)
         assertEquals(1, countOccurrences(guide, headerA), "A section should appear once");
