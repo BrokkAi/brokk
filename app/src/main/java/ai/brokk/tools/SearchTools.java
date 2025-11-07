@@ -242,7 +242,6 @@ public class SearchTools {
         return result.toString();
     }
 
-
     @Tool(
             """
                     Returns the source code of blocks where symbols are used. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
