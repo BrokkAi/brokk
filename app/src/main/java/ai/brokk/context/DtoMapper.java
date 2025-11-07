@@ -191,7 +191,8 @@ public class DtoMapper {
             case ProjectFileDto pfd -> {
                 ContextFragment.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
-                yield ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
+                yield ContextFragment.ProjectPathFragment.withId(
+                        mgr.toFile(pfd.relPath()), pfd.id(), pfd.readOnly(), mgr);
             }
             case ExternalFileDto efd -> {
                 ContextFragment.setMinimumId(parseNumericId(efd.id()));
@@ -281,7 +282,11 @@ public class DtoMapper {
                         ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
             case UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(
-                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
+                        usageDto.id(),
+                        mgr,
+                        usageDto.targetIdentifier(),
+                        usageDto.includeTestFiles(),
+                        usageDto.readOnly());
             case PasteTextFragmentDto pasteTextDto ->
                 new ContextFragment.PasteTextFragment(
                         pasteTextDto.id(),
@@ -331,7 +336,7 @@ public class DtoMapper {
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName());
+                new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), codeDto.readOnly());
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -407,11 +412,11 @@ public class DtoMapper {
     private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment) {
         ProjectFile file = fragment.file();
         return new ProjectFileDto(
-                fragment.id(), file.getRoot().toString(), file.getRelPath().toString());
+                fragment.id(), file.getRoot().toString(), file.getRelPath().toString(), fragment.isReadOnly());
     }
 
     private static ProjectFileDto toProjectFileDto(ProjectFile pf) {
-        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
+        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), false);
     }
 
     public static VirtualFragmentDto toVirtualFragmentDto(
@@ -442,7 +447,7 @@ public class DtoMapper {
                         sumf.getTargetIdentifier(),
                         sumf.getSummaryType().name());
             case ContextFragment.UsageFragment uf ->
-                new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
+                new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles(), uf.isReadOnly());
             case ContextFragment.PasteTextFragment ptf -> {
                 String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
                 String contentId = writer.writeContent(ptf.text(), null);
@@ -463,7 +468,8 @@ public class DtoMapper {
             }
             case ContextFragment.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName());
+            case ContextFragment.CodeFragment cf ->
+                new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName(), cf.isReadOnly());
             case ContextFragment.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
@@ -539,7 +545,7 @@ public class DtoMapper {
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) {
         ProjectFile pf = codeUnit.source();
         ProjectFileDto pfd =
-                new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
+                new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), false);
         return new CodeUnitDto(
                 pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
     }

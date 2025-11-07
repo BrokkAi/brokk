@@ -342,6 +342,23 @@ public interface ContextFragment {
     }
 
     /**
+     * Marker interface for editable fragments that can be locked from editing.
+     * Implementations should be immutable; withReadOnly returns a new instance preserving identity where applicable.
+     */
+    interface EditableFragment {
+        /**
+         * Whether the fragment is locked from editing.
+         */
+        boolean isReadOnly();
+
+        /**
+         * Returns a copy with the readOnly flag set to the provided value.
+         * Implementations should preserve the fragment id.
+         */
+        ContextFragment withReadOnly(boolean readOnly);
+    }
+
+    /**
      * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
      * ComputedValue exposed by ComputedFragment.
      */
@@ -461,8 +478,9 @@ public interface ContextFragment {
         }
     }
 
-    final class ProjectPathFragment implements PathFragment, ComputedFragment {
+    final class ProjectPathFragment implements PathFragment, ComputedFragment, EditableFragment {
         private final ProjectFile file;
+        private final boolean readOnly;
         private final String id;
         private final IContextManager contextManager;
         private transient @Nullable ComputedValue<String> textCv;
@@ -472,11 +490,12 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this(file, false, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
+        private ProjectPathFragment(ProjectFile file, boolean readOnly, String id, IContextManager contextManager) {
             this.file = file;
+            this.readOnly = readOnly;
             this.id = id;
             this.contextManager = contextManager;
         }
@@ -501,14 +520,23 @@ public interface ContextFragment {
             return contextManager;
         }
 
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
+            return withId(file, existingId, false, contextManager);
+        }
+
+        public static ProjectPathFragment withId(
+                ProjectFile file, String existingId, boolean readOnly, IContextManager contextManager) {
             try {
                 int numericId = Integer.parseInt(existingId);
                 setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ProjectPathFragment(file, existingId, contextManager);
+            return new ProjectPathFragment(file, readOnly, existingId, contextManager);
         }
 
         @Override
@@ -553,7 +581,13 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            return ProjectPathFragment.withId(file, id, contextManager);
+            return ProjectPathFragment.withId(file, id, readOnly, contextManager);
+        }
+
+        @Override
+        public ContextFragment withReadOnly(boolean readOnly) {
+            if (this.readOnly == readOnly) return this;
+            return ProjectPathFragment.withId(file, id, readOnly, contextManager);
         }
 
         @Override
@@ -1687,32 +1721,49 @@ public interface ContextFragment {
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    class UsageFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class UsageFragment extends ComputedVirtualFragment implements EditableFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private final boolean readOnly;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true);
+            this(contextManager, targetIdentifier, true, false);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(contextManager, targetIdentifier, includeTestFiles, false);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, boolean readOnly) {
             super(contextManager); // Assigns dynamic numeric String ID
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.readOnly = readOnly;
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
-            this(existingId, contextManager, targetIdentifier, true);
+            this(existingId, contextManager, targetIdentifier, true, false);
         }
 
         public UsageFragment(
                 String existingId, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(existingId, contextManager, targetIdentifier, includeTestFiles, false);
+        }
+
+        public UsageFragment(
+                String existingId,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                boolean readOnly) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.readOnly = readOnly;
         }
 
         @Override
@@ -1817,38 +1868,65 @@ public interface ContextFragment {
             return includeTestFiles;
         }
 
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
         @Override
         public ContextFragment refreshCopy() {
-            return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
+            return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles, readOnly);
+        }
+
+        @Override
+        public ContextFragment withReadOnly(boolean readOnly) {
+            if (this.readOnly == readOnly) return this;
+            return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles, readOnly);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
-    class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class CodeFragment extends ComputedVirtualFragment implements EditableFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
+        private final boolean readOnly;
         private @Nullable ComputedValue<CodeUnit> unitCv;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
+            this(contextManager, fullyQualifiedName, false);
+        }
+
+        public CodeFragment(IContextManager contextManager, String fullyQualifiedName, boolean readOnly) {
             super(contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            this.readOnly = readOnly;
         }
 
         public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
+            this(existingId, contextManager, fullyQualifiedName, false);
+        }
+
+        public CodeFragment(
+                String existingId, IContextManager contextManager, String fullyQualifiedName, boolean readOnly) {
             super(existingId, contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            this.readOnly = readOnly;
         }
 
         /**
          * A convenience constructor for if we already have our code unit, to avoid unnecessary re-computation.
          */
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
+            this(contextManager, unit, false);
+        }
+
+        public CodeFragment(IContextManager contextManager, CodeUnit unit, boolean readOnly) {
             super(contextManager);
             validateCodeUnit(unit);
             this.fullyQualifiedName = unit.fqName();
+            this.readOnly = readOnly;
             this.unitCv = ComputedValue.completed("cf-unit-" + id(), unit);
         }
 
@@ -1970,13 +2048,23 @@ public interface ContextFragment {
             return fullyQualifiedName;
         }
 
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
         public ComputedValue<CodeUnit> computedUnit() {
             return getComputedUnit();
         }
 
         @Override
         public ContextFragment refreshCopy() {
-            return new CodeFragment(id(), getContextManager(), fullyQualifiedName);
+            return new CodeFragment(id(), getContextManager(), fullyQualifiedName, readOnly);
+        }
+
+        @Override
+        public ContextFragment withReadOnly(boolean readOnly) {
+            if (this.readOnly == readOnly) return this;
+            return new CodeFragment(id(), getContextManager(), fullyQualifiedName, readOnly);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)

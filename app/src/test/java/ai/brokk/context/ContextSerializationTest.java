@@ -231,6 +231,15 @@ public class ContextSerializationTest {
         assertEquals(
                 expected.syntaxStyle(), actual.syntaxStyle(), "Fragment syntaxStyle mismatch for ID " + expected.id());
 
+        // Validate read-only flag for any editable fragment type
+        if (expected instanceof ContextFragment.EditableFragment eEditable
+                && actual instanceof ContextFragment.EditableFragment aEditable) {
+            assertEquals(
+                    eEditable.isReadOnly(),
+                    aEditable.isReadOnly(),
+                    expected.getClass().getSimpleName() + " readOnly mismatch for ID " + expected.id());
+        }
+
         // Let fragments construct CodeUnits from mock analyzer
         if (expected instanceof ContextFragment.ComputedFragment ecf
                 && actual instanceof ContextFragment.ComputedFragment acf) {
