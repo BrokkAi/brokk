@@ -67,8 +67,6 @@ public class GitHubAuth {
         String effectiveHost = null; // For GHES
         boolean usingOverride = false;
 
-        // Normalize and validate host if present (early in the flow)
-
         if (provider.type() == IssueProviderType.GITHUB
                 && provider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
             // Check if any part of the GithubConfig is non-default.
@@ -118,7 +116,6 @@ public class GitHubAuth {
             }
         }
 
-        // Normalize and validate host if present
         if (effectiveHost != null && !effectiveHost.isBlank()) {
             var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(effectiveHost);
             if (normalizedHostOpt.isPresent()) {
@@ -156,7 +153,6 @@ public class GitHubAuth {
                     + "). Check git remote or GitHub override settings for owner/repo.");
         }
 
-        // Validate owner/repo using centralized slug builder
         try {
             GitUiUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
         } catch (IllegalArgumentException e) {
@@ -457,9 +453,11 @@ public class GitHubAuth {
         for (JsonNode installation : installations) {
             var appSlug = installation.path("app_slug").asText("");
             if ("brokkai".equals(appSlug) || "brokk".equals(appSlug)) {
-                var repositoriesUrl = installation.path("repositories_url").asText("");
-                if (!repositoriesUrl.isBlank()) {
-                    repoUrls.add(repositoriesUrl);
+                // Use user-scoped endpoint to avoid HTTP 403 with user token
+                var installationId = installation.path("id").asText("");
+                if (!installationId.isBlank()) {
+                    var userScopedUrl = "https://api.github.com/user/installations/" + installationId + "/repositories";
+                    repoUrls.add(userScopedUrl);
                 }
             }
         }
@@ -607,7 +605,6 @@ public class GitHubAuth {
             return; // Already connected
         }
 
-        // Build and validate slug early to prevent invalid API calls
         String slug;
         try {
             slug = GitUiUtil.buildRepoSlug(owner, repoName);
@@ -626,10 +623,9 @@ public class GitHubAuth {
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
-            // Normalize host and ensure it does not have scheme for GitHubBuilder
             var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(this.host);
             String enterpriseHost = normalizedHostOpt.orElse(this.host);
-            builder.withEndpoint("https://" + enterpriseHost + "/api/v3"); // Explicitly set scheme and path
+            builder.withEndpoint("https://" + enterpriseHost + "/api/v3");
             logger.debug("Configuring GitHub client for enterprise host: {}", enterpriseHost);
         }
 
@@ -642,19 +638,9 @@ public class GitHubAuth {
                         targetHostDisplay);
                 builder.withOAuthToken(token);
                 this.githubClient = builder.build();
-                try {
-                    logger.debug(
-                            "Calling getRepository with slug '{}' on host '{}' (authenticated)",
-                            slug,
-                            targetHostDisplay);
-                    this.ghRepository = this.githubClient.getRepository(slug);
-                } catch (IllegalArgumentException iae) {
-                    logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
-                    throw new IOException(
-                            "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
-                                    + iae.getMessage(),
-                            iae);
-                }
+                logger.debug(
+                        "Calling getRepository with slug '{}' on host '{}' (authenticated)", slug, targetHostDisplay);
+                this.ghRepository = getRepositoryWithValidation(this.githubClient, slug);
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} with token",
@@ -690,17 +676,8 @@ public class GitHubAuth {
                         repoName,
                         targetHostDisplay);
                 this.githubClient = builder.build();
-                try {
-                    logger.debug(
-                            "Calling getRepository with slug '{}' on host '{}' (anonymous)", slug, targetHostDisplay);
-                    this.ghRepository = this.githubClient.getRepository(slug);
-                } catch (IllegalArgumentException iae) {
-                    logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
-                    throw new IOException(
-                            "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
-                                    + iae.getMessage(),
-                            iae);
-                }
+                logger.debug("Calling getRepository with slug '{}' on host '{}' (anonymous)", slug, targetHostDisplay);
+                this.ghRepository = getRepositoryWithValidation(this.githubClient, slug);
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} anonymously",
@@ -728,6 +705,18 @@ public class GitHubAuth {
     public GHRepository getGhRepository() throws IOException {
         connect(); // Ensures ghRepository is initialized or throws
         return requireNonNull(this.ghRepository, "ghRepository should be non-null after successful connect()");
+    }
+
+    private GHRepository getRepositoryWithValidation(GitHub client, String slug) throws IOException {
+        try {
+            return client.getRepository(slug);
+        } catch (IllegalArgumentException iae) {
+            logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
+            throw new IOException(
+                    "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                            + iae.getMessage(),
+                    iae);
+        }
     }
 
     /**

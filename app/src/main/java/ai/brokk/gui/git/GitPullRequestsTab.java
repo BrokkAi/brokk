@@ -249,8 +249,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             prTable.getColumnModel().getColumn(c).setPreferredWidth(0);
         }
 
-        // custom renderer similar to IssueHeader list style
-        // Keep both the default and rich renderers and toggle based on state (error/empty vs normal)
         defaultStringCellRenderer = prTable.getDefaultRenderer(String.class);
         prTitleRichRenderer = new PullRequestHeaderCellRenderer();
         setPrTitleRenderer(true);
@@ -766,8 +764,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     @Override
     public void gitHubTokenChanged() {
         SwingUtilities.invokeLater(() -> {
-            logger.debug("GitHub token changed. Initiating cancellation of active tasks and scheduling refresh.");
-
             isShowingError = false;
             setReloadUiEnabled(true);
 
@@ -782,31 +778,25 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
             futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
 
-            logger.debug("Attempting to cancel {} futures.", futuresToCancelAndAwait.size());
             for (Future<?> f : futuresToCancelAndAwait) {
                 if (!f.isDone()) {
                     f.cancel(true);
-                    logger.trace("Requested cancellation for future: {}", f.toString());
                 }
             }
 
             if (futuresToCancelAndAwait.isEmpty()) {
-                logger.debug("No active tasks to wait for. Proceeding with PR list refresh directly.");
                 updatePrList();
                 return;
             }
 
-            // Wait for the futures to complete or be cancelled to avoid potential race conditions
             contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
-                logger.debug("Waiting for {} futures to complete cancellation.", futuresToCancelAndAwait.size());
                 for (Future<?> f : futuresToCancelAndAwait) {
                     try {
                         f.get();
                     } catch (Exception e) {
-                        logger.trace("Task cancellation confirmed for: {}", f.toString());
+                        // Ignored - cancellation expected
                     }
                 }
-                logger.debug("All identified tasks have completed cancellation. Scheduling PR list refresh.");
                 SwingUtilities.invokeLater(this::updatePrList);
                 return null;
             });
@@ -816,8 +806,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     @Override
     public void issueProviderChanged() {
         SwingUtilities.invokeLater(() -> {
-            logger.debug("Issue provider changed. Initiating cancellation of active tasks and scheduling refresh.");
-
             isShowingError = false;
             setReloadUiEnabled(true);
 
@@ -832,31 +820,25 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
             futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
 
-            logger.debug("Attempting to cancel {} futures.", futuresToCancelAndAwait.size());
             for (Future<?> f : futuresToCancelAndAwait) {
                 if (!f.isDone()) {
                     f.cancel(true);
-                    logger.trace("Requested cancellation for future: {}", f.toString());
                 }
             }
 
             if (futuresToCancelAndAwait.isEmpty()) {
-                logger.debug("No active tasks to wait for. Proceeding with PR list refresh directly.");
                 updatePrList();
                 return;
             }
 
-            // Wait for the futures to complete or be cancelled to avoid potential race conditions
             contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
-                logger.debug("Waiting for {} futures to complete cancellation.", futuresToCancelAndAwait.size());
                 for (Future<?> f : futuresToCancelAndAwait) {
                     try {
                         f.get();
                     } catch (Exception e) {
-                        logger.trace("Task cancellation confirmed for: {}", f.toString());
+                        // Ignored - cancellation expected
                     }
                 }
-                logger.debug("All identified tasks have completed cancellation. Scheduling PR list refresh.");
                 SwingUtilities.invokeLater(this::updatePrList);
                 return null;
             });
@@ -898,7 +880,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        // Use a simple single-line renderer for error rows to avoid stray subtitle like "by"
         setPrTitleRenderer(false);
         GitTabUiStateManager.showError(prTableModel, new Object[] {"", message, "", "", ""}, () -> {
             disablePrButtonsAndClearCommitsAndMenus();
@@ -1078,12 +1059,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             // Process fetched PRs on EDT
             List<GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
-                isShowingError = false; // Reset error state on successful PR load
+                isShowingError = false;
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
-                prCommitsCache.clear(); // Clear commits cache for new PR list
-                // ciStatusCache is updated incrementally, not fully cleared here unless error
+                prCommitsCache.clear();
                 populateDynamicFilterChoices(allPrsFromApi);
-                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
+                filterAndDisplayPrs();
                 setReloadUiEnabled(true);
             });
             return null;
@@ -1216,12 +1196,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTableModel.setRowCount(0);
         var today = LocalDate.now(ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
-            // Use simple renderer to avoid subtitle line ("by") for message rows
             setPrTitleRenderer(false);
             prTableModel.addRow(new Object[] {"", "No matching PRs found", "", "", ""});
-            disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
+            disablePrButtonsAndClearCommitsAndMenus();
         } else {
-            // Use rich renderer for normal PR rows
             setPrTitleRenderer(true);
             // Sort PRs by update date, newest first
             displayedPrs.sort(Comparator.comparing(
@@ -1255,12 +1233,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
         // Buttons state will be managed by selection listener or if selection is empty
         if (prTable.getSelectedRow() == -1) {
-            disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
+            disablePrButtonsAndClearCommitsAndMenus();
         } else {
-            // Trigger selection listener to update button states correctly for the (potentially new) selection
-            prTable.getSelectionModel().setValueIsAdjusting(true); // force re-evaluation
+            prTable.getSelectionModel().setValueIsAdjusting(true);
             prTable.getSelectionModel().setValueIsAdjusting(false);
-            // The selection listener will call updatePrTableContextMenuState and set viewPrDiffButton state.
         }
 
         // Asynchronously fetch CI statuses for the displayed PRs

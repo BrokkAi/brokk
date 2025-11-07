@@ -5,16 +5,13 @@ import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Encapsulates common UI state management patterns for Git-related tabs (Issues and Pull Requests).
  * Provides centralized methods for displaying errors, managing control state, and toggling cell renderers.
  */
 public final class GitTabUiStateManager {
-    private static final Logger logger = LogManager.getLogger(GitTabUiStateManager.class);
-
     private GitTabUiStateManager() {}
 
     /**
@@ -28,14 +25,9 @@ public final class GitTabUiStateManager {
     public static void showError(DefaultTableModel tableModel, Object[] errorRow, Runnable disableControlsCallback) {
         assert SwingUtilities.isEventDispatchThread();
 
-        // Clear and add single error row
         tableModel.setRowCount(0);
         tableModel.addRow(errorRow);
-
-        // Disable reload controls and perform cleanup
         disableControlsCallback.run();
-
-        logger.debug("Displayed error in table");
     }
 
     /**
@@ -43,9 +35,9 @@ public final class GitTabUiStateManager {
      * Must be called on the EDT.
      *
      * @param enabled Whether to enable or disable the controls
-     * @param controls The components to enable/disable
+     * @param controls The components to enable/disable (null elements are skipped)
      */
-    public static void setReloadControlsEnabled(boolean enabled, Component... controls) {
+    public static void setReloadControlsEnabled(boolean enabled, @Nullable Component... controls) {
         assert SwingUtilities.isEventDispatchThread();
 
         for (Component control : controls) {
@@ -53,8 +45,6 @@ public final class GitTabUiStateManager {
                 control.setEnabled(enabled);
             }
         }
-
-        logger.debug("Set {} UI controls to enabled={}", controls.length, enabled);
     }
 
     /**
@@ -77,7 +67,5 @@ public final class GitTabUiStateManager {
 
         TableCellRenderer renderer = useRichRenderer ? richRenderer : simpleRenderer;
         table.getColumnModel().getColumn(columnIndex).setCellRenderer(renderer);
-
-        logger.debug("Set title renderer to {} for column {}", useRichRenderer ? "rich" : "simple", columnIndex);
     }
 }

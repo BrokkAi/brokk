@@ -761,7 +761,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     /** Display an error message in the issue table and disable UI controls. */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        setIssueTitleRenderer(false); // Use simple renderer for error row
+        setIssueTitleRenderer(false);
         GitTabUiStateManager.showError(issueTableModel, new Object[] {"", message, "", ""}, () -> {
             setReloadUiEnabled(false);
             disableIssueActionsAndClearDetails();
@@ -939,7 +939,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
-                    // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
                     SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
                     logger.error("Unexpected error while fetching issues", ex);
@@ -1042,7 +1041,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
             if (isFullUpdate) {
-                // Reset error state on successful issue load
                 isShowingError = false;
                 allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
@@ -1057,10 +1055,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // Update table model
             issueTableModel.setRowCount(0);
             if (displayedIssues.isEmpty()) {
-                setIssueTitleRenderer(false); // Use simple renderer for empty state
+                setIssueTitleRenderer(false);
                 disableIssueActions();
             } else {
-                setIssueTitleRenderer(true); // Use rich renderer for normal rows
+                setIssueTitleRenderer(true);
                 var today = LocalDate.now(ZoneId.systemDefault());
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
@@ -1075,7 +1073,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 disableIssueActions();
             }
 
-            // Re-enable UI controls and stop loading after successful population
             if (isFullUpdate) {
                 setReloadUiEnabled(true);
             }

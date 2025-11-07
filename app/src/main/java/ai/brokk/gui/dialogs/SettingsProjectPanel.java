@@ -453,7 +453,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Add document listener to repo field for flexible parsing and auto-sanitization
         githubRepoField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
@@ -473,10 +472,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             private void onRepoFieldChanged() {
                 String repoText = githubRepoField.getText().trim();
                 if (!repoText.isEmpty()) {
-                    // Try flexible parsing (could be a URL or owner/repo)
                     var parseResult = GitUiUtil.parseOwnerRepoFlexible(repoText);
                     if (parseResult.isPresent()) {
-                        // Auto-populate owner and repo from parsed result
                         var ownerRepo = parseResult.get();
                         githubOwnerField.setText(ownerRepo.owner());
                         githubRepoField.setText(ownerRepo.repo());
@@ -485,7 +482,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Add document listener to host field for normalization and validation
         githubHostField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
@@ -511,9 +507,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         var validationError = GitUiUtil.validateGitHubHost(normalized);
                         if (validationError.isPresent()) {
                             logger.debug("GitHub host validation error: {}", validationError.get());
-                            // In a real implementation, we could show an error tooltip or label here
                         } else {
-                            // Update field with normalized value
                             if (!normalized.equals(hostText)) {
                                 githubHostField.setText(normalized);
                             }
@@ -1136,7 +1130,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
 
-                    // Validate owner/repo before persisting
                     var validationError = GitUiUtil.validateOwnerRepo(owner, repo);
                     if (validationError.isPresent()) {
                         JOptionPane.showMessageDialog(
@@ -1144,10 +1137,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                 "Invalid GitHub configuration: " + validationError.get(),
                                 "GitHub Configuration Error",
                                 JOptionPane.ERROR_MESSAGE);
-                        return false; // Do not apply settings if validation fails
+                        return false;
                     }
 
-                    // Validate host if present
                     if (!host.isEmpty()) {
                         var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(host);
                         if (normalizedHostOpt.isPresent()) {
@@ -1160,7 +1152,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                         JOptionPane.ERROR_MESSAGE);
                                 return false;
                             }
-                            host = normalizedHostOpt.get(); // Use normalized host
+                            host = normalizedHostOpt.get();
                         }
                     }
 

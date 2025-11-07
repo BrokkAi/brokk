@@ -632,13 +632,11 @@ public final class MainProject extends AbstractProject {
     public void setIssuesProvider(IssueProvider provider) {
         IssueProvider oldProvider = this.issuesProviderCache;
         if (oldProvider == null) {
-            // Attempt to load from props if cache is null to get a definitive "before" provider
             String currentJsonInProps = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
             if (currentJsonInProps != null && !currentJsonInProps.isBlank()) {
                 try {
                     oldProvider = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
                 } catch (JsonProcessingException e) {
-                    // Log or ignore, oldProvider remains null or determined by migration if applicable
                     logger.debug(
                             "Could not parse existing IssueProvider JSON from properties while determining old provider: {}",
                             e.getMessage());
@@ -666,7 +664,6 @@ public final class MainProject extends AbstractProject {
                     provider.type(),
                     getRoot().getFileName());
 
-            // Notify listeners if the provider has changed.
             if (!Objects.equals(oldProvider, provider)) {
                 logger.debug("Issue provider changed from {} to {}. Notifying listeners.", oldProvider, provider);
                 notifyIssueProviderChanged();
