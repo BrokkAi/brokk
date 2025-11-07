@@ -148,7 +148,8 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
         var jobId = createJob("test-unknown-subpath");
 
-        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/unknown-endpoint").toURL();
+        var url =
+                URI.create(baseUrl + "/v1/jobs/" + jobId + "/unknown-endpoint").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -466,7 +467,8 @@ class HeadlessExecutorMainIntegrationTest {
         // Small delay to allow events to be written
         Thread.sleep(200);
 
-        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=100").toURL();
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=100")
+                .toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
