@@ -167,19 +167,22 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
         )(code);
     }
 
+    function markComplete(): void {
+        fx.enter('editBlockComplete');
+        fx.exit('editBlockComplete');
+    }
+
     function doneMaybeComplete(code: Code): State {
         // Only mark structural completion for SEARCH/REPLACE when the tail was actually consumed.
         if ((ctx as any)._editBlockCompleted === true) {
-            fx.enter('editBlockComplete');
-            fx.exit('editBlockComplete');
+            markComplete();
         }
         return done(code);
     }
 
     function doneComplete(code: Code): State {
         // Mark structural completion (used for git-diff fenced cases)
-        fx.enter('editBlockComplete');
-        fx.exit('editBlockComplete');
+        markComplete();
         return done(code);
     }
 
