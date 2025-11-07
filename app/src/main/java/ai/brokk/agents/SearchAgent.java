@@ -360,7 +360,7 @@ public class SearchAgent {
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
-                   4) Group related lookups into a single tool call when possible, but still parallelize:
+                   4) Group related lookups, but still parallelize:
                       - Prefer 3–5 short, targeted calls over 1 long call.
                       - Use at least two different tools when building initial context.
 
@@ -394,6 +394,20 @@ public class SearchAgent {
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
         if (mcpToolPrompt != null) {
             messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
+        // Define Research tools explicitly for the model (no terminal duplication).
+        // We only list RESEARCH tools; terminals are documented elsewhere and hygiene tools are omitted to keep this concise.
+        if (!beastMode) {
+            var researchList = calculateAllowedToolNames().stream()
+                    .filter(name -> categorizeTool(name) == ToolCategory.RESEARCH)
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            if (!researchList.isEmpty()) {
+                messages.add(new SystemMessage(
+                        "Research/curation tools (non-final; use at least two in parallel on discovery turns): "
+                                + researchList));
+            }
         }
 
         // Current Workspace contents
@@ -662,8 +676,8 @@ public class SearchAgent {
 
     private enum ToolCategory {
         TERMINAL, // answer, createTaskList, workspaceComplete, abortSearch
-        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
-        RESEARCH // everything else (blocks terminals)
+        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (these modify the workspace; terminals are not executed in the same turn)
+        RESEARCH // everything else (non-final discovery/search; blocks terminals)
     }
 
     private ToolCategory categorizeTool(String toolName) {
