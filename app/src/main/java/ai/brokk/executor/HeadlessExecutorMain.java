@@ -382,17 +382,37 @@ public final class HeadlessExecutorMain {
             return;
         }
 
+        CreateSessionRequest request;
         try {
-            var request = SimpleHttpServer.parseJsonRequest(exchange, CreateSessionRequest.class);
-            if (request == null || request.name() == null || request.name().isBlank()) {
-                var error = ErrorPayload.validationError("Session name is required and must not be blank");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
-                return;
-            }
+            request = SimpleHttpServer.parseJsonRequest(exchange, CreateSessionRequest.class);
+        } catch (Exception parseEx) {
+            logger.warn("Invalid JSON in POST /v1/sessions", parseEx);
+            var error = ErrorPayload.validationError("Invalid JSON request body");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
 
-            var sessionName = request.name().strip();
+        if (request == null) {
+            var error = ErrorPayload.validationError("Request body is required");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
 
-            // Create session with timeout to avoid indefinite blocking
+        if (request.name() == null || request.name().isBlank()) {
+            var error = ErrorPayload.validationError("Session name is required and must not be blank");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        var sessionName = request.name().strip();
+
+        if (sessionName.length() > 200) {
+            var error = ErrorPayload.validationError("Session name must not exceed 200 characters");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        try {
             try {
                 contextManager.createSessionAsync(sessionName).get(1, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
