@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -297,16 +298,12 @@ public abstract class CodePrompts {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles = ctx.fileFragments()
-                .map(f -> (ContextFragment.PathFragment) f)
-                .map(ContextFragment.PathFragment::file)
-                .filter(bf -> bf instanceof ProjectFile)
-                .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toList());
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
-        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(projectFiles);
+        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
@@ -338,7 +335,7 @@ public abstract class CodePrompts {
                 .map(bf -> (ProjectFile) bf)
                 .collect(Collectors.toList());
 
-        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(projectFiles);
+        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =

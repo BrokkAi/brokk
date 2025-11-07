@@ -17,10 +17,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles = ctx.fileFragments()
-                .flatMap(cf -> cf.files().stream())
-                .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toList());
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
