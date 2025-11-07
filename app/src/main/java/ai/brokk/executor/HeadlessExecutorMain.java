@@ -35,7 +35,7 @@ public final class HeadlessExecutorMain {
     private final JobStore jobStore;
     private final SessionManager sessionManager;
     private final AtomicReference<UUID> currentSessionId = new AtomicReference<>();
-    private final AtomicReference<String> currentJobId = new AtomicReference<>();
+    private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
 
     /*
@@ -195,7 +195,7 @@ public final class HeadlessExecutorMain {
                 logger.info("Job {} execution finished", jobId);
             }
             // Release reservation only if we still own it; CAS avoids clearing another job's reservation.
-            currentJobId.compareAndSet(jobId, null);
+            jobReservation.releaseIfOwner(jobId);
         });
     }
 
@@ -275,7 +275,7 @@ public final class HeadlessExecutorMain {
      */
     private boolean tryReserveJobSlot(String jobId) {
         assert jobId != null && !jobId.isBlank();
-        return currentJobId.compareAndSet(null, jobId);
+        return jobReservation.tryReserve(jobId);
     }
 
     // ============================================================================
@@ -462,7 +462,7 @@ public final class HeadlessExecutorMain {
                 if (!tryReserveJobSlot(jobId)) {
                     logger.info(
                             "Job reservation failed; another job in progress: {}, requested jobId={}, idempotencyKey={}",
-                            currentJobId.get(),
+                            jobReservation.current(),
                             jobId,
                             idempotencyKey);
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
@@ -475,7 +475,7 @@ public final class HeadlessExecutorMain {
                     executeJobAsync(jobId, jobSpec);
                 } catch (Exception ex) {
                     // Release reservation if scheduling failed before the async pipeline was established
-                    var rolledBack = currentJobId.compareAndSet(jobId, null);
+                    var rolledBack = jobReservation.releaseIfOwner(jobId);
                     logger.warn(
                             "Reservation rollback after scheduling failure; jobId={}, idempotencyKey={}, rolledBack={}",
                             jobId,
