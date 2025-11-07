@@ -16,8 +16,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -185,8 +183,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if (classChain.equals(packageName)) {
                 // ClassChain is exactly the package - just the namespace, no nesting
                 adjustedClassChain = "";
-            } else if (classChain.startsWith(packageName + ".")) {
+            } else if (classChain.startsWith(packageName)
+                    && classChain.length() > packageName.length()
+                    && classChain.charAt(packageName.length()) == '.') {
                 // ClassChain starts with package - remove the package prefix
+                // Optimized to avoid string concatenation in hot path
                 adjustedClassChain = classChain.substring(packageName.length() + 1);
             }
         }
@@ -291,12 +292,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if (classChain.equals(packageName)) {
                 // ClassChain is exactly the package - parent is the namespace itself
                 return packageName;
-            } else if (classChain.startsWith(packageName + ".")) {
+            } else if (classChain.startsWith(packageName)
+                    && classChain.length() > packageName.length()
+                    && classChain.charAt(packageName.length()) == '.') {
                 // ClassChain starts with package - remove the package prefix
+                // Optimized: avoid string concatenation and Stream overhead
                 String remainingChain = classChain.substring(packageName.length() + 1);
-                return Stream.of(packageName, remainingChain)
-                        .filter(s -> !s.isBlank())
-                        .collect(Collectors.joining("."));
+                return remainingChain.isBlank() ? packageName : packageName + "." + remainingChain;
             }
         }
 
@@ -333,8 +335,22 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     String name = cachedTextSliceStripped(nameNode, src);
                     // Handle dotted names: namespace A.B.C { } is equivalent to nested namespaces
                     // Split on dots and prepend all parts
-                    if (name.contains(".")) {
-                        var parts = java.util.Arrays.asList(name.split("\\."));
+                    // Optimized: use manual tokenization instead of regex split to reduce overhead
+                    int dotIndex = name.indexOf('.');
+                    if (dotIndex >= 0) {
+                        // Manual tokenization is faster than regex split
+                        int start = 0;
+                        var parts = new java.util.ArrayList<String>();
+                        while (start < name.length()) {
+                            dotIndex = name.indexOf('.', start);
+                            if (dotIndex == -1) {
+                                parts.add(name.substring(start));
+                                break;
+                            } else {
+                                parts.add(name.substring(start, dotIndex));
+                                start = dotIndex + 1;
+                            }
+                        }
                         namespaces.addAll(0, parts); // Prepend all parts (we're traversing up)
                     } else {
                         namespaces.add(0, name); // Prepend single name
@@ -566,6 +582,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         StringBuilder modifiers = new StringBuilder();
 
         TSNode nodeToCheck = node;
+        // Cache parent to avoid multiple getParent() calls (optimization)
+        TSNode cachedParent = node.getParent();
 
         // Check if the node itself is an export statement
         if ("export_statement".equals(node.getType())) {
@@ -586,12 +604,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
         } else {
             // Check if the parent is an export statement (for nodes like variable_declarator)
-            TSNode parent = node.getParent();
-            if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
+            // Use cached parent instead of calling getParent() again
+            if (cachedParent != null && !cachedParent.isNull() && "export_statement".equals(cachedParent.getType())) {
                 modifiers.append("export ");
                 // Check for default export
-                if (parent.getChildCount() > 1) {
-                    TSNode secondChild = parent.getChild(1);
+                if (cachedParent.getChildCount() > 1) {
+                    TSNode secondChild = cachedParent.getChild(1);
                     if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
                         modifiers.append("default ");
                     }
@@ -615,20 +633,20 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Check if the immediate parent or grandparent is an ambient declaration (for nodes like
             // variable_declarator)
             // But stop if we hit a body (which means we're nested and shouldn't inherit ambient from outer scope)
-            TSNode parentAmbient = node.getParent();
-            if (parentAmbient != null && !parentAmbient.isNull()) {
+            // Use cachedParent instead of calling getParent() again (optimization)
+            if (cachedParent != null && !cachedParent.isNull()) {
                 // First check the immediate parent
-                if ("ambient_declaration".equals(parentAmbient.getType())) {
+                if ("ambient_declaration".equals(cachedParent.getType())) {
                     modifiers.append("declare ");
-                } else if (!("class_body".equals(parentAmbient.getType())
-                        || "interface_body".equals(parentAmbient.getType())
-                        || "enum_body".equals(parentAmbient.getType())
-                        || "namespace_body".equals(parentAmbient.getType()))) {
+                } else if (!("class_body".equals(cachedParent.getType())
+                        || "interface_body".equals(cachedParent.getType())
+                        || "enum_body".equals(cachedParent.getType())
+                        || "namespace_body".equals(cachedParent.getType()))) {
                     // If parent is not a body and not ambient, check grandparent
-                    TSNode grandparent = parentAmbient.getParent();
-                    if (grandparent != null
-                            && !grandparent.isNull()
-                            && "ambient_declaration".equals(grandparent.getType())) {
+                    TSNode cachedGrandparent = cachedParent.getParent();
+                    if (cachedGrandparent != null
+                            && !cachedGrandparent.isNull()
+                            && "ambient_declaration".equals(cachedGrandparent.getType())) {
                         modifiers.append("declare ");
                     }
                 }

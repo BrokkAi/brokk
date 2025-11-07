@@ -176,9 +176,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
      * decorators.
+     * The cachedParent field is an optimization to avoid repeated getParent() calls during processing.
      */
     protected record DefinitionInfoRecord(
-            String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
+            String primaryCaptureName,
+            String simpleName,
+            List<String> modifierKeywords,
+            List<TSNode> decoratorNodes,
+            TSNode cachedParent) {}
 
     protected record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
@@ -1859,7 +1864,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         declarationNodes.putIfAbsent(
                                 definitionNode,
                                 new DefinitionInfoRecord(
-                                        captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
+                                        captureName,
+                                        simpleName,
+                                        sortedModifierStrings,
+                                        decoratorNodesForMatch,
+                                        definitionNode.getParent())); // Cache parent to avoid repeated lookups
                     } else {
                         if (simpleName == null) {
                             if (!isNullNameAllowed(
@@ -1925,7 +1934,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
-            TSNode tempParent = node.getParent();
+            // Use cached parent from defInfo to avoid repeated getParent() calls
+            TSNode tempParent = defInfo.cachedParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
                 if (isClassLike(tempParent)) {
                     final var parent = tempParent;
