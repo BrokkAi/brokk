@@ -548,6 +548,11 @@ public final class GitUiUtil {
             trimmed = trimmed.substring(0, trimmed.length() - 4).trim();
         }
 
+        // Reject consecutive slashes (invalid format)
+        if (trimmed.contains("//")) {
+            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        }
+
         // Split by '/' to get owner and repo
         var parts = Splitter.on('/').omitEmptyStrings().splitToList(trimmed);
 

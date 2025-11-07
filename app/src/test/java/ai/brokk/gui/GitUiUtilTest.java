@@ -579,6 +579,40 @@ public class GitUiUtilTest {
         assertTrue(result.isPresent(), "Full repo name with invalid characters should be invalid");
     }
 
+    @Test
+    void testValidateFullRepoName_ConsecutiveSlashes_DoubleSlash() {
+        var result = GitUiUtil.validateFullRepoName("owner//repo");
+        assertTrue(result.isPresent(), "Full repo name with consecutive slashes should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_ConsecutiveSlashes_TripleSlash() {
+        var result = GitUiUtil.validateFullRepoName("owner///repo");
+        assertTrue(result.isPresent(), "Full repo name with triple slashes should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_ConsecutiveSlashes_LeadingDoubleSlash() {
+        var result = GitUiUtil.validateFullRepoName("//owner/repo");
+        assertTrue(result.isPresent(), "Full repo name with leading double slash should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_ConsecutiveSlashes_TrailingDoubleSlash() {
+        var result = GitUiUtil.validateFullRepoName("owner/repo//");
+        assertTrue(result.isPresent(), "Full repo name with trailing double slash should be invalid");
+        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
+    }
+
+    @Test
+    void testValidateFullRepoName_Valid_NoConsecutiveSlashes() {
+        var result = GitUiUtil.validateFullRepoName("owner/repo");
+        assertTrue(result.isEmpty(), "Valid full repo name should return empty Optional");
+    }
+
     // ============ parseOwnerRepoFlexible tests ============
 
     @Test
@@ -743,6 +777,38 @@ public class GitUiUtilTest {
     void testParseOwnerRepoFlexible_InvalidOwnerCharacters() {
         var result = GitUiUtil.parseOwnerRepoFlexible("octo@cat/hello-world");
         assertTrue(result.isEmpty(), "Flexible parse with invalid characters in owner should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_ConsecutiveSlashes_DoubleSlash() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner//repo");
+        assertTrue(result.isEmpty(), "Flexible parse with consecutive slashes should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_ConsecutiveSlashes_TripleSlash() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner///repo");
+        assertTrue(result.isEmpty(), "Flexible parse with triple slashes should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_ConsecutiveSlashes_LeadingDoubleSlash() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("//owner/repo");
+        assertTrue(result.isEmpty(), "Flexible parse with leading double slash should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_ConsecutiveSlashes_TrailingDoubleSlash() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner/repo//");
+        assertTrue(result.isEmpty(), "Flexible parse with trailing double slash should return empty");
+    }
+
+    @Test
+    void testParseOwnerRepoFlexible_Valid_NoConsecutiveSlashes() {
+        var result = GitUiUtil.parseOwnerRepoFlexible("owner/repo");
+        assertTrue(result.isPresent(), "Flexible parse with valid single slash should succeed");
+        assertEquals("owner", result.get().owner());
+        assertEquals("repo", result.get().repo());
     }
 
     // ============ normalizeGitHubHost tests ============
