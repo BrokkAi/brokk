@@ -1,24 +1,18 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
-
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
  * input ProjectFile instances.
- *
- * Simplified approach:
- * - Compute a single, ordered set of unique directories by performing a breadth-first ascent
- *   from all input directories toward the repository root (nearest-first layers across inputs).
- * - Scan each unique directory at most once for AGENTS.md.
- * - Concatenate discovered files in that order.
  */
 public final class StyleGuideResolver {
     private static final Logger logger = LogManager.getLogger(StyleGuideResolver.class);
@@ -28,64 +22,56 @@ public final class StyleGuideResolver {
     private static final int DEFAULT_MAX_SECTIONS = 8;
     private static final int DEFAULT_MAX_TOTAL_CHARS = 20_000;
 
-    private final List<ProjectFile> inputs;
+    private final Collection<ProjectFile> inputs;
 
     /**
      * Constructs a StyleGuideResolver that accepts ProjectFile inputs.
      *
      * @param files a list of ProjectFile instances to influence which AGENTS.md files are selected
      */
-    public StyleGuideResolver(List<ProjectFile> files) {
+    public StyleGuideResolver(Collection<ProjectFile> files) {
         this.inputs = files;
     }
 
     /**
-     * Finds all AGENTS.md files by:
-     * - Building a single ordered set of unique directories starting from all input directories,
-     *   walking upwards layer-by-layer toward the repo root (nearest-first across inputs).
-     * - Scanning each unique directory once for AGENTS.md and collecting hits in order.
+     * @return the set of directories containing all the inputs, and their parents up to the project root;
+     * ordered shortest-path-first.
      */
-    public List<ProjectFile> getOrderedAgentFiles() {
+    @VisibleForTesting
+    List<ProjectFile> getPotentialDirectories() {
         if (inputs.isEmpty()) {
             return List.of();
         }
 
-        // Establish the starting directories (one per input; file inputs use their parent directory).
-        var startDirs = new ArrayList<ProjectFile>(inputs.size());
-        for (var pf : inputs) {
-            var dir = pf.isDirectory() ? pf : new ProjectFile(pf.getRoot(), pf.getParent());
-            startDirs.add(dir);
-        }
-
-        // BFS upwards across all inputs simultaneously, deduping directories while preserving first-seen order.
-        var visitedDirs = new LinkedHashSet<ProjectFile>();
-        var orderedDirs = new ArrayList<ProjectFile>();
-        var frontier = new LinkedHashSet<ProjectFile>(startDirs);
-
-        while (!frontier.isEmpty()) {
-            var nextFrontier = new LinkedHashSet<ProjectFile>();
-            for (var dir : frontier) {
-                if (visitedDirs.add(dir)) {
-                    orderedDirs.add(dir);
-                    // Move upward unless we are at the repository root.
-                    if (!dir.isRepoRoot()) {
-                        var parent = new ProjectFile(dir.getRoot(), dir.getParent());
-                        nextFrontier.add(parent);
+        // set of all paths
+        var expanded = inputs.stream()
+                .flatMap(pf -> {
+                    var ancestors = new ArrayList<ProjectFile>();
+                    while (true) {
+                        var parent = pf.getParent();
+                        if (parent == pf.getRoot()) {
+                            break;
+                        }
+                        ancestors.add(new ProjectFile(pf.getRoot(), parent));
                     }
-                }
-            }
-            frontier = nextFrontier;
-        }
+                    // include project root
+                    ancestors.add(new ProjectFile(pf.getRoot(), Path.of("")));
+                    return ancestors.stream();
+                })
+                .collect(Collectors.toSet());
 
-        // Scan each unique directory once for AGENTS.md in the established order.
-        var result = new ArrayList<ProjectFile>();
-        for (var dir : orderedDirs) {
-            var candidate = new ProjectFile(dir.getRoot(), dir.getRelPath().resolve("AGENTS.md"));
-            if (Files.isRegularFile(candidate.absPath())) {
-                result.add(candidate);
-            }
-        }
-        return result;
+        // sort and return: nearest-first (minimal ancestor distance to any input), then lexicographically
+        return expanded.stream()
+                .sorted((d1, d2) -> {
+                    int dist1 = d1.getRelPath().getNameCount();
+                    int dist2 = d2.getRelPath().getNameCount();
+                    int cmp = Integer.compare(dist1, dist2);
+                    if (cmp != 0) return cmp;
+                    return d1.getRelPath().toString().compareTo(d2.getRelPath().toString());
+                })
+                .map(dir -> new ProjectFile(dir.getRoot(), dir.getRelPath().resolve("AGENTS.md")))
+                .filter(ProjectFile::exists)
+                .collect(Collectors.toList());
     }
 
     private static int getCap(String propName, int defVal) {
@@ -111,7 +97,7 @@ public final class StyleGuideResolver {
      * TODO: Make limits token-aware using model-specific tokenizers.
      */
     public String resolveCompositeGuide() {
-        var files = getOrderedAgentFiles();
+        var files = getPotentialDirectories();
         if (files.isEmpty()) {
             logger.debug("No AGENTS.md files found");
             return "";
@@ -134,7 +120,9 @@ public final class StyleGuideResolver {
                 logger.debug("Stopping aggregation due to section cap: {} sections.", maxSections);
                 break;
             }
-            String header = "### AGENTS.md at " + agents.getParent();
+            Path dirRel = agents.getRelPath().getParent();
+            String label = (dirRel == null || dirRel.getNameCount() == 0) ? "." : dirRel.toString();
+            String header = "### AGENTS.md at " + label;
             String content = agents.read().orElse("").strip();
 
             // Compose the section payload with a blank line between header and content

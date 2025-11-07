@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -89,7 +88,7 @@ public class StyleGuideResolverTest {
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
         var resolver = new StyleGuideResolver(List.of(projectFileA, projectFileB));
 
-        assertTrue(resolver.getOrderedAgentFiles().isEmpty(), "Expected no AGENTS.md files to be found");
+        assertTrue(resolver.getPotentialDirectories().isEmpty(), "Expected no AGENTS.md files to be found");
         assertEquals("", resolver.resolveCompositeGuide(), "Expected empty composite guide when none found");
     }
 
@@ -108,7 +107,7 @@ public class StyleGuideResolverTest {
         var projectFileX = new ProjectFile(master, master.relativize(fileX));
         var resolver = new StyleGuideResolver(List.of(projectFileX));
 
-        var ordered = resolver.getOrderedAgentFiles();
+        var ordered = resolver.getPotentialDirectories();
         assertEquals(1, ordered.size(), "Only root AGENTS.md should be present");
         assertEquals(new ProjectFile(master, master.relativize(rootAgents)), ordered.getFirst());
 
@@ -133,7 +132,7 @@ public class StyleGuideResolverTest {
         var projectFileInNested = new ProjectFile(master, master.relativize(fileInNested));
         var resolver = new StyleGuideResolver(List.of(projectFileInNested));
 
-        var ordered = resolver.getOrderedAgentFiles();
+        var ordered = resolver.getPotentialDirectories();
         assertEquals(1, ordered.size(), "Only nested AGENTS.md should be present");
         assertEquals(new ProjectFile(master, master.relativize(nestedAgents)), ordered.getFirst());
 
@@ -178,13 +177,12 @@ public class StyleGuideResolverTest {
         var projectFileB1 = new ProjectFile(master, master.relativize(fileB1));
         var resolver = new StyleGuideResolver(List.of(projectFileA1, projectFileA2, projectFileB1));
 
-        var ordered = resolver.getOrderedAgentFiles();
+        var ordered = resolver.getPotentialDirectories();
         // Expected nearest-first by input groups, preserving first-seen order: A, then B, then root
         List<ProjectFile> expected = List.of(
                 new ProjectFile(master, master.relativize(agentsA)),
                 new ProjectFile(master, master.relativize(agentsB)),
-                new ProjectFile(master, master.relativize(rootAgents))
-        );
+                new ProjectFile(master, master.relativize(rootAgents)));
         assertEquals(expected, ordered, "Expected nearest-first order with dedup across inputs");
 
         String guide = resolver.resolveCompositeGuide();
