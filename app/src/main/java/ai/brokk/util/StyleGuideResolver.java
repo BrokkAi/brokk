@@ -9,19 +9,20 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import ai.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
- * input paths, walking up the directory tree towards a repository/project master root.
+ * input ProjectFile instances, walking up the directory tree towards a repository/project master root.
  *
  * Ordering rules:
- * - For each input path, scan nearest-first (current directory up to master root).
+ * - For each input file, scan nearest-first (current directory up to master root).
  * - Across multiple inputs, preserve the first-seen order and de-duplicate files.
  *
  * Typical usage:
- *   var resolver = new StyleGuideResolver(masterRoot, filePaths);
+ *   var resolver = new StyleGuideResolver(masterRoot, projectFiles);
  *   String guide = resolver.resolveCompositeGuide();
  */
 public final class StyleGuideResolver {
@@ -32,47 +33,55 @@ public final class StyleGuideResolver {
     private static final int DEFAULT_MAX_SECTIONS = 8;
     private static final int DEFAULT_MAX_TOTAL_CHARS = 20_000;
 
-    private final Path masterRoot;
-    private final List<Path> normalizedInputs;
+    private final ProjectFile masterRoot;
+    private final List<ProjectFile> normalizedInputs;
 
     /**
+     * Constructs a StyleGuideResolver that accepts ProjectFile inputs.
+     *
+     * Each ProjectFile is validated to ensure it lies within the masterRoot.
+     * ProjectFile instances already handle normalization internally.
+     *
      * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
-     * @param filePaths absolute or project-relative paths to files (or directories) that should influence
-     *                  which AGENTS.md files are selected
+     * @param files an iterable of ProjectFile instances to influence which AGENTS.md files are selected
      */
-    public StyleGuideResolver(Path masterRoot, Collection<Path> filePaths) {
-        this.masterRoot = masterRoot.toAbsolutePath().normalize();
-        this.normalizedInputs = normalizeInputs(this.masterRoot, filePaths);
-    }
+    public StyleGuideResolver(ProjectFile masterRoot, Iterable<ProjectFile> files) {
+        this.masterRoot = masterRoot;
 
-    private static List<Path> normalizeInputs(Path masterRoot, Collection<Path> inputs) {
-        var result = new ArrayList<Path>();
-        for (var p : inputs) {
-            if (p == null) continue;
-            Path abs = p.isAbsolute() ? p.normalize() : masterRoot.resolve(p).normalize();
-            if (!abs.startsWith(masterRoot)) {
-                logger.debug("Skipping path outside master root: {} (masterRoot: {})", abs, masterRoot);
-                continue;
+        var result = new ArrayList<ProjectFile>();
+        if (files != null) {
+            for (var pf : files) {
+                if (pf == null) continue;
+                try {
+                    if (pf.absPath().startsWith(masterRoot.absPath())) {
+                        result.add(pf);
+                    } else {
+                        logger.debug("Skipping ProjectFile outside master root: {} (masterRoot: {})", pf, masterRoot);
+                    }
+                } catch (Exception e) {
+                    logger.debug("Skipping ProjectFile due to error resolving path: {}", e.getMessage());
+                }
             }
-            result.add(abs);
         }
-        return result;
+
+        this.normalizedInputs = result;
     }
 
-    private List<Path> collectAgentsForSingleInput(Path absPath) {
+    private List<Path> collectAgentsForSingleInput(ProjectFile projectFile) {
         var ordered = new ArrayList<Path>();
 
+        Path absPath = projectFile.absPath();
         Path startDir;
         if (Files.isDirectory(absPath)) {
             startDir = absPath;
         } else {
             Path parent = absPath.getParent();
-            startDir = (parent != null) ? parent : masterRoot;
+            startDir = (parent != null) ? parent : masterRoot.absPath();
         }
 
         Path cursor = startDir;
         while (cursor != null) {
-            if (!cursor.startsWith(masterRoot)) {
+            if (!cursor.startsWith(masterRoot.absPath())) {
                 // Never walk above masterRoot
                 break;
             }
@@ -82,7 +91,7 @@ public final class StyleGuideResolver {
                 ordered.add(candidate.normalize());
             }
 
-            if (cursor.equals(masterRoot)) {
+            if (cursor.equals(masterRoot.absPath())) {
                 break;
             }
             cursor = cursor.getParent();
@@ -108,8 +117,8 @@ public final class StyleGuideResolver {
         // Collect per-input lists (nearest-first) and compute the max depth.
         var perInput = new ArrayList<List<Path>>(normalizedInputs.size());
         int maxDepth = 0;
-        for (var p : normalizedInputs) {
-            var lst = collectAgentsForSingleInput(p);
+        for (var pf : normalizedInputs) {
+            var lst = collectAgentsForSingleInput(pf);
             perInput.add(lst);
             if (lst.size() > maxDepth) {
                 maxDepth = lst.size();
@@ -138,7 +147,7 @@ public final class StyleGuideResolver {
         if (dir == null) {
             return "."; // Shouldn't happen, but be safe
         }
-        Path rel = masterRoot.relativize(dir);
+        Path rel = masterRoot.getRoot().relativize(dir);
         String s = toUnix(rel);
         return s.isEmpty() ? "." : s;
     }
@@ -270,9 +279,13 @@ public final class StyleGuideResolver {
     }
 
     /**
-     * Convenience function to build the composite guide directly.
+     * Convenience function to build the composite guide directly from ProjectFile inputs.
+     *
+     * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
+     * @param files iterable of ProjectFile inputs used to locate relevant AGENTS.md files
+     * @return aggregated style guide content
      */
-    public static String resolve(Path masterRoot, Collection<Path> filePaths) {
-        return new StyleGuideResolver(masterRoot, filePaths).resolveCompositeGuide();
+    public static String resolve(ProjectFile masterRoot, Iterable<ProjectFile> files) {
+        return new StyleGuideResolver(masterRoot, files).resolveCompositeGuide();
     }
 }

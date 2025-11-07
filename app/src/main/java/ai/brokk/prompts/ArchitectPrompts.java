@@ -17,17 +17,17 @@ public abstract class ArchitectPrompts extends CodePrompts {
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
     private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
-        // Collect project-backed file paths from current context (nearest-first resolution uses parent dirs).
+        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var masterRoot = cm.getProject().getMasterRootPathForConfig();
-        var projectFilePaths = ctx.fileFragments()
+        var projectFiles = ctx.fileFragments()
                 .flatMap(cf -> cf.files().stream())
-                .map(bf -> bf.getRelPath())
-                .map(masterRoot::resolve)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> (ProjectFile) bf)
                 .collect(Collectors.toSet());
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(masterRoot, projectFilePaths);
+        var resolvedGuide = StyleGuideResolver.resolve(masterRoot, projectFiles);
         return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
     }
 

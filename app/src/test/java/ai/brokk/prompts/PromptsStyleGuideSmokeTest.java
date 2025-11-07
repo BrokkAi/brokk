@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.StyleGuideResolver;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -46,7 +47,9 @@ public class PromptsStyleGuideSmokeTest {
         Files.writeString(fileB, "// bar");
 
         // Aggregate the style guide exactly as prompts do (via StyleGuideResolver)
-        String guide = StyleGuideResolver.resolve(master, List.of(fileA, fileB));
+        var projectFileA = new ProjectFile(master, master.relativize(fileA));
+        var projectFileB = new ProjectFile(master, master.relativize(fileB));
+        String guide = StyleGuideResolver.resolve(master, List.of(projectFileA, projectFileB));
 
         String headerA = "### AGENTS.md at a";
         String headerB = "### AGENTS.md at b";

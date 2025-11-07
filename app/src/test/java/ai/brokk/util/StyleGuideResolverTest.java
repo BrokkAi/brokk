@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +25,10 @@ public class StyleGuideResolverTest {
         Files.writeString(fileA, "foo");
         Files.writeString(fileB, "bar");
 
-        var resolver = new StyleGuideResolver(master, List.of(fileA, fileB));
+        var projectFileA = new ProjectFile(master, master.relativize(fileA));
+        var projectFileB = new ProjectFile(master, master.relativize(fileB));
+        var masterRoot = new ProjectFile(master, Path.of(""));
+        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileA, projectFileB));
 
         assertTrue(resolver.getOrderedAgentFiles().isEmpty(), "Expected no AGENTS.md files to be found");
         assertEquals("", resolver.resolveCompositeGuide(), "Expected empty composite guide when none found");
@@ -42,7 +46,9 @@ public class StyleGuideResolverTest {
         Files.createDirectories(fileX.getParent());
         Files.writeString(fileX, "// x");
 
-        var resolver = new StyleGuideResolver(master, List.of(fileX));
+        var projectFileX = new ProjectFile(master, master.relativize(fileX));
+        var masterRoot = new ProjectFile(master, Path.of(""));
+        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileX));
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only root AGENTS.md should be present");
@@ -66,7 +72,9 @@ public class StyleGuideResolverTest {
         Files.createDirectories(fileInNested.getParent());
         Files.writeString(fileInNested, "// kt");
 
-        var resolver = new StyleGuideResolver(master, List.of(fileInNested));
+        var projectFileInNested = new ProjectFile(master, master.relativize(fileInNested));
+        var masterRoot = new ProjectFile(master, Path.of(""));
+        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileInNested));
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only nested AGENTS.md should be present");
@@ -108,7 +116,11 @@ public class StyleGuideResolverTest {
         Files.writeString(fileB1, "b1");
 
         // Inputs: two from A subtree (should dedup A's AGENTS.md) and one from B
-        var resolver = new StyleGuideResolver(master, List.of(fileA1, fileA2, fileB1));
+        var projectFileA1 = new ProjectFile(master, master.relativize(fileA1));
+        var projectFileA2 = new ProjectFile(master, master.relativize(fileA2));
+        var projectFileB1 = new ProjectFile(master, master.relativize(fileB1));
+        var masterRoot = new ProjectFile(master, Path.of(""));
+        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileA1, projectFileA2, projectFileB1));
 
         var ordered = resolver.getOrderedAgentFiles();
         // Expected nearest-first by input groups, preserving first-seen order: A, then B, then root
