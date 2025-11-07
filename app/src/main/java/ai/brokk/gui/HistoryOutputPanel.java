@@ -270,7 +270,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .switchSessionAsync(sel.id())
                                 .thenRun(() -> updateSessionComboBox())
                                 .exceptionally(ex -> {
-                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    logger.debug("Session switch rejected", ex);
+                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                     return null;
                                 });
                     }
@@ -297,7 +298,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     .switchSessionAsync(sel.id())
                                     .thenRun(() -> updateSessionComboBox())
                                     .exceptionally(ex -> {
-                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        logger.debug("Session switch rejected", ex);
+                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                         return null;
                                     });
                         }
@@ -2760,7 +2762,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
+        // user's choice when they toggle view (Fixes #1679)
         var panel = builder.build();
         panel.showInFrame("Diff: " + ctx.getAction());
     }
@@ -2963,7 +2966,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice
+        // when they toggle view (Fixes #1679)
         var diffPanel = builder.build();
         aggregatedChangesPanel = diffPanel;
         // Ensure the embedded diff reflects the current theme immediately

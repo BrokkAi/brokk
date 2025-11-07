@@ -102,7 +102,10 @@ public class SearchAgent {
         this.io = cm.getIo();
         this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
         this.llm.setOutput(io);
-        this.summarizer = cm.getLlm(cm.getService().quickModel(), "Summarizer: " + goal);
+        var summarizeConfig = new Service.ModelConfig(
+                cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
+        var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
+        this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
         this.allowedTerminals = Set.copyOf(allowedTerminals);
