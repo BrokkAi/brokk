@@ -266,6 +266,18 @@ public final class HeadlessExecutorMain {
         return params;
     }
 
+    /**
+     * Try to reserve the exclusive job slot for the given jobId.
+     * Uses CAS to ensure only one concurrent job is executing.
+     *
+     * @param jobId the job identifier attempting to reserve the slot
+     * @return true if reservation succeeded; false if another job holds the slot
+     */
+    private boolean tryReserveJobSlot(String jobId) {
+        assert jobId != null && !jobId.isBlank();
+        return currentJobId.compareAndSet(null, jobId);
+    }
+
     // ============================================================================
     // Router for /v1/jobs endpoints
     // ============================================================================
@@ -447,7 +459,7 @@ public final class HeadlessExecutorMain {
 
             if (isNewJob) {
                 // Atomically reserve the job slot; fail fast if another job is in progress
-                if (!currentJobId.compareAndSet(null, jobId)) {
+                if (!tryReserveJobSlot(jobId)) {
                     logger.info(
                             "Job reservation failed; another job in progress: {}, requested jobId={}, idempotencyKey={}",
                             currentJobId.get(),
