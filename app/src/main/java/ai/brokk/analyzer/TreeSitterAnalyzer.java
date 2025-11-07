@@ -207,18 +207,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<String> importStatements,
             TSTree parsedTree) {}
 
-    /**
-     * Stable cache key for TSNode objects used in Phase 3 modifier caching optimization.
-     * TSNode Java objects may not have stable identity across multiple accesses,
-     * so we use structural properties (position and type) as the cache key.
-     * This avoids repeated getParent() JNI calls during modifier extraction.
-     */
-    protected record NodeCacheKey(int startByte, int endByte, String type) {
-        static NodeCacheKey of(TSNode node) {
-            return new NodeCacheKey(node.getStartByte(), node.getEndByte(), node.getType());
-        }
-    }
-
     // Public record for stage timing information exposed to external tools
     public record StageTiming(
             long readNanos,
@@ -1634,8 +1622,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
-        // Phase 3 Optimization: Per-file modifier cache to avoid repeated getVisibilityPrefix() calls
-        Map<NodeCacheKey, String> modifierCache = new HashMap<>();
 
         long __parseStart = System.nanoTime();
         TSTree tree = localParser.parseString(null, src);
@@ -1961,15 +1947,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             String signature = buildSignatureString(
-                    node,
-                    simpleName,
-                    src,
-                    fileBytes,
-                    primaryCaptureName,
-                    modifierKeywords,
-                    file,
-                    skeletonType,
-                    modifierCache);
+                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2345,15 +2323,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Phase 3 Optimization: Cached version of getVisibilityPrefix to avoid repeated AST traversals.
-     * Base implementation delegates to getVisibilityPrefix() with no caching (safe default for all languages).
-     * Subclasses can override to implement actual caching using NodeCacheKey.
-     */
-    protected String getVisibilityPrefixCached(TSNode node, String src, Map<NodeCacheKey, String> modifierCache) {
-        return getVisibilityPrefix(node, src);
-    }
-
-    /**
      * Builds a signature string for a given definition node. This includes any decorators and the main
      * declaration line (e.g., class header, function signature, field declaration).
      *
@@ -2379,8 +2348,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
             ProjectFile file,
-            SkeletonType skeletonType,
-            Map<NodeCacheKey, String> modifierCache) {
+            SkeletonType skeletonType) {
 
         var signatureLines = new ArrayList<String>();
         var profile = getLanguageSyntaxProfile();
@@ -2463,8 +2431,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (!capturedModifierKeywords.isEmpty()) {
             modifierTokens.addAll(capturedModifierKeywords);
         } else {
-            String fallback = getVisibilityPrefixCached(nodeForSignature, src, modifierCache)
-                    .strip();
+            String fallback = getVisibilityPrefix(nodeForSignature, src).strip();
             if (!fallback.isEmpty()) {
                 for (String tok :
                         Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {

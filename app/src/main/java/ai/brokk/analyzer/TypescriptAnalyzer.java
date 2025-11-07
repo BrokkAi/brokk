@@ -592,10 +592,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return modifiers.toString();
     }
 
-    protected String getVisibilityPrefixCached(TSNode node, String src, Map<NodeCacheKey, String> modifierCache) {
-        return modifierCache.computeIfAbsent(NodeCacheKey.of(node), k -> getVisibilityPrefix(node, src));
-    }
-
     @Override
     protected String bodyPlaceholder() {
         return "{ ... }"; // TypeScript typically uses braces
