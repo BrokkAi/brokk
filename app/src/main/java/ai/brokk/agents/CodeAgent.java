@@ -733,40 +733,6 @@ public class CodeAgent {
         }
     }
 
-    /**
-     * Apply the current batch of pending SEARCH/REPLACE blocks.
-     *
-     * Failure and retry policy for semantic-aware edits:
-     * - EditBlock.apply() returns per-block failures; it does not perform any fallback from semantic-aware
-     *   BRK_CLASS/BRK_FUNCTION to line-based matching.
-     * - If any blocks fail in this batch:
-     *   - If at least one block succeeded, the consecutive apply-failure counter resets to 0.
-     *   - Otherwise, increment the consecutive apply-failure counter.
-     *   - If the failure limit (MAX_APPLY_FAILURES) is reached, stop with APPLY_ERROR.
-     *   - Otherwise, construct a retry prompt via CodePrompts.getApplyFailureMessage(), including analyzer commentary
-     *     for semantic failures, and request a new LLM response focused on fixing ONLY the failed blocks.
-     *
-     * Telemetry:
-     * - Tracks failed edit counts and retry attempts in Metrics and emits them at task completion.
-     */
-    /**
-     * Apply the current batch of pending SEARCH/REPLACE blocks.
-     *
-     * Failure and retry policy for semantic-aware edits:
-     * - {@link EditBlock#apply(IContextManager, ai.brokk.IConsoleIO, java.util.Collection)} returns per-block failures;
-     *   it does not perform any fallback from semantic-aware {@code BRK_CLASS}/{@code BRK_FUNCTION} to line-based matching.
-     * - If any blocks fail in this batch:
-     *   - If at least one block succeeded, the consecutive apply-failure counter resets to 0.
-     *   - Otherwise, increment the consecutive apply-failure counter.
-     *   - If the failure limit ({@link #MAX_APPLY_FAILURES}) is reached, stop with {@code APPLY_ERROR}.
-     *   - Otherwise, construct a retry prompt via {@link CodePrompts#getApplyFailureMessage(java.util.List, int)},
-     *     including analyzer commentary for semantic failures, and request a new LLM response focused on fixing ONLY
-     *     the failed blocks.
-     *
-     * Telemetry:
-     * - Tracks failed edit counts and retry attempts in {@link Metrics} and emits them at task completion via
-     *   {@link Metrics#print(java.util.Set, ai.brokk.TaskResult.StopDetails)}.
-     */
     Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
@@ -1538,23 +1504,6 @@ public class CodeAgent {
             apiRetries += retryCount;
         }
 
-        /**
-         * Emit a single line of telemetry JSON describing the session to {@code System.err}.
-         *
-         * Format and destination:
-         * - Printed as one line prefixed with {@code BRK_CODEAGENT_METRICS=}, followed by a JSON object.
-         *
-         * Included fields (non-exhaustive):
-         * - {@code editBlocksTotal}, {@code editBlocksFailed}: total/failed SEARCH/REPLACE blocks across the session.
-         * - {@code applyRetries}: number of times we asked the LLM to retry due to apply failures (semantic or otherwise).
-         * - {@code buildFailures}, {@code parseRetries}, {@code apiRetries}: other retry/failure counters.
-         * - {@code changedFiles}: list of files changed during the task.
-         * - {@code stopReason}, {@code stopExplanation}: how the task ended (e.g., {@code APPLY_ERROR} after retries).
-         * - Token and timing counters to aid performance analysis ({@code inputTokens}, {@code outputTokens}, etc).
-         *
-         * Purpose:
-         * - Downstream consumers can parse this line to analyze success/failure of semantic edits and other operations.
-         */
         void print(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails) {
             var changedFilesList =
                     changedFiles.stream().map(ProjectFile::toString).toList();
