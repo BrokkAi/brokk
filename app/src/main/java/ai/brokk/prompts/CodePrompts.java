@@ -97,12 +97,12 @@ public abstract class CodePrompts {
 
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
+        var languages = project.getAnalyzerLanguages();
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
-        var projectLanguages = project.getAnalyzerLanguages();
 
-        var maybeJavaLanguage = projectLanguages.stream()
+        var maybeJavaLanguage = languages.stream()
                 .map(lang -> {
                     if (lang instanceof JavaLanguage javaLanguage) {
                         return Optional.<Language>of(javaLanguage);
@@ -132,7 +132,7 @@ public abstract class CodePrompts {
                 flags.add(InstructionsFlags.SYNTAX_AWARE);
                 logger.debug(
                         "Syntax-aware edits enabled for Java in a {}-language workspace: {} editable Java file(s).",
-                        projectLanguages.size(),
+                        languages.size(),
                         editableJavaFiles);
             } else {
                 logger.debug("Syntax-aware edits disabled: no editable Java files in workspace.");
