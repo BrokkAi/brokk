@@ -74,6 +74,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
+    private final JLabel cursorCoordinatesLabel;
 
     @Nullable
     private MaterialButton editButton;
@@ -138,12 +139,36 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
-        textArea = new PreviewTextArea(content, syntaxStyle, file != null); // syntaxStyle can be null here
+        // Prepend a greeting to the displayed content in the preview
+        textArea = new PreviewTextArea(
+                "привет привет " + content, syntaxStyle, file != null); // syntaxStyle can be null here
+
+        // Mouse motion listener: update cursorCoordinatesLabel with the text offset under the mouse
+        textArea.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                try {
+                    var point = e.getPoint();
+                    int offset = textArea.viewToModel2D(point);
+                    cursorCoordinatesLabel.setText("координаты курсора " + offset);
+                } catch (Exception ex) {
+                    // Swallow any unexpected exceptions to avoid disturbing UI; log if needed
+                    logger.debug("Failed to compute cursor offset on mouse move", ex);
+                }
+            }
+        });
 
         // === Top search/action bar ===
         var topPanel = new JPanel(new BorderLayout(8, 4));
         searchBar = new GenericSearchBar(RTextAreaSearchableComponent.wrap(textArea));
         topPanel.add(searchBar, BorderLayout.CENTER);
+
+        // Cursor coordinates label shown above the text area (below the search bar)
+        cursorCoordinatesLabel = new JLabel("Здесь должны быть координаты курсора");
+        cursorCoordinatesLabel.setHorizontalAlignment(SwingConstants.LEFT);
+        // Use italic style to distinguish the label and a subtle color
+
+        topPanel.add(cursorCoordinatesLabel, BorderLayout.NORTH);
 
         // Button panel for actions on the right
         JPanel actionButtonPanel =
