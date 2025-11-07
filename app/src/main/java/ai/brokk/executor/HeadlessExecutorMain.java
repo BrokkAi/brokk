@@ -163,18 +163,12 @@ public final class HeadlessExecutorMain {
 
         if (!sessionUploaded) {
             logger.info("/health/ready requested before session upload; returning 503");
-            var notReady = Map.of("status", "initializing");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, notReady);
+            var error = ErrorPayload.of("NOT_READY", "No session loaded");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
             return;
         }
 
         var sessionId = contextManager.getCurrentSessionId();
-        if (sessionId == null) {
-            logger.info("/health/ready requested but ContextManager has no active session; returning 503");
-            var notReady = Map.of("status", "initializing");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, notReady);
-            return;
-        }
 
         var response = Map.of("status", "ready", "sessionId", sessionId.toString());
         SimpleHttpServer.sendJsonResponse(exchange, response);
@@ -200,7 +194,8 @@ public final class HeadlessExecutorMain {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             if (throwable != null) {
-                logger.error("Job {} execution failed (session={})", jobId, contextManager.getCurrentSessionId(), throwable);
+                logger.error(
+                        "Job {} execution failed (session={})", jobId, contextManager.getCurrentSessionId(), throwable);
             } else {
                 logger.info("Job {} execution finished (session={})", jobId, contextManager.getCurrentSessionId());
             }
@@ -211,7 +206,9 @@ public final class HeadlessExecutorMain {
 
     public void start() {
         this.server.start();
-        logger.info("HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.; cmSession={}", contextManager.getCurrentSessionId());
+        logger.info(
+                "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.; cmSession={}",
+                contextManager.getCurrentSessionId());
     }
 
     public void stop(int delaySeconds) {
@@ -415,8 +412,8 @@ public final class HeadlessExecutorMain {
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
 
-        // Switch ContextManager to this session
-        contextManager.switchSessionAsync(sessionId).join();
+        // Switch ContextManager to this session synchronously to avoid handler hangs
+        contextManager.updateActiveSession(sessionId);
         logger.info("Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
 
         // Mark executor as ready to serve requests that require a session.
@@ -474,7 +471,12 @@ public final class HeadlessExecutorMain {
             var jobId = createResult.jobId();
             var isNewJob = createResult.isNewJob();
 
-            logger.info("Job {}: isNewJob={}, jobId={}, requestedSessionId={}", idempotencyKey, isNewJob, jobId, jobSpecRequest.sessionId());
+            logger.info(
+                    "Job {}: isNewJob={}, jobId={}, requestedSessionId={}",
+                    idempotencyKey,
+                    isNewJob,
+                    jobId,
+                    jobSpecRequest.sessionId());
 
             // Load job status
             var status = jobStore.loadStatus(jobId);
@@ -497,7 +499,11 @@ public final class HeadlessExecutorMain {
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
                     return;
                 }
-                logger.info("Job reservation succeeded; jobId={}, idempotencyKey={}, cmSession={}", jobId, idempotencyKey, contextManager.getCurrentSessionId());
+                logger.info(
+                        "Job reservation succeeded; jobId={}, idempotencyKey={}, cmSession={}",
+                        jobId,
+                        idempotencyKey,
+                        contextManager.getCurrentSessionId());
                 try {
                     // Start execution asynchronously; release reservation in callback or on failure
                     executeJobAsync(jobId, jobSpec);
