@@ -753,6 +753,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueTable.getColumnModel().getColumn(1).setCellRenderer(renderer);
     }
 
+    /** Display an error message in the issue table and disable UI controls. */
+    private void showErrorInTable(String message) {
+        isShowingError = true;
+        setReloadUiEnabled(false);
+        setIssueTitleRenderer(false); // Use simple renderer for error row
+        issueTableModel.setRowCount(0);
+        issueTableModel.addRow(new Object[] {"", message, "", ""});
+        disableIssueActionsAndClearDetails();
+    }
+
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
         assert SwingUtilities.isEventDispatchThread();
 
