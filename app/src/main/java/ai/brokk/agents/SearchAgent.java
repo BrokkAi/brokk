@@ -365,9 +365,11 @@ public class SearchAgent {
                   6) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
-                     Where new code is needed, add the *target file* to the workspace using `addFilesToWorkspace`
+                     Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
                      and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
+                     Note: Code Agent will also take care of creating new files, you only need to add existing files
+                     to the Workspace.
 
                 Output discipline:
                   - Start each turn by pruning and summarizing before any new exploration.

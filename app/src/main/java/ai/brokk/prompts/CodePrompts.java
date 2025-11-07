@@ -337,10 +337,8 @@ public abstract class CodePrompts {
         var topCtx = cm.topContext();
         var masterRoot = cm.getProject().getMasterRootPathForConfig();
         var projectFilePaths = topCtx.fileFragments()
-                .map(f -> (ContextFragment.PathFragment) f)
-                .map(ContextFragment.PathFragment::file)
-                .filter(bf -> bf instanceof ProjectFile)
-                .map(bf -> ((ProjectFile) bf).getRelPath())
+                .flatMap(cf -> cf.files().stream())
+                .map(bf -> bf.getRelPath())
                 .map(masterRoot::resolve)
                 .collect(Collectors.toSet());
 
