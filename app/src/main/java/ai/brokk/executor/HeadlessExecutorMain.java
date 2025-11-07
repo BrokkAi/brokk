@@ -169,8 +169,14 @@ public final class HeadlessExecutorMain {
         }
 
         var sessionId = contextManager.getCurrentSessionId();
-        var response = Map.of("status", "ready", "sessionId", sessionId.toString());
+        if (sessionId == null) {
+            logger.info("/health/ready requested but ContextManager has no active session; returning 503");
+            var notReady = Map.of("status", "initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, notReady);
+            return;
+        }
 
+        var response = Map.of("status", "ready", "sessionId", sessionId.toString());
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
