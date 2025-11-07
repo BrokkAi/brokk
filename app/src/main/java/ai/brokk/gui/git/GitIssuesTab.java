@@ -762,6 +762,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueTableModel.setRowCount(0);
         issueTableModel.addRow(new Object[] {"", message, "", ""});
         disableIssueActionsAndClearDetails();
+        searchBox.setLoading(false, "");
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
