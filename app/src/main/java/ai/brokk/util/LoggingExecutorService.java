@@ -41,7 +41,7 @@ public class LoggingExecutorService implements ExecutorService {
             cf.whenComplete((res, ex) -> {
                 if (cf.isCancelled()) underlyingFuture.cancel(true);
             });
-        } catch (RejectedExecutionException e) {
+        } catch (RejectedExecutionException | IllegalStateException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
         }
@@ -65,7 +65,7 @@ public class LoggingExecutorService implements ExecutorService {
             cf.whenComplete((res, ex) -> {
                 if (cf.isCancelled()) underlyingFuture.cancel(true);
             });
-        } catch (RejectedExecutionException e) {
+        } catch (RejectedExecutionException | IllegalStateException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
         }
@@ -89,7 +89,7 @@ public class LoggingExecutorService implements ExecutorService {
             cf.whenComplete((res, ex) -> {
                 if (cf.isCancelled()) underlyingFuture.cancel(true);
             });
-        } catch (RejectedExecutionException e) {
+        } catch (RejectedExecutionException | IllegalStateException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
         }
@@ -122,7 +122,7 @@ public class LoggingExecutorService implements ExecutorService {
     public void execute(Runnable command) {
         try {
             delegate.execute(wrap(command));
-        } catch (RejectedExecutionException e) {
+        } catch (RejectedExecutionException | IllegalStateException e) {
             logger.trace("Task rejected because executor is shut down", e);
             // Exception is logged and swallowed as execute is void
         }
