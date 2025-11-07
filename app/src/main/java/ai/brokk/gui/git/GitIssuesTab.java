@@ -20,6 +20,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.GitTabExceptionMapper;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;
@@ -892,13 +893,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         "HTTP error while fetching issues: {} (status {})",
                         httpEx.getMessage(),
                         httpEx.getResponseCode());
-                String errorMessage =
-                        switch (httpEx.getResponseCode()) {
-                            case 401 -> "Authentication failed (401). Please check your GitHub token.";
-                            case 403 -> "Access denied (403). Check your token permissions and rate limits.";
-                            case 404 -> "Repository not found (404). Verify the owner/repo slug.";
-                            default -> "HTTP error " + httpEx.getResponseCode() + ": " + httpEx.getMessage();
-                        };
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(httpEx);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -907,34 +902,38 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (UnknownHostException ex) {
                 logger.error("Network error while fetching issues: unknown host", ex);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
-                    showErrorInTable("Network error: Cannot resolve host. Check your internet connection.");
+                    showErrorInTable(errorMessage);
                 });
                 return null;
             } catch (SocketTimeoutException ex) {
                 logger.error("Timeout while fetching issues", ex);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
-                    showErrorInTable("Connection timeout. The server took too long to respond.");
+                    showErrorInTable(errorMessage);
                 });
                 return null;
             } catch (ConnectException ex) {
                 logger.error("Connection error while fetching issues", ex);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
-                    showErrorInTable("Connection refused. Unable to reach the server.");
+                    showErrorInTable(errorMessage);
                 });
                 return null;
             } catch (IOException ex) {
                 logger.error("I/O error while fetching issues", ex);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
-                    showErrorInTable("I/O error: " + ex.getMessage());
+                    showErrorInTable(errorMessage);
                 });
                 return null;
             } catch (Exception ex) {

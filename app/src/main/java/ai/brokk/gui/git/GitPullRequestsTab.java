@@ -22,6 +22,7 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
+import ai.brokk.gui.util.GitTabExceptionMapper;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
@@ -975,32 +976,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             } catch (HttpException httpEx) {
                 logger.error(
                         "GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
-                String errorMessage;
-                int statusCode = httpEx.getResponseCode();
-                if (statusCode == 401) {
-                    errorMessage = "Authentication failed. Please check your GitHub token in Settings.";
-                } else if (statusCode == 403) {
-                    errorMessage = "Access forbidden. Check API rate limit or repository permissions in Settings.";
-                } else if (statusCode == 404) {
-                    errorMessage = "Repository not found. Verify owner/repo in Settings → Project → Issues → GitHub.";
-                } else {
-                    errorMessage = "GitHub API error (HTTP " + statusCode + "): " + httpEx.getMessage();
-                }
-                final String finalErrorMessage = errorMessage;
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(finalErrorMessage);
-                });
-                return null;
-            } catch (UnknownHostException unknownHostEx) {
-                logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
-                String errorMessage = "Network connection failed. Please check your internet connection.";
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(httpEx);
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
@@ -1012,9 +988,37 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     showErrorInTable(errorMessage);
                 });
                 return null;
-            } catch (SocketTimeoutException | ConnectException timeoutEx) {
-                logger.error("Request timed out or connection refused while fetching pull requests", timeoutEx);
-                String errorMessage = "Request timed out. Please try again or check your network.";
+            } catch (UnknownHostException unknownHostEx) {
+                logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(unknownHostEx);
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (SocketTimeoutException timeoutEx) {
+                logger.error("Request timed out while fetching pull requests", timeoutEx);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(timeoutEx);
+                SwingUtilities.invokeLater(() -> {
+                    allPrsFromApi.clear();
+                    displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (ConnectException connectEx) {
+                logger.error("Connection refused while fetching pull requests", connectEx);
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(connectEx);
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
@@ -1028,7 +1032,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return null;
             } catch (IOException ioEx) {
                 logger.error("I/O error while fetching pull requests", ioEx);
-                String errorMessage = "I/O error: " + ioEx.getMessage();
+                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ioEx);
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
