@@ -194,6 +194,7 @@ public final class HeadlessExecutorMain {
             } else {
                 logger.info("Job {} execution finished", jobId);
             }
+            // Release reservation only if we still own it; CAS avoids clearing another job's reservation.
             currentJobId.compareAndSet(jobId, null);
         });
     }
