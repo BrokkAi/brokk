@@ -60,7 +60,9 @@ import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,6 +78,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
     private JTextPane issueBodyTextPane;
+    private TableCellRenderer defaultIssueTitleRenderer;
+    private TableCellRenderer richIssueTitleRenderer;
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
 
@@ -382,7 +386,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
 
         // Title renderer
-        issueTable.getColumnModel().getColumn(1).setCellRenderer(new IssueHeaderCellRenderer());
+        richIssueTitleRenderer = new IssueHeaderCellRenderer();
+        defaultIssueTitleRenderer = new DefaultTableCellRenderer();
+        issueTable.getColumnModel().getColumn(1).setCellRenderer(richIssueTitleRenderer);
 
         ToolTipManager.sharedInstance().registerComponent(issueTable);
 
@@ -739,6 +745,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             resolutionFilter.setEnabled(enabled);
         }
         searchBox.setEnabled(enabled);
+    }
+
+    /** Toggle between simple and rich renderers for the issue title column. */
+    private void setIssueTitleRenderer(boolean rich) {
+        var renderer = rich ? richIssueTitleRenderer : defaultIssueTitleRenderer;
+        issueTable.getColumnModel().getColumn(1).setCellRenderer(renderer);
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
