@@ -521,7 +521,7 @@ public class SessionManagerTest {
 
         // Test multiple API methods that use submitGuarded
         var taskListData = new TaskList.TaskListData(List.of());
-        
+
         // writeTaskList should be rejected
         var writeFuture = sessionManager.writeTaskList(sessionId, taskListData);
         var writeException = assertThrows(ExecutionException.class, writeFuture::get);

@@ -16,12 +16,11 @@ public class BackgroundGitHubAuth {
     private static final Logger logger = LogManager.getLogger(BackgroundGitHubAuth.class);
 
     private static @Nullable CompletableFuture<Void> currentAuthFuture;
-    private static @Nullable GitHubDeviceFlowService currentService;
     private static @Nullable ScheduledExecutorService currentExecutor;
     private static final Object authLock = new Object();
 
     // Injectable factory seam for testing
-    static Supplier<GitHubDeviceFlowService> serviceFactory = null;
+    static @Nullable Supplier<GitHubDeviceFlowService> serviceFactory = null;
 
     static {
         // Register shutdown hook to clean up background auth on app exit
@@ -54,11 +53,9 @@ public class BackgroundGitHubAuth {
             var service = (serviceFactory != null)
                     ? serviceFactory.get()
                     : new GitHubDeviceFlowService(GitHubAuthConfig.getClientId(), executor);
-            currentService = service;
 
             // Start polling in background with cleanup via whenComplete
-            var authFuture = service
-                    .pollForToken(deviceCodeResponse.deviceCode(), deviceCodeResponse.interval())
+            var authFuture = service.pollForToken(deviceCodeResponse.deviceCode(), deviceCodeResponse.interval())
                     .thenAccept(BackgroundGitHubAuth::handleAuthResult)
                     .whenComplete((result, throwable) -> {
                         // Cleanup after this auth attempt completes (success, error, or cancellation)
@@ -75,8 +72,7 @@ public class BackgroundGitHubAuth {
         }
 
         synchronized (authLock) {
-            // Clear service and future references
-            currentService = null;
+            // Clear future references
             currentAuthFuture = null;
 
             // Shutdown only the executor that was associated with this attempt
@@ -105,15 +101,13 @@ public class BackgroundGitHubAuth {
             currentAuthFuture.cancel(true);
         }
 
-        currentService = null;
-
         // Capture executor reference and clear it before shutdown to avoid races
-        var executor = currentExecutor;
+        var executorToShutdown = currentExecutor;
         currentExecutor = null;
 
-        if (executor != null) {
+        if (executorToShutdown != null) {
             try {
-                executor.shutdown();
+                executorToShutdown.shutdown();
             } catch (Exception e) {
                 logger.warn("Error shutting down background auth executor during cancel", e);
             }

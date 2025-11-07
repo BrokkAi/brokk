@@ -503,8 +503,7 @@ public class SessionManager implements AutoCloseable {
 
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        var future = submitGuarded(
-                sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
+        var future = submitGuarded(sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
         try {
             return future.get();
