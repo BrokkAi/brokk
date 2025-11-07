@@ -504,8 +504,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     var parseResult = GitUiUtil.parseOwnerRepoFlexible(repoText);
                     if (parseResult.isPresent()) {
                         var ownerRepo = parseResult.get();
-                        githubOwnerField.setText(ownerRepo.owner());
-                        githubRepoField.setText(ownerRepo.repo());
+                        SwingUtilities.invokeLater(() -> {
+                            githubOwnerField.setText(ownerRepo.owner());
+                            githubRepoField.setText(ownerRepo.repo());
+                        });
                     }
                 }
             }
