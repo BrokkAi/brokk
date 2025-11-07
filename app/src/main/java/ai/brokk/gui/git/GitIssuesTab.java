@@ -881,18 +881,62 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
+            } catch (HttpException httpEx) {
+                logger.error("HTTP error while fetching issues: {} (status {})", httpEx.getMessage(), httpEx.getResponseCode());
+                String errorMessage = switch (httpEx.getResponseCode()) {
+                    case 401 -> "Authentication failed (401). Please check your GitHub token.";
+                    case 403 -> "Access denied (403). Check your token permissions and rate limits.";
+                    case 404 -> "Repository not found (404). Verify the owner/repo slug.";
+                    default -> "HTTP error " + httpEx.getResponseCode() + ": " + httpEx.getMessage();
+                };
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (UnknownHostException ex) {
+                logger.error("Network error while fetching issues: unknown host", ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable("Network error: Cannot resolve host. Check your internet connection.");
+                });
+                return null;
+            } catch (SocketTimeoutException ex) {
+                logger.error("Timeout while fetching issues", ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable("Connection timeout. The server took too long to respond.");
+                });
+                return null;
+            } catch (ConnectException ex) {
+                logger.error("Connection error while fetching issues", ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable("Connection refused. Unable to reach the server.");
+                });
+                return null;
+            } catch (IOException ex) {
+                logger.error("I/O error while fetching issues", ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable("I/O error: " + ex.getMessage());
+                });
+                return null;
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
                     // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
                     SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
-                    logger.error("Failed to fetch issues via IssueService", ex);
+                    logger.error("Unexpected error while fetching issues", ex);
                     SwingUtilities.invokeLater(() -> {
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
-                        issueTableModel.setRowCount(0);
-                        disableIssueActionsAndClearDetails();
-                        searchBox.setLoading(false, ""); // Stop loading on error
+                        showErrorInTable("Unexpected error: " + ex.getMessage());
                     });
                 }
                 return null;
