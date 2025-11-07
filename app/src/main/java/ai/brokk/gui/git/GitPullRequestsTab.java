@@ -1079,7 +1079,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 fetchedPrs = auth.listOpenPullRequests(apiState);
                 logger.debug("Fetched {} PRs", fetchedPrs.size());
             } catch (HttpException httpEx) {
-                logger.error("GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
+                logger.error(
+                        "GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
                 String errorMessage;
                 int statusCode = httpEx.getResponseCode();
                 if (statusCode == 401) {

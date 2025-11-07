@@ -654,7 +654,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     public void gitHubTokenChanged() {
         SwingUtilities.invokeLater(() -> {
             logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
-            
+
             // Reset error state and re-enable UI controls
             isShowingError = false;
             setReloadUiEnabled(true);
@@ -889,13 +889,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
             } catch (HttpException httpEx) {
-                logger.error("HTTP error while fetching issues: {} (status {})", httpEx.getMessage(), httpEx.getResponseCode());
-                String errorMessage = switch (httpEx.getResponseCode()) {
-                    case 401 -> "Authentication failed (401). Please check your GitHub token.";
-                    case 403 -> "Access denied (403). Check your token permissions and rate limits.";
-                    case 404 -> "Repository not found (404). Verify the owner/repo slug.";
-                    default -> "HTTP error " + httpEx.getResponseCode() + ": " + httpEx.getMessage();
-                };
+                logger.error(
+                        "HTTP error while fetching issues: {} (status {})",
+                        httpEx.getMessage(),
+                        httpEx.getResponseCode());
+                String errorMessage =
+                        switch (httpEx.getResponseCode()) {
+                            case 401 -> "Authentication failed (401). Please check your GitHub token.";
+                            case 403 -> "Access denied (403). Check your token permissions and rate limits.";
+                            case 404 -> "Repository not found (404). Verify the owner/repo slug.";
+                            default -> "HTTP error " + httpEx.getResponseCode() + ": " + httpEx.getMessage();
+                        };
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -1071,7 +1075,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             if (issueTable.getSelectedRow() == -1) {
                 disableIssueActions();
             }
-            
+
             // Re-enable UI controls and stop loading after successful population
             if (isFullUpdate) {
                 setReloadUiEnabled(true);
