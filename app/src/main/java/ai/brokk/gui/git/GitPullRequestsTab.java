@@ -850,6 +850,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         SwingUtilities.invokeLater(() -> {
             logger.debug("GitHub token changed. Initiating cancellation of active tasks and scheduling refresh.");
 
+            isShowingError = false;
+            setReloadUiEnabled(true);
+
             List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
 
             if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
