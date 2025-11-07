@@ -283,27 +283,6 @@ public class FileSerializationTest {
     }
 
     @Test
-    void testCodeUnitClassUnit() throws Exception {
-        Path root = tempDir.resolve("project").toAbsolutePath().normalize();
-        Files.createDirectories(root);
-        ProjectFile sourceFile = new ProjectFile(root, "src/Test.java");
-
-        // Test classUnit() method works after deserialization
-        CodeUnit functionUnit = CodeUnit.fn(sourceFile, "com.example", "TestClass.testMethod");
-
-        String json = Json.toJson(functionUnit);
-        CodeUnit deserialized = Json.fromJson(json, CodeUnit.class);
-
-        var originalClassUnit = functionUnit.classUnit();
-        var deserializedClassUnit = deserialized.classUnit();
-
-        assertEquals(originalClassUnit.isPresent(), deserializedClassUnit.isPresent());
-        if (originalClassUnit.isPresent()) {
-            assertEquals(originalClassUnit.get(), deserializedClassUnit.get());
-        }
-    }
-
-    @Test
     void testCodeUnitValidationDuringDeserialization() {
         // Test that validation is enforced during JSON deserialization
 

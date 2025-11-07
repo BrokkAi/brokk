@@ -47,7 +47,7 @@
   }
 
   async function copyToClipboard() {
-    const text = preElem?.innerText ?? '';
+    const text = preElem?.textContent ?? '';
     if (!text) {
       return;
     }
@@ -60,13 +60,20 @@
         success = true;
       } else {
         // Fallback for older browsers or JavaFX WebView
-        const range = document.createRange();
-        range.selectNodeContents(preElem);
+        // Use offscreen textarea to avoid issues with hidden elements
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '-9999px';
+        document.body.appendChild(textarea);
+        
         const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
+        textarea.select();
         success = document.execCommand('copy');
         sel?.removeAllRanges();
+        
+        document.body.removeChild(textarea);
       }
     } catch (e) {
       console.warn('Copy to clipboard failed', e);
@@ -79,7 +86,7 @@
   }
 
   function captureToWorkspace() {
-    const text = preElem?.innerText ?? '';
+    const text = preElem?.textContent ?? '';
     if (!text) {
       return;
     }
@@ -89,7 +96,7 @@
       javaBridge.captureText(text);
       setCapturedTransient();
     } else {
-      console.warn('`window.brokk.captureText` is not available');
+      console.warn('`window.javaBridge.captureText` is not available');
     }
   }
 
@@ -164,9 +171,7 @@
       {copied ? 'Copied to clipboard' : captured ? 'Captured to workspace' : ''}
     </span>
   </div>
-  {#if showCode}
-    <pre id={preId} bind:this={preElem} on:wheel={handleWheel} {...rest}>{@render children?.()}</pre>
-  {/if}
+  <pre id={preId} bind:this={preElem} on:wheel={handleWheel} hidden={!showCode} {...rest}>{@render children?.()}</pre>
 </div>
 
 <style>

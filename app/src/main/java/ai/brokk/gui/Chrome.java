@@ -159,6 +159,15 @@ public class Chrome
                 bottomSplitPane.setDividerLocation(target);
                 sidebarCollapsed = false;
             }
+
+            // Refresh Project Files tab badge if that tab was selected
+            if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
+                var comp = leftTabbedPanel.getComponentAt(tabIndex);
+                if (comp == projectFilesPanel) {
+                    int liveCount = getProject().getLiveDependencies().size();
+                    updateProjectFilesTabBadge(liveCount);
+                }
+            }
         }
     }
 
@@ -175,9 +184,6 @@ public class Chrome
 
     // Pin exact Instructions height (in px) during collapse so only Output resizes
     private int pinnedInstructionsHeightPx = -1;
-
-    // Save the Workspace↔Instructions divider as a proportion (0..1) to restore Workspace height precisely
-    private double savedTopSplitProportion = -1.0;
 
     // Guard to prevent recursion when clamping the Output↔Bottom divider
     private boolean adjustingMainDivider = false;
@@ -234,6 +240,13 @@ public class Chrome
 
     @Nullable
     private BadgedIcon gitTabBadgedIcon;
+
+    // Project Files tab badge components
+    @Nullable
+    private BadgedIcon projectFilesTabBadgedIcon;
+
+    @Nullable
+    private JLabel projectFilesTabLabel;
 
     // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
     @Nullable
@@ -348,6 +361,9 @@ public class Chrome
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
+        // Register for dependency state changes to update badge and border title
+        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
+
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
@@ -355,19 +371,27 @@ public class Chrome
         // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
         leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
-        var projectIcon = Icons.FOLDER_CODE;
-        leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
+        projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, themeManager);
+        leftTabbedPanel.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectShortcut =
                 KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files (" + projectShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
-        projectTabLabel.addMouseListener(new MouseAdapter() {
+        projectFilesTabLabel =
+                createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
+        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
+        projectFilesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 handleTabToggle(projectTabIdx);
             }
         });
+
+        // Initialize the Project Files tab badge with the current dependency count
+        try {
+            updateProjectFilesTabBadge(getProject().getLiveDependencies().size());
+        } catch (Exception ex) {
+            logger.debug("Failed to initialize Project Files tab badge", ex);
+        }
 
         // --- New top-level Tests tab moved up (second position) ---
         {
@@ -818,7 +842,8 @@ public class Chrome
                     content += "/.brokk/sessions/\n"; // Ignore sessions dir in main repo
                     content += "/.brokk/dependencies/\n"; // Ignore dependencies dir in main repo
                     content += "/.brokk/history.zip\n"; // Ignore legacy history zip
-                    content += "!.brokk/style.md\n"; // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!AGENTS.md\n"; // DO track AGENTS.md at project root
+                    content += "!.brokk/style.md\n"; // DO track legacy style.md (for projects that haven't migrated)
                     content += "!.brokk/review.md\n"; // DO track review.md (which lives in masterRoot/.brokk)
                     content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
@@ -837,13 +862,13 @@ public class Chrome
                 Files.createDirectories(sharedBrokkDir);
 
                 // Add specific shared files to git
-                var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var agentsMdPath = gitTopLevel.resolve("AGENTS.md"); // AGENTS.md lives at project root
                 var reviewMdPath = sharedBrokkDir.resolve("review.md");
                 var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
                 // Create shared files if they don't exist (empty files)
-                if (!Files.exists(styleMdPath)) {
-                    Files.writeString(styleMdPath, "# Style Guide\n");
+                if (!Files.exists(agentsMdPath)) {
+                    Files.writeString(agentsMdPath, "# Agents Guide\n");
                 }
                 if (!Files.exists(reviewMdPath)) {
                     Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
@@ -855,7 +880,7 @@ public class Chrome
                 // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
                 // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
@@ -865,7 +890,7 @@ public class Chrome
                 gitRepo.add(filesToAdd);
                 showNotification(
                         NotificationRole.INFO,
-                        "Added shared .brokk project files (style.md, review.md, project.properties) to git");
+                        "Added shared project files (AGENTS.md, review.md, project.properties) to git");
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
@@ -875,7 +900,7 @@ public class Chrome
                     // Get the files that were just staged (including .gitignore if it was added)
                     var filesToCommit = new ArrayList<ProjectFile>();
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
@@ -1284,18 +1309,16 @@ public class Chrome
         });
 
         // Alt/Cmd+2 for Tests panel
-        if (testRunnerPanel != null) {
-            KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
-                    "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-            bindKey(rootPane, switchToTests, "switchToTests");
-            rootPane.getActionMap().put("switchToTests", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
-                }
-            });
-        }
+        KeyStroke switchToTests = GlobalUiSettings.getKeybinding(
+                "panel.switchToTests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        bindKey(rootPane, switchToTests, "switchToTests");
+        rootPane.getActionMap().put("switchToTests", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+            }
+        });
 
         // Alt/Cmd+3 for Changes (GitCommitTab)
         if (gitCommitTab != null) {
@@ -2414,27 +2437,6 @@ public class Chrome
         }
     }
 
-    /** Returns the per-project collapsed setting if present; otherwise returns null. */
-    private @Nullable Boolean readProjectWorkspaceCollapsed() {
-        try {
-            var p = projectPrefsNode();
-            String raw = p.get(PREF_KEY_WORKSPACE_COLLAPSED, null);
-            return (raw == null) ? null : Boolean.valueOf(raw);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    /** Returns the global default collapsed setting, defaulting to false if unset. */
-    private boolean readGlobalWorkspaceCollapsed() {
-        try {
-            var g = prefsRoot();
-            return g.getBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, false);
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
     /** Adds property change listeners to split panes for saving positions (global-first). */
     private void addSplitPaneListeners(AbstractProject project) {
         topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
@@ -2529,7 +2531,7 @@ public class Chrome
     public void updateCaptureButtons() {
         var messageSize = historyOutputPanel.getLlmRawMessages().size();
         SwingUtilities.invokeLater(() -> {
-            var enabled = messageSize > 0;
+            var enabled = messageSize > 0 || historyOutputPanel.hasDisplayableOutput();
             historyOutputPanel.setCopyButtonEnabled(enabled);
             historyOutputPanel.setClearButtonEnabled(enabled);
             historyOutputPanel.setCaptureButtonEnabled(enabled);
@@ -3005,11 +3007,24 @@ public class Chrome
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
     public void refreshTaskListUI() {
+        refreshTaskListUI(true, Set.of());
+    }
+
+    public void refreshTaskListUI(boolean triggerAutoPlay) {
+        refreshTaskListUI(triggerAutoPlay, Set.of());
+    }
+
+    public void refreshTaskListUI(boolean triggerAutoPlay, Set<String> preExistingIncompleteTasks) {
         // Terminal drawer removed — bring the Tasks tab to front instead.
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
             taskListPanel.refreshFromManager();
+
+            // EZ-mode: auto-play tasks when idle after the list finishes refreshing
+            if (triggerAutoPlay && !GlobalUiSettings.isAdvancedMode()) {
+                SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
+            }
         });
     }
 
@@ -3454,6 +3469,44 @@ public class Chrome
     }
 
     /**
+     * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
+     * the dependency count changes or on startup to initialize the badge. EDT-safe.
+     */
+    public void updateProjectFilesTabBadge(int dependencyCount) {
+        SwingUtil.runOnEdt(() -> {
+            if (projectFilesTabBadgedIcon == null) {
+                return; // No badge support (should not happen in normal operation)
+            }
+
+            projectFilesTabBadgedIcon.setCount(dependencyCount, leftTabbedPanel);
+
+            // Update tooltip to show the count and keyboard shortcut
+            if (projectFilesTabLabel != null) {
+                var configuredShortcut = GlobalUiSettings.getKeybinding(
+                        "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+                var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
+                String tooltip;
+                if (dependencyCount > 0) {
+                    tooltip = String.format(
+                            "Project Files (%d dependenc%s) (%s)",
+                            dependencyCount, dependencyCount == 1 ? "y" : "ies", shortcut);
+                } else {
+                    tooltip = "Project Files (" + shortcut + ")";
+                }
+                projectFilesTabLabel.setToolTipText(tooltip);
+            }
+
+            // Repaint the tab to show the updated badge
+            if (projectFilesTabLabel != null) {
+                projectFilesTabLabel.repaint();
+            }
+
+            // Update the panel border title with current branch and dependency count
+            projectFilesPanel.updateBorderTitle();
+        });
+    }
+
+    /**
      * Refresh the branch selector UI hosted in Chrome. Safe to call from any thread.
      *
      * @param branchName the branch name to display (may be null/blank)
@@ -3469,34 +3522,11 @@ public class Chrome
                     logger.debug("branchSelectorButton.refreshBranch failed", ex);
                 }
             }
-            // Keep the project files drawer title in sync if needed
+            // Keep the project files drawer title in sync with current branch and dependency count
             try {
-                updateProjectFilesDrawerTitle(branchName);
+                projectFilesPanel.updateBorderTitle();
             } catch (Exception ex) {
-                logger.debug("updateProjectFilesDrawerTitle failed", ex);
-            }
-        });
-    }
-
-    /**
-     * Update the Project Files drawer title (or border) to reflect the current branch.
-     * This is intentionally conservative: it will try to update the ProjectFilesPanel border/title
-     * and otherwise act as a safe no-op so callers don't need null checks.
-     *
-     * @param branchName branch name to append to the title (may be null/blank)
-     */
-    private void updateProjectFilesDrawerTitle(@Nullable String branchName) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                String base = "Project Files";
-                String safe = (branchName == null) ? "" : branchName;
-                String suffix = safe.isBlank() ? "" : " — " + safe;
-                projectFilesPanel.setBorder(BorderFactory.createTitledBorder(base + suffix));
-                projectFilesPanel.revalidate();
-                projectFilesPanel.repaint();
-            } catch (Exception ex) {
-                // Defensive: don't let UI-sync failures propagate
-                logger.debug("updateProjectFilesDrawerTitle inner failed", ex);
+                logger.debug("projectFilesPanel.updateBorderTitle failed", ex);
             }
         });
     }
@@ -3573,18 +3603,6 @@ public class Chrome
 
             if (collapsed) {
                 // Also save as a proportion for robust restore after resizes
-                try {
-                    int t = Math.max(0, topSplitPane.getHeight());
-                    if (t > 0) {
-                        double p = (double) Math.max(0, topSplitPane.getDividerLocation()) / (double) t;
-                        // Clamp to avoid pathological values
-                        savedTopSplitProportion = Math.max(0.05, Math.min(0.95, p));
-                    }
-                } catch (Exception ex) {
-                    // Non-fatal: we'll use default proportion on restore
-                    logger.debug("Failed to save top split proportion; using defaults on restore", ex);
-                }
-
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {

@@ -124,4 +124,33 @@ class ModelBenchmarkDataWithTestingTest {
         var rateResult = ModelBenchmarkData.getSuccessRateWithTesting(TEST_MODEL, TEST_REASONING, 131072);
         assertFalse(rateResult.isTested(), "Token count 131072 should be outside tested range");
     }
+
+    @Test
+    void testCerebrasModelWithProviderPrefix_findsBenchmarkData() {
+        // Verify that models with provider prefixes (e.g., "cerebras/qwen3-coder")
+        // correctly match benchmark data stored without prefixes (e.g., "qwen3-coder")
+        var config = new Service.ModelConfig("cerebras/qwen3-coder", Service.ReasoningLevel.DEFAULT);
+        int tokenCount = 50_000; // Within RANGE_32K_65K
+
+        int successRate = ModelBenchmarkData.getSuccessRate(config, tokenCount);
+
+        // qwen3-coder has benchmark data: (73, 57, 32) for ranges (16-32k, 32-65k, 65-131k)
+        // At 50k tokens, should return the 32-65k range value: 57
+        assertEquals(57, successRate, "Cerebras model with provider prefix should find benchmark data");
+    }
+
+    @Test
+    void testCerebrasModelWithSizeSuffix_findsBenchmarkData() {
+        // Verify that models with size suffixes (e.g., "cerebras/qwen-3-coder-480b")
+        // correctly match benchmark data by normalizing to base model name ("qwen3-coder")
+        var config = new Service.ModelConfig("cerebras/qwen-3-coder-480b", Service.ReasoningLevel.DEFAULT);
+        int tokenCount = 56_862; // Within RANGE_32K_65K
+
+        int successRate = ModelBenchmarkData.getSuccessRate(config, tokenCount);
+
+        // qwen-3-coder-480b should normalize to qwen3-coder
+        // qwen3-coder has benchmark data: (73, 57, 32) for ranges (16-32k, 32-65k, 65-131k)
+        // At 56862 tokens, should return the 32-65k range value: 57
+        assertEquals(57, successRate, "Cerebras model with size suffix should find benchmark data via normalization");
+    }
 }

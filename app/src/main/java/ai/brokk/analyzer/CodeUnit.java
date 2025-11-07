@@ -3,7 +3,6 @@ package ai.brokk.analyzer;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
-import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 /** Represents a named code element (class, function, field, or module). */
@@ -186,30 +185,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
      */
     public boolean hasSignature() {
         return signature != null;
-    }
-
-    /**
-     * Returns the CodeUnit representing the containing class, if this is a member (function/field). Returns empty for
-     * CLASS or MODULE.
-     *
-     * @return The CodeUnit representing the containing class, if this is a member (function/field).
-     */
-    public Optional<CodeUnit> classUnit() {
-        return switch (kind) {
-            case CLASS -> Optional.of(this);
-            case MODULE -> Optional.empty();
-            default -> { // FUNCTION or FIELD
-                // shortName is "ClassName.memberName" for members, or just "funcName" for top-level functions
-                int lastDot = shortName.lastIndexOf('.');
-                if (lastDot <= 0) { // No dot, or starts with dot (invalid for class prefix)
-                    yield Optional.empty(); // Not a member of a class in this shortName structure
-                }
-
-                // Extract the class name part from the shortName
-                String className = shortName.substring(0, lastDot); // e.g., "MyClass" or "Outer$Inner"
-                yield Optional.of(cls(source, packageName, className));
-            }
-        };
     }
 
     @Override

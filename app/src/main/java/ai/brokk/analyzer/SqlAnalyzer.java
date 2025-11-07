@@ -253,11 +253,6 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        return List.of();
-    }
-
-    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) {
             return this;
@@ -334,6 +329,8 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         return update(changedFiles);
     }
 
-    // Other IAnalyzer methods (CPG, advanced summarization, etc.)
-    // will throw UnsupportedOperationException as per IAnalyzer default implementations.
+    @Override
+    public Set<Language> languages() {
+        return Set.of(Languages.SQL);
+    }
 }

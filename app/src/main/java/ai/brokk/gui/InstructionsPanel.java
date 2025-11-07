@@ -33,6 +33,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
@@ -994,10 +995,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 stat.toolTipHtml);
 
                         contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
-                        modelSelector
-                                .getComponent()
-                                .setToolTipText(sharedTooltip != null ? sharedTooltip : stat.toolTipHtml);
+                        contextAreaContainer.setToolTipText(sharedTooltip);
+                        modelSelector.getComponent().setToolTipText(sharedTooltip);
                         tokenUsageBar.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
@@ -1510,6 +1509,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (modelToUse == null) {
             throw new IllegalStateException("LLM not found, usually this indicates a network error");
         }
+
+        autoClearCompletedTasks();
 
         submitAction(ACTION_SEARCH, query, scope -> {
             assert !query.isBlank();
@@ -2024,14 +2025,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         };
         if (SwingUtilities.isEventDispatchThread()) r.run();
         else SwingUtilities.invokeLater(r);
-    }
-
-    private static int indexOfChild(Container parent, Component child) {
-        int n = parent.getComponentCount();
-        for (int i = 0; i < n; i++) {
-            if (parent.getComponent(i) == child) return i;
-        }
-        return -1;
     }
 
     /**
@@ -2672,6 +2665,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } finally {
                 g2.dispose();
             }
+        }
+    }
+
+    /**
+     * Auto-clears completed tasks when in EZ mode (non-Advanced).
+     * If Advanced Mode is enabled, this is a no-op.
+     * Filters out completed tasks from the current task list and updates the UI if any were removed.
+     * Handles null or empty task lists gracefully with no side effects.
+     */
+    private void autoClearCompletedTasks() {
+        // Early exit if Advanced Mode is enabled
+        if (GlobalUiSettings.isAdvancedMode()) {
+            return;
+        }
+
+        var cm = chrome.getContextManager();
+        var data = cm.getTaskList();
+
+        // Guard against null task list or null tasks collection
+        if (data.tasks().isEmpty()) {
+            return;
+        }
+
+        // Filter to keep only incomplete tasks
+        var originalTasks = data.tasks();
+        var filtered = originalTasks.stream().filter(t -> !t.done()).toList();
+
+        // If any tasks were removed, update the task list and refresh UI
+        if (filtered.size() < originalTasks.size()) {
+            cm.setTaskList(new TaskList.TaskListData(filtered));
+            chrome.refreshTaskListUI(false);
         }
     }
 

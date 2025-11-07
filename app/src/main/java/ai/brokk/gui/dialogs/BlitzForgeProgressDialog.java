@@ -280,6 +280,8 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         var rightSrc = new BufferSource.StringSource(right, "Current", pathDisplay);
         builder.addComparison(leftSrc, rightSrc);
 
+        // Do not write GlobalUiSettings here; BrokkDiffPanel loads and persists the user's choice on toggle (Fixes
+        // #1679)
         var panel = builder.build();
         panel.showInFrame("Diff: " + pathDisplay);
     }

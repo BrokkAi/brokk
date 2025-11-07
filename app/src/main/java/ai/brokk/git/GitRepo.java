@@ -2009,12 +2009,20 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public static class GitRepoException extends GitAPIException {
+        public GitRepoException(String message) {
+            super(message);
+        }
+
         public GitRepoException(String message, Throwable cause) {
             super(message, cause);
         }
     }
 
     public static class WorktreeNeedsForceException extends GitRepoException {
+        public WorktreeNeedsForceException(String message) {
+            super(message);
+        }
+
         public WorktreeNeedsForceException(String message, Throwable cause) {
             super(message, cause);
         }

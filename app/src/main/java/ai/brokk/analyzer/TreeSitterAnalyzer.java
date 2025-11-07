@@ -202,7 +202,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements,
-            TSTree parsedTree) {}
+            @Nullable TSTree parsedTree) {}
 
     // Public record for stage timing information exposed to external tools
     public record StageTiming(
@@ -629,11 +629,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public List<CodeUnit> getSubDeclarations(CodeUnit cu) {
-        return childrenOf(cu);
-    }
-
-    @Override
     public List<CodeUnit> searchDefinitionsImpl(
             String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
@@ -957,8 +952,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
         String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
+        // Sort ranges by startByte to ensure they appear in source order (important for function overloads)
+        // Always sort by the actual code start byte, not the comment start byte, to maintain source order
+        var sortedRanges = rangesForOverloads.stream()
+                .sorted(Comparator.comparingInt(Range::startByte))
+                .toList();
+
         var methodSources = new LinkedHashSet<String>();
-        for (Range range : rangesForOverloads) {
+        for (Range range : sortedRanges) {
             // Choose start byte based on includeComments parameter
             int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
             String methodSource =
@@ -977,7 +978,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (methodSources.isEmpty()) {
             log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
         }
-        return methodSources;
+        return Collections.unmodifiableSequencedSet(methodSources);
     }
 
     @Override
@@ -1138,7 +1139,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param src The source code string
      * @return The signature string (e.g., "(int, String)"), or null if not applicable
      */
-    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
         return null;
     }
 
@@ -1439,8 +1440,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<CodeUnit>> localChildren,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, Boolean> localHasBody,
-            ProjectFile file) {
+            Map<CodeUnit, Boolean> localHasBody) {
 
         // Look for an existing child with the same FQN (overloads may exist with different signatures)
         CodeUnit existingDuplicate = kids.stream()
@@ -1819,11 +1819,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
+            // For function overloads, reuse the existing CodeUnit instance instead of creating a new one.
+            // This ensures that all signatures and ranges accumulate under the same CodeUnit key.
+            // This applies to both TypeScript (function_signature + function_declaration) and Java
+            // (method_declaration).
+            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
+            if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
+                // Reuse existing CodeUnit for function overloads
+                cu = existingCUforKeyLookup;
+                log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
+            }
+
             // Allow subclasses to enhance the FQN (e.g., C++ destructor normalization)
             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
 
             // Extract signature separately for function-like entities (C++ overload disambiguation)
-            String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
+            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
 
             // Reconstruct CodeUnit if FQN changed or signature exists
             if (!enhancedFqName.equals(cu.fqName()) || codeUnitSignature != null) {
@@ -1908,7 +1919,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // and this "export" preference applies if different `CodeUnit` instances (which are not `equals()`)
             // somehow map to the same `fqName` in `localCuByFqName` before `cu` itself is unified.
             // If overloads result in CodeUnits that are `equals()`, this block is less relevant for them.
-            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
             if (existingCUforKeyLookup != null
                     && !existingCUforKeyLookup.equals(cu)
                     && shouldMergeSignaturesForSameFqn()) {
@@ -1980,14 +1990,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     if (parentFnCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentFnCu, k -> new ArrayList<>());
                         addChildCodeUnit(
-                                cu,
-                                parentFnCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                file);
+                                cu, parentFnCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                         attachedToParent = true;
                     } else {
                         log.trace(
@@ -2015,14 +2018,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
                         addChildCodeUnit(
-                                cu,
-                                parentCu,
-                                kids,
-                                localChildren,
-                                localSignatures,
-                                localSourceRanges,
-                                localHasBody,
-                                file);
+                                cu, parentCu, kids, localChildren, localSignatures, localSourceRanges, localHasBody);
                     } else {
                         log.trace(
                                 "Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.",
@@ -2896,7 +2892,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * language.
      */
     @Override
-    public List<CodeUnit> directChildren(CodeUnit cu) {
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return childrenOf(cu);
     }
 

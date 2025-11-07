@@ -1,0 +1,10 @@
+Reasoning:
+
+
+**Refining transformation steps**
+
+I need to adjust how I compute transformations. Instead of incremental changes, I’ll work relative to the original geometry. For each step, I’ll calculate the rotation matrix and translation based on the angle and steps, then apply it to the original geometry. However, I might still need to rely on incremental operations for forming faces. To avoid errors, I have to ensure I'm rotating with precision or re-deriving vertex positions from the original each time.
+
+**Examining face creation and transformation**
+
+I realize that the faces between steps i-1 and i rely on the previous step's geometry. So, I still have to create faces for the copies. When calculating vertex coordinates for the next step, I can focus on absolute rotation from the original coordinates rather than incremental changes to avoid accumulation. This means I should store the original coordinates for each vertex. The BMO operator likely manages duplication and transformation using a matrix for each step, so I'll check bmo_dupe.cc for those patterns.
