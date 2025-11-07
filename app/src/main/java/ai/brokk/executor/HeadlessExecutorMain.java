@@ -448,17 +448,27 @@ public final class HeadlessExecutorMain {
             if (isNewJob) {
                 // Atomically reserve the job slot; fail fast if another job is in progress
                 if (!currentJobId.compareAndSet(null, jobId)) {
-                    logger.info("Job reservation failed for {}; another job in progress: {}", jobId, currentJobId.get());
+                    logger.info(
+                            "Job reservation failed; another job in progress: {}, requested jobId={}, idempotencyKey={}",
+                            currentJobId.get(),
+                            jobId,
+                            idempotencyKey);
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
                     return;
                 }
+                logger.info("Job reservation succeeded; jobId={}, idempotencyKey={}", jobId, idempotencyKey);
                 try {
                     // Start execution asynchronously; release reservation in callback or on failure
                     executeJobAsync(jobId, jobSpec);
                 } catch (Exception ex) {
                     // Release reservation if scheduling failed before the async pipeline was established
-                    currentJobId.compareAndSet(jobId, null);
+                    var rolledBack = currentJobId.compareAndSet(jobId, null);
+                    logger.warn(
+                            "Reservation rollback after scheduling failure; jobId={}, idempotencyKey={}, rolledBack={}",
+                            jobId,
+                            idempotencyKey,
+                            rolledBack);
                     logger.error("Failed to start job {}", jobId, ex);
                     var error = ErrorPayload.internalError("Failed to start job execution", ex);
                     SimpleHttpServer.sendJsonResponse(exchange, 500, error);
