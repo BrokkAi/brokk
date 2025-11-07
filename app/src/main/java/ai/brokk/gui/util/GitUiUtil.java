@@ -15,17 +15,17 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.components.RoundedLineBorder;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.SyntaxDetector;
 import com.google.common.base.Splitter;
+import java.awt.Color;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -57,13 +57,6 @@ import org.kohsuke.github.GHPullRequest;
 public final class GitUiUtil {
     private static final Logger logger = LogManager.getLogger(GitUiUtil.class);
 
-    /**
-     * Cache for storing original borders of text fields before validation feedback is applied.
-     * Uses WeakHashMap to avoid memory leaks when text fields are garbage collected.
-     */
-    private static final WeakHashMap<JTextField, Border> originalBorders =
-            new WeakHashMap<>();
-
     private GitUiUtil() {}
 
     /**
@@ -71,10 +64,12 @@ public final class GitUiUtil {
      * on keystroke as the user types.
      *
      * <p>The listener validates input with a 200ms debounce using javax.swing.Timer. On validation
-     * failure, the text field border is set to a red RoundedLineBorder (2px thickness, 3px arc).
-     * On validation success, the original border (stored on first attachment) is restored.
+     * failure, the text field border is set to a red RoundedLineBorder (2px thickness, 3px arc)
+     * and a tooltip is set with the error message. On validation success, a transparent placeholder
+     * border is applied and the tooltip is cleared.
      *
-     * <p>Original borders are cached in a WeakHashMap to avoid memory leaks.
+     * <p>This design prevents layout shifts by maintaining constant border dimensions regardless
+     * of validation state.
      *
      * @param textField The JTextField to attach validation feedback to
      * @param validator A function that validates the text field's content and returns
@@ -83,10 +78,15 @@ public final class GitUiUtil {
      */
     public static DocumentListener createRealtimeValidationListener(
             JTextField textField, Function<String, Optional<String>> validator) {
-        // Store the original border if not already cached for this field
-        if (!originalBorders.containsKey(textField)) {
-            originalBorders.put(textField, textField.getBorder());
+        // Store the original border to restore when validation passes
+        var defaultBorder = textField.getBorder();
+        if (defaultBorder == null) {
+            defaultBorder = UIManager.getBorder("TextField.border");
         }
+        var normalBorder = defaultBorder;
+
+        // Error border
+        var errorBorder = new RoundedLineBorder(ThemeColors.getColor(ThemeColors.NOTIF_ERROR_BORDER), 2, 3);
 
         // Use array to store debounce timer (allows modification in lambda)
         Timer[] debounceTimer = {null};
@@ -119,16 +119,14 @@ public final class GitUiUtil {
                     Optional<String> validationError = validator.apply(text);
 
                     if (validationError.isPresent()) {
-                        // Validation failed: apply error border
-                        var errorBorder = new RoundedLineBorder(
-                                ThemeColors.getColor(ThemeColors.NOTIF_ERROR_BORDER), 2, 3);
+                        // Validation failed: apply error border and set tooltip
+                        String errorMessage = validationError.get();
                         textField.setBorder(errorBorder);
+                        textField.setToolTipText(errorMessage);
                     } else {
-                        // Validation succeeded: restore original border
-                        Border originalBorder = originalBorders.get(textField);
-                        if (originalBorder != null) {
-                            textField.setBorder(originalBorder);
-                        }
+                        // Validation succeeded: restore normal border and clear tooltip
+                        textField.setBorder(normalBorder);
+                        textField.setToolTipText(null);
                     }
                 });
                 debounceTimer[0].setRepeats(false);

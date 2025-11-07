@@ -605,8 +605,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     @Override
     public void issueProviderChanged() {
-        logger.debug(
-                "Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
+        logger.debug("Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;

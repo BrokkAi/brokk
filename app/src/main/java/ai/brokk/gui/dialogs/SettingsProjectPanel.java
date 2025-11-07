@@ -12,6 +12,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
@@ -23,15 +24,17 @@ import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.awt.Color;
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.function.Function;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
+import java.awt.Color;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
@@ -78,6 +81,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField githubRepoField = new JTextField(20);
     private JTextField githubHostField = new JTextField(20);
     private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private JLabel githubOwnerLabel;
+    private JLabel githubRepoLabel;
+    private JLabel githubHostLabel;
+    private JLabel githubInfoLabel;
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
@@ -399,7 +406,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
+        githubOwnerLabel = new JLabel("Owner:");
+        gitHubCard.add(githubOwnerLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
@@ -410,32 +418,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
+        githubRepoLabel = new JLabel("Repository:");
+        gitHubCard.add(githubRepoLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubRepoField, gbcGitHub);
 
-        // Combined validation for owner and repo fields
-        var ownerRepoValidator = (Function<String, Optional<String>>) unused -> {
-            if (!githubOverrideCheckbox.isSelected()) {
+        // Individual validation for owner field
+        var ownerValidator = (Function<String, Optional<String>>) ownerText -> {
+            if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
                 return Optional.empty();
             }
-            String owner = githubOwnerField.getText().trim();
-            String repo = githubRepoField.getText().trim();
-            return GitUiUtil.validateOwnerRepo(owner, repo);
+            // Only validate owner field individually - check basic format
+            if (ownerText.length() > 39 || !ownerText.matches("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")) {
+                return Optional.of("Owner must be 1-39 characters (alphanumeric and hyphens only)");
+            }
+            return Optional.empty();
         };
-        githubOwnerField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
-                githubOwnerField, ownerRepoValidator));
-        githubRepoField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
-                githubRepoField, ownerRepoValidator));
+
+        // Individual validation for repo field
+        var repoValidator = (Function<String, Optional<String>>) repoText -> {
+            if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
+                return Optional.empty();
+            }
+            // Only validate repo field individually - check basic format
+            if (repoText.length() > 100 || !repoText.matches("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$")) {
+                return Optional.of("Repository must be 1-100 characters (alphanumeric, underscore, dot, hyphen)");
+            }
+            return Optional.empty();
+        };
+
+        githubOwnerField
+                .getDocument()
+                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubOwnerField, ownerValidator));
+        githubRepoField
+                .getDocument()
+                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubRepoField, repoValidator));
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
+        githubHostLabel = new JLabel("Host (optional):");
+        gitHubCard.add(githubHostLabel, gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -454,32 +481,45 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
             return Optional.empty();
         };
-        githubHostField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
-                githubHostField, hostValidator));
+        githubHostField
+                .getDocument()
+                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
 
-        var ghInfoLabel = new JLabel(
+        githubInfoLabel = new JLabel(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
-        ghInfoLabel.setFont(ghInfoLabel
+        githubInfoLabel.setFont(githubInfoLabel
                 .getFont()
-                .deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
+                .deriveFont(Font.ITALIC, githubInfoLabel.getFont().getSize() * 0.9f));
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.gridwidth = 2;
         gbcGitHub.insets = new Insets(8, 2, 2, 2);
-        gitHubCard.add(ghInfoLabel, gbcGitHub);
+        gitHubCard.add(githubInfoLabel, gbcGitHub);
 
-        // Enable/disable owner/repo/host fields based on checkbox
+        // Show/hide and enable/disable owner/repo/host fields based on checkbox
         githubOverrideCheckbox.addActionListener(e -> {
             boolean selected = githubOverrideCheckbox.isSelected();
-            githubOwnerField.setEnabled(selected);
-            githubRepoField.setEnabled(selected);
-            githubHostField.setEnabled(selected);
+            githubOwnerLabel.setVisible(selected);
+            githubOwnerField.setVisible(selected);
+            githubRepoLabel.setVisible(selected);
+            githubRepoField.setVisible(selected);
+            githubHostLabel.setVisible(selected);
+            githubHostField.setVisible(selected);
+            githubInfoLabel.setVisible(selected);
+
             if (!selected) {
-                // Clear fields when unchecked
+                // Clear fields and remove any validation borders when unchecked
                 githubOwnerField.setText("");
                 githubRepoField.setText("");
                 githubHostField.setText("");
+                githubOwnerField.setBorder(UIManager.getBorder("TextField.border"));
+                githubRepoField.setBorder(UIManager.getBorder("TextField.border"));
+                githubHostField.setBorder(UIManager.getBorder("TextField.border"));
             }
+
+            // Revalidate and repaint to update layout
+            gitHubCard.revalidate();
+            gitHubCard.repaint();
         });
 
         githubRepoField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -513,10 +553,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Initial state
-        githubOwnerField.setEnabled(false);
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false);
+        // Initial state - hide all fields and labels until checkbox is checked
+        githubOwnerLabel.setVisible(false);
+        githubOwnerField.setVisible(false);
+        githubRepoLabel.setVisible(false);
+        githubRepoField.setVisible(false);
+        githubHostLabel.setVisible(false);
+        githubHostField.setVisible(false);
+        githubInfoLabel.setVisible(false);
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
@@ -1033,9 +1077,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         IssueProvider currentProvider = project.getIssuesProvider();
         issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
 
-        githubOwnerField.setEnabled(false); // Default state
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false); // Default state for host field
+        // Default state - hide fields and uncheck checkbox
+        githubOwnerLabel.setVisible(false);
+        githubOwnerField.setVisible(false);
+        githubRepoLabel.setVisible(false);
+        githubRepoField.setVisible(false);
+        githubHostLabel.setVisible(false);
+        githubHostField.setVisible(false);
+        githubInfoLabel.setVisible(false);
         githubOverrideCheckbox.setSelected(false);
 
         switch (currentProvider.type()) {
@@ -1053,12 +1102,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         githubOwnerField.setText(githubConfig.owner());
                         githubRepoField.setText(githubConfig.repo());
                         githubHostField.setText(githubConfig.host()); // Load host
-                        githubOwnerField.setEnabled(true);
-                        githubRepoField.setEnabled(true);
-                        githubHostField.setEnabled(true); // Enable host field if override is active
+                        githubOwnerLabel.setVisible(true);
+                        githubOwnerField.setVisible(true);
+                        githubRepoLabel.setVisible(true);
+                        githubRepoField.setVisible(true);
+                        githubHostLabel.setVisible(true);
+                        githubHostField.setVisible(true);
+                        githubInfoLabel.setVisible(true);
                         githubOverrideCheckbox.setSelected(true);
                     } else {
-                        // Fields remain disabled and empty, checkbox unchecked
+                        // Fields remain hidden and empty, checkbox unchecked
                         githubOwnerField.setText("");
                         githubRepoField.setText("");
                         githubHostField.setText("");
