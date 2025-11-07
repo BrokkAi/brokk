@@ -13,6 +13,8 @@ import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -259,8 +261,22 @@ public final class HeadlessExecutorMain {
 
         for (var pair : Splitter.on('&').split(query)) {
             var keyValue = pair.split("=", 2);
-            var key = keyValue[0];
-            var value = keyValue.length > 1 ? keyValue[1] : "";
+            var rawKey = keyValue[0];
+            var rawValue = keyValue.length > 1 ? keyValue[1] : "";
+
+            String key;
+            String value;
+            try {
+                key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                key = rawKey;
+            }
+            try {
+                value = URLDecoder.decode(rawValue, StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                value = rawValue;
+            }
+
             params.put(key, value);
         }
         return params;
