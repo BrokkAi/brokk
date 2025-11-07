@@ -34,7 +34,7 @@ public final class HeadlessExecutorMain {
     private final Path sessionsDir;
     private final JobStore jobStore;
     private final SessionManager sessionManager;
-    private final AtomicReference<UUID> currentSessionId = new AtomicReference<>();
+    private final AtomicReference<@Nullable UUID> currentSessionId = new AtomicReference<>();
     private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
 
@@ -274,7 +274,7 @@ public final class HeadlessExecutorMain {
      * @return true if reservation succeeded; false if another job holds the slot
      */
     private boolean tryReserveJobSlot(String jobId) {
-        assert jobId != null && !jobId.isBlank();
+        assert !jobId.isBlank();
         return jobReservation.tryReserve(jobId);
     }
 

@@ -8,7 +8,7 @@ import org.jetbrains.annotations.Nullable;
  * This helper enables concurrency-focused unit testing without spinning up the HTTP server.
  */
 public final class JobReservation {
-    private final AtomicReference<String> currentJobId = new AtomicReference<>();
+    private final AtomicReference<@Nullable String> currentJobId = new AtomicReference<>();
 
     /**
      * Try to reserve the exclusive job slot for the given jobId.
@@ -18,7 +18,7 @@ public final class JobReservation {
      * @return true if reservation succeeded; false if another job holds the slot
      */
     public boolean tryReserve(String jobId) {
-        assert jobId != null && !jobId.isBlank();
+        assert !jobId.isBlank();
         return currentJobId.compareAndSet(null, jobId);
     }
 
@@ -29,7 +29,7 @@ public final class JobReservation {
      * @return true if released; false if not the owner or already released
      */
     public boolean releaseIfOwner(String jobId) {
-        assert jobId != null && !jobId.isBlank();
+        assert !jobId.isBlank();
         return currentJobId.compareAndSet(jobId, null);
     }
 
