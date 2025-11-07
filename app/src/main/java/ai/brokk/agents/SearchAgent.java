@@ -1,5 +1,7 @@
 package ai.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
