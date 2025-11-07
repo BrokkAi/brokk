@@ -652,6 +652,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     private void updatePrTableContextMenuState() {
+        if (isShowingError) {
+            checkoutPrMenuItem.setEnabled(false);
+            capturePrDiffMenuItemContextMenu.setEnabled(false);
+            viewPrDiffMenuItem.setEnabled(false);
+            openPrInBrowserMenuItem.setEnabled(false);
+            return;
+        }
+
         boolean singlePrSelected = prTable.getSelectedRowCount() == 1;
         boolean anyPrSelected = prTable.getSelectedRowCount() > 0;
 
@@ -1090,6 +1098,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             // Process fetched PRs on EDT
             List<GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
+                isShowingError = false; // Reset error state on successful PR load
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
                 prCommitsCache.clear(); // Clear commits cache for new PR list
                 // ciStatusCache is updated incrementally, not fully cleared here unless error
