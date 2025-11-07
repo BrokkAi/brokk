@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -49,7 +50,7 @@ public class PromptsStyleGuideSmokeTest {
         // Aggregate the style guide exactly as prompts do (via StyleGuideResolver)
         var projectFileA = new ProjectFile(master, master.relativize(fileA));
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
-        String guide = StyleGuideResolver.resolve(master, List.of(projectFileA, projectFileB));
+        String guide = StyleGuideResolver.resolve(List.of(projectFileA, projectFileB));
 
         String headerA = "### AGENTS.md at a";
         String headerB = "### AGENTS.md at b";

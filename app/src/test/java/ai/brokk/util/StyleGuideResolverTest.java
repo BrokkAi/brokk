@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -27,8 +28,7 @@ public class StyleGuideResolverTest {
 
         var projectFileA = new ProjectFile(master, master.relativize(fileA));
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
-        var masterRoot = new ProjectFile(master, Path.of(""));
-        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileA, projectFileB));
+        var resolver = new StyleGuideResolver(List.of(projectFileA, projectFileB));
 
         assertTrue(resolver.getOrderedAgentFiles().isEmpty(), "Expected no AGENTS.md files to be found");
         assertEquals("", resolver.resolveCompositeGuide(), "Expected empty composite guide when none found");
@@ -47,8 +47,7 @@ public class StyleGuideResolverTest {
         Files.writeString(fileX, "// x");
 
         var projectFileX = new ProjectFile(master, master.relativize(fileX));
-        var masterRoot = new ProjectFile(master, Path.of(""));
-        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileX));
+        var resolver = new StyleGuideResolver(List.of(projectFileX));
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only root AGENTS.md should be present");
@@ -73,8 +72,7 @@ public class StyleGuideResolverTest {
         Files.writeString(fileInNested, "// kt");
 
         var projectFileInNested = new ProjectFile(master, master.relativize(fileInNested));
-        var masterRoot = new ProjectFile(master, Path.of(""));
-        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileInNested));
+        var resolver = new StyleGuideResolver(List.of(projectFileInNested));
 
         var ordered = resolver.getOrderedAgentFiles();
         assertEquals(1, ordered.size(), "Only nested AGENTS.md should be present");
@@ -119,8 +117,7 @@ public class StyleGuideResolverTest {
         var projectFileA1 = new ProjectFile(master, master.relativize(fileA1));
         var projectFileA2 = new ProjectFile(master, master.relativize(fileA2));
         var projectFileB1 = new ProjectFile(master, master.relativize(fileB1));
-        var masterRoot = new ProjectFile(master, Path.of(""));
-        var resolver = new StyleGuideResolver(masterRoot, List.of(projectFileA1, projectFileA2, projectFileB1));
+        var resolver = new StyleGuideResolver(List.of(projectFileA1, projectFileA2, projectFileB1));
 
         var ordered = resolver.getOrderedAgentFiles();
         // Expected nearest-first by input groups, preserving first-seen order: A, then B, then root

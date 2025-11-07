@@ -14,14 +14,14 @@ import org.apache.logging.log4j.Logger;
 
 /**
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
- * input ProjectFile instances, walking up the directory tree towards a repository/project master root.
+ * input ProjectFile instances, walking up the directory tree towards the repository root.
  *
  * Ordering rules:
- * - For each input file, scan nearest-first (current directory up to master root).
+ * - For each input file, scan nearest-first (current directory up to repository root).
  * - Across multiple inputs, preserve the first-seen order and de-duplicate files.
  *
  * Typical usage:
- *   var resolver = new StyleGuideResolver(masterRoot, projectFiles);
+ *   var resolver = new StyleGuideResolver(projectFiles);
  *   String guide = resolver.resolveCompositeGuide();
  */
 public final class StyleGuideResolver {
@@ -32,43 +32,21 @@ public final class StyleGuideResolver {
     private static final int DEFAULT_MAX_SECTIONS = 8;
     private static final int DEFAULT_MAX_TOTAL_CHARS = 20_000;
 
-    private final ProjectFile masterRoot;
-    private final List<ProjectFile> normalizedInputs;
+    private final List<ProjectFile> inputs;
 
     /**
      * Constructs a StyleGuideResolver that accepts ProjectFile inputs.
      *
-     * Each ProjectFile is validated to ensure it lies within the masterRoot.
-     * ProjectFile instances already handle normalization internally.
-     *
-     * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
-     * @param files an iterable of ProjectFile instances to influence which AGENTS.md files are selected
+     * @param files a list of ProjectFile instances to influence which AGENTS.md files are selected
      */
-    public StyleGuideResolver(ProjectFile masterRoot, Iterable<ProjectFile> files) {
-        this.masterRoot = masterRoot;
-
-        var result = new ArrayList<ProjectFile>();
-
-        for (var pf : files) {
-            if (pf == null) continue;
-            try {
-                if (pf.absPath().startsWith(masterRoot.absPath())) {
-                    result.add(pf);
-                } else {
-                    logger.debug("Skipping ProjectFile outside master root: {} (masterRoot: {})", pf, masterRoot);
-                }
-            } catch (Exception e) {
-                logger.debug("Skipping ProjectFile due to error resolving path: {}", e.getMessage());
-            }
-        }
-
-        this.normalizedInputs = result;
+    public StyleGuideResolver(List<ProjectFile> files) {
+        this.inputs = files;
     }
 
     private List<ProjectFile> collectAgentsForSingleInput(ProjectFile input) {
         var ordered = new ArrayList<ProjectFile>();
 
-        // Determine starting relative directory within the master root
+        // Determine starting relative directory
         Path startRel;
         if (Files.isDirectory(input.absPath())) {
             startRel = input.getRelPath();
@@ -78,21 +56,22 @@ public final class StyleGuideResolver {
 
         // Walk upwards from startRel to the repository root (empty relative path)
         Path cursorRel = startRel;
+        Path root = input.getRoot();
         while (true) {
             // Construct a candidate ProjectFile for "<cursor>/AGENTS.md"
             Path candidateRel = cursorRel.resolve("AGENTS.md");
-            var candidate = new ProjectFile(masterRoot.getRoot(), candidateRel);
+            var candidate = new ProjectFile(root, candidateRel);
             if (Files.isRegularFile(candidate.absPath())) {
                 ordered.add(candidate);
             }
 
-            // Stop after processing the master root (empty relative path)
+            // Stop after processing the repository root (empty relative path)
             if (cursorRel.toString().isEmpty()) {
                 break;
             }
 
             // Move up one level using ProjectFile.getParent()
-            var dirPf = new ProjectFile(masterRoot.getRoot(), cursorRel);
+            var dirPf = new ProjectFile(root, cursorRel);
             cursorRel = dirPf.getParent(); // returns empty path when at top
         }
 
@@ -104,19 +83,19 @@ public final class StyleGuideResolver {
      * across all inputs while preserving the first occurrence order.
      *
      * Ordering across multiple inputs is done in "layers" (round-robin by depth):
-     * - First include the nearest AGENTS.md for each input (depth 0) in input order.
+     * - First include the nearest AGENTS.md for each input (depth 0).
      * - Then include the next level up for each input (depth 1), and so on,
-     *   stopping at the master root. Duplicates are removed while preserving first-seen order.
+     *   stopping at the repository root. Duplicates are removed while preserving first-seen order.
      */
     public List<Path> getOrderedAgentFiles() {
-        if (normalizedInputs.isEmpty()) {
+        if (inputs.isEmpty()) {
             return List.of();
         }
 
         // Collect per-input lists (nearest-first) and compute the max depth.
-        var perInput = new ArrayList<List<ProjectFile>>(normalizedInputs.size());
+        var perInput = new ArrayList<List<ProjectFile>>(inputs.size());
         int maxDepth = 0;
-        for (var pf : normalizedInputs) {
+        for (var pf : inputs) {
             var lst = collectAgentsForSingleInput(pf);
             perInput.add(lst);
             if (lst.size() > maxDepth) {
@@ -127,8 +106,7 @@ public final class StyleGuideResolver {
         // Interleave by depth to ensure nearest-first across inputs, then go upwards.
         Set<Path> dedup = new LinkedHashSet<>();
         for (int depth = 0; depth < maxDepth; depth++) {
-            for (int i = 0; i < perInput.size(); i++) {
-                var lst = perInput.get(i);
+            for (List<ProjectFile> lst : perInput) {
                 if (depth < lst.size()) {
                     dedup.add(lst.get(depth).absPath().normalize());
                 }
@@ -146,7 +124,12 @@ public final class StyleGuideResolver {
         if (dir == null) {
             return "."; // Shouldn't happen, but be safe
         }
-        Path rel = masterRoot.getRoot().relativize(dir);
+        // Extract the root from any input ProjectFile to relativize
+        if (inputs.isEmpty()) {
+            return ".";
+        }
+        Path root = inputs.iterator().next().getRoot();
+        Path rel = root.relativize(dir);
         String s = toUnix(rel);
         return s.isEmpty() ? "." : s;
     }
@@ -180,7 +163,7 @@ public final class StyleGuideResolver {
     public String resolveCompositeGuide() {
         var files = getOrderedAgentFiles();
         if (files.isEmpty()) {
-            logger.debug("No AGENTS.md files found under {}", masterRoot);
+            logger.debug("No AGENTS.md files found");
             return "";
         }
 
@@ -280,20 +263,10 @@ public final class StyleGuideResolver {
     /**
      * Convenience function to build the composite guide directly from ProjectFile inputs.
      *
-     * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
-     * @param files iterable of ProjectFile inputs used to locate relevant AGENTS.md files
+     * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    public static String resolve(ProjectFile masterRoot, Iterable<ProjectFile> files) {
-        return new StyleGuideResolver(masterRoot, files).resolveCompositeGuide();
-    }
-
-    /**
-     * Backwards-compatible overload for callers that still pass a Path masterRoot.
-     * Wraps the Path into a ProjectFile rooted at the repository root.
-     */
-    public static String resolve(Path masterRoot, Iterable<ProjectFile> files) {
-        var rootPf = new ProjectFile(masterRoot, Path.of(""));
-        return new StyleGuideResolver(rootPf, files).resolveCompositeGuide();
+    public static String resolve(List<ProjectFile> files) {
+        return new StyleGuideResolver(files).resolveCompositeGuide();
     }
 }
