@@ -537,6 +537,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         // Add mouse listener for context menu on issue table
         issueTable.addMouseListener(new MouseAdapter() {
             private void showPopup(MouseEvent e) {
+                if (isShowingError) return;
                 if (e.isPopupTrigger()) {
                     int row = issueTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
