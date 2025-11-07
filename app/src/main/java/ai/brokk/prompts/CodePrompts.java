@@ -297,17 +297,16 @@ public abstract class CodePrompts {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var masterRoot = cm.getProject().getMasterRootPathForConfig();
         var projectFiles = ctx.fileFragments()
                 .map(f -> (ContextFragment.PathFragment) f)
                 .map(ContextFragment.PathFragment::file)
                 .filter(bf -> bf instanceof ProjectFile)
                 .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
-        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFiles);
+        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
@@ -334,13 +333,12 @@ public abstract class CodePrompts {
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.
         var topCtx = cm.topContext();
-        var masterRoot = cm.getProject().getMasterRootPathForConfig();
         var projectFiles = topCtx.fileFragments()
                 .flatMap(cf -> cf.files().stream())
                 .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
 
-        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFiles);
+        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =

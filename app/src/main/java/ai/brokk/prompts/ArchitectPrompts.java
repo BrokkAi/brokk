@@ -17,15 +17,14 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var masterRoot = cm.getProject().getMasterRootPathForConfig();
         var projectFiles = ctx.fileFragments()
                 .flatMap(cf -> cf.files().stream())
                 .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(masterRoot, projectFiles);
+        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
     }
 

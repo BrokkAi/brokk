@@ -1,28 +1,24 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
-import java.io.IOException;
+
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
- * input ProjectFile instances, walking up the directory tree towards a repository/project master root.
+ * input ProjectFile instances.
  *
- * Ordering rules:
- * - For each input file, scan nearest-first (current directory up to master root).
- * - Across multiple inputs, preserve the first-seen order and de-duplicate files.
- *
- * Typical usage:
- *   var resolver = new StyleGuideResolver(masterRoot, projectFiles);
- *   String guide = resolver.resolveCompositeGuide();
+ * Simplified approach:
+ * - Compute a single, ordered set of unique directories by performing a breadth-first ascent
+ *   from all input directories toward the repository root (nearest-first layers across inputs).
+ * - Scan each unique directory at most once for AGENTS.md.
+ * - Concatenate discovered files in that order.
  */
 public final class StyleGuideResolver {
     private static final Logger logger = LogManager.getLogger(StyleGuideResolver.class);
@@ -32,134 +28,71 @@ public final class StyleGuideResolver {
     private static final int DEFAULT_MAX_SECTIONS = 8;
     private static final int DEFAULT_MAX_TOTAL_CHARS = 20_000;
 
-    private final ProjectFile masterRoot;
-    private final List<ProjectFile> normalizedInputs;
+    private final List<ProjectFile> inputs;
 
     /**
      * Constructs a StyleGuideResolver that accepts ProjectFile inputs.
      *
-     * Each ProjectFile is validated to ensure it lies within the masterRoot.
-     * ProjectFile instances already handle normalization internally.
-     *
-     * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
-     * @param files an iterable of ProjectFile instances to influence which AGENTS.md files are selected
+     * @param files a list of ProjectFile instances to influence which AGENTS.md files are selected
      */
-    public StyleGuideResolver(ProjectFile masterRoot, Iterable<ProjectFile> files) {
-        this.masterRoot = masterRoot;
-
-        var result = new ArrayList<ProjectFile>();
-
-        for (var pf : files) {
-            if (pf == null) continue;
-            try {
-                if (pf.absPath().startsWith(masterRoot.absPath())) {
-                    result.add(pf);
-                } else {
-                    logger.debug("Skipping ProjectFile outside master root: {} (masterRoot: {})", pf, masterRoot);
-                }
-            } catch (Exception e) {
-                logger.debug("Skipping ProjectFile due to error resolving path: {}", e.getMessage());
-            }
-        }
-
-        this.normalizedInputs = result;
-    }
-
-    private List<ProjectFile> collectAgentsForSingleInput(ProjectFile input) {
-        var ordered = new ArrayList<ProjectFile>();
-
-        // Determine starting relative directory within the master root
-        Path startRel;
-        if (Files.isDirectory(input.absPath())) {
-            startRel = input.getRelPath();
-        } else {
-            startRel = input.getParent(); // returns empty Path.of("") when no parent
-        }
-
-        // Walk upwards from startRel to the repository root (empty relative path)
-        Path cursorRel = startRel;
-        while (true) {
-            // Construct a candidate ProjectFile for "<cursor>/AGENTS.md"
-            Path candidateRel = cursorRel.resolve("AGENTS.md");
-            var candidate = new ProjectFile(masterRoot.getRoot(), candidateRel);
-            if (Files.isRegularFile(candidate.absPath())) {
-                ordered.add(candidate);
-            }
-
-            // Stop after processing the master root (empty relative path)
-            if (cursorRel.toString().isEmpty()) {
-                break;
-            }
-
-            // Move up one level using ProjectFile.getParent()
-            var dirPf = new ProjectFile(masterRoot.getRoot(), cursorRel);
-            cursorRel = dirPf.getParent(); // returns empty path when at top
-        }
-
-        return ordered;
+    public StyleGuideResolver(List<ProjectFile> files) {
+        this.inputs = files;
     }
 
     /**
-     * Finds all AGENTS.md files in nearest-first order for each input path, de-duplicated
-     * across all inputs while preserving the first occurrence order.
-     *
-     * Ordering across multiple inputs is done in "layers" (round-robin by depth):
-     * - First include the nearest AGENTS.md for each input (depth 0) in input order.
-     * - Then include the next level up for each input (depth 1), and so on,
-     *   stopping at the master root. Duplicates are removed while preserving first-seen order.
+     * Finds all AGENTS.md files by:
+     * - Building a single ordered set of unique directories starting from all input directories,
+     *   walking upwards layer-by-layer toward the repo root (nearest-first across inputs).
+     * - Scanning each unique directory once for AGENTS.md and collecting hits in order.
      */
-    public List<Path> getOrderedAgentFiles() {
-        if (normalizedInputs.isEmpty()) {
+    public List<ProjectFile> getOrderedAgentFiles() {
+        if (inputs.isEmpty()) {
             return List.of();
         }
 
-        // Collect per-input lists (nearest-first) and compute the max depth.
-        var perInput = new ArrayList<List<ProjectFile>>(normalizedInputs.size());
-        int maxDepth = 0;
-        for (var pf : normalizedInputs) {
-            var lst = collectAgentsForSingleInput(pf);
-            perInput.add(lst);
-            if (lst.size() > maxDepth) {
-                maxDepth = lst.size();
-            }
+        // Establish the starting directories (one per input; file inputs use their parent directory).
+        var startDirs = new ArrayList<ProjectFile>(inputs.size());
+        for (var pf : inputs) {
+            var dir = pf.isDirectory() ? pf : new ProjectFile(pf.getRoot(), pf.getParent());
+            startDirs.add(dir);
         }
 
-        // Interleave by depth to ensure nearest-first across inputs, then go upwards.
-        Set<Path> dedup = new LinkedHashSet<>();
-        for (int depth = 0; depth < maxDepth; depth++) {
-            for (int i = 0; i < perInput.size(); i++) {
-                var lst = perInput.get(i);
-                if (depth < lst.size()) {
-                    dedup.add(lst.get(depth).absPath().normalize());
+        // BFS upwards across all inputs simultaneously, deduping directories while preserving first-seen order.
+        var visitedDirs = new LinkedHashSet<ProjectFile>();
+        var orderedDirs = new ArrayList<ProjectFile>();
+        var frontier = new LinkedHashSet<ProjectFile>(startDirs);
+
+        while (!frontier.isEmpty()) {
+            var nextFrontier = new LinkedHashSet<ProjectFile>();
+            for (var dir : frontier) {
+                if (visitedDirs.add(dir)) {
+                    orderedDirs.add(dir);
+                    // Move upward unless we are at the repository root.
+                    if (!dir.isRepoRoot()) {
+                        var parent = new ProjectFile(dir.getRoot(), dir.getParent());
+                        nextFrontier.add(parent);
+                    }
                 }
             }
+            frontier = nextFrontier;
         }
-        return List.copyOf(dedup);
-    }
 
-    private static String toUnix(Path p) {
-        return p.toString().replace('\\', '/');
-    }
-
-    private String relativeDirLabel(Path agentsFile) {
-        Path dir = agentsFile.getParent();
-        if (dir == null) {
-            return "."; // Shouldn't happen, but be safe
+        // Scan each unique directory once for AGENTS.md in the established order.
+        var result = new ArrayList<ProjectFile>();
+        for (var dir : orderedDirs) {
+            var candidate = new ProjectFile(dir.getRoot(), dir.getRelPath().resolve("AGENTS.md"));
+            if (Files.isRegularFile(candidate.absPath())) {
+                result.add(candidate);
+            }
         }
-        Path rel = masterRoot.getRoot().relativize(dir);
-        String s = toUnix(rel);
-        return s.isEmpty() ? "." : s;
+        return result;
     }
 
     private static int getCap(String propName, int defVal) {
-        try {
-            String v = System.getProperty(propName);
-            if (v == null || v.isBlank()) return defVal;
-            int parsed = Integer.parseInt(v.trim());
-            return parsed > 0 ? parsed : defVal;
-        } catch (Exception e) {
-            return defVal;
-        }
+        String v = System.getProperty(propName);
+        if (v == null || v.isBlank()) return defVal;
+        int parsed = Integer.parseInt(v.trim());
+        return parsed > 0 ? parsed : defVal;
     }
 
     /**
@@ -180,7 +113,7 @@ public final class StyleGuideResolver {
     public String resolveCompositeGuide() {
         var files = getOrderedAgentFiles();
         if (files.isEmpty()) {
-            logger.debug("No AGENTS.md files found under {}", masterRoot);
+            logger.debug("No AGENTS.md files found");
             return "";
         }
 
@@ -201,58 +134,54 @@ public final class StyleGuideResolver {
                 logger.debug("Stopping aggregation due to section cap: {} sections.", maxSections);
                 break;
             }
-            try {
-                String header = "### AGENTS.md at " + relativeDirLabel(agents);
-                String content = Files.readString(agents).strip();
+            String header = "### AGENTS.md at " + agents.getParent();
+            String content = agents.read().orElse("").strip();
 
-                // Compose the section payload with a blank line between header and content
-                String section = header + "\n\n" + content;
+            // Compose the section payload with a blank line between header and content
+            String section = header + "\n\n" + content;
 
-                // Account for the inter-section separator that will be added during join ("\n\n")
-                int separatorLen = sections.isEmpty() ? 0 : 2;
-                int projected = currentChars + separatorLen + section.length();
+            // Account for the inter-section separator that will be added during join ("\n\n")
+            int separatorLen = sections.isEmpty() ? 0 : 2;
+            int projected = currentChars + separatorLen + section.length();
 
-                if (projected <= maxChars) {
-                    // Add as-is
-                    if (separatorLen > 0) {
-                        currentChars += separatorLen;
-                    }
-                    sections.add(section);
-                    currentChars += section.length();
-                    included++;
-                } else {
-                    // Try to include a truncated version of this section if there is any space left
-                    int remaining = maxChars - currentChars - separatorLen;
-                    if (remaining > 0) {
-                        String headerWithSep = header + "\n\n";
-                        int headerLen = headerWithSep.length();
-
-                        if (headerLen < remaining) {
-                            int remainingForContent = remaining - headerLen;
-                            // Reserve a small suffix for a truncation marker
-                            String marker = "\n\n[Note: style guide truncated here to fit prompt budget]";
-                            int markerLen = marker.length();
-                            int finalContentLen = Math.max(0, remainingForContent - markerLen);
-                            String truncatedContent = content.substring(0, Math.min(content.length(), finalContentLen));
-                            String truncatedSection = headerWithSep + truncatedContent + marker;
-
-                            if (separatorLen > 0) {
-                                currentChars += separatorLen;
-                            }
-                            sections.add(truncatedSection);
-                            currentChars += truncatedSection.length();
-                            included++;
-                        } else {
-                            logger.debug("Insufficient space even for header, skipping partial add for {}", agents);
-                        }
-                    }
-                    truncated = true;
-                    logger.debug(
-                            "Stopping aggregation due to character cap at ~{} chars (cap {}).", currentChars, maxChars);
-                    break;
+            if (projected <= maxChars) {
+                // Add as-is
+                if (separatorLen > 0) {
+                    currentChars += separatorLen;
                 }
-            } catch (IOException e) {
-                logger.warn("Failed reading AGENTS.md at {}: {}", agents, e.getMessage());
+                sections.add(section);
+                currentChars += section.length();
+                included++;
+            } else {
+                // Try to include a truncated version of this section if there is any space left
+                int remaining = maxChars - currentChars - separatorLen;
+                if (remaining > 0) {
+                    String headerWithSep = header + "\n\n";
+                    int headerLen = headerWithSep.length();
+
+                    if (headerLen < remaining) {
+                        int remainingForContent = remaining - headerLen;
+                        // Reserve a small suffix for a truncation marker
+                        String marker = "\n\n[Note: style guide truncated here to fit prompt budget]";
+                        int markerLen = marker.length();
+                        int finalContentLen = Math.max(0, remainingForContent - markerLen);
+                        String truncatedContent = content.substring(0, Math.min(content.length(), finalContentLen));
+                        String truncatedSection = headerWithSep + truncatedContent + marker;
+
+                        if (separatorLen > 0) {
+                            currentChars += separatorLen;
+                        }
+                        sections.add(truncatedSection);
+                        currentChars += truncatedSection.length();
+                        included++;
+                    } else {
+                        logger.debug("Insufficient space even for header, skipping partial add for {}", agents);
+                    }
+                }
+                truncated = true;
+                logger.debug(
+                        "Stopping aggregation due to character cap at ~{} chars (cap {}).", currentChars, maxChars);
+                break;
             }
         }
 
@@ -280,20 +209,10 @@ public final class StyleGuideResolver {
     /**
      * Convenience function to build the composite guide directly from ProjectFile inputs.
      *
-     * @param masterRoot the top-level project root (e.g. AbstractProject.getMasterRootPathForConfig())
-     * @param files iterable of ProjectFile inputs used to locate relevant AGENTS.md files
+     * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    public static String resolve(ProjectFile masterRoot, Iterable<ProjectFile> files) {
-        return new StyleGuideResolver(masterRoot, files).resolveCompositeGuide();
-    }
-
-    /**
-     * Backwards-compatible overload for callers that still pass a Path masterRoot.
-     * Wraps the Path into a ProjectFile rooted at the repository root.
-     */
-    public static String resolve(Path masterRoot, Iterable<ProjectFile> files) {
-        var rootPf = new ProjectFile(masterRoot, Path.of(""));
-        return new StyleGuideResolver(rootPf, files).resolveCompositeGuide();
+    public static String resolve(List<ProjectFile> files) {
+        return new StyleGuideResolver(files).resolveCompositeGuide();
     }
 }
