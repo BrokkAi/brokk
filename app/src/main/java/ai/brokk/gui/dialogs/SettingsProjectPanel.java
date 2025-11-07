@@ -12,7 +12,6 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.components.RoundedLineBorder;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
@@ -24,7 +23,6 @@ import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
 import com.google.common.io.Files;
 import java.awt.*;
-import java.awt.Color;
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -34,7 +32,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
-import java.awt.Color;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
@@ -81,10 +78,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField githubRepoField = new JTextField(20);
     private JTextField githubHostField = new JTextField(20);
     private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
-    private JLabel githubOwnerLabel;
-    private JLabel githubRepoLabel;
-    private JLabel githubHostLabel;
-    private JLabel githubInfoLabel;
+    private JLabel githubOwnerLabel = new JLabel();
+    private JLabel githubRepoLabel = new JLabel();
+    private JLabel githubHostLabel = new JLabel();
+    private JLabel githubInfoLabel = new JLabel();
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
@@ -406,7 +403,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubOwnerLabel = new JLabel("Owner:");
+        githubOwnerLabel.setText("Owner:");
         gitHubCard.add(githubOwnerLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -418,7 +415,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubRepoLabel = new JLabel("Repository:");
+        githubRepoLabel.setText("Repository:");
         gitHubCard.add(githubRepoLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -432,7 +429,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 return Optional.empty();
             }
             // Only validate owner field individually - check basic format
-            if (ownerText.length() > 39 || !ownerText.matches("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")) {
+            if (ownerText.length() > 39
+                    || !ownerText.matches("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")) {
                 return Optional.of("Owner must be 1-39 characters (alphanumeric and hyphens only)");
             }
             return Optional.empty();
@@ -444,7 +442,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 return Optional.empty();
             }
             // Only validate repo field individually - check basic format
-            if (repoText.length() > 100 || !repoText.matches("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$")) {
+            if (repoText.length() > 100
+                    || !repoText.matches("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$")) {
                 return Optional.of("Repository must be 1-100 characters (alphanumeric, underscore, dot, hyphen)");
             }
             return Optional.empty();
@@ -461,7 +460,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubHostLabel = new JLabel("Host (optional):");
+        githubHostLabel.setText("Host (optional):");
         gitHubCard.add(githubHostLabel, gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
@@ -485,7 +484,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 .getDocument()
                 .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
 
-        githubInfoLabel = new JLabel(
+        githubInfoLabel.setText(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
         githubInfoLabel.setFont(githubInfoLabel
                 .getFont()

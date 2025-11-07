@@ -67,6 +67,8 @@ import org.kohsuke.github.HttpException;
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
+    private static final int DEFAULT_ROW_HEIGHT = 48;
+    private static final int ERROR_ROW_HEIGHT = 30;
 
     // PR Table Column Indices
     private static final int PR_COL_NUMBER = 0;
@@ -238,7 +240,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTable = new JTable(prTableModel);
         prTable.setTableHeader(null); // hide column headers
         prTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        prTable.setRowHeight(48); // increased cell height to give extra breathing room
+        prTable.setRowHeight(DEFAULT_ROW_HEIGHT); // increased cell height to give extra breathing room
         prTable.setIntercellSpacing(new Dimension(0, Constants.V_GAP)); // add vertical gap between rows
         // visible column
         prTable.getColumnModel().getColumn(PR_COL_TITLE).setPreferredWidth(600); // wide cell
@@ -880,6 +882,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void showErrorInTable(String message) {
         isShowingError = true;
+        prTable.setRowHeight(ERROR_ROW_HEIGHT);
         setPrTitleRenderer(false);
         GitTabUiStateManager.showError(prTableModel, new Object[] {"", message, "", "", ""}, () -> {
             disablePrButtonsAndClearCommitsAndMenus();
@@ -1063,6 +1066,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             List<GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
                 isShowingError = false;
+                prTable.setRowHeight(DEFAULT_ROW_HEIGHT);
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
                 prCommitsCache.clear();
                 populateDynamicFilterChoices(allPrsFromApi);

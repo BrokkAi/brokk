@@ -73,6 +73,8 @@ import org.kohsuke.github.HttpException;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
+    private static final int DEFAULT_ROW_HEIGHT = 48;
+    private static final int ERROR_ROW_HEIGHT = 30;
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -376,7 +378,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueTable = new JTable(issueTableModel);
         issueTable.setTableHeader(null); // hide headers
         issueTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        issueTable.setRowHeight(48); // give breathing room
+        issueTable.setRowHeight(DEFAULT_ROW_HEIGHT); // give breathing room
         issueTable.setIntercellSpacing(new Dimension(0, Constants.V_GAP));
 
         // Hide helper columns (ID, Author, Updated)
@@ -659,6 +661,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
+                    issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
                     setReloadUiEnabled(true);
                     searchBox.setLoading(false, "");
                 },
@@ -752,6 +755,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     /** Display an error message in the issue table and disable UI controls. */
     private void showErrorInTable(String message) {
         isShowingError = true;
+        issueTable.setRowHeight(ERROR_ROW_HEIGHT);
         setIssueTitleRenderer(false);
         GitTabUiStateManager.showError(issueTableModel, new Object[] {"", message, "", ""}, () -> {
             setReloadUiEnabled(false);
@@ -1031,6 +1035,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
             if (isFullUpdate) {
                 isShowingError = false;
+                issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
                 allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
                         "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
