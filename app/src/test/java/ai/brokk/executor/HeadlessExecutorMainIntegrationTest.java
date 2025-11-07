@@ -96,7 +96,7 @@ class HeadlessExecutorMainIntegrationTest {
         conn.setRequestMethod("GET");
 
         assertEquals(503, conn.getResponseCode());
-        
+
         // Verify ErrorPayload JSON structure
         InputStream stream = conn.getErrorStream();
         if (stream == null) {
@@ -108,7 +108,8 @@ class HeadlessExecutorMainIntegrationTest {
             assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
             assertTrue(response.contains("NOT_READY"), "Response should contain 'NOT_READY' code: " + response);
             assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
-            assertTrue(response.contains("No session loaded"), "Response should contain appropriate message: " + response);
+            assertTrue(
+                    response.contains("No session loaded"), "Response should contain appropriate message: " + response);
         }
         conn.disconnect();
     }
@@ -121,7 +122,7 @@ class HeadlessExecutorMainIntegrationTest {
         conn.setDoOutput(true);
 
         assertEquals(405, conn.getResponseCode());
-        
+
         // Verify ErrorPayload JSON structure
         InputStream stream = conn.getErrorStream();
         if (stream == null) {
@@ -131,9 +132,13 @@ class HeadlessExecutorMainIntegrationTest {
         try (InputStream is = stream) {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
-            assertTrue(response.contains("METHOD_NOT_ALLOWED"), "Response should contain 'METHOD_NOT_ALLOWED' code: " + response);
+            assertTrue(
+                    response.contains("METHOD_NOT_ALLOWED"),
+                    "Response should contain 'METHOD_NOT_ALLOWED' code: " + response);
             assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
-            assertTrue(response.contains("Method not allowed"), "Response should contain appropriate message: " + response);
+            assertTrue(
+                    response.contains("Method not allowed"),
+                    "Response should contain appropriate message: " + response);
         }
         conn.disconnect();
     }
@@ -149,7 +154,7 @@ class HeadlessExecutorMainIntegrationTest {
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
 
         assertEquals(404, conn.getResponseCode());
-        
+
         // Verify ErrorPayload JSON structure
         InputStream stream = conn.getErrorStream();
         if (stream == null) {
@@ -177,7 +182,7 @@ class HeadlessExecutorMainIntegrationTest {
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
 
         assertEquals(400, conn.getResponseCode());
-        
+
         // Verify ErrorPayload JSON structure
         InputStream stream = conn.getErrorStream();
         if (stream == null) {
@@ -189,7 +194,8 @@ class HeadlessExecutorMainIntegrationTest {
             assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
             assertTrue(response.contains("BAD_REQUEST"), "Response should contain 'BAD_REQUEST' code: " + response);
             assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
-            assertTrue(response.contains("Invalid job path"), "Response should contain appropriate message: " + response);
+            assertTrue(
+                    response.contains("Invalid job path"), "Response should contain appropriate message: " + response);
         }
         conn.disconnect();
     }
