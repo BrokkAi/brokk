@@ -204,6 +204,10 @@ public interface Language {
             return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
         }
 
+        public Set<Language> getLanguages() {
+            return Set.copyOf(languages);
+        }
+
         @Override
         public String toString() {
             return "MultiLanguage" + languages;
