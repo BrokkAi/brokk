@@ -329,7 +329,20 @@ public abstract class CodePrompts {
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = cm.getProject().getStyleGuide();
+
+        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
+        // fall back to the project root style guide if none found.
+        var topCtx = cm.topContext();
+        var projectFilePaths = topCtx.fileFragments()
+                .map(f -> (ContextFragment.PathFragment) f)
+                .map(ContextFragment.PathFragment::file)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> ((ProjectFile) bf).absPath())
+                .collect(Collectors.toSet());
+
+        var masterRoot = cm.getProject().getMasterRootPathForConfig();
+        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFilePaths);
+        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """
