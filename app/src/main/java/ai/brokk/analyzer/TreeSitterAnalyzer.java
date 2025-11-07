@@ -850,7 +850,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * definitions with bodies in source files (.cpp) over declarations in headers (.h).
      */
     protected Comparator<CodeUnit> prioritizingComparator() {
-        return (cu1, cu2) -> 0; // Default: no preference
+        return Comparator.comparingInt(cu -> 0);
     }
 
     /**
