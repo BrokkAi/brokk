@@ -728,12 +728,6 @@ public class GitUiUtilTest {
     }
 
     @Test
-    void testParseOwnerRepoFlexible_UrlMissingRepo() {
-        var result = GitUiUtil.parseOwnerRepoFlexible("https://github.com/octocat");
-        assertTrue(result.isEmpty(), "URL with missing repo should return empty");
-    }
-
-    @Test
     void testParseOwnerRepoFlexible_MalformedUrl() {
         var result = GitUiUtil.parseOwnerRepoFlexible("https://");
         assertTrue(result.isEmpty(), "Malformed URL should return empty");

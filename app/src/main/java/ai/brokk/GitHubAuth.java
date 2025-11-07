@@ -156,10 +156,9 @@ public class GitHubAuth {
                     + "). Check git remote or GitHub override settings for owner/repo.");
         }
 
-        // Validate and normalize owner/repo using centralized slug builder
-        String normalizedSlug;
+        // Validate owner/repo using centralized slug builder
         try {
-            normalizedSlug = GitUiUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
+            GitUiUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
         } catch (IllegalArgumentException e) {
             String source = usingOverride ? "GitHub config override" : "git remote URL";
             logger.warn(
@@ -693,9 +692,7 @@ public class GitHubAuth {
                 this.githubClient = builder.build();
                 try {
                     logger.debug(
-                            "Calling getRepository with slug '{}' on host '{}' (anonymous)",
-                            slug,
-                            targetHostDisplay);
+                            "Calling getRepository with slug '{}' on host '{}' (anonymous)", slug, targetHostDisplay);
                     this.ghRepository = this.githubClient.getRepository(slug);
                 } catch (IllegalArgumentException iae) {
                     logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());

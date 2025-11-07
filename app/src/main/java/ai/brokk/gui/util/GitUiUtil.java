@@ -424,18 +424,21 @@ public final class GitUiUtil {
      * Pattern for valid GitHub owner names: alphanumeric and hyphens only, 1-39 characters,
      * no leading/trailing hyphen, no consecutive hyphens.
      */
-    private static final Pattern GITHUB_OWNER_PATTERN = Pattern.compile("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$");
+    private static final Pattern GITHUB_OWNER_PATTERN =
+            Pattern.compile("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$");
 
     /**
      * Pattern for valid GitHub repository names: alphanumeric, hyphens, underscores, dots,
      * 1-100 characters, no leading/trailing dot.
      */
-    private static final Pattern GITHUB_REPO_PATTERN = Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$");
+    private static final Pattern GITHUB_REPO_PATTERN =
+            Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$");
 
     /**
      * Pattern for valid hostname labels: alphanumeric and hyphens, no leading/trailing hyphen.
      */
-    private static final Pattern HOSTNAME_LABEL_PATTERN = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$");
+    private static final Pattern HOSTNAME_LABEL_PATTERN =
+            Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$");
 
     /**
      * Holds a parsed "owner" and "repo" from a Git remote URL.
@@ -470,12 +473,15 @@ public final class GitUiUtil {
         }
 
         // Validate owner: length 1-39, alphanumeric and hyphens only
-        if (trimmedOwner.length() > 39 || !GITHUB_OWNER_PATTERN.matcher(trimmedOwner).matches()) {
+        if (trimmedOwner.length() > 39
+                || !GITHUB_OWNER_PATTERN.matcher(trimmedOwner).matches()) {
             return Optional.of(INVALID_REPO_FORMAT_MSG);
         }
 
         // Validate repo: length 1-100, alphanumeric/underscore/dot/hyphen, no leading/trailing dot
-        if (trimmedRepo.length() > 100 || trimmedRepo.equals(".") || trimmedRepo.equals("..")
+        if (trimmedRepo.length() > 100
+                || trimmedRepo.equals(".")
+                || trimmedRepo.equals("..")
                 || !GITHUB_REPO_PATTERN.matcher(trimmedRepo).matches()) {
             return Optional.of(INVALID_REPO_FORMAT_MSG);
         }
@@ -620,12 +626,18 @@ public final class GitUiUtil {
 
         try {
             var normalized = normalizeOwnerRepo(owner, repo);
-            logger.debug("Parsed and normalized owner '{}' and repo '{}' from URL '{}'",
-                    normalized.owner(), normalized.repo(), remoteUrl);
+            logger.debug(
+                    "Parsed and normalized owner '{}' and repo '{}' from URL '{}'",
+                    normalized.owner(),
+                    normalized.repo(),
+                    remoteUrl);
             return normalized;
         } catch (IllegalArgumentException e) {
-            logger.warn("Parsed owner/repo from URL but normalization failed: owner='{}', repo='{}'. Error: {}",
-                    owner, repo, e.getMessage());
+            logger.warn(
+                    "Parsed owner/repo from URL but normalization failed: owner='{}', repo='{}'. Error: {}",
+                    owner,
+                    repo,
+                    e.getMessage());
             return null;
         }
     }
@@ -651,13 +663,17 @@ public final class GitUiUtil {
 
         String trimmed = input.trim();
 
+        // Check for consecutive slashes (invalid in raw slugs)
+        if (trimmed.contains("//") && !trimmed.contains("://")) {
+            // Has consecutive slashes but no protocol - invalid
+            return Optional.empty();
+        }
+
         // Check if this looks like a raw slug (exactly one forward slash)
         int slashCount = 0;
-        int lastSlashIndex = -1;
         for (int i = 0; i < trimmed.length(); i++) {
             if (trimmed.charAt(i) == '/') {
                 slashCount++;
-                lastSlashIndex = i;
             }
         }
 
@@ -669,7 +685,7 @@ public final class GitUiUtil {
                     colonCount++;
                 }
             }
-            
+
             if (colonCount == 0) {
                 // Pure slug format: owner/repo
                 String[] parts = trimmed.split("/", 2);
@@ -734,7 +750,7 @@ public final class GitUiUtil {
      * @param host The host string to validate (should be normalized first)
      * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
      */
-    public static Optional<String> validateGitHubHost(String host) {
+    public static Optional<String> validateGitHubHost(@Nullable String host) {
         if (host == null || host.isBlank()) {
             return Optional.of("GitHub host cannot be blank.");
         }
@@ -779,8 +795,8 @@ public final class GitUiUtil {
                 return Optional.of("GitHub host label is too long (max 63 characters).");
             }
             if (!HOSTNAME_LABEL_PATTERN.matcher(label).matches()) {
-                return Optional.of("GitHub host label '" + label
-                        + "' contains invalid characters or leading/trailing hyphens.");
+                return Optional.of(
+                        "GitHub host label '" + label + "' contains invalid characters or leading/trailing hyphens.");
             }
         }
 
