@@ -295,7 +295,21 @@ public abstract class CodePrompts {
 
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
-        var styleGuide = cm.getProject().getStyleGuide();
+
+        // Collect project-backed file paths from current context (nearest-first resolution uses parent dirs).
+        var masterRoot = cm.getProject().getMasterRootPathForConfig();
+        var projectFilePaths = ctx.fileFragments()
+                .map(f -> (ContextFragment.PathFragment) f)
+                .map(ContextFragment.PathFragment::file)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> ((ProjectFile) bf).getRelPath())
+                .map(masterRoot::resolve)
+                .collect(Collectors.toSet());
+
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
+        // root guide.
+        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFilePaths);
+        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """
@@ -317,7 +331,21 @@ public abstract class CodePrompts {
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = cm.getProject().getStyleGuide();
+
+        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
+        // fall back to the project root style guide if none found.
+        var topCtx = cm.topContext();
+        var masterRoot = cm.getProject().getMasterRootPathForConfig();
+        var projectFilePaths = topCtx.fileFragments()
+                .map(f -> (ContextFragment.PathFragment) f)
+                .map(ContextFragment.PathFragment::file)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> ((ProjectFile) bf).getRelPath())
+                .map(masterRoot::resolve)
+                .collect(Collectors.toSet());
+
+        var resolvedGuide = ai.brokk.util.StyleGuideResolver.resolve(masterRoot, projectFilePaths);
+        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """

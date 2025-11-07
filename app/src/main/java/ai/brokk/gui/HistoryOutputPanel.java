@@ -1816,6 +1816,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Returns true if the MarkdownOutputPanel has displayable content.
+     *
+     * <p>This method checks if there is rendered output visible in the panel, even if
+     * {@link #getLlmRawMessages()} returns an empty list due to staged {@code pendingHistory}.
+     * It is suitable for determining UI state (e.g., enabling/disabling buttons) based on
+     * whether there is actual content to display.
+     *
+     * @return true if the panel has displayable output, false otherwise
+     */
+    public boolean hasDisplayableOutput() {
+        // First check if there is rendered/displayed text in the panel
+        String displayedText = llmStreamArea.getDisplayedText();
+        if (!displayedText.isEmpty()) {
+            return true;
+        }
+
+        // Fall back to checking raw messages (in case displayed text is not yet available)
+        return !llmStreamArea.getRawMessages().isEmpty();
+    }
+
+    /**
      * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
      * (for the last task).
      *

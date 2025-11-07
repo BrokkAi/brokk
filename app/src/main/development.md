@@ -470,3 +470,14 @@ export BRK_USAGE_BOOL=false
 export BRK_USAGE_BOOL=""        # treated as true
 export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```
+
+## Style Guide Aggregation (AGENTS.md)
+
+Brokk aggregates nested AGENTS.md files to build the style guide used in prompts.
+
+- Precedence: nearest-first per context file (walk up to the project master root). Across multiple files, sections are interleaved by depth and de-duplicated (a given AGENTS.md appears once).
+- Fallback: if no AGENTS.md is found near context files, Brokk falls back to the root AGENTS.md or the legacy project style guide.
+- Where to place guides: put an AGENTS.md in each subproject root you want to influence (e.g., `apps/web/AGENTS.md`, `services/api/AGENTS.md`, `packages/foo/AGENTS.md`). The resolver will pick these up automatically.
+- Limits: to protect prompt budget, aggregation caps at 8 sections and ~20k characters by default. Override via system properties:
+  - -Dbrokk.style.guide.maxSections=NN
+  - -Dbrokk.style.guide.maxChars=NNNNN

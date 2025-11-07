@@ -353,14 +353,14 @@ public class SearchAgent {
 
                 Critical rules:
                   1) PRUNE FIRST at every turn.
-                     - Remove fragments that are not directly useful for the goal.
-                     - Prefer concise, goal-focused summaries over full files.
-                     - When you pull information from a long fragment, first add your extraction, then drop the original.
+                     - Remove fragments that are not directly useful for the goal (add a reason).
+                     - Prefer concise, goal-focused summaries over full files when possible.
+                     - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
                      - Keep the Workspace focused on answering/solving the goal.
                   2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single call when possible.
+                  4) Group related lookups into a single tool call when possible.
                   5) Make multiple tool calls at once when searching for different types of code.
                   6) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
@@ -541,7 +541,7 @@ public class SearchAgent {
         // Any Analyzer at all provides these
         if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
             names.add("searchSymbols");
-            names.add("getFiles");
+            names.add("getSymbolLocations");
         }
 
         // Fine-grained Analyzer capabilities
@@ -662,9 +662,14 @@ public class SearchAgent {
             case "askHuman" -> 2;
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodsToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
+            case "searchSymbols",
+                    "getSymbolLocations",
+                    "getUsages",
+                    "searchSubstrings",
+                    "searchFilenames",
+                    "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "createTaskList" -> 100;
             case "answer", "workspaceComplete" -> 101; // should never co-occur
@@ -1002,6 +1007,7 @@ public class SearchAgent {
 
     private boolean shouldSummarize(String toolName) {
         return Set.of(
+                        "getSymbolLocations",
                         "searchSymbols",
                         "getUsages",
                         "getClassSources",

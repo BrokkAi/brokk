@@ -3,6 +3,9 @@ package ai.brokk.prompts;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
 import java.util.Map;
@@ -13,10 +16,49 @@ public abstract class ArchitectPrompts extends CodePrompts {
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
+    private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
+        // Collect project-backed file paths from current context (nearest-first resolution uses parent dirs).
+        var masterRoot = cm.getProject().getMasterRootPathForConfig();
+        var projectFilePaths = ctx.fileFragments()
+                .map(f -> (ContextFragment.PathFragment) f)
+                .map(ContextFragment.PathFragment::file)
+                .filter(bf -> bf instanceof ProjectFile)
+                .map(bf -> ((ProjectFile) bf).getRelPath())
+                .map(masterRoot::resolve)
+                .collect(Collectors.toSet());
+
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
+        // root guide.
+        var resolvedGuide = StyleGuideResolver.resolve(masterRoot, projectFilePaths);
+        return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+    }
+
     @Override
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = cm.getProject().getStyleGuide();
+        var styleGuide = resolveAggregatedStyleGuide(cm, cm.topContext());
+
+        var text =
+                """
+          <instructions>
+          %s
+          </instructions>
+          <workspace-summary>
+          %s
+          </workspace-summary>
+          <style_guide>
+          %s
+          </style_guide>
+          """
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
+        return new SystemMessage(text);
+    }
+
+    @Override
+    public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
 
         var text =
                 """

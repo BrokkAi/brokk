@@ -2531,7 +2531,7 @@ public class Chrome
     public void updateCaptureButtons() {
         var messageSize = historyOutputPanel.getLlmRawMessages().size();
         SwingUtilities.invokeLater(() -> {
-            var enabled = messageSize > 0;
+            var enabled = messageSize > 0 || historyOutputPanel.hasDisplayableOutput();
             historyOutputPanel.setCopyButtonEnabled(enabled);
             historyOutputPanel.setClearButtonEnabled(enabled);
             historyOutputPanel.setCaptureButtonEnabled(enabled);
