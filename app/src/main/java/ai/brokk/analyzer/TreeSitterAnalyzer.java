@@ -106,7 +106,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private volatile AnalyzerState state;
 
     // Stage timing captured during construction
-    private volatile StageTiming stageTiming;
+    private volatile @Nullable StageTiming stageTiming;
 
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
@@ -461,6 +461,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         });
 
         this.state = prebuiltState;
+        this.stageTiming = null;
 
         // Align last update watermark with snapshot's epoch for incremental detection semantics.
         this.lastUpdateEpochNanos.set(prebuiltState.snapshotEpochNanos());
@@ -1095,13 +1096,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * This overload provides subclasses with both the raw AST node and the refined SkeletonType
      * when constructing CodeUnit instances.
      */
-    protected CodeUnit createCodeUnit(
+    protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
             String simpleName,
             String packageName,
             String classChain,
-            TSNode definitionNode,
+            @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
         return createCodeUnit(file, captureName, simpleName, packageName, classChain);
     }
@@ -1890,8 +1891,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         .add(cu);
             }
 
-            String signature = buildSignatureString(
-                    node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file, skeletonType);
+            String signature =
+                    buildSignatureString(node, simpleName, src, fileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -2251,8 +2252,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             byte[] srcBytes,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
-            ProjectFile file,
-            SkeletonType skeletonType) {
+            ProjectFile file) {
 
         var signatureLines = new ArrayList<String>();
         var profile = getLanguageSyntaxProfile();

@@ -157,7 +157,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String simpleName,
             String packageName,
             String classChain,
-            TSNode definitionNode,
+            @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
         // In TypeScript, namespaces appear in BOTH packageName and classChain.
         // To avoid duplication in FQNames, strip the package prefix from classChain.
@@ -238,8 +238,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        return createCodeUnit(
-                file, captureName, simpleName, packageName, classChain, null, getSkeletonTypeForCapture(captureName));
+        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
+        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, skeletonType);
     }
 
     @Override
@@ -654,14 +654,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * @return true if the node has a "static" child, false otherwise
      */
     private boolean hasStaticModifier(TSNode node) {
-        if (node == null || node.isNull()) {
-            return false;
-        }
-
         int childCount = node.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (!child.isNull()) {
                 if ("static".equals(child.getType())) {
                     return true;
                 }
@@ -677,14 +673,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * @return "get" if it's a getter, "set" if it's a setter, or empty string if neither
      */
     private String getAccessorType(TSNode node) {
-        if (node == null || node.isNull()) {
-            return "";
-        }
-
         int childCount = node.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (!child.isNull()) {
                 String childType = child.getType();
                 if ("get".equals(childType)) {
                     return "get";
@@ -862,7 +854,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         Map<CodeUnit, String> skeletons = getSkeletons(topLevel.source());
         String skeleton = skeletons.get(topLevel);
 
-        return Optional.ofNullable(skeleton);
+        if (skeleton == null) {
+            return Optional.empty();
+        }
+        return Optional.of(skeleton);
     }
 
     /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
@@ -1124,7 +1119,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
         // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
         // We should NOT set the signature field on individual CodeUnits because it makes them unequal.
         // Instead, signature information is extracted during skeleton building and stored in
