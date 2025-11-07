@@ -411,7 +411,7 @@ public final class HeadlessExecutorMain {
 
         // Switch ContextManager to this session
         contextManager.switchSessionAsync(sessionId).join();
-        logger.info("Switched to session: {}", sessionId);
+        logger.info("Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
 
         // Mark executor as ready to serve requests that require a session.
         sessionUploaded = true;
