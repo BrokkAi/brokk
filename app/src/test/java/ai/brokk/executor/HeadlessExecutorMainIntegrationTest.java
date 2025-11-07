@@ -248,7 +248,7 @@ class HeadlessExecutorMainIntegrationTest {
         // First, upload a session
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+        var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
                 "taskInput",
@@ -279,7 +279,7 @@ class HeadlessExecutorMainIntegrationTest {
     void testPostJobsEndpoint_RequiresPlannerModel() throws Exception {
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+        var jobSpec = Map.<String, Object>of(
                 "sessionId", UUID.randomUUID().toString(), "taskInput", "echo missing planner", "autoCompress", false);
 
         var url = URI.create(baseUrl + "/v1/jobs").toURL();
@@ -315,7 +315,7 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
 
         var invalidPlanner = "does-not-exist-model";
-        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+        var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
                 "taskInput",
@@ -373,7 +373,7 @@ class HeadlessExecutorMainIntegrationTest {
         // Upload a session
         uploadSession();
 
-        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+        var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
                 "taskInput",
@@ -515,7 +515,7 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     private String createJob(String idempotencyKey) throws Exception {
-        var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
+        var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
                 "taskInput",
