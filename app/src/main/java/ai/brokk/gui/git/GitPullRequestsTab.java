@@ -30,6 +30,9 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -59,6 +62,7 @@ import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
+import org.kohsuke.github.HttpException;
 
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
@@ -112,6 +116,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prFilesTableModel;
     /** PR-details panel (commits & changed files); hidden until a PR is selected. */
     private JPanel prCommitsAndFilesPanel;
+
+    private boolean isShowingError = false;
 
     @Nullable
     private SwingWorker<Map<Integer, String>, Void> activeCiFetcher;
@@ -898,6 +904,19 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         labelFilter.setEnabled(enabled);
         assigneeFilter.setEnabled(enabled);
         reviewFilter.setEnabled(enabled);
+    }
+
+    /**
+     * Displays an error message in the PR table and disables interactions.
+     * Sets isShowingError flag, clears the table, adds a single error row, and disables buttons.
+     *
+     * @param message The error message to display
+     */
+    private void showErrorInTable(String message) {
+        isShowingError = true;
+        prTableModel.setRowCount(0);
+        prTableModel.addRow(new Object[] {"", message, "", "", ""});
+        disablePrButtonsAndClearCommitsAndMenus();
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
