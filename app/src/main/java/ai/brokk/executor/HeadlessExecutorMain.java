@@ -402,13 +402,6 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            // Check if a job is already running
-            if (currentJobId.get() != null) {
-                var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
-                SimpleHttpServer.sendJsonResponse(exchange, 409, error);
-                return;
-            }
-
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
             if (jobSpecRequest == null) {
@@ -451,13 +444,28 @@ public final class HeadlessExecutorMain {
                     "jobId", jobId,
                     "state", state);
 
-            int statusCode = isNewJob ? 201 : 200;
-            SimpleHttpServer.sendJsonResponse(exchange, statusCode, response);
-
-            // If this is a new job, start execution asynchronously
             if (isNewJob) {
-                currentJobId.set(jobId);
-                executeJobAsync(jobId, jobSpec);
+                // Atomically reserve the job slot; fail fast if another job is in progress
+                if (!currentJobId.compareAndSet(null, jobId)) {
+                    logger.info("Job reservation failed for {}; another job in progress: {}", jobId, currentJobId.get());
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+                try {
+                    // Start execution asynchronously; release reservation in callback or on failure
+                    executeJobAsync(jobId, jobSpec);
+                } catch (Exception ex) {
+                    // Release reservation if scheduling failed before the async pipeline was established
+                    currentJobId.compareAndSet(jobId, null);
+                    logger.error("Failed to start job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
             }
         } catch (Exception e) {
             logger.error("Error handling POST /v1/jobs", e);
