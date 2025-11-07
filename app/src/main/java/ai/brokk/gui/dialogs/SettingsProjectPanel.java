@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Function;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -416,6 +417,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubRepoField, gbcGitHub);
 
+        // Combined validation for owner and repo fields
+        var ownerRepoValidator = (Function<String, Optional<String>>) unused -> {
+            if (!githubOverrideCheckbox.isSelected()) {
+                return Optional.empty();
+            }
+            String owner = githubOwnerField.getText().trim();
+            String repo = githubRepoField.getText().trim();
+            return GitUiUtil.validateOwnerRepo(owner, repo);
+        };
+        githubOwnerField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
+                githubOwnerField, ownerRepoValidator));
+        githubRepoField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
+                githubRepoField, ownerRepoValidator));
+
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
@@ -427,6 +442,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.weightx = 1.0;
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubHostField, gbcGitHub);
+
+        // Real-time validation for host field
+        var hostValidator = (Function<String, Optional<String>>) hostText -> {
+            if (hostText.isEmpty() || !githubOverrideCheckbox.isSelected()) {
+                return Optional.empty();
+            }
+            var normalizedOpt = GitUiUtil.normalizeGitHubHost(hostText);
+            if (normalizedOpt.isPresent()) {
+                return GitUiUtil.validateGitHubHost(normalizedOpt.get());
+            }
+            return Optional.empty();
+        };
+        githubHostField.getDocument().addDocumentListener(GitUiUtil.createRealtimeValidationListener(
+                githubHostField, hostValidator));
 
         var ghInfoLabel = new JLabel(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
@@ -477,41 +506,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         var ownerRepo = parseResult.get();
                         githubOwnerField.setText(ownerRepo.owner());
                         githubRepoField.setText(ownerRepo.repo());
-                    }
-                }
-            }
-        });
-
-        githubHostField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                onHostFieldChanged();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                onHostFieldChanged();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                onHostFieldChanged();
-            }
-
-            private void onHostFieldChanged() {
-                String hostText = githubHostField.getText();
-                if (!hostText.isEmpty()) {
-                    var normalizedOpt = GitUiUtil.normalizeGitHubHost(hostText);
-                    if (normalizedOpt.isPresent()) {
-                        String normalized = normalizedOpt.get();
-                        var validationError = GitUiUtil.validateGitHubHost(normalized);
-                        if (validationError.isPresent()) {
-                            logger.debug("GitHub host validation error: {}", validationError.get());
-                        } else {
-                            if (!normalized.equals(hostText)) {
-                                githubHostField.setText(normalized);
-                            }
-                        }
                     }
                 }
             }
