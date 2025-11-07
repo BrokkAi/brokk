@@ -926,7 +926,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     /**
      * Displays an error message in the PR table and disables interactions.
-     * Sets isShowingError flag, clears the table, adds a single error row, and disables buttons.
+     * Sets isShowingError flag, clears the table, adds a single error row, and disables buttons and filters.
      *
      * @param message The error message to display
      */
@@ -937,6 +937,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTableModel.setRowCount(0);
         prTableModel.addRow(new Object[] {"", message, "", "", ""});
         disablePrButtonsAndClearCommitsAndMenus();
+        setReloadUiEnabled(false);
     }
 
     /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */
@@ -1047,7 +1048,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     labelChoices.clear();
                     assigneeChoices.clear();
                     showErrorInTable(finalErrorMessage);
-                    setReloadUiEnabled(true);
                 });
                 return null;
             } catch (UnknownHostException unknownHostEx) {
@@ -1062,7 +1062,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     labelChoices.clear();
                     assigneeChoices.clear();
                     showErrorInTable(errorMessage);
-                    setReloadUiEnabled(true);
                 });
                 return null;
             } catch (SocketTimeoutException | ConnectException timeoutEx) {
@@ -1077,7 +1076,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     labelChoices.clear();
                     assigneeChoices.clear();
                     showErrorInTable(errorMessage);
-                    setReloadUiEnabled(true);
                 });
                 return null;
             } catch (IOException ioEx) {
@@ -1092,7 +1090,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     labelChoices.clear();
                     assigneeChoices.clear();
                     showErrorInTable(errorMessage);
-                    setReloadUiEnabled(true);
                 });
                 return null;
             } catch (Exception ex) {
@@ -1107,7 +1104,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     labelChoices.clear();
                     assigneeChoices.clear();
                     showErrorInTable(errorMessage);
-                    setReloadUiEnabled(true);
                 });
                 return null;
             }
