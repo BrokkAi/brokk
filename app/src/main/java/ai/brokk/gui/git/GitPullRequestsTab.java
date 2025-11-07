@@ -51,9 +51,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.TransportException;
-import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
@@ -129,7 +126,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Nullable
     private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
-
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
@@ -890,13 +886,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     /** Enable or disable every widget that can trigger a new reload. Must be called on the EDT. */
     private void setReloadUiEnabled(boolean enabled) {
-        refreshPrButton.setEnabled(enabled);
-
-        statusFilter.setEnabled(enabled);
-        authorFilter.setEnabled(enabled);
-        labelFilter.setEnabled(enabled);
-        assigneeFilter.setEnabled(enabled);
-        reviewFilter.setEnabled(enabled);
+        GitTabUiStateManager.setReloadControlsEnabled(
+                enabled, refreshPrButton, statusFilter, authorFilter, labelFilter, assigneeFilter, reviewFilter);
     }
 
     /**
@@ -909,17 +900,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         isShowingError = true;
         // Use a simple single-line renderer for error rows to avoid stray subtitle like "by"
         setPrTitleRenderer(false);
-        prTableModel.setRowCount(0);
-        prTableModel.addRow(new Object[] {"", message, "", "", ""});
-        disablePrButtonsAndClearCommitsAndMenus();
-        setReloadUiEnabled(false);
+        GitTabUiStateManager.showError(prTableModel, new Object[] {"", message, "", "", ""}, () -> {
+            disablePrButtonsAndClearCommitsAndMenus();
+            setReloadUiEnabled(false);
+        });
     }
 
     /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */
     private void setPrTitleRenderer(boolean rich) {
         assert SwingUtilities.isEventDispatchThread();
-        var column = prTable.getColumnModel().getColumn(PR_COL_TITLE);
-        column.setCellRenderer(rich ? prTitleRichRenderer : defaultStringCellRenderer);
+        GitTabUiStateManager.setTitleRenderer(
+                prTable, PR_COL_TITLE, prTitleRichRenderer, defaultStringCellRenderer, rich);
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
@@ -1424,7 +1415,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 headBranchName = headBranchName.substring("refs/heads/".length());
                             String headBranchFetchRefSpec = String.format(
                                     "+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
-                            headLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
+                            headLocallyAvailable =
+                                    GitUiUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
                         } else {
                             logger.warn(
                                     "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.",

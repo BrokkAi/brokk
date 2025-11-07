@@ -742,32 +742,31 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     /** Enable or disable every widget that can trigger a new reload. Must be called on the EDT. */
     private void setReloadUiEnabled(boolean enabled) {
-        refreshButton.setEnabled(enabled);
-        statusFilter.setEnabled(enabled);
-        authorFilter.setEnabled(enabled);
-        labelFilter.setEnabled(enabled);
-        assigneeFilter.setEnabled(enabled);
-        if (resolutionFilter != null) {
-            resolutionFilter.setEnabled(enabled);
-        }
-        searchBox.setEnabled(enabled);
+        GitTabUiStateManager.setReloadControlsEnabled(
+                enabled,
+                refreshButton,
+                statusFilter,
+                authorFilter,
+                labelFilter,
+                assigneeFilter,
+                resolutionFilter,
+                searchBox);
     }
 
     /** Toggle between simple and rich renderers for the issue title column. */
     private void setIssueTitleRenderer(boolean rich) {
-        var renderer = rich ? richIssueTitleRenderer : defaultIssueTitleRenderer;
-        issueTable.getColumnModel().getColumn(1).setCellRenderer(renderer);
+        GitTabUiStateManager.setTitleRenderer(issueTable, 1, richIssueTitleRenderer, defaultIssueTitleRenderer, rich);
     }
 
     /** Display an error message in the issue table and disable UI controls. */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        setReloadUiEnabled(false);
         setIssueTitleRenderer(false); // Use simple renderer for error row
-        issueTableModel.setRowCount(0);
-        issueTableModel.addRow(new Object[] {"", message, "", ""});
-        disableIssueActionsAndClearDetails();
-        searchBox.setLoading(false, "");
+        GitTabUiStateManager.showError(issueTableModel, new Object[] {"", message, "", ""}, () -> {
+            setReloadUiEnabled(false);
+            disableIssueActionsAndClearDetails();
+            searchBox.setLoading(false, "");
+        });
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
