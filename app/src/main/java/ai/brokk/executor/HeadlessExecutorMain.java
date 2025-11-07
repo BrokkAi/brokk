@@ -22,7 +22,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -36,7 +35,6 @@ public final class HeadlessExecutorMain {
     private final Path sessionsDir;
     private final JobStore jobStore;
     private final SessionManager sessionManager;
-    private final AtomicReference<@Nullable UUID> currentSessionId = new AtomicReference<>();
     private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
 
@@ -160,13 +158,7 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        var sessionId = currentSessionId.get();
-        if (sessionId == null) {
-            var error = ErrorPayload.of("NOT_READY", "No session loaded");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return;
-        }
-
+        var sessionId = contextManager.getCurrentSessionId();
         var response = Map.of("status", "ready", "sessionId", sessionId.toString());
 
         SimpleHttpServer.sendJsonResponse(exchange, response);
@@ -409,7 +401,6 @@ public final class HeadlessExecutorMain {
 
         // Switch ContextManager to this session
         contextManager.switchSessionAsync(sessionId).join();
-        currentSessionId.set(sessionId);
         logger.info("Switched to session: {}", sessionId);
     }
 
