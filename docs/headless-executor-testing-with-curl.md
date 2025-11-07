@@ -29,10 +29,23 @@ curl -sS "${BASE}/health/live"
 curl -sS "${BASE}/health/ready"
 ```
 
-## Upload Session
+## Create Session
 
 ```bash
-curl -sS -X POST "${BASE}/v1/session" \
+curl -sS -X POST "${BASE}/v1/sessions" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "name": "My New Session"
+}
+JSON
+```
+
+## Import Session (load existing)
+
+```bash
+curl -sS -X PUT "${BASE}/v1/sessions" \
   -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -H "Content-Type: application/zip" \
   --data-binary @"${SESSION_ZIP}"

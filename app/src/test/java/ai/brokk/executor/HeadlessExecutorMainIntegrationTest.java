@@ -308,12 +308,12 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     @Test
-    void testPostSessionEndpoint_RequiresAuth() throws Exception {
+    void testPutSessionsEndpoint_RequiresAuth() throws Exception {
         var sessionZip = createEmptyZip();
 
-        var url = URI.create(baseUrl + "/v1/session").toURL();
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
+        conn.setRequestMethod("PUT");
         conn.setRequestProperty("Content-Type", "application/zip");
         conn.setDoOutput(true);
         // No Authorization header
@@ -327,12 +327,12 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     @Test
-    void testPostSessionEndpoint_WithValidAuth() throws Exception {
+    void testPutSessionsEndpoint_WithValidAuth() throws Exception {
         var sessionZip = createEmptyZip();
 
-        var url = URI.create(baseUrl + "/v1/session").toURL();
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
+        conn.setRequestMethod("PUT");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
         conn.setRequestProperty("Content-Type", "application/zip");
         conn.setDoOutput(true);
@@ -362,7 +362,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gpt-5");
+                "gemini-2.0-flash");
 
         var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
@@ -487,7 +487,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gpt-5");
+                "gemini-2.0-flash");
 
         var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
@@ -606,9 +606,9 @@ class HeadlessExecutorMainIntegrationTest {
 
     private void uploadSession() throws Exception {
         var sessionZip = createEmptyZip();
-        var url = URI.create(baseUrl + "/v1/session").toURL();
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
+        conn.setRequestMethod("PUT");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
         conn.setRequestProperty("Content-Type", "application/zip");
         conn.setDoOutput(true);
@@ -630,7 +630,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gpt-5");
+                "gemini-2.0-flash");
 
         var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();

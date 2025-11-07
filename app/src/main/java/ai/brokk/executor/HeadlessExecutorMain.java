@@ -34,7 +34,6 @@ public final class HeadlessExecutorMain {
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
-    private final Path sessionsDir;
     private final JobStore jobStore;
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
@@ -95,7 +94,6 @@ public final class HeadlessExecutorMain {
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, Path workspaceDir, Path sessionsDir)
             throws IOException {
         this.execId = execId;
-        this.sessionsDir = sessionsDir;
 
         // Parse listen address
         var parts = Splitter.on(':').splitToList(listenAddr);
@@ -150,8 +148,10 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
-        this.server.registerAuthenticatedContext("/v1/session", this::handlePostSession);
-        this.server.registerAuthenticatedContext("/v1/sessions", this::handleCreateSession);
+        // Sessions router handles:
+        // - POST /v1/sessions  (create a new session by name)
+        // - PUT  /v1/sessions  (import/load an existing session from a zip)
+        this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
@@ -222,7 +222,7 @@ public final class HeadlessExecutorMain {
     public void start() {
         this.server.start();
         logger.info(
-                "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/session, /v1/jobs, etc.; cmSession={}",
+                "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
                 contextManager.getCurrentSessionId());
     }
 
@@ -312,6 +312,29 @@ public final class HeadlessExecutorMain {
     private boolean tryReserveJobSlot(String jobId) {
         assert !jobId.isBlank();
         return jobReservation.tryReserve(jobId);
+    }
+
+    // ============================================================================
+    // Router for /v1/sessions endpoints
+    // ============================================================================
+
+    /**
+     * Route requests to /v1/sessions based on HTTP method.
+     * - POST: create a new session by name
+     * - PUT: import/load an existing session zip
+     */
+    void handleSessionsRouter(HttpExchange exchange) throws IOException {
+        var method = exchange.getRequestMethod();
+        if (method.equals("POST")) {
+            handleCreateSession(exchange);
+            return;
+        }
+        if (method.equals("PUT")) {
+            handlePutSession(exchange);
+            return;
+        }
+        var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+        SimpleHttpServer.sendJsonResponse(exchange, 405, error);
     }
 
     // ============================================================================
@@ -428,7 +451,7 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        if (request.name() == null || request.name().isBlank()) {
+        if (request.name().isBlank()) {
             var error = ErrorPayload.validationError("Session name is required and must not be blank");
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
             return;
@@ -444,7 +467,7 @@ public final class HeadlessExecutorMain {
 
         try {
             try {
-                contextManager.createSessionAsync(sessionName).get(1, TimeUnit.SECONDS);
+                contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
                 logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
             }
@@ -464,7 +487,7 @@ public final class HeadlessExecutorMain {
     }
 
     /**
-     * POST /v1/session - Upload and import a session from a zip file.
+     * PUT /v1/sessions - Upload and import a session from a zip file.
      * <p>
      * <b>Authentication:</b> Required (via Authorization header)
      * <p>
@@ -488,8 +511,8 @@ public final class HeadlessExecutorMain {
      *   <li>Sets sessionLoaded flag to true, enabling /health/ready</li>
      * </ul>
      */
-    void handlePostSession(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestMethod().equals("POST")) {
+    void handlePutSession(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("PUT")) {
             var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
@@ -518,7 +541,7 @@ public final class HeadlessExecutorMain {
             var error = ErrorPayload.validationError("Invalid X-Session-Id header: " + e.getMessage());
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
         } catch (Exception e) {
-            logger.error("Error handling POST /v1/session", e);
+            logger.error("Error handling PUT /v1/sessions", e);
             var error = ErrorPayload.internalError("Failed to process session upload", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
@@ -534,15 +557,17 @@ public final class HeadlessExecutorMain {
      * @throws Exception if switching the session fails
      */
     void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
-        // Write zip file to disk
-        var sessionZipPath = sessionsDir.resolve(sessionId + ".zip");
+        // Write zip file to the directory ContextManager/SessionManager expect: <workspace>/.brokk/sessions
+        var cmSessionsDir = contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
+        Files.createDirectories(cmSessionsDir);
+        var sessionZipPath = cmSessionsDir.resolve(sessionId + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
 
         // Switch ContextManager to this session with timeout to avoid indefinite blocking
         try {
-            contextManager.switchSessionAsync(sessionId).get(1, TimeUnit.SECONDS);
+            contextManager.switchSessionAsync(sessionId).get(3, TimeUnit.SECONDS);
             logger.info(
                     "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
         } catch (TimeoutException e) {

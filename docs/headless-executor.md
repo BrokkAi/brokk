@@ -45,7 +45,11 @@ Once running, the executor exposes the following endpoints:
 
 ### Session Management (Authenticated)
 
-- **`POST /v1/session`** - Upload session zip file
+- **`POST /v1/sessions`** - Create a new session
+  - Body: `{ "name": "<session name>" }`
+  - Returns: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+
+- **`PUT /v1/sessions`** - Upload an existing session zip file
   - Content-Type: `application/zip`
   - Returns: `{ "sessionId": "<uuid>" }`
 
