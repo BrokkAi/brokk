@@ -41,10 +41,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
 
-    // Some analyzers encode top-level items under a pseudo "module" owner (e.g., "_module_" in python).
-    // Treat these owners as non-class containers when classifying methods vs. functions.
-    private static final Set<String> PSEUDO_OWNERS = Set.of("_module_");
-
     private final IContextManager contextManager; // Needed for file operations
 
     public SearchTools(IContextManager contextManager) {
@@ -108,7 +104,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Retrieves summaries (fields and method signatures) for all classes and top-level functions defined within specified project files.
+                    Retrieves summaries (class fields and method/function signatures) for all classes and top-level functions defined within specified project files.
                     Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                     This is a fast and efficient way to read multiple related files at once.
                     (But if you don't know where what you want is located, you should use searchSymbols instead.)
@@ -165,19 +161,19 @@ public class SearchTools {
 
     @Tool(
             """
-                    Search for symbols (class/method/function/field/module definitions) using static analysis.
+                    Search for symbols (class/function/field/module definitions) using static analysis.
                     Output is grouped by file, then by symbol kind within each file.
 
-                    - kinds: classes, methods (member functions), functions (free/top-level), fields (class/struct), globals (top-level/module variables), modules
-                    - methods are member functions of classes/types; functions are free/top-level
-                    - top-level variables (including C/C++ file-scope 'static') are reported as globals
+                    - kinds: CLASS, FUNCTION, FIELD, MODULE
+                    - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
+                    - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
                     - empty kind sections are omitted
 
                     Examples:
                     <file path="src/main/java/com/example/Foo.java">
-                    [classes]
+                    [CLASS]
                     - com.example.Foo
-                    [methods]
+                    [FUNCTION]
                     - com.example.Foo.bar
                     </file>
                     """)
@@ -213,7 +209,7 @@ public class SearchTools {
         var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
                         cu -> cu.source().toString().replace('\\', '/'),
-                        Collectors.groupingBy(SearchTools::codeUnitKind)));
+                        Collectors.groupingBy(cu -> cu.kind().name())));
 
         // Build output: sorted files, sorted kinds per file, sorted symbols per kind
         var result = new StringBuilder();
@@ -225,8 +221,8 @@ public class SearchTools {
 
                     result.append("<file path=\"").append(filePath).append("\">\n");
 
-                    // Emit kind sections in a stable order
-                    var kindOrder = List.of("classes", "methods", "fields", "functions", "globals", "modules");
+                    // Emit kind sections in a stable order based on analyzer's CodeUnitType
+                    var kindOrder = List.of("CLASS", "FUNCTION", "FIELD", "MODULE");
                     kindOrder.forEach(kind -> {
                         var symbols = kindGroups.get(kind);
                         if (symbols != null && !symbols.isEmpty()) {
@@ -246,101 +242,6 @@ public class SearchTools {
         return result.toString();
     }
 
-    /**
-     * Determines the output kind group name for a CodeUnit.
-     *
-     * Groups:
-     * - classes: class/struct/enum/trait
-     * - methods: member functions (class/struct/enum methods) — owner is a real class/type (not a pseudo owner)
-     * - functions: free/top-level functions — otherwise (no real class owner)
-     * - fields: class/struct fields (instance or static) — owner is a real class/type (not a pseudo owner)
-     * - globals: top-level/module variables — otherwise (includes C/C++ file-scope static, TS/JS module vars)
-     * - modules: module-level units
-     *
-     * Why the pseudo-owner check?
-     * - Some analyzers encode top-level items using either a synthetic owner "_module_" or the file stem as "moduleName".
-     *   Those are not classes; we must not treat them as class containers, or we would misclassify top-level functions/vars
-     *   as methods/fields.
-     */
-    private static String codeUnitKind(CodeUnit cu) {
-        if (cu.isClass()) {
-            return "classes";
-        }
-
-        if (cu.isFunction()) {
-            var owner = ownerShortName(cu);
-            if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
-                return "methods";
-            }
-            return "functions";
-        }
-
-        if (cu.isField()) {
-            var owner = ownerShortName(cu);
-            if (owner.isPresent() && !isPseudoOwner(cu, owner.get())) {
-                return "fields";
-            }
-            return "globals";
-        }
-
-        if (cu.isModule()) {
-            return "modules";
-        }
-
-        logger.debug("Unknown CodeUnitType for CodeUnit: {}", cu);
-        return "unknown";
-    }
-
-    /**
-     * Parses the "owner" portion of a CodeUnit short name.
-     * For FUNCTION or FIELD short names this is the substring before the last dot, e.g. "ClassName" in "ClassName.member".
-     * Returns empty when there is no owner (top-level function/variable).
-     */
-    private static Optional<String> ownerShortName(CodeUnit cu) {
-        var sn = cu.shortName();
-        int lastDot = sn.lastIndexOf('.');
-        if (lastDot > 0) {
-            return Optional.of(sn.substring(0, lastDot));
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * Returns true if the "owner" part of a shortName is a synthetic/pseudo container rather than a real class.
-     *
-     * Two common patterns across Tree-sitter analyzers:
-     * 1) Synthetic "_module_" owner (TypeScript/Go/Rust) used to keep shortName in "Owner.member" form for top-level symbols.
-     * 2) Module-as-filename (Python/JavaScript): owner equals the file stem (filename without extension), e.g. "my_file.foo".
-     */
-    private static boolean isPseudoOwner(CodeUnit cu, String ownerShort) {
-        // 1) Known synthetic owner tokens (e.g. "_module_")
-        if (PSEUDO_OWNERS.contains(ownerShort)) {
-            return true;
-        }
-        // 2) File-stem-as-module: compare against the source filename without extension
-        var stem = fileStem(cu.source());
-        return ownerShort.equals(stem);
-    }
-
-    /**
-     * Extracts the filename without extension (the "file stem").
-     * Used to detect the Python/JavaScript convention where the module name equals the file stem,
-     * e.g. "moduleName.symbol".
-     */
-    private static String fileStem(ProjectFile pf) {
-        // Prefer ProjectFile.getFileName() if available; fall back to toString()
-        try {
-            var base = pf.getFileName().toString();
-            int dot = base.lastIndexOf('.');
-            return dot > 0 ? base.substring(0, dot) : base;
-        } catch (Exception ignored) {
-            var path = pf.toString().replace('\\', '/');
-            int slash = path.lastIndexOf('/');
-            String base = slash >= 0 ? path.substring(slash + 1) : path;
-            int dot = base.lastIndexOf('.');
-            return dot > 0 ? base.substring(0, dot) : base;
-        }
-    }
 
     @Tool(
             """
@@ -506,6 +407,7 @@ public class SearchTools {
     @Tool(
             """
                     Returns the full source code of specific methods or functions. Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    Note: Depending on the language/analyzer, "function" may represent either a member method or a free/top-level function.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
