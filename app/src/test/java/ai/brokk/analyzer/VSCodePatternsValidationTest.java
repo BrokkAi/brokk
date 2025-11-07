@@ -3,7 +3,6 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.TestProject;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Collectors;
@@ -20,11 +19,11 @@ public class VSCodePatternsValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(VSCodePatternsValidationTest.class);
 
     @Test
-    void testVSCodePatternsComprehensive(@TempDir Path tempDir) throws IOException {
+    void testVSCodePatternsComprehensive(@TempDir Path tempDir) throws Exception {
         // Load the VSCode patterns file from test resources
         var resourceUrl = getClass().getResource("/testcode-ts/VSCodePatterns.ts");
         assertNotNull(resourceUrl, "VSCodePatterns.ts resource should exist");
-        var sourceFile = Path.of(resourceUrl.getPath());
+        var sourceFile = Path.of(resourceUrl.toURI());
         var testFile = tempDir.resolve("VSCodePatterns.ts");
         Files.copy(sourceFile, testFile);
 
