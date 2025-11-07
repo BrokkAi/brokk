@@ -654,6 +654,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     public void gitHubTokenChanged() {
         SwingUtilities.invokeLater(() -> {
             logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
+            
+            // Reset error state and re-enable UI controls
+            isShowingError = false;
+            setReloadUiEnabled(true);
+            searchBox.setLoading(false, "");
 
             if (searchDebounceTimer.isRunning()) {
                 searchDebounceTimer.stop();
