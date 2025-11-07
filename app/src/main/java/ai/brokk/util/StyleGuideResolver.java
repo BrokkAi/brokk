@@ -6,22 +6,19 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
- * input ProjectFile instances, walking up the directory tree towards the repository root.
+ * input ProjectFile instances.
  *
- * Ordering rules:
- * - For each input file, scan nearest-first (current directory up to repository root).
- * - Across multiple inputs, preserve the first-seen order and de-duplicate files.
- *
- * Typical usage:
- *   var resolver = new StyleGuideResolver(projectFiles);
- *   String guide = resolver.resolveCompositeGuide();
+ * Simplified approach:
+ * - Compute a single, ordered set of unique directories by performing a breadth-first ascent
+ *   from all input directories toward the repository root (nearest-first layers across inputs).
+ * - Scan each unique directory at most once for AGENTS.md.
+ * - Concatenate discovered files in that order.
  */
 public final class StyleGuideResolver {
     private static final Logger logger = LogManager.getLogger(StyleGuideResolver.class);
@@ -42,68 +39,53 @@ public final class StyleGuideResolver {
         this.inputs = files;
     }
 
-    private List<ProjectFile> collectAgentsForSingleInput(ProjectFile input) {
-        var ordered = new ArrayList<ProjectFile>();
-
-        // Determine starting directory relative to repo root
-        ProjectFile cursorDir;
-        cursorDir = Files.isDirectory(input.absPath()) ? input : new ProjectFile(input.getRoot(), input.getParent());
-
-        // Walk upwards from start to the repository root (empty relative path)
-        while (true) {
-            // Candidate "<cursorDir>/AGENTS.md"
-            var candidate = new ProjectFile(cursorDir.getRoot(), cursorDir.getRelPath().resolve("AGENTS.md"));
-            if (Files.isRegularFile(candidate.absPath())) {
-                ordered.add(candidate);
-            }
-
-            // Stop after processing the repository root
-            if (cursorDir.absPath().equals(cursorDir.getRoot())) {
-                break;
-            }
-
-            // Move up one level
-            cursorDir = new ProjectFile(cursorDir.getRoot(), cursorDir.getParent());
-        }
-
-        return ordered;
-    }
-
     /**
-     * Finds all AGENTS.md files in nearest-first order for each input path, de-duplicated
-     * across all inputs while preserving the first occurrence order.
-     *
-     * Ordering across multiple inputs is done in "layers" (round-robin by depth):
-     * - First include the nearest AGENTS.md for each input (depth 0).
-     * - Then include the next level up for each input (depth 1), and so on,
-     *   stopping at the repository root. Duplicates are removed while preserving first-seen order.
+     * Finds all AGENTS.md files by:
+     * - Building a single ordered set of unique directories starting from all input directories,
+     *   walking upwards layer-by-layer toward the repo root (nearest-first across inputs).
+     * - Scanning each unique directory once for AGENTS.md and collecting hits in order.
      */
     public List<ProjectFile> getOrderedAgentFiles() {
         if (inputs.isEmpty()) {
             return List.of();
         }
 
-        // Collect per-input lists (nearest-first) and compute the max depth.
-        var perInput = new ArrayList<List<ProjectFile>>(inputs.size());
-        int maxDepth = 0;
+        // Establish the starting directories (one per input; file inputs use their parent directory).
+        var startDirs = new ArrayList<ProjectFile>(inputs.size());
         for (var pf : inputs) {
-            var lst = collectAgentsForSingleInput(pf);
-            perInput.add(lst);
-            if (lst.size() > maxDepth) {
-                maxDepth = lst.size();
-            }
+            var dir = pf.isDirectory() ? pf : new ProjectFile(pf.getRoot(), pf.getParent());
+            startDirs.add(dir);
         }
 
-        // Interleave by depth to ensure nearest-first across inputs, then go upwards.
-        Set<ProjectFile> dedup = new LinkedHashSet<>();
-        for (int depth = 0; depth < maxDepth; depth++) {
-            for (List<ProjectFile> lst : perInput) {
-                if (depth < lst.size()) {
-                    dedup.add(lst.get(depth));
+        // BFS upwards across all inputs simultaneously, deduping directories while preserving first-seen order.
+        var visitedDirs = new LinkedHashSet<ProjectFile>();
+        var orderedDirs = new ArrayList<ProjectFile>();
+        var frontier = new LinkedHashSet<ProjectFile>(startDirs);
+
+        while (!frontier.isEmpty()) {
+            var nextFrontier = new LinkedHashSet<ProjectFile>();
+            for (var dir : frontier) {
+                if (visitedDirs.add(dir)) {
+                    orderedDirs.add(dir);
+                    // Move upward unless we are at the repository root.
+                    if (!dir.isRepoRoot()) {
+                        var parent = new ProjectFile(dir.getRoot(), dir.getParent());
+                        nextFrontier.add(parent);
+                    }
                 }
             }
+            frontier = nextFrontier;
         }
-        return List.copyOf(dedup);
+
+        // Scan each unique directory once for AGENTS.md in the established order.
+        var result = new ArrayList<ProjectFile>();
+        for (var dir : orderedDirs) {
+            var candidate = new ProjectFile(dir.getRoot(), dir.getRelPath().resolve("AGENTS.md"));
+            if (Files.isRegularFile(candidate.absPath())) {
+                result.add(candidate);
+            }
+        }
+        return result;
     }
 
     private static int getCap(String propName, int defVal) {
