@@ -270,7 +270,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .switchSessionAsync(sel.id())
                                 .thenRun(() -> updateSessionComboBox())
                                 .exceptionally(ex -> {
-                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    logger.debug("Session switch rejected", ex);
+                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                     return null;
                                 });
                     }
@@ -297,7 +298,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     .switchSessionAsync(sel.id())
                                     .thenRun(() -> updateSessionComboBox())
                                     .exceptionally(ex -> {
-                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        logger.debug("Session switch rejected", ex);
+                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                         return null;
                                     });
                         }

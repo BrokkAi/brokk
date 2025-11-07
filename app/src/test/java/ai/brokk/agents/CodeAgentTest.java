@@ -358,7 +358,7 @@ class CodeAgentTest {
             outputConsumer.accept("MockShell: attempt " + currentAttempt + " for command: " + cmd);
             if (currentAttempt == 0) { // First attempt fails
                 outputConsumer.accept("Build error line 1");
-                throw new Environment.FailureException("Build failed", "Detailed build error output");
+                throw new Environment.FailureException("Build failed", "Detailed build error output", 1);
             }
             // Second attempt (or subsequent if MAX_BUILD_FAILURES > 1) succeeds
             outputConsumer.accept("Build successful");
@@ -462,7 +462,7 @@ class CodeAgentTest {
         var buildAttempt = new AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             if (buildAttempt.getAndIncrement() == 0) {
-                throw new Environment.FailureException("Build failed", "Compiler error on line 5");
+                throw new Environment.FailureException("Build failed", "Compiler error on line 5", 1);
             }
             return "Build successful";
         };
@@ -509,7 +509,7 @@ class CodeAgentTest {
         var errorOutput = absPath + ":12: error: cannot find symbol\n    Foo bar;\n    ^\n1 error\n";
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", errorOutput);
+            throw new Environment.FailureException("Build failed", errorOutput, 1);
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
@@ -537,7 +537,7 @@ class CodeAgentTest {
         var errorOutput = absWinPath + ":12: error: cannot find symbol\r\n    Foo bar;\r\n    ^\r\n1 error\r\n";
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", errorOutput);
+            throw new Environment.FailureException("Build failed", errorOutput, 1);
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
@@ -570,7 +570,7 @@ class CodeAgentTest {
                 + "ValueError: bad\n";
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", traceback);
+            throw new Environment.FailureException("Build failed", traceback, 1);
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
@@ -784,7 +784,7 @@ class CodeAgentTest {
         }
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", longOutput.toString());
+            throw new Environment.FailureException("Build failed", longOutput.toString(), 1);
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
