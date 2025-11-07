@@ -397,7 +397,8 @@ public class SearchAgent {
         }
 
         // Define Research tools explicitly for the model (no terminal duplication).
-        // We only list RESEARCH tools; terminals are documented elsewhere and hygiene tools are omitted to keep this concise.
+        // We only list RESEARCH tools; terminals are documented elsewhere and hygiene tools are omitted to keep this
+        // concise.
         if (!beastMode) {
             var researchList = calculateAllowedToolNames().stream()
                     .filter(name -> categorizeTool(name) == ToolCategory.RESEARCH)
@@ -676,7 +677,8 @@ public class SearchAgent {
 
     private enum ToolCategory {
         TERMINAL, // answer, createTaskList, workspaceComplete, abortSearch
-        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (these modify the workspace; terminals are not executed in the same turn)
+        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (these modify the workspace; terminals are not executed
+        // in the same turn)
         RESEARCH // everything else (non-final discovery/search; blocks terminals)
     }
 

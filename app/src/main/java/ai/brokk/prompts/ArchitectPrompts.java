@@ -4,7 +4,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
