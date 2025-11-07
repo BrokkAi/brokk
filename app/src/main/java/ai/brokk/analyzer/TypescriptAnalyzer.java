@@ -292,24 +292,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String name = cachedTextSliceStripped(nameNode, src);
-                    int dotIndex = name.indexOf('.');
-                    if (dotIndex >= 0) {
-                        int start = 0;
-                        var parts = new java.util.ArrayList<String>();
-                        while (start < name.length()) {
-                            dotIndex = name.indexOf('.', start);
-                            if (dotIndex == -1) {
-                                parts.add(name.substring(start));
-                                break;
-                            } else {
-                                parts.add(name.substring(start, dotIndex));
-                                start = dotIndex + 1;
-                            }
-                        }
-                        namespaces.addAll(0, parts);
-                    } else {
-                        namespaces.add(0, name);
-                    }
+                    // Use Splitter for safer, more maintainable string parsing
+                    var parts = Splitter.on('.').omitEmptyStrings().splitToList(name);
+                    namespaces.addAll(0, parts);
                 }
             }
 
@@ -791,21 +776,23 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
         // TypeScript has extensive declaration merging and overload support.
         // Since shouldMergeSignaturesForSameFqn() returns true, we accumulate signatures
-        // for duplicates rather than replacing. Most duplicates in TypeScript are intentional.
+        // for duplicates rather than replacing.
         //
-        // Key patterns that are always benign:
-        // 1. Method/function overloads (same name, different parameter types)
+        // Key benign patterns:
+        // 1. Function overloads (same name, different parameter types)
         // 2. Interface merging (multiple interface declarations combine)
         // 3. Function + namespace merging
         // 4. Enum + namespace merging
-        // 5. Type + value merging
         //
-        // Rather than trying to identify every specific pattern, we treat ALL duplicates
-        // as benign since TypeScript's design encourages this. The skeleton will show all
-        // signatures accumulated, which is the correct behavior for overloads and merging.
+        // Be specific about which patterns are benign to avoid masking genuine bugs.
 
-        // Same kind duplicates are almost always benign (overloads or declaration merging)
-        if (existing.kind() == candidate.kind()) {
+        // Function overloads are benign
+        if (existing.isFunction() && candidate.isFunction()) {
+            return true;
+        }
+
+        // Class-like entities (interfaces, classes, etc.) can merge through declaration merging
+        if (existing.isClass() && candidate.isClass()) {
             return true;
         }
 
@@ -821,13 +808,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return true;
         }
 
-        // If we reach here, it's an unusual cross-kind duplicate - still likely intentional in TS
-        log.trace(
-                "Cross-kind duplicate in TypeScript (unusual but treating as benign): {} kind={} vs kind={}",
-                existing.fqName(),
-                existing.kind(),
-                candidate.kind());
-        return true;
+        // Field-like duplicates (const variables, etc.) are NOT benign - they may indicate bugs
+        // Don't mask these as benign patterns
+        return false;
     }
 
     @Override

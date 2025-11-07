@@ -219,40 +219,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    /**
-     * Phase 1 Optimization: Lightweight candidate collected during query processing.
-     * Defers expensive signature building until after deduplication, avoiding wasted work
-     * for candidates that will be discarded (e.g., non-exported versions of exported symbols).
-     */
-    protected record AnalysisCandidate(
-            CodeUnit codeUnit,
-            TSNode node,
-            String simpleName,
-            String primaryCaptureName,
-            List<String> modifierKeywords,
-            ProjectFile file,
-            SkeletonType skeletonType,
-            boolean isExported) {
-
-        /**
-         * Builds the full signature string for this candidate (deferred until after deduplication).
-         * This is the expensive operation we want to avoid for candidates that won't survive.
-         */
-        String buildSignature(
-                TreeSitterAnalyzer analyzer, String src, byte[] srcBytes, Map<NodeCacheKey, String> modifierCache) {
-            return analyzer.buildSignatureString(
-                    node,
-                    simpleName,
-                    src,
-                    srcBytes,
-                    primaryCaptureName,
-                    modifierKeywords,
-                    file,
-                    skeletonType,
-                    modifierCache);
-        }
-    }
-
     // Public record for stage timing information exposed to external tools
     public record StageTiming(
             long readNanos,
@@ -1402,59 +1368,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
         // Default: no language-specific benign patterns
         return false;
-    }
-
-    /**
-     * Phase 1 Optimization: Determines if a capture has export modifier.
-     * Uses modifierKeywords (cheap) instead of building full signature (expensive).
-     */
-    private boolean isExportedCapture(List<String> modifierKeywords) {
-        return modifierKeywords.contains("export");
-    }
-
-    /**
-     * Phase 1 Optimization: Selects the winning candidate when duplicates share the same fqName.
-     * Implements export preference and benign duplicate detection without requiring full signatures.
-     *
-     * @return the winning candidate, or null if the new candidate should be discarded
-     */
-    private AnalysisCandidate selectWinningCandidate(
-            AnalysisCandidate existingCandidate, AnalysisCandidate newCandidate) {
-
-        CodeUnit existingCU = existingCandidate.codeUnit();
-        CodeUnit newCU = newCandidate.codeUnit();
-
-        // If CodeUnits are equals(), both are kept (overloads) - return new to signal "keep both"
-        if (existingCU.equals(newCU)) {
-            return newCandidate;
-        }
-
-        // Only apply merge logic if language supports signature merging for same fqName
-        if (!shouldMergeSignaturesForSameFqn()) {
-            return newCandidate; // Keep both
-        }
-
-        // Export preference: exported version wins
-        if (newCandidate.isExported() && !existingCandidate.isExported()) {
-            log.warn("Replacing non-exported candidate for {} with new EXPORTED candidate.", newCU.fqName());
-            return newCandidate; // New wins
-        } else if (!newCandidate.isExported() && existingCandidate.isExported()) {
-            log.trace(
-                    "Keeping existing EXPORTED candidate for {}. Discarding new non-exported candidate.",
-                    newCU.fqName());
-            return null; // Keep existing, discard new
-        } else {
-            // Both exported or both non-exported
-            if (isBenignDuplicate(existingCU, newCU)) {
-                log.trace("Duplicate CU FQName {} (distinct instances, benign pattern). Keeping both.", newCU.fqName());
-                return newCandidate; // Keep both
-            } else {
-                log.warn(
-                        "Duplicate CU FQName {} (distinct instances). Keeping both. Review if this is expected.",
-                        newCU.fqName());
-                return newCandidate; // Keep both
-            }
-        }
     }
 
     /**
