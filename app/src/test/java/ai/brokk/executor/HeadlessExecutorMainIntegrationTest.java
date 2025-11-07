@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -76,7 +77,7 @@ class HeadlessExecutorMainIntegrationTest {
 
     @Test
     void testHealthLiveEndpoint() throws Exception {
-        var url = new URL(baseUrl + "/health/live");
+        var url = URI.create(baseUrl + "/health/live").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
 
@@ -91,7 +92,7 @@ class HeadlessExecutorMainIntegrationTest {
 
     @Test
     void testHealthReadyEndpoint_WithoutSession() throws Exception {
-        var url = new URL(baseUrl + "/health/ready");
+        var url = URI.create(baseUrl + "/health/ready").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
 
@@ -116,7 +117,7 @@ class HeadlessExecutorMainIntegrationTest {
 
     @Test
     void testHealthLiveEndpoint_WrongMethod() throws Exception {
-        var url = new URL(baseUrl + "/health/live");
+        var url = URI.create(baseUrl + "/health/live").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
@@ -148,7 +149,7 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
         var jobId = createJob("test-unknown-subpath");
 
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/unknown-endpoint");
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/unknown-endpoint").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -176,7 +177,7 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
 
         // Request to /v1/jobs//events (empty jobId)
-        var url = new URL(baseUrl + "/v1/jobs//events");
+        var url = URI.create(baseUrl + "/v1/jobs//events").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -204,7 +205,7 @@ class HeadlessExecutorMainIntegrationTest {
     void testPostSessionEndpoint_RequiresAuth() throws Exception {
         var sessionZip = createEmptyZip();
 
-        var url = new URL(baseUrl + "/v1/session");
+        var url = URI.create(baseUrl + "/v1/session").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/zip");
@@ -223,7 +224,7 @@ class HeadlessExecutorMainIntegrationTest {
     void testPostSessionEndpoint_WithValidAuth() throws Exception {
         var sessionZip = createEmptyZip();
 
-        var url = new URL(baseUrl + "/v1/session");
+        var url = URI.create(baseUrl + "/v1/session").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -257,7 +258,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "plannerModel",
                 "gpt-5");
 
-        var url = new URL(baseUrl + "/v1/jobs");
+        var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
@@ -281,7 +282,7 @@ class HeadlessExecutorMainIntegrationTest {
         var jobSpec = (Map<String, Object>) (Map<?, ?>) Map.of(
                 "sessionId", UUID.randomUUID().toString(), "taskInput", "echo missing planner", "autoCompress", false);
 
-        var url = new URL(baseUrl + "/v1/jobs");
+        var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -324,7 +325,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "plannerModel",
                 invalidPlanner);
 
-        var url = new URL(baseUrl + "/v1/jobs");
+        var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -382,7 +383,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "plannerModel",
                 "gpt-5");
 
-        var url = new URL(baseUrl + "/v1/jobs");
+        var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -412,7 +413,7 @@ class HeadlessExecutorMainIntegrationTest {
         var jobId = createJob("test-job-polling");
 
         // Poll for events
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/events?after=0");
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=0").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -431,7 +432,7 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
         var jobId = createJob("test-job-status");
 
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId);
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -449,7 +450,7 @@ class HeadlessExecutorMainIntegrationTest {
         uploadSession();
         var jobId = createJob("test-job-cancel");
 
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/cancel");
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -466,7 +467,7 @@ class HeadlessExecutorMainIntegrationTest {
         // Small delay to allow events to be written
         Thread.sleep(200);
 
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=100");
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=100").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -498,7 +499,7 @@ class HeadlessExecutorMainIntegrationTest {
 
     private void uploadSession() throws Exception {
         var sessionZip = createEmptyZip();
-        var url = new URL(baseUrl + "/v1/session");
+        var url = URI.create(baseUrl + "/v1/session").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -524,7 +525,7 @@ class HeadlessExecutorMainIntegrationTest {
                 "plannerModel",
                 "gpt-5");
 
-        var url = new URL(baseUrl + "/v1/jobs");
+        var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -550,7 +551,7 @@ class HeadlessExecutorMainIntegrationTest {
     }
 
     private Map<String, Object> fetchJobStatus(String jobId) throws Exception {
-        var url = new URL(baseUrl + "/v1/jobs/" + jobId);
+        var url = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + authToken);
