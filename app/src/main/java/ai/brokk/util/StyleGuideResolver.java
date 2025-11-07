@@ -47,11 +47,7 @@ public final class StyleGuideResolver {
         var expanded = inputs.stream()
                 .flatMap(pf -> {
                     var ancestors = new ArrayList<ProjectFile>();
-                    while (true) {
-                        var parent = pf.getParent();
-                        if (parent == pf.getRoot()) {
-                            break;
-                        }
+                    for (var parent = pf.getParent(); parent != null; parent = parent.getParent()) {
                         ancestors.add(new ProjectFile(pf.getRoot(), parent));
                     }
                     // include project root
