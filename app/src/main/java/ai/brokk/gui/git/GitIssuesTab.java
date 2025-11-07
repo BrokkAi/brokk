@@ -21,6 +21,7 @@ import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitTabExceptionMapper;
+import ai.brokk.gui.util.GitTabSettingsHandler;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;
@@ -604,14 +605,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     @Override
     public void issueProviderChanged() {
-        SwingUtilities.invokeLater(() -> {
-            logger.debug(
-                    "Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
-            cancelActiveFutures();
-            // Ask GitPanel to recreate this tab.
-            // GitPanel is final and assigned in constructor, so it won't be null here.
-            chrome.recreateIssuesPanel();
-        });
+        logger.debug(
+                "Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
+        GitTabSettingsHandler.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                    setReloadUiEnabled(true);
+                    searchBox.setLoading(false, "");
+                },
+                this::cancelActiveFutures,
+                () -> chrome.recreateIssuesPanel());
     }
 
     private void cancelActiveFutures() {
@@ -653,27 +656,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     @Override
     public void gitHubTokenChanged() {
-        SwingUtilities.invokeLater(() -> {
-            logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
-
-            // Reset error state and re-enable UI controls
-            isShowingError = false;
-            setReloadUiEnabled(true);
-            searchBox.setLoading(false, "");
-
-            if (searchDebounceTimer.isRunning()) {
-                searchDebounceTimer.stop();
-            }
-            if (descriptionDebounceTimer.isRunning()) {
-                descriptionDebounceTimer.stop();
-            }
-            pendingHeaderForDescription = null;
-
-            // This stops timers and clears activeFutures set
-            cancelActiveFutures();
-
-            updateIssueList();
-        });
+        logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
+        GitTabSettingsHandler.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                    setReloadUiEnabled(true);
+                    searchBox.setLoading(false, "");
+                },
+                this::cancelActiveFutures,
+                this::updateIssueList);
     }
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager) {

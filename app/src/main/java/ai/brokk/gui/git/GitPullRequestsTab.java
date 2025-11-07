@@ -23,6 +23,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.util.GitTabExceptionMapper;
+import ai.brokk.gui.util.GitTabSettingsHandler;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
@@ -764,86 +765,84 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Override
     public void gitHubTokenChanged() {
-        SwingUtilities.invokeLater(() -> {
-            isShowingError = false;
-            setReloadUiEnabled(true);
+        GitTabSettingsHandler.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                    setReloadUiEnabled(true);
+                },
+                () -> {
+                    List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
 
-            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
-
-            if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
-                futuresToCancelAndAwait.add(activeCiFetcher);
-            }
-            if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
-                futuresToCancelAndAwait.add(activePrFilesFetcher);
-            }
-
-            futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
-
-            for (Future<?> f : futuresToCancelAndAwait) {
-                if (!f.isDone()) {
-                    f.cancel(true);
-                }
-            }
-
-            if (futuresToCancelAndAwait.isEmpty()) {
-                updatePrList();
-                return;
-            }
-
-            contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
-                for (Future<?> f : futuresToCancelAndAwait) {
-                    try {
-                        f.get();
-                    } catch (Exception e) {
-                        // Ignored - cancellation expected
+                    if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
+                        futuresToCancelAndAwait.add(activeCiFetcher);
                     }
-                }
-                SwingUtilities.invokeLater(this::updatePrList);
-                return null;
-            });
-        });
+                    if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+                        futuresToCancelAndAwait.add(activePrFilesFetcher);
+                    }
+
+                    futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
+
+                    for (Future<?> f : futuresToCancelAndAwait) {
+                        if (!f.isDone()) {
+                            f.cancel(true);
+                        }
+                    }
+
+                    if (!futuresToCancelAndAwait.isEmpty()) {
+                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                            for (Future<?> f : futuresToCancelAndAwait) {
+                                try {
+                                    f.get();
+                                } catch (Exception e) {
+                                    // Ignored - cancellation expected
+                                }
+                            }
+                            return null;
+                        });
+                    }
+                },
+                this::updatePrList);
     }
 
     @Override
     public void issueProviderChanged() {
-        SwingUtilities.invokeLater(() -> {
-            isShowingError = false;
-            setReloadUiEnabled(true);
+        GitTabSettingsHandler.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                    setReloadUiEnabled(true);
+                },
+                () -> {
+                    List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
 
-            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
-
-            if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
-                futuresToCancelAndAwait.add(activeCiFetcher);
-            }
-            if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
-                futuresToCancelAndAwait.add(activePrFilesFetcher);
-            }
-
-            futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
-
-            for (Future<?> f : futuresToCancelAndAwait) {
-                if (!f.isDone()) {
-                    f.cancel(true);
-                }
-            }
-
-            if (futuresToCancelAndAwait.isEmpty()) {
-                updatePrList();
-                return;
-            }
-
-            contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
-                for (Future<?> f : futuresToCancelAndAwait) {
-                    try {
-                        f.get();
-                    } catch (Exception e) {
-                        // Ignored - cancellation expected
+                    if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
+                        futuresToCancelAndAwait.add(activeCiFetcher);
                     }
-                }
-                SwingUtilities.invokeLater(this::updatePrList);
-                return null;
-            });
-        });
+                    if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+                        futuresToCancelAndAwait.add(activePrFilesFetcher);
+                    }
+
+                    futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
+
+                    for (Future<?> f : futuresToCancelAndAwait) {
+                        if (!f.isDone()) {
+                            f.cancel(true);
+                        }
+                    }
+
+                    if (!futuresToCancelAndAwait.isEmpty()) {
+                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                            for (Future<?> f : futuresToCancelAndAwait) {
+                                try {
+                                    f.get();
+                                } catch (Exception e) {
+                                    // Ignored - cancellation expected
+                                }
+                            }
+                            return null;
+                        });
+                    }
+                },
+                this::updatePrList);
     }
 
     private void disablePrButtonsAndClearCommitsAndMenus() {
