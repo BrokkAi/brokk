@@ -863,7 +863,18 @@ public class Chrome
                 if (Files.exists(legacyStylePath)) {
                     try {
                         // Check if we should migrate (legacy exists with content AND target is missing/empty)
-                        if (!Files.exists(agentsMdPath) || Files.readString(agentsMdPath).isBlank()) {
+                        boolean targetMissing = !Files.exists(agentsMdPath);
+                        boolean targetEmpty = false;
+                        if (!targetMissing) {
+                            try {
+                                targetEmpty = Files.readString(agentsMdPath).isBlank();
+                            } catch (IOException ex) {
+                                logger.warn("Error reading target AGENTS.md: {}", ex.getMessage());
+                                targetEmpty = true; // Treat read errors as "empty for migration purposes"
+                            }
+                        }
+                        
+                        if (targetMissing || targetEmpty) {
                             String legacyContent = Files.readString(legacyStylePath);
                             if (!legacyContent.isBlank()) {
                                 shouldAttemptMigration = true;
