@@ -69,11 +69,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
-    // Definition priority constants - lower values are preferred for sorting
-    protected static final int PRIORITY_DEFAULT = 0;
-    protected static final int PRIORITY_HIGH = -1;
-    protected static final int PRIORITY_LOW = 1;
-
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -589,8 +584,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
 
-        // Sort and delegate to getDefinition(CodeUnit)
-        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst().flatMap(this::getDefinition);
+        // Allow languages to prioritize which definition we return
+        return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
     }
 
     @Override
@@ -860,11 +855,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Hook for language-specific preference when multiple CodeUnits share the same FQN. Lower values are preferred.
-     * Default is PRIORITY_DEFAULT (no preference).
+     * Returns a comparator for language-specific definition priority preferences.
+     * Lower values are preferred. Default comparator treats all CodeUnits equally (returns 0).
+     *
+     * Override in subclasses to provide language-specific ordering, such as preferring
+     * definitions with bodies in source files (.cpp) over declarations in headers (.h).
      */
-    protected int definitionOverridePriority(CodeUnit cu) {
-        return PRIORITY_DEFAULT;
+    protected Comparator<CodeUnit> prioritizingComparator() {
+        return Comparator.comparingInt(cu -> 0);
     }
 
     /**

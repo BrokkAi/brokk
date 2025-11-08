@@ -54,6 +54,7 @@ public class ToolRegistry {
     /** Mapping of tool names to display headlines (icons removed). */
     private static final Map<String, String> HEADLINES = Map.ofEntries(
             Map.entry("searchSymbols", "Searching for symbols"),
+            Map.entry("getSymbolLocations", "Finding files for symbols"),
             Map.entry("searchSubstrings", "Searching for substrings"),
             Map.entry("searchFilenames", "Searching for filenames"),
             Map.entry("getFileContents", "Getting file contents"),
@@ -67,7 +68,6 @@ public class ToolRegistry {
             Map.entry("getCallGraphFrom", "Getting call graph FROM"),
             Map.entry("searchGitCommitMessages", "Searching git commits"),
             Map.entry("listFiles", "Listing files"),
-            Map.entry("getFiles", "Finding files for classes"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
@@ -375,8 +375,11 @@ public class ToolRegistry {
         }
         try {
             var vi = validateTool(request);
-            var argsYaml = toYaml(vi);
             var headline = headlineFor(request.name());
+
+            // Omit args block entirely for zero-parameter tools
+            var noArgs = vi.method().getParameterCount() == 0;
+            var argsYaml = noArgs ? "" : toYaml(vi);
             return """
                    `%s`
                    ````yaml

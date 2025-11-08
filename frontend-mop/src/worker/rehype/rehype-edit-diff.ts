@@ -2,7 +2,7 @@ import type {Root} from 'hast';
 import type {HighlighterCore} from 'shiki/core';
 import {visit} from 'unist-util-visit';
 import {buildUnifiedDiff, getMdLanguageTag} from '../../lib/diff-utils';
-import {currentExpandIds} from '../expand-state';
+import {currentExpandIds, userCollapsedIds} from '../expand-state';
 import type {EditBlockProperties} from '../shared';
 import {transformerDiffLines} from '../shiki/shiki-diff-transformer';
 
@@ -28,7 +28,26 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
             totalAdds += p.adds;
             totalDels += p.dels;
 
-            if (!currentExpandIds.has(p.id)) return;
+            // Auto-expand only when ALL of the following hold:
+            //  - The edit block is structurally complete (p.complete comes from the micro-parser via from-markdown).
+            //  - The diff is small (adds + dels <= 50) and non-empty.
+            //  - We haven't already marked it expanded in this worker pass.
+            //  - The user has not previously collapsed this block during the stream (opened then closed)
+            //    — userCollapsedIds suppresses any auto-open after manual collapse.
+            const totalChanges = (p.adds ?? 0) + (p.dels ?? 0);
+            const AUTO_EXPAND_MAX = 50;
+            if (
+                (p.complete === true) &&
+                totalChanges > 0 &&
+                totalChanges <= AUTO_EXPAND_MAX &&
+                !currentExpandIds.has(p.id) &&
+                !userCollapsedIds.has(p.id)
+            ) {
+                currentExpandIds.add(p.id);
+            }
+
+            // Respect user collapse even if some other path marked it expanded
+            if (!currentExpandIds.has(p.id) || userCollapsedIds.has(p.id)) return;
             p.isExpanded = true;
 
             const lang = getMdLanguageTag(p.filename);

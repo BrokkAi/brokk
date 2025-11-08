@@ -1,6 +1,6 @@
 import {initProcessor, parseMarkdown} from './processor';
 import type {ErrorMsg, InboundToWorker, OutboundFromWorker, ResultMsg} from './shared';
-import {currentExpandIds} from './expand-state';
+import {currentExpandIds, userCollapsedIds} from './expand-state';
 import {createWorkerLogger} from '../lib/logging';
 
 const workerLogger = createWorkerLogger('markdown-worker');
@@ -77,7 +77,15 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
             break;
 
         case 'expand-diff':
+            // User or auto wants this block expanded: clear any remembered collapse and mark expanded
+            userCollapsedIds.delete(m.blockId);
             currentExpandIds.add(m.blockId);
+            break;
+
+        case 'collapse-diff':
+            // User explicitly collapsed this block: remember it and ensure it won't be auto-expanded
+            currentExpandIds.delete(m.blockId);
+            userCollapsedIds.add(m.blockId);
             break;
     }
 };
