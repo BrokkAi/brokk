@@ -26,6 +26,7 @@ import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
+import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.git.*;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
@@ -3122,31 +3123,49 @@ public class Chrome
     }
 
     /**
-     * Defers the Git configuration prompt until style guide and build details initialization complete.
-     * Combines both futures and triggers the .gitignore check only after both are done.
+     * Schedules the build settings dialog to show after initialization completes.
+     * If the project has git and needs configuration, also schedules the git config dialog
+     * to appear after the build settings dialog closes.
      */
     private void scheduleGitConfigurationAfterInit() {
-        if (!getProject().hasGit()) {
-            return;
-        }
-
-        logger.debug("Deferring Git configuration check until style guide and build details are ready");
+        logger.debug("Scheduling build settings dialog after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
 
         CompletableFuture.allOf(styleFuture, buildFuture).thenRunAsync(() -> {
-            logger.debug("Initialization completed; checking if git config dialog is needed");
+            logger.debug("Initialization completed; both style guide and build details ready");
 
-            // Only show git config if project needs configuration
-            if (!getProject().isGitIgnoreSet()) {
+            // Only register git config callback if project has git and needs configuration
+            if (getProject().hasGit() && !getProject().isGitIgnoreSet()) {
                 // Register callback to show git config dialog AFTER build settings closes
                 contextManager.setAfterBuildSettingsCallback(() -> {
                     logger.debug("Build settings closed; showing git config dialog");
                     checkAndShowGitConfigDialog();
                 });
+                logger.debug("Git config callback registered; will show after build settings closes");
+            } else if (getProject().hasGit()) {
+                logger.debug("Git already configured; no callback needed");
             } else {
-                logger.debug("Git already configured; skipping git config dialog");
+                logger.debug("No git repository; no git config dialog needed");
             }
+
+            // Show build settings dialog now that both futures are complete
+            // This ensures the style guide is loaded into the settings panel
+            SwingUtilities.invokeLater(() -> {
+                logger.debug("Showing build settings dialog");
+                var dlg = SettingsDialog.showSettingsDialog(this, "Build");
+                dlg.getProjectPanel().showBuildBanner();
+
+                // Settings dialog is modal, so this runs after user closes it
+                var callback = contextManager.getAfterBuildSettingsCallback();
+                if (callback != null) {
+                    contextManager.setAfterBuildSettingsCallback(null); // Clear after use
+                    logger.debug("Build settings dialog closed; running registered callback");
+                    callback.run();
+                } else {
+                    logger.debug("Build settings dialog closed; no callback registered");
+                }
+            });
         });
     }
 

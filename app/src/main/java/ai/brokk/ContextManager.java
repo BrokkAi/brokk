@@ -1908,20 +1908,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             project.saveBuildDetails(inferredDetails);
 
-            if (io instanceof Chrome chrome) {
-                SwingUtilities.invokeLater(() -> {
-                    var dlg = SettingsDialog.showSettingsDialog(chrome, "Build");
-                    dlg.getProjectPanel().showBuildBanner();
-
-                    // Settings dialog is modal, so this runs after user closes it
-                    var callback = afterBuildSettingsCallback;
-                    if (callback != null) {
-                        afterBuildSettingsCallback = null; // Clear after use
-                        logger.debug("Build settings dialog closed; running registered callback");
-                        callback.run();
-                    }
-                });
-            }
+            // NOTE: We don't show the build settings dialog here anymore.
+            // It will be shown by Chrome.scheduleGitConfigurationAfterInit() after BOTH
+            // style guide and build details are complete, to avoid race conditions where
+            // the dialog loads an empty style guide.
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             return inferredDetails;
@@ -1986,7 +1976,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that completes when the style guide is ready (or skipped)
      */
     private CompletableFuture<Void> ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty()) {
+        String existingStyleGuide = project.getStyleGuide();
+
+        if (!existingStyleGuide.isEmpty()) {
             logger.info("Style guide already exists; skipping generation");
             return CompletableFuture.completedFuture(null);
         }
@@ -2128,6 +2120,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void setAfterBuildSettingsCallback(@Nullable Runnable callback) {
         this.afterBuildSettingsCallback = callback;
+    }
+
+    public @Nullable Runnable getAfterBuildSettingsCallback() {
+        return afterBuildSettingsCallback;
     }
 
     /** Ensure review guide exists, generating if needed */
