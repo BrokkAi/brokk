@@ -51,24 +51,15 @@ export const tokenizeUnfencedEditBlock: Tokenizer = function (effects, ok, nok) 
         )(code);
     }
 
+
     function afterHeader(code: Code): State {
         const next = eatEndLineAndCheckEof(code, afterHeader)
         if (next) return next;
-        // Body success implies tail seen => complete
         return effects.attempt(
             { tokenize: tokenizeBody, concrete: true },
-            doneMaybeComplete,
+            done,
             fx.nok
         )(code);
-    }
-
-    function doneMaybeComplete(code: Code): State {
-        // Only mark structural completion when body tokenizer actually saw the tail.
-        if ((ctx as any)._editBlockCompleted === true) {
-            fx.enter('editBlockComplete');
-            fx.exit('editBlockComplete');
-        }
-        return done(code);
     }
 
     function done(code: Code): State {

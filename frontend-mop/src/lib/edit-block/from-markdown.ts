@@ -23,8 +23,7 @@ export function editBlockFromMarkdown() {
                             filename: undefined,
                             search: undefined,
                             replace: undefined,
-                            headerOk: false,
-                            complete: false
+                            headerOk: false
                         } as EditBlockProperties
                     }
                 };
@@ -78,15 +77,6 @@ export function editBlockFromMarkdown() {
                 log('from-markdown', 'exit editBlockReplaceContent');
                 const node = this.data.currentEditBlock;
                 node.data.hProperties.replace = this.resume();
-            },
-
-            // Set when the tokenizer has consumed a real structural close (tail/fence/...] for git diff)
-            editBlockComplete() {
-                log('from-markdown', 'exit editBlockComplete');
-                const node = this.data.currentEditBlock ?? this.stack[this.stack.length - 1];
-                if (node && node.data && node.data.hProperties) {
-                    node.data.hProperties.complete = true;
-                }
             },
 
             gitDiffContent(tok) {
