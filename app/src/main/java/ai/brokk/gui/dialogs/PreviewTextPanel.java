@@ -1329,19 +1329,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * possible. Does not refresh if there are unsaved changes.
      */
     public void refreshFromDisk() {
-        logger.debug("refreshFromDisk() called for file: {}", file);
         if (file == null) {
-            logger.debug("Skipping refresh - file is null");
             return;
         }
 
         // Don't refresh if there are unsaved changes
         if (saveButton != null && saveButton.isEnabled()) {
-            logger.debug("Skipping refresh of {} - unsaved changes present", file);
             return;
         }
-
-        logger.debug("Attempting to refresh {} from disk", file);
         try {
             // Check if file still exists
             if (!java.nio.file.Files.exists(file.absPath())) {
@@ -1365,15 +1360,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
             // Skip refresh if content hasn't changed
             if (currentContent.equals(newContentStr)) {
-                logger.debug("Content unchanged for {}, skipping refresh", file);
                 return;
             }
 
-            logger.info("Refreshing preview content for: {} (content changed)", file);
-
-            // Save current state
-            int caretPos = textArea.getCaretPosition();
-            Point viewportPos = scrollPane.getViewport().getViewPosition();
+            // Save current scroll position
+            final var savedPosition = ScrollPositionPreserver.capture(textArea, scrollPane.getViewport());
 
             // Temporarily remove document listener to avoid triggering save button during programmatic update
             if (saveButtonDocumentListener != null) {
@@ -1390,22 +1381,53 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
             }
 
-            // Restore position (best effort)
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    int newLength = textArea.getDocument().getLength();
-                    textArea.setCaretPosition(Math.min(caretPos, newLength));
-                    scrollPane.getViewport().setViewPosition(viewportPos);
-                } catch (Exception e) {
-                    // Position restoration failed, just scroll to top
-                    logger.debug("Could not restore caret position after refresh", e);
-                    textArea.setCaretPosition(0);
-                }
-            });
+            // Restore position - use nested invokeLater to ensure ALL layout is complete
+            // First invokeLater processes the setText, second one restores scroll
+            SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
+                ScrollPositionPreserver.restore(textArea, scrollPane.getViewport(), savedPosition);
+            }));
 
         } catch (Exception e) {
             logger.error("Error refreshing preview from disk for {}", file, e);
         }
+    }
+
+    /**
+     * Updates the panel's content with new text and syntax style, preserving scroll position.
+     * This is used when async content loads to replace placeholder content.
+     *
+     * @param newText The new content to display
+     * @param syntaxStyle The syntax highlighting style to use
+     */
+    public void updateContent(String newText, String syntaxStyle) {
+        // Save current scroll position
+        final var savedPosition = ScrollPositionPreserver.capture(textArea, scrollPane.getViewport());
+
+        // Temporarily remove document listener if present
+        if (saveButtonDocumentListener != null) {
+            textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
+        }
+
+        try {
+            // Update syntax style if it changed
+            if (!textArea.getSyntaxEditingStyle().equals(syntaxStyle)) {
+                textArea.setSyntaxEditingStyle(syntaxStyle);
+            }
+
+            // Update content
+            textArea.setText(newText);
+        } finally {
+            // Re-add document listener
+            if (saveButtonDocumentListener != null) {
+                textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+            }
+        }
+
+        // Restore position - use nested invokeLater to ensure ALL layout is complete
+        // First invokeLater processes the setText, second one restores scroll
+        SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
+            ScrollPositionPreserver.restore(textArea, scrollPane.getViewport(), savedPosition);
+        }));
     }
 
     /**
