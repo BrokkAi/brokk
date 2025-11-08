@@ -549,5 +549,23 @@ model_list:
       supports_tool_choice: true
       max_concurrent_requests: 1
 
+  - model_name: m2
+    litellm_params:
+      model: openrouter/minimax/minimax-m2
+      api_key: "os.environ/OPENROUTER_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 204000
+      max_input_tokens: 204000
+      max_output_tokens: 131000
+      input_cost_per_token: 1e-06
+      output_cost_per_token: 3e-06
+      mode: chat
+      supports_function_calling: true
+      supports_response_schema: true
+      supports_tool_choice: true
+      max_concurrent_requests: 1
+
 litellm_settings:
   num_retries: 0
