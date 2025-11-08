@@ -75,6 +75,11 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    @Override
     public IProject getProject() {
         if (project == null) {
             throw new UnsupportedOperationException("DisabledAnalyzer has no project");

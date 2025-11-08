@@ -116,6 +116,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
+    public Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        return Optional.empty(); // Return empty for test purposes
+    }
+
+    @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
         return Set.of(); // Return empty set for test purposes
     }
