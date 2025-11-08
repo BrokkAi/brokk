@@ -751,26 +751,10 @@ public class Chrome
         // Now show the window with complete layout
         frame.setVisible(true);
 
-        // Possibly check if .gitignore is set
-        if (getProject().hasGit()) {
-            contextManager.submitBackgroundTask("Checking .gitignore", () -> {
-                if (!getProject().isGitIgnoreSet()) {
-                    SwingUtilities.invokeLater(() -> {
-                        int result = showConfirmDialog(
-                                "Update .gitignore and add .brokk project files to git?",
-                                "Git Configuration",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.QUESTION_MESSAGE);
-                        if (result == JOptionPane.YES_OPTION) {
-                            setupGitIgnore();
-                        }
-                    });
-                }
-                return null;
-            });
-        }
-
         SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
+
+        // Defer .gitignore check until initialization completes
+        scheduleGitConfigurationAfterInit();
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
@@ -3025,6 +3009,37 @@ public class Chrome
             if (triggerAutoPlay && !GlobalUiSettings.isAdvancedMode()) {
                 SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
             }
+        });
+    }
+
+    /**
+     * Defers the Git configuration prompt until style guide and build details initialization complete.
+     * Combines both futures and triggers the .gitignore check only after both are done.
+     */
+    private void scheduleGitConfigurationAfterInit() {
+        if (!getProject().hasGit()) {
+            return;
+        }
+
+        var styleFuture = contextManager.getStyleGuideFuture();
+        var buildFuture = getProject().getBuildDetailsFuture();
+
+        CompletableFuture.allOf(styleFuture, buildFuture).thenRunAsync(() -> {
+            contextManager.submitBackgroundTask("Checking .gitignore", () -> {
+                if (!getProject().isGitIgnoreSet()) {
+                    SwingUtilities.invokeLater(() -> {
+                        int result = showConfirmDialog(
+                                "Update .gitignore and add .brokk project files to git?",
+                                "Git Configuration",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE);
+                        if (result == JOptionPane.YES_OPTION) {
+                            setupGitIgnore();
+                        }
+                    });
+                }
+                return null;
+            });
         });
     }
 
