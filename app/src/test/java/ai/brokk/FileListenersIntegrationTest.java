@@ -21,7 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
  * End-to-end integration tests for the new file listeners architecture from issue #1575.
  *
  * Tests the complete flow:
- * 1. Create IWatchService (ProjectWatchService)
+ * 1. Create IWatchService (LegacyProjectWatchService)
  * 2. Inject into AnalyzerWrapper
  * 3. AnalyzerWrapper registers itself as listener
  * 4. External component (simulating ContextManager) adds its own listener
@@ -33,7 +33,7 @@ class FileListenersIntegrationTest {
     Path tempDir;
 
     private AnalyzerWrapper analyzerWrapper;
-    private ProjectWatchService watchService;
+    private LegacyProjectWatchService watchService;
 
     @AfterEach
     void tearDown() {
@@ -54,7 +54,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Step 1: Create IWatchService (like ContextManager does)
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
         // Note: Pass null for analyzerListener to avoid git repo access in tests
@@ -98,7 +98,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -135,7 +135,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
@@ -173,7 +173,7 @@ class FileListenersIntegrationTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service and AnalyzerWrapper
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
 
         // Simulate two different components accessing the watch service
