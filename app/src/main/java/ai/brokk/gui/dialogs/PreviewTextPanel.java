@@ -109,6 +109,18 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
+    // Hover-suggestion state
+    @Nullable
+    private JPopupMenu hoverSuggestionMenu;
+
+    private javax.swing.Timer hoverTimer;
+
+    @Nullable
+    private Point lastMousePoint;
+
+    @Nullable
+    private Point lastPopupPoint;
+
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     // Font size state - implements EditorFontSizeControl
@@ -143,6 +155,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         textArea = new PreviewTextArea(
                 "привет привет " + content, syntaxStyle, file != null); // syntaxStyle can be null here
 
+        // Initialize hover timer BEFORE adding listeners so mouseMoved can reference it safely
+        hoverTimer = new javax.swing.Timer(700, evt -> {
+            var p = lastMousePoint;
+            if (p != null) {
+                showHoverSuggestionsAt(p);
+            }
+        });
+        hoverTimer.setRepeats(false);
+
         // Mouse motion listener: update cursorCoordinatesLabel with the text offset under the mouse
         textArea.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override
@@ -151,9 +172,55 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     var point = e.getPoint();
                     int offset = textArea.viewToModel2D(point);
                     cursorCoordinatesLabel.setText("координаты курсора " + offset);
+                    // If a hover suggestion popup is visible and the mouse moved, hide it to avoid stale popups
+                    if (hoverSuggestionMenu != null && hoverSuggestionMenu.isVisible()) {
+                        try {
+                            hoverSuggestionMenu.setVisible(false);
+                        } catch (Exception ex) {
+                            logger.debug("Failed to hide hover suggestion menu on mouse move", ex);
+                        }
+                        hoverSuggestionMenu = null;
+                    }
+
+                    // Update last mouse point and restart the hover timer
+                    lastMousePoint = point;
+                    if (hoverTimer.isRunning()) {
+                        hoverTimer.restart();
+                    } else {
+                        hoverTimer.start();
+                    }
                 } catch (Exception ex) {
                     // Swallow any unexpected exceptions to avoid disturbing UI; log if needed
                     logger.debug("Failed to compute cursor offset on mouse move", ex);
+                }
+            }
+        });
+
+        // Cancel/dismiss hover suggestions on exit or press
+        textArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                hoverTimer.stop();
+                if (hoverSuggestionMenu != null) {
+                    try {
+                        hoverSuggestionMenu.setVisible(false);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to hide hover suggestion menu on mouse exit", ex);
+                    }
+                    hoverSuggestionMenu = null;
+                }
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                hoverTimer.stop();
+                if (hoverSuggestionMenu != null) {
+                    try {
+                        hoverSuggestionMenu.setVisible(false);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to hide hover suggestion menu on mouse press", ex);
+                    }
+                    hoverSuggestionMenu = null;
                 }
             }
         });
@@ -440,12 +507,18 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                 private void populateDynamicMenuItems() {
                     // Add "Capture usages" items if it's a project file and declarations are available
-                    if (file == null || fileDeclarations == null || analyzerCapabilities == null) {
-                        logger.warn("Cannot populate dynamic menu items: file or futures are null.");
+                    if (file == null) {
+                        logger.warn("Cannot populate dynamic menu items: file is null.");
                         return;
                     }
 
-                    if (!fileDeclarations.isDone() || !analyzerCapabilities.isDone()) {
+                    // Assert non-nullness for analysis-time fields that are initialized together with `file`.
+                    final Future<Set<CodeUnit>> fd =
+                            requireNonNull(fileDeclarations, "fileDeclarations must be non-null when file != null");
+                    final Future<Map<Language, AnalyzerCapabilities>> ac = requireNonNull(
+                            analyzerCapabilities, "analyzerCapabilities must be non-null when file != null");
+
+                    if (!fd.isDone() || !ac.isDone()) {
                         var item = new JMenuItem("Waiting for Code Intelligence...");
                         item.setEnabled(false);
                         dynamicMenuItems.add(item);
@@ -459,8 +532,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     }
 
                     try {
-                        var codeUnits = fileDeclarations.get();
-                        var capabilitiesMap = analyzerCapabilities.get();
+                        final Set<CodeUnit> codeUnits = fd.get();
+                        final Map<Language, AnalyzerCapabilities> capabilitiesMap = ac.get();
                         var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
 
                         if (analyzer == null) {
@@ -1436,7 +1509,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     textArea.scrollRectToVisible(rect.getBounds());
                 }
             } catch (Exception e) {
-                // If scrolling fails, just set the position without scrolling
+                logger.debug("Could not scroll caret into view", e);
             }
         }
     }
@@ -1473,6 +1546,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
             } catch (Exception e) {
                 // If centering fails, fall back to basic scrolling
+                logger.debug("Centering caret failed, falling back to basic scrolling", e);
                 try {
                     var rect = textArea.modelToView2D(position);
                     if (rect != null) {
@@ -1480,9 +1554,62 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     }
                 } catch (Exception e2) {
                     // If all scrolling fails, just set the position
+                    logger.debug("Scrolling caret to visible failed after centering failure", e2);
                 }
             }
         }
+    }
+
+    /**
+     * Shows hover suggestion popup at the provided text-area-local point using the same popup menu logic that the
+     * right-click menu uses. The popup is not auto-applied; the user must click an action to perform it.
+     */
+    private void showHoverSuggestionsAt(Point p) {
+        if (!textArea.isShowing()) return;
+
+        // Avoid re-showing at the exact same location
+        if (hoverSuggestionMenu != null
+                && hoverSuggestionMenu.isVisible()
+                && lastPopupPoint != null
+                && lastPopupPoint.equals(p)) {
+            return;
+        }
+
+        // Close any existing menu
+        if (hoverSuggestionMenu != null) {
+            try {
+                hoverSuggestionMenu.setVisible(false);
+            } catch (Exception ex) {
+                logger.debug("Failed to hide existing hover suggestion menu", ex);
+            }
+            hoverSuggestionMenu = null;
+        }
+
+        // Build menu via PreviewTextArea's createPopupMenu() which populates dynamic items on show
+        JPopupMenu menu = textArea.createPopupMenu();
+
+        // Track lifecycle to clear reference when closed
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                /* no-op */
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                hoverSuggestionMenu = null;
+            }
+
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                hoverSuggestionMenu = null;
+            }
+        });
+
+        // Show slightly below the pointer for readability
+        menu.show(textArea, Math.max(0, p.x), Math.max(0, p.y + 16));
+        hoverSuggestionMenu = menu;
+        lastPopupPoint = new Point(p);
     }
 
     // FontSizeAware implementation uses default methods from interface
