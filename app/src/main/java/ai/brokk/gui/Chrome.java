@@ -850,6 +850,32 @@ public class Chrome
                 var reviewMdPath = sharedBrokkDir.resolve("review.md");
                 var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
+                // Migrate legacy style.md to AGENTS.md if it exists and has content
+                var legacyStylePath = sharedBrokkDir.resolve("style.md");
+                if (Files.exists(legacyStylePath)) {
+                    try {
+                        String legacyContent = Files.readString(legacyStylePath);
+                        if (!legacyContent.isBlank()) {
+                            // Use MainProject's migration method to handle Git staging/rename
+                            var mainProject = getProject() instanceof MainProject mp ? mp : null;
+                            if (mainProject != null) {
+                                boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
+                                if (migrationSuccess) {
+                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
+                                }
+                            } else {
+                                // Fallback: manual migration if not a MainProject
+                                Files.writeString(agentsMdPath, legacyContent);
+                                Files.delete(legacyStylePath);
+                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                            }
+                        }
+                    } catch (IOException ex) {
+                        logger.warn("Error checking/migrating legacy style.md: {}", ex.getMessage());
+                        // Continue; legacy file is optional
+                    }
+                }
+
                 // Create shared files if they don't exist (empty files)
                 if (!Files.exists(agentsMdPath)) {
                     Files.writeString(agentsMdPath, "# Agents Guide\n");
@@ -864,6 +890,7 @@ public class Chrome
                 // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
                 // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
+                // Always include AGENTS.md (will have migrated content if legacy style.md existed)
                 filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
