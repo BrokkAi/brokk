@@ -838,8 +838,14 @@ public class Chrome
                     // The path for 'add' should be relative to the git repo's CWD, or absolute.
                     // gitRepo.add() handles paths relative to its own root, or absolute paths.
                     // Here, gitignorePath is absolute.
+                    try {
                     gitRepo.add(gitignorePath);
-                }
+                    logger.debug("Staged .gitignore to git");
+                    } catch (Exception ex) {
+                    logger.warn("Error staging .gitignore to git: {}", ex.getMessage());
+                    // Continue gracefully; .gitignore is on disk even if not staged
+                    }
+                    }
 
                 // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
                 var sharedBrokkDir = gitTopLevel.resolve(".brokk");
@@ -874,38 +880,68 @@ public class Chrome
                         // Use MainProject's migration method to handle Git staging/rename
                         var mainProject = getProject() instanceof MainProject mp ? mp : null;
                         if (mainProject != null) {
-                            boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
-                            if (migrationSuccess) {
-                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
-                            } else {
-                                logger.warn("MainProject.performStyleMdToAgentsMdMigration returned false");
+                            try {
+                                boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
+                                if (migrationSuccess) {
+                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
+                                } else {
+                                    logger.warn("MainProject.performStyleMdToAgentsMdMigration returned false; will create stub AGENTS.md");
+                                }
+                            } catch (Exception migrationEx) {
+                                logger.warn("MainProject migration failed: {}; attempting manual fallback", migrationEx.getMessage());
+                                // Fallback to manual migration if MainProject method fails
+                                try {
+                                    Files.writeString(agentsMdPath, legacyContent);
+                                    Files.delete(legacyStylePath);
+                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual fallback)");
+                                } catch (IOException ioEx) {
+                                    logger.warn("Manual migration also failed: {}", ioEx.getMessage());
+                                    // Continue; stub will be created below
+                                }
                             }
                         } else {
                             // Fallback: manual migration if not a MainProject
-                            Files.writeString(agentsMdPath, legacyContent);
-                            Files.delete(legacyStylePath);
-                            logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                            try {
+                                Files.writeString(agentsMdPath, legacyContent);
+                                Files.delete(legacyStylePath);
+                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                            } catch (IOException ioEx) {
+                                logger.warn("Manual migration failed: {}", ioEx.getMessage());
+                                // Continue; stub will be created below
+                            }
                         }
                     } catch (Exception ex) {
-                        logger.error("Error migrating legacy style.md to AGENTS.md: {}", ex.getMessage(), ex);
+                        logger.error("Error during style.md migration attempt: {}", ex.getMessage(), ex);
                         // Continue with stub file creation; migration is best-effort
                     }
                 }
 
                 // Create shared files if they don't exist (empty files or stubs)
                 // This ensures files exist even if migration failed
+                // Use defensive try-catch for each file to ensure all stubs are created
                 if (!Files.exists(agentsMdPath)) {
                     try {
                         Files.writeString(agentsMdPath, "# Agents Guide\n");
+                        logger.debug("Created stub AGENTS.md");
                     } catch (IOException ex) {
                         logger.error("Failed to create stub AGENTS.md: {}", ex.getMessage());
                     }
                 }
                 if (!Files.exists(reviewMdPath)) {
-                    Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
+                    try {
+                        Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
+                        logger.debug("Created stub review.md");
+                    } catch (IOException ex) {
+                        logger.error("Failed to create stub review.md: {}", ex.getMessage());
+                    }
                 }
                 if (!Files.exists(projectPropsPath)) {
-                    Files.writeString(projectPropsPath, "# Brokk project configuration\n");
+                    try {
+                        Files.writeString(projectPropsPath, "# Brokk project configuration\n");
+                        logger.debug("Created stub project.properties");
+                    } catch (IOException ex) {
+                        logger.error("Failed to create stub project.properties: {}", ex.getMessage());
+                    }
                 }
 
                 // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
@@ -921,15 +957,20 @@ public class Chrome
                     // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
                     // The GitRepo instance is for the current project (which could be a worktree),
                     // but 'add' operations apply to the whole repository.
-                    gitRepo.add(filesToAdd);
-                    logger.debug("Successfully staged shared project files to git");
+                    try {
+                        gitRepo.add(filesToAdd);
+                        logger.debug("Successfully staged shared project files to git");
+                    } catch (Exception addEx) {
+                        logger.warn("Error staging shared project files to git: {}", addEx.getMessage());
+                        // Continue gracefully; files are on disk even if not staged
+                    }
+                    showNotification(
+                            NotificationRole.INFO,
+                            "Added shared project files (AGENTS.md, review.md, project.properties) to git");
                 } catch (Exception ex) {
-                    logger.error("Error adding shared files to git: {}", ex.getMessage(), ex);
+                    logger.error("Error preparing shared files for git: {}", ex.getMessage(), ex);
                     // Continue; commit dialog will be shown regardless
                 }
-                showNotification(
-                        NotificationRole.INFO,
-                        "Added shared project files (AGENTS.md, review.md, project.properties) to git");
 
                 // Refresh the commit panel to show the new files
                 updateCommitPanel();
