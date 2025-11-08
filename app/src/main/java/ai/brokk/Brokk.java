@@ -755,8 +755,8 @@ public class Brokk {
                             }
 
                             // Chain initialTask execution to guiFuture's completion
-                            // Handle style.md to AGENTS.md migration after data retention policy is confirmed
-                            attemptStyleMdToAgentsMdMigration(project);
+                            // NOTE: Migration prompt moved to Chrome.scheduleGitConfigurationAfterInit()
+                            // to avoid dialog stacking with build settings dialog
 
                             guiFuture.whenCompleteAsync(
                                     (Void result, @Nullable Throwable guiEx) -> {

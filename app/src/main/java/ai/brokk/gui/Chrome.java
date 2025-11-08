@@ -3135,23 +3135,26 @@ public class Chrome
         CompletableFuture.allOf(styleFuture, buildFuture).thenRunAsync(() -> {
             logger.debug("Initialization completed; both style guide and build details ready");
 
-            // Only register git config callback if project has git and needs configuration
-            if (getProject().hasGit() && !getProject().isGitIgnoreSet()) {
-                // Register callback to show git config dialog AFTER build settings closes
-                contextManager.setAfterBuildSettingsCallback(() -> {
-                    logger.debug("Build settings closed; showing git config dialog");
-                    checkAndShowGitConfigDialog();
-                });
-                logger.debug("Git config callback registered; will show after build settings closes");
-            } else if (getProject().hasGit()) {
-                logger.debug("Git already configured; no callback needed");
-            } else {
-                logger.debug("No git repository; no git config dialog needed");
-            }
-
-            // Show build settings dialog now that both futures are complete
-            // This ensures the style guide is loaded into the settings panel
+            // Check if migration is needed and show dialog BEFORE build settings
             SwingUtilities.invokeLater(() -> {
+                checkAndOfferStyleMdMigration();
+
+                // Only register git config callback if project has git and needs configuration
+                if (getProject().hasGit() && !getProject().isGitIgnoreSet()) {
+                    // Register callback to show git config dialog AFTER build settings closes
+                    contextManager.setAfterBuildSettingsCallback(() -> {
+                        logger.debug("Build settings closed; showing git config dialog");
+                        checkAndShowGitConfigDialog();
+                    });
+                    logger.debug("Git config callback registered; will show after build settings closes");
+                } else if (getProject().hasGit()) {
+                    logger.debug("Git already configured; no callback needed");
+                } else {
+                    logger.debug("No git repository; no git config dialog needed");
+                }
+
+                // Show build settings dialog now that both futures are complete
+                // This ensures the style guide is loaded into the settings panel
                 logger.debug("Showing build settings dialog");
                 var dlg = SettingsDialog.showSettingsDialog(this, "Build");
                 dlg.getProjectPanel().showBuildBanner();
@@ -3167,6 +3170,56 @@ public class Chrome
                 }
             });
         });
+    }
+
+    /**
+     * Checks if style.md to AGENTS.md migration is needed and offers it to the user.
+     * This is called after both style guide and build details are ready, but before
+     * showing the build settings dialog, to avoid dialog stacking issues.
+     */
+    private void checkAndOfferStyleMdMigration() {
+        if (!(getProject() instanceof MainProject mainProject)) {
+            return; // Only main projects can be migrated
+        }
+
+        try {
+            Path brokkDir = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
+            Path styleFile = brokkDir.resolve("style.md");
+            Path agentsFile = mainProject.getMasterRootPathForConfig().resolve("AGENTS.md");
+
+            // Check conditions: style.md exists, AGENTS.md doesn't, and user hasn't declined
+            if (!Files.exists(styleFile) || Files.exists(agentsFile) || mainProject.getMigrationDeclined()) {
+                return;
+            }
+
+            logger.debug("Detected style.md without AGENTS.md. Prompting user for migration.");
+
+            String message =
+                    """
+            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
+
+            Would you like to migrate `style.md` to `AGENTS.md`? This will:
+            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
+            - Stage the change in Git (if the project is a Git repository)
+            - You can then review and commit the changes
+            """;
+
+            int confirm = showConfirmDialog(
+                    getFrame(),
+                    message,
+                    "Migrate Style Guide to AGENTS.md",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                mainProject.performStyleMdToAgentsMdMigration(this);
+            } else {
+                mainProject.setMigrationDeclined(true);
+                logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
+            }
+        } catch (Exception e) {
+            logger.error("Error checking for style.md migration: {}", e.getMessage(), e);
+        }
     }
 
     /**
