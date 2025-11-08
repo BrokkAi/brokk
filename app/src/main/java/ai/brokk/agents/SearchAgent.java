@@ -998,8 +998,10 @@ public class SearchAgent {
             @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                     String instructions)
             throws InterruptedException, FatalLlmException {
-        logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+        // append first the SearchAgent's result so far, CodeAgent appends its own result
+        scope.append(createResult("Search: " + goal, goal));
 
+        logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
         var agent = new CodeAgent(cm, model);
         var opts = new HashSet<CodeAgent.Option>();
@@ -1011,6 +1013,8 @@ public class SearchAgent {
         context = scope.append(result);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
+            // we need an output to be appended by the search agent caller (code agent appended its own result)
+            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
             var resultString = "CodeAgent finished with a successful build! Details are in the Workspace messages.";
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
@@ -1022,6 +1026,8 @@ public class SearchAgent {
             throw new InterruptedException();
         }
         if (reason == TaskResult.StopReason.LLM_ERROR) {
+            // we need an output to be appended by the search agent caller (code agent appended its own result)
+            io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new FatalLlmException(stopDetails.explanation());
         }
