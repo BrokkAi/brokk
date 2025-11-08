@@ -12,6 +12,7 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 public class MultiAnalyzerTest {
@@ -171,5 +172,68 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getDirectChildren(unknownClass));
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
+    }
+
+    // ==================== GETDEFINITION PARITY TESTS ====================
+
+    @Test
+    @org.junit.jupiter.api.Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    public void testGetDefinitionStringAndCodeUnitParity() {
+        var javaFile = new ProjectFile(tempDir, "TestClass.java");
+        var classUnit = CodeUnit.cls(javaFile, "", "TestClass");
+        var methodUnit = CodeUnit.fn(javaFile, "", "TestClass.testMethod");
+
+        // Test class definition parity
+        var classViaString = multiAnalyzer.getDefinition("TestClass");
+        var classViaCodeUnit = multiAnalyzer.getDefinition(classUnit);
+
+        assertEquals(classViaString.isPresent(), classViaCodeUnit.isPresent(),
+                "Class lookup parity: String and CodeUnit paths should have same presence");
+        if (classViaString.isPresent() && classViaCodeUnit.isPresent()) {
+            assertEquals(classViaString.get().fqName(), classViaCodeUnit.get().fqName(),
+                    "Class FQNames should match");
+        }
+
+        // Test method definition parity
+        var methodViaString = multiAnalyzer.getDefinition("TestClass.testMethod");
+        var methodViaCodeUnit = multiAnalyzer.getDefinition(methodUnit);
+
+        assertEquals(methodViaString.isPresent(), methodViaCodeUnit.isPresent(),
+                "Method lookup parity: String and CodeUnit paths should have same presence");
+        if (methodViaString.isPresent() && methodViaCodeUnit.isPresent()) {
+            assertEquals(methodViaString.get().fqName(), methodViaCodeUnit.get().fqName(),
+                    "Method FQNames should match");
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    public void testGetDefinitionNoMutualRecursion() {
+        var javaFile = new ProjectFile(tempDir, "TestClass.java");
+        var classUnit = CodeUnit.cls(javaFile, "", "TestClass");
+
+        // These should complete without stack overflow
+        var viaString = multiAnalyzer.getDefinition("TestClass");
+        assertTrue(viaString.isPresent(), "Should find TestClass via String");
+
+        var viaCodeUnit = multiAnalyzer.getDefinition(viaString.get());
+        assertTrue(viaCodeUnit.isPresent(), "Should find TestClass via CodeUnit");
+
+        // Verify round-trip
+        assertEquals(viaString.get().fqName(), viaCodeUnit.get().fqName(), "Round-trip should maintain FQName");
+    }
+
+    @Test
+    @org.junit.jupiter.api.Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    public void testGetDefinitionUnsupportedLanguage() {
+        var unknownFile = new ProjectFile(tempDir, "test.xyz");
+        var unknownUnit = CodeUnit.cls(unknownFile, "", "Unknown");
+
+        // Both should return empty for unsupported language
+        var viaString = multiAnalyzer.getDefinition("Unknown");
+        var viaCodeUnit = multiAnalyzer.getDefinition(unknownUnit);
+
+        assertFalse(viaString.isPresent(), "Should return empty for unsupported language via String");
+        assertFalse(viaCodeUnit.isPresent(), "Should return empty for unsupported language via CodeUnit");
     }
 }

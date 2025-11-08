@@ -16,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 public final class PythonAnalyzerTest {
 
@@ -977,5 +978,66 @@ public final class PythonAnalyzerTest {
                 uniqueTopDecls.size(),
                 topDecls.size(),
                 "Top-level declaration FQNs should be unique after deduplication");
+    }
+
+    // ==================== GETDEFINITION PARITY TESTS ====================
+
+    @Test
+    @org.junit.jupiter.api.Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void testGetDefinitionStringAndCodeUnitParity() {
+        if (analyzer == null) {
+            return;
+        }
+
+        // Test that getDefinition(String) and getDefinition(CodeUnit) produce equivalent results
+        var allDeclared = analyzer.getAllDeclarations();
+        if (allDeclared.isEmpty()) {
+            return;
+        }
+
+        for (CodeUnit cu : allDeclared.stream().limit(20).toList()) {
+            // Get via String
+            var viaString = analyzer.getDefinition(cu.fqName());
+
+            // Get via CodeUnit
+            var viaCodeUnit = analyzer.getDefinition(cu);
+
+            // Both should have same presence
+            assertEquals(
+                    viaString.isPresent(),
+                    viaCodeUnit.isPresent(),
+                    "Parity violation for " + cu.fqName() + ": String path found="
+                            + viaString.isPresent() + ", CodeUnit path found=" + viaCodeUnit.isPresent());
+
+            if (viaString.isPresent() && viaCodeUnit.isPresent()) {
+                assertEquals(
+                        viaString.get().fqName(),
+                        viaCodeUnit.get().fqName(),
+                        "FQNames should match for " + cu.fqName());
+            }
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void testGetDefinitionNoMutualRecursion() {
+        if (analyzer == null) {
+            return;
+        }
+
+        var allDeclared = analyzer.getAllDeclarations();
+        if (allDeclared.isEmpty()) {
+            return;
+        }
+
+        // This test verifies no infinite recursion. If a loop exists, timeout occurs.
+        for (CodeUnit cu : allDeclared.stream().limit(10).toList()) {
+            // Call both paths - should complete without stack overflow
+            var viaString = analyzer.getDefinition(cu.fqName());
+            if (viaString.isPresent()) {
+                var viaCodeUnit = analyzer.getDefinition(viaString.get());
+                assertTrue(viaCodeUnit.isPresent(), "Should find definition for " + cu.fqName());
+            }
+        }
     }
 }

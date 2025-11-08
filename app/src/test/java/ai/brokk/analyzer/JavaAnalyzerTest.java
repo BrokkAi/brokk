@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -754,5 +755,71 @@ public class JavaAnalyzerTest {
         var topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
+    }
+
+    // ==================== GETDEFINITION PARITY TESTS ====================
+
+    @Test
+    @Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void testGetDefinitionStringAndCodeUnitParity() {
+        // Test that getDefinition(String) and getDefinition(CodeUnit) produce equivalent results
+        List<String> testSymbols = List.of("A", "D", "A.method1", "D.field1", "EnumClass", "ServiceInterface");
+
+        for (String symbol : testSymbols) {
+            // Get via String
+            var viaString = analyzer.getDefinition(symbol);
+
+            // Get via CodeUnit (if String returned a result)
+            if (viaString.isPresent()) {
+                var viaCodeUnit = analyzer.getDefinition(viaString.get());
+
+                assertEquals(
+                        viaString.get().fqName(),
+                        viaCodeUnit.get().fqName(),
+                        "Parity violation for " + symbol + ": String and CodeUnit paths diverged");
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 5, unit = java.util.concurrent.TimeUnit.SECONDS)
+    void testGetDefinitionNoMutualRecursion() {
+        // This test verifies that neither getDefinition(String) nor getDefinition(CodeUnit)
+        // causes infinite recursion. If a recursion loop exists, this test will timeout.
+        List<String> testSymbols = List.of("A", "D", "ServiceInterface");
+
+        for (String symbol : testSymbols) {
+            // Call getDefinition(String)
+            var viaString = analyzer.getDefinition(symbol);
+
+            // If result found, call getDefinition(CodeUnit) on the result
+            if (viaString.isPresent()) {
+                var viaCodeUnit = analyzer.getDefinition(viaString.get());
+                assertTrue(viaCodeUnit.isPresent(), "Should find definition via CodeUnit after finding via String");
+            }
+        }
+    }
+
+    @Test
+    void testGetDefinitionAllDeclaredUnits() {
+        // For each declared unit, verify both overloads work
+        var allDeclared = analyzer.getAllDeclarations();
+        assertTrue(allDeclared.size() > 0, "Should have declared units");
+
+        for (CodeUnit cu : allDeclared.stream().limit(20).toList()) {
+            // Test getDefinition(String)
+            var viaString = analyzer.getDefinition(cu.fqName());
+
+            // Test getDefinition(CodeUnit)
+            var viaCodeUnit = analyzer.getDefinition(cu);
+
+            // At least one should succeed or both should be empty
+            if (viaString.isPresent()) {
+                assertTrue(viaCodeUnit.isPresent(), "CodeUnit lookup should succeed if String lookup succeeded for "
+                        + cu.fqName());
+                assertEquals(viaString.get().fqName(), viaCodeUnit.get().fqName(),
+                        "Both paths should return same FQName for " + cu.fqName());
+            }
+        }
     }
 }
