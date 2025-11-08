@@ -150,12 +150,26 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
+    public Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        // Canonical method: look up by fqName in the definitions map
+        var cus = definitionsByFqName.getOrDefault(cu.fqName(), Collections.emptyList());
         if (cus.size() == 1) {
             return Optional.of(cus.get(0));
         }
-        return Optional.empty(); // Ambiguous or not found
+        // Return empty on ambiguity (multiple matches) or not found (zero matches)
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<CodeUnit> getDefinition(String fqName) {
+        // Adapter method: resolve string FQN to candidates and delegate to canonical CodeUnit overload
+        var candidates = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
+        if (candidates.size() == 1) {
+            // Exactly one candidate found; delegate to the canonical CodeUnit-based method
+            return getDefinition(candidates.get(0));
+        }
+        // Return empty if ambiguous (multiple candidates) or not found (zero candidates)
+        return Optional.empty();
     }
 
     @Override
