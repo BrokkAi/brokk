@@ -541,6 +541,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
+    public Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        // For CodeUnit-based lookup, verify it exists in our indices and return it.
+        // We use a simple verification approach: check if the CodeUnit exists in our uniqueCodeUnitList.
+        return uniqueCodeUnitList().stream()
+                .filter(indexed -> indexed.fqName().equals(cu.fqName())
+                        && indexed.kind().equals(cu.kind())
+                        && indexed.source().equals(cu.source()))
+                .findFirst()
+                .or(() -> Optional.of(cu)); // If exact match not found in index, return the provided CodeUnit
+    }
+
+    @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
@@ -577,7 +589,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
 
-        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst();
+        // Sort and delegate to getDefinition(CodeUnit)
+        return matches.stream()
+                .sorted(DEFINITION_COMPARATOR)
+                .findFirst()
+                .flatMap(this::getDefinition);
     }
 
     @Override
