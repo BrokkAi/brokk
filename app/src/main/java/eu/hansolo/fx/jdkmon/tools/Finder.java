@@ -827,9 +827,7 @@ public class Finder {
 
                 // Fix for issue #1714: Handle paths without file separator
                 int lastSeparatorIndex = parentPath.lastIndexOf(File.separator);
-                String location = lastSeparatorIndex >= 0
-                        ? parentPath.substring(0, lastSeparatorIndex)
-                        : "";
+                String location = lastSeparatorIndex >= 0 ? parentPath.substring(0, lastSeparatorIndex) : "";
 
                 Distro distributionFound = new Distro(
                         name,
