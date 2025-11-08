@@ -1971,7 +1971,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Ensure style guide exists, generating if needed.
-     * 
+     *
      * @return A CompletableFuture that completes when the style guide is ready (or skipped)
      */
     private CompletableFuture<Void> ensureStyleGuide() {
@@ -2099,13 +2099,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Returns the CompletableFuture tracking style guide generation completion.
-     * Never returns null; returns a completed future if generation is not in progress.
-     * 
+     * Never returns null; always initialized to a completed future.
+     *
      * @return A CompletableFuture that completes when the style guide is ready
      */
     public CompletableFuture<Void> getStyleGuideFuture() {
-        CompletableFuture<Void> future = styleGuideFuture;
-        return future != null ? future : CompletableFuture.completedFuture(null);
+        return styleGuideFuture;
     }
 
     /** Ensure review guide exists, generating if needed */

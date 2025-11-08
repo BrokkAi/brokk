@@ -839,13 +839,13 @@ public class Chrome
                     // gitRepo.add() handles paths relative to its own root, or absolute paths.
                     // Here, gitignorePath is absolute.
                     try {
-                    gitRepo.add(gitignorePath);
-                    logger.debug("Staged .gitignore to git");
+                        gitRepo.add(gitignorePath);
+                        logger.debug("Staged .gitignore to git");
                     } catch (Exception ex) {
-                    logger.warn("Error staging .gitignore to git: {}", ex.getMessage());
-                    // Continue gracefully; .gitignore is on disk even if not staged
+                        logger.warn("Error staging .gitignore to git: {}", ex.getMessage());
+                        // Continue gracefully; .gitignore is on disk even if not staged
                     }
-                    }
+                }
 
                 // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
                 var sharedBrokkDir = gitTopLevel.resolve(".brokk");
@@ -859,9 +859,12 @@ public class Chrome
                 // Migrate legacy style.md to AGENTS.md if it exists and has content
                 // Only migrate if AGENTS.md doesn't already exist or is empty
                 var legacyStylePath = sharedBrokkDir.resolve("style.md");
-                boolean shouldAttemptMigration = false;
+                String legacyContentForMigration = null;
                 if (Files.exists(legacyStylePath)) {
                     try {
+                        // Read content once and reuse it to avoid race condition
+                        String legacyContent = Files.readString(legacyStylePath);
+
                         // Check if we should migrate (legacy exists with content AND target is missing/empty)
                         boolean targetMissing = !Files.exists(agentsMdPath);
                         boolean targetEmpty = false;
@@ -873,21 +876,17 @@ public class Chrome
                                 targetEmpty = true; // Treat read errors as "empty for migration purposes"
                             }
                         }
-                        
-                        if (targetMissing || targetEmpty) {
-                            String legacyContent = Files.readString(legacyStylePath);
-                            if (!legacyContent.isBlank()) {
-                                shouldAttemptMigration = true;
-                            }
+
+                        if ((targetMissing || targetEmpty) && !legacyContent.isBlank()) {
+                            legacyContentForMigration = legacyContent;
                         }
                     } catch (IOException ex) {
                         logger.warn("Error checking legacy style.md for migration: {}", ex.getMessage());
                     }
                 }
 
-                if (shouldAttemptMigration) {
+                if (legacyContentForMigration != null) {
                     try {
-                        String legacyContent = Files.readString(legacyStylePath);
                         // Use MainProject's migration method to handle Git staging/rename
                         var mainProject = getProject() instanceof MainProject mp ? mp : null;
                         if (mainProject != null) {
@@ -896,15 +895,18 @@ public class Chrome
                                 if (migrationSuccess) {
                                     logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
                                 } else {
-                                    logger.warn("MainProject.performStyleMdToAgentsMdMigration returned false; will create stub AGENTS.md");
+                                    logger.debug("Migration returned false; stub AGENTS.md will be created if needed");
                                 }
                             } catch (Exception migrationEx) {
-                                logger.warn("MainProject migration failed: {}; attempting manual fallback", migrationEx.getMessage());
+                                logger.warn(
+                                        "MainProject migration failed: {}; attempting manual fallback",
+                                        migrationEx.getMessage());
                                 // Fallback to manual migration if MainProject method fails
                                 try {
-                                    Files.writeString(agentsMdPath, legacyContent);
+                                    Files.writeString(agentsMdPath, legacyContentForMigration);
                                     Files.delete(legacyStylePath);
-                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual fallback)");
+                                    logger.info(
+                                            "Migrated style guide from .brokk/style.md to AGENTS.md (manual fallback)");
                                 } catch (IOException ioEx) {
                                     logger.warn("Manual migration also failed: {}", ioEx.getMessage());
                                     // Continue; stub will be created below
@@ -913,7 +915,7 @@ public class Chrome
                         } else {
                             // Fallback: manual migration if not a MainProject
                             try {
-                                Files.writeString(agentsMdPath, legacyContent);
+                                Files.writeString(agentsMdPath, legacyContentForMigration);
                                 Files.delete(legacyStylePath);
                                 logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
                             } catch (IOException ioEx) {
