@@ -166,6 +166,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
 
+    // Style guide generation completion tracking
+    private volatile CompletableFuture<Void> styleGuideFuture = CompletableFuture.completedFuture(null);
+
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
@@ -399,7 +402,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
         // Ensure style guide and build details are loaded/generated asynchronously
-        ensureStyleGuide();
+        styleGuideFuture = ensureStyleGuide();
         ensureReviewGuide();
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
@@ -1966,19 +1969,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /** Ensure style guide exists, generating if needed */
-    private void ensureStyleGuide() {
+    /**
+     * Ensure style guide exists, generating if needed.
+     * 
+     * @return A CompletableFuture that completes when the style guide is ready (or skipped)
+     */
+    private CompletableFuture<Void> ensureStyleGuide() {
         if (!project.getStyleGuide().isEmpty()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         if (!project.hasGit()) {
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
-        submitBackgroundTask("Generating style guide", () -> {
+        return submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
@@ -2080,11 +2087,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+                return null;
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
+                return null;
             }
-            return null;
         });
+    }
+
+    /**
+     * Returns the CompletableFuture tracking style guide generation completion.
+     * Never returns null; returns a completed future if generation is not in progress.
+     * 
+     * @return A CompletableFuture that completes when the style guide is ready
+     */
+    public CompletableFuture<Void> getStyleGuideFuture() {
+        CompletableFuture<Void> future = styleGuideFuture;
+        return future != null ? future : CompletableFuture.completedFuture(null);
     }
 
     /** Ensure review guide exists, generating if needed */
