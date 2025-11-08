@@ -590,10 +590,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Sort and delegate to getDefinition(CodeUnit)
-        return matches.stream()
-                .sorted(DEFINITION_COMPARATOR)
-                .findFirst()
-                .flatMap(this::getDefinition);
+        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst().flatMap(this::getDefinition);
     }
 
     @Override

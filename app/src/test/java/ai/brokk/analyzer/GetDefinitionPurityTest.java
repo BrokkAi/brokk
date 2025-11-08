@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -242,8 +241,8 @@ public class GetDefinitionPurityTest {
 
         // Both overloads should return empty
         Optional<CodeUnit> viaString = analyzer.getDefinition("SomeClass");
-        Optional<CodeUnit> viaCodeUnit = analyzer.getDefinition(
-                CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "SomeClass"));
+        Optional<CodeUnit> viaCodeUnit =
+                analyzer.getDefinition(CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "SomeClass"));
 
         assertFalse(viaString.isPresent(), "DisabledAnalyzer.getDefinition(String) should return empty");
         assertFalse(viaCodeUnit.isPresent(), "DisabledAnalyzer.getDefinition(CodeUnit) should return empty");
@@ -255,13 +254,10 @@ public class GetDefinitionPurityTest {
         DisabledAnalyzer analyzer = new DisabledAnalyzer();
 
         // Should complete without stack overflow
-        assertTimeout(
-                java.time.Duration.ofSeconds(1),
-                () -> {
-                    analyzer.getDefinition("Test");
-                    analyzer.getDefinition(
-                            CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "Test"));
-                });
+        assertTimeout(java.time.Duration.ofSeconds(1), () -> {
+            analyzer.getDefinition("Test");
+            analyzer.getDefinition(CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "Test"));
+        });
     }
 
     // ==================== TEST ANALYZER TESTS ====================
@@ -273,8 +269,8 @@ public class GetDefinitionPurityTest {
 
         // Both overloads should return empty
         Optional<CodeUnit> viaString = analyzer.getDefinition("SomeClass");
-        Optional<CodeUnit> viaCodeUnit = analyzer.getDefinition(
-                CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "SomeClass"));
+        Optional<CodeUnit> viaCodeUnit =
+                analyzer.getDefinition(CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "SomeClass"));
 
         assertFalse(viaString.isPresent(), "TestAnalyzer.getDefinition(String) should return empty");
         assertFalse(viaCodeUnit.isPresent(), "TestAnalyzer.getDefinition(CodeUnit) should return empty");
@@ -286,12 +282,9 @@ public class GetDefinitionPurityTest {
         TestAnalyzer analyzer = new TestAnalyzer();
 
         // Should complete without stack overflow
-        assertTimeout(
-                java.time.Duration.ofSeconds(1),
-                () -> {
-                    analyzer.getDefinition("Test");
-                    analyzer.getDefinition(
-                            CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "Test"));
-                });
+        assertTimeout(java.time.Duration.ofSeconds(1), () -> {
+            analyzer.getDefinition("Test");
+            analyzer.getDefinition(CodeUnit.cls(new ProjectFile(Path.of("/tmp"), "test.txt"), "", "Test"));
+        });
     }
 }

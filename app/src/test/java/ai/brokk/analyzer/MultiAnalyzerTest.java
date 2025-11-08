@@ -12,7 +12,6 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 public class MultiAnalyzerTest {
@@ -187,22 +186,25 @@ public class MultiAnalyzerTest {
         var classViaString = multiAnalyzer.getDefinition("TestClass");
         var classViaCodeUnit = multiAnalyzer.getDefinition(classUnit);
 
-        assertEquals(classViaString.isPresent(), classViaCodeUnit.isPresent(),
+        assertEquals(
+                classViaString.isPresent(),
+                classViaCodeUnit.isPresent(),
                 "Class lookup parity: String and CodeUnit paths should have same presence");
         if (classViaString.isPresent() && classViaCodeUnit.isPresent()) {
-            assertEquals(classViaString.get().fqName(), classViaCodeUnit.get().fqName(),
-                    "Class FQNames should match");
+            assertEquals(classViaString.get().fqName(), classViaCodeUnit.get().fqName(), "Class FQNames should match");
         }
 
         // Test method definition parity
         var methodViaString = multiAnalyzer.getDefinition("TestClass.testMethod");
         var methodViaCodeUnit = multiAnalyzer.getDefinition(methodUnit);
 
-        assertEquals(methodViaString.isPresent(), methodViaCodeUnit.isPresent(),
+        assertEquals(
+                methodViaString.isPresent(),
+                methodViaCodeUnit.isPresent(),
                 "Method lookup parity: String and CodeUnit paths should have same presence");
         if (methodViaString.isPresent() && methodViaCodeUnit.isPresent()) {
-            assertEquals(methodViaString.get().fqName(), methodViaCodeUnit.get().fqName(),
-                    "Method FQNames should match");
+            assertEquals(
+                    methodViaString.get().fqName(), methodViaCodeUnit.get().fqName(), "Method FQNames should match");
         }
     }
 

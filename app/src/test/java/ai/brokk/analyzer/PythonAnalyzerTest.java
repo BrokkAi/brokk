@@ -16,7 +16,6 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 
 public final class PythonAnalyzerTest {
 
@@ -1006,8 +1005,8 @@ public final class PythonAnalyzerTest {
             assertEquals(
                     viaString.isPresent(),
                     viaCodeUnit.isPresent(),
-                    "Parity violation for " + cu.fqName() + ": String path found="
-                            + viaString.isPresent() + ", CodeUnit path found=" + viaCodeUnit.isPresent());
+                    "Parity violation for " + cu.fqName() + ": String path found=" + viaString.isPresent()
+                            + ", CodeUnit path found=" + viaCodeUnit.isPresent());
 
             if (viaString.isPresent() && viaCodeUnit.isPresent()) {
                 assertEquals(

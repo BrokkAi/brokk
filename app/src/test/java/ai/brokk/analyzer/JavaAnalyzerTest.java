@@ -815,9 +815,12 @@ public class JavaAnalyzerTest {
 
             // At least one should succeed or both should be empty
             if (viaString.isPresent()) {
-                assertTrue(viaCodeUnit.isPresent(), "CodeUnit lookup should succeed if String lookup succeeded for "
-                        + cu.fqName());
-                assertEquals(viaString.get().fqName(), viaCodeUnit.get().fqName(),
+                assertTrue(
+                        viaCodeUnit.isPresent(),
+                        "CodeUnit lookup should succeed if String lookup succeeded for " + cu.fqName());
+                assertEquals(
+                        viaString.get().fqName(),
+                        viaCodeUnit.get().fqName(),
                         "Both paths should return same FQName for " + cu.fqName());
             }
         }
