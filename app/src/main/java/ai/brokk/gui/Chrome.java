@@ -851,34 +851,55 @@ public class Chrome
                 var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
                 // Migrate legacy style.md to AGENTS.md if it exists and has content
+                // Only migrate if AGENTS.md doesn't already exist or is empty
                 var legacyStylePath = sharedBrokkDir.resolve("style.md");
+                boolean shouldAttemptMigration = false;
                 if (Files.exists(legacyStylePath)) {
                     try {
-                        String legacyContent = Files.readString(legacyStylePath);
-                        if (!legacyContent.isBlank()) {
-                            // Use MainProject's migration method to handle Git staging/rename
-                            var mainProject = getProject() instanceof MainProject mp ? mp : null;
-                            if (mainProject != null) {
-                                boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
-                                if (migrationSuccess) {
-                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
-                                }
-                            } else {
-                                // Fallback: manual migration if not a MainProject
-                                Files.writeString(agentsMdPath, legacyContent);
-                                Files.delete(legacyStylePath);
-                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                        // Check if we should migrate (legacy exists with content AND target is missing/empty)
+                        if (!Files.exists(agentsMdPath) || Files.readString(agentsMdPath).isBlank()) {
+                            String legacyContent = Files.readString(legacyStylePath);
+                            if (!legacyContent.isBlank()) {
+                                shouldAttemptMigration = true;
                             }
                         }
                     } catch (IOException ex) {
-                        logger.warn("Error checking/migrating legacy style.md: {}", ex.getMessage());
-                        // Continue; legacy file is optional
+                        logger.warn("Error checking legacy style.md for migration: {}", ex.getMessage());
                     }
                 }
 
-                // Create shared files if they don't exist (empty files)
+                if (shouldAttemptMigration) {
+                    try {
+                        String legacyContent = Files.readString(legacyStylePath);
+                        // Use MainProject's migration method to handle Git staging/rename
+                        var mainProject = getProject() instanceof MainProject mp ? mp : null;
+                        if (mainProject != null) {
+                            boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
+                            if (migrationSuccess) {
+                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
+                            } else {
+                                logger.warn("MainProject.performStyleMdToAgentsMdMigration returned false");
+                            }
+                        } else {
+                            // Fallback: manual migration if not a MainProject
+                            Files.writeString(agentsMdPath, legacyContent);
+                            Files.delete(legacyStylePath);
+                            logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                        }
+                    } catch (Exception ex) {
+                        logger.error("Error migrating legacy style.md to AGENTS.md: {}", ex.getMessage(), ex);
+                        // Continue with stub file creation; migration is best-effort
+                    }
+                }
+
+                // Create shared files if they don't exist (empty files or stubs)
+                // This ensures files exist even if migration failed
                 if (!Files.exists(agentsMdPath)) {
-                    Files.writeString(agentsMdPath, "# Agents Guide\n");
+                    try {
+                        Files.writeString(agentsMdPath, "# Agents Guide\n");
+                    } catch (IOException ex) {
+                        logger.error("Failed to create stub AGENTS.md: {}", ex.getMessage());
+                    }
                 }
                 if (!Files.exists(reviewMdPath)) {
                     Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
@@ -890,15 +911,22 @@ public class Chrome
                 // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
                 // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                // Always include AGENTS.md (will have migrated content if legacy style.md existed)
-                filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
-                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
-                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+                // Always include AGENTS.md (will have migrated content if legacy style.md existed,
+                // or a stub if neither migration nor generation produced content)
+                try {
+                    filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
+                    filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                    filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
-                // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
-                // The GitRepo instance is for the current project (which could be a worktree),
-                // but 'add' operations apply to the whole repository.
-                gitRepo.add(filesToAdd);
+                    // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
+                    // The GitRepo instance is for the current project (which could be a worktree),
+                    // but 'add' operations apply to the whole repository.
+                    gitRepo.add(filesToAdd);
+                    logger.debug("Successfully staged shared project files to git");
+                } catch (Exception ex) {
+                    logger.error("Error adding shared files to git: {}", ex.getMessage(), ex);
+                    // Continue; commit dialog will be shown regardless
+                }
                 showNotification(
                         NotificationRole.INFO,
                         "Added shared project files (AGENTS.md, review.md, project.properties) to git");
