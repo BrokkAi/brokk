@@ -79,17 +79,14 @@ public interface IAnalyzer {
     }
 
     /**
-     * Adapter method for string-based definition lookup.
-     * <b>Implementers should NOT override this method.</b>
+     * Finds a definition by its fully-qualified name (FQN).
      *
-     * <p><b>Transition Status:</b> This method is being transitioned to an adapter that resolves the FQN to a
-     * {@link CodeUnit} and delegates to {@link #getDefinition(CodeUnit)}. This change reverses the dependency
-     * to make {@link CodeUnit}-based lookup the primary path.
+     * <p><b>Primary Entry Point:</b> This is the main method for definition lookup. All implementations must
+     * override this method with their core definition resolution logic.
      *
-     * <p><b>For Implementers:</b> You MUST override {@link #getDefinition(CodeUnit)} with your core definition
-     * resolution logic. Do NOT override this method during the transition. If both methods are overridden, mutual
-     * recursion will occur. Once you have implemented {@link #getDefinition(CodeUnit)}, this String overload will
-     * automatically work by adapting the FQN to a CodeUnit and delegating to your implementation.
+     * <p><b>For Implementers:</b> Override this method with your implementation-specific logic for resolving
+     * definitions by fully-qualified name. The {@link #getDefinition(CodeUnit)} convenience method will delegate
+     * to this method by default.
      *
      * @param fqName The exact, case-sensitive fully-qualified name of the class, method, or field. Symbols are
      *     checked in that order, so if you have a field and a method with the same name, the method will be
@@ -99,23 +96,14 @@ public interface IAnalyzer {
     Optional<CodeUnit> getDefinition(String fqName);
 
     /**
-     * Canonical method for CodeUnit-based definition lookup.
+     * Convenience method for CodeUnit-based definition lookup.
      *
-     * <p><b>Primary Entry Point:</b> This is the canonical method for all definition lookups. All implementations
-     * must override this method with their core definition resolution logic. This method receives priority in the
-     * API contract and should be the single source of truth for definition resolution.
+     * <p><b>Default Behavior:</b> The default implementation delegates to {@link #getDefinition(String)} using
+     * the CodeUnit's fully-qualified name. Implementations may optionally override this method for more efficient
+     * CodeUnit-based lookups if desired.
      *
-     * <p><b>For Implementers:</b> Override this method in your analyzer with your implementation-specific logic
-     * for resolving a definition by its CodeUnit. The String-based overload ({@link #getDefinition(String)}) will
-     * adapt from FQN to CodeUnit and delegate to this method.
-     *
-     * <p><b>Default Behavior (Backward Compatibility):</b> The default implementation currently delegates to
-     * {@link #getDefinition(String)} for backward compatibility during the transition period. However, this
-     * dependency will be reversed in a future major version. All new implementations should override this method
-     * directly to avoid potential recursion issues and to align with the canonical API contract.
-     *
-     * <p><b>Warning:</b> If you override both this method and {@link #getDefinition(String)}, mutual recursion
-     * may occur. Override only this method and let the String overload delegate to it.
+     * <p><b>For Implementers:</b> You do not need to override this method. The default implementation delegates
+     * to {@link #getDefinition(String)}, so you only need to implement the String-based method in your analyzer.
      *
      * @param cu The CodeUnit to find a definition for
      * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
