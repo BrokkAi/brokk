@@ -3117,10 +3117,12 @@ public class Chrome
             return;
         }
 
+        logger.debug("Deferring Git configuration check until style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
 
         CompletableFuture.allOf(styleFuture, buildFuture).thenRunAsync(() -> {
+            logger.debug("Style guide and build details completed; proceeding with Git configuration check");
             contextManager.submitBackgroundTask("Checking .gitignore", () -> {
                 if (!getProject().isGitIgnoreSet()) {
                     SwingUtilities.invokeLater(() -> {

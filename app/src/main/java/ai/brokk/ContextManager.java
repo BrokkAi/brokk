@@ -1976,10 +1976,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private CompletableFuture<Void> ensureStyleGuide() {
         if (!project.getStyleGuide().isEmpty()) {
+            logger.info("Style guide already exists; skipping generation");
             return CompletableFuture.completedFuture(null);
         }
 
         if (!project.hasGit()) {
+            logger.info("No Git repository found, skipping style guide generation.");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
             return CompletableFuture.completedFuture(null);
