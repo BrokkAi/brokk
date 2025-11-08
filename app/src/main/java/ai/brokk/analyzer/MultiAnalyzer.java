@@ -183,6 +183,11 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<CodeUnit> getDefinition(CodeUnit cu) {
+        return delegateFor(cu).flatMap(delegate -> delegate.getDefinition(cu));
+    }
+
+    @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return findFirst(analyzer -> analyzer.getDefinition(fqName));
     }
