@@ -73,20 +73,32 @@ public class SearchAgent {
     }
 
     public enum Objective {
-        ANSWER_ONLY(EnumSet.of(Terminal.ANSWER)),
-        TASKS_ONLY(EnumSet.of(Terminal.TASK_LIST)),
-        WORKSPACE_ONLY(EnumSet.of(Terminal.WORKSPACE)),
-        LUTZ(EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST));
+        ANSWER_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
+        },
+        TASKS_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.TASK_LIST);
+            }
+        },
+        WORKSPACE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.WORKSPACE);
+            }
+        },
+        LUTZ {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
+            }
+        };
 
-        private final EnumSet<Terminal> terminals;
-
-        Objective(EnumSet<Terminal> terminals) {
-            this.terminals = terminals;
-        }
-
-        public EnumSet<Terminal> terminals() {
-            return terminals;
-        }
+        public abstract Set<Terminal> terminals();
     }
 
     // Keep thresholds consistent with other agents
@@ -285,7 +297,8 @@ public class SearchAgent {
                     try {
                         toolResult = executeTool(req, tr, wst);
                     } catch (FatalLlmException e) {
-                        var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, e.getMessage());
+                        var details = new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ERROR, Objects.toString(e.getMessage(), "Fatal LLM error"));
                         return errorResult(details, taskMeta());
                     }
 
@@ -995,7 +1008,6 @@ public class SearchAgent {
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
-        var initialContext = context;
         context = scope.append(result);
 
         if (reason == TaskResult.StopReason.SUCCESS) {

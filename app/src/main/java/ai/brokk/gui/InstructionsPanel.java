@@ -1515,8 +1515,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
-var context = cm.liveContext();
-SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
+            var context = cm.liveContext();
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
             try {
                 agent.scanInitialContext();
             } catch (InterruptedException e) {
