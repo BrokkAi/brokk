@@ -786,6 +786,27 @@ public class Chrome
         return (AbstractProject) contextManager.getProject();
     }
 
+    /**
+     * Checks if .gitignore contains comprehensive .brokk patterns.
+     * Uses exact line matching (not substring) to avoid false positives
+     * from partial patterns like ".brokk/workspace.properties".
+     */
+    private boolean isBrokkPatternInGitignore(String gitignoreContent) {
+        for (var line : gitignoreContent.split("\n")) {
+            var trimmed = line.trim();
+            // Remove trailing comments
+            var commentIndex = trimmed.indexOf('#');
+            if (commentIndex > 0) {
+                trimmed = trimmed.substring(0, commentIndex).trim();
+            }
+            // Match comprehensive patterns only
+            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Sets up .gitignore entries and adds .brokk project files to git */
     private void setupGitIgnore() {
         // If project does not have git, nothing to do.
@@ -819,7 +840,8 @@ public class Chrome
 
                 // Add entries to .gitignore if they don't exist
                 // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
-                if (!content.contains(".brokk/**") && !content.contains(".brokk/")) {
+                // Use exact pattern matching (not substring) to avoid false positives
+                if (!isBrokkPatternInGitignore(content)) {
                     content += "\n### BROKK'S CONFIGURATION ###\n";
                     content += ".brokk/**\n"; // Ignore .brokk dir in sub-projects (worktrees)
                     content +=
@@ -861,6 +883,7 @@ public class Chrome
                 // Only migrate if AGENTS.md doesn't already exist or is empty
                 var legacyStylePath = sharedBrokkDir.resolve("style.md");
                 String legacyContentForMigration = null;
+                final boolean[] migrationPerformedHolder = {false}; // Track if migration actually happened (array for lambda)
                 if (Files.exists(legacyStylePath)) {
                     try {
                         // Read content once and reuse it to avoid race condition
@@ -895,6 +918,7 @@ public class Chrome
                                 boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
                                 if (migrationSuccess) {
                                     logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
+                                    migrationPerformedHolder[0] = true;
                                 } else {
                                     logger.debug("Migration returned false; stub AGENTS.md will be created if needed");
                                 }
@@ -908,6 +932,7 @@ public class Chrome
                                     Files.delete(legacyStylePath);
                                     logger.info(
                                             "Migrated style guide from .brokk/style.md to AGENTS.md (manual fallback)");
+                                    migrationPerformedHolder[0] = true;
                                 } catch (IOException ioEx) {
                                     logger.warn("Manual migration also failed: {}", ioEx.getMessage());
                                     // Continue; stub will be created below
@@ -919,6 +944,7 @@ public class Chrome
                                 Files.writeString(agentsMdPath, legacyContentForMigration);
                                 Files.delete(legacyStylePath);
                                 logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
+                                migrationPerformedHolder[0] = true;
                             } catch (IOException ioEx) {
                                 logger.warn("Manual migration failed: {}", ioEx.getMessage());
                                 // Continue; stub will be created below
@@ -997,6 +1023,11 @@ public class Chrome
                     filesToCommit.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                     filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                    // Include .brokk/style.md deletion if migration was performed
+                    if (migrationPerformedHolder[0]) {
+                        filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                    }
 
                     // Open commit dialog with prebaked message
                     var dialog = new CommitDialog(
