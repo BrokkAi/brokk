@@ -928,6 +928,9 @@ public class Chrome
                                         migrationEx.getMessage());
                                 // Fallback to manual migration if MainProject method fails
                                 try {
+                                    // Stage the file before deleting so git tracks the deletion
+                                    gitRepo.add(legacyStylePath);
+
                                     Files.writeString(agentsMdPath, legacyContentForMigration);
                                     Files.delete(legacyStylePath);
                                     logger.info(
@@ -941,6 +944,9 @@ public class Chrome
                         } else {
                             // Fallback: manual migration if not a MainProject
                             try {
+                                // Stage the file before deleting so git tracks the deletion
+                                gitRepo.add(legacyStylePath);
+
                                 Files.writeString(agentsMdPath, legacyContentForMigration);
                                 Files.delete(legacyStylePath);
                                 logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
