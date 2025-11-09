@@ -750,10 +750,28 @@ public final class MainProject extends AbstractProject {
         return false;
     }
 
+    // DEPRECATED: This logic has been moved to InitializationCoordinator.isBrokkIgnored()
+    // Keeping for now to avoid breaking existing callers, but should be removed in next refactor
+    @Deprecated
     private static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
-        if (Files.exists(gitignorePath)) {
-            var content = Files.readString(gitignorePath);
-            return content.contains(".brokk/") || content.contains(".brokk/**");
+        if (!Files.exists(gitignorePath)) {
+            return false;
+        }
+
+        var content = Files.readString(gitignorePath);
+        // Check each line for comprehensive .brokk ignore patterns
+        // Don't match partial patterns like .brokk/workspace.properties
+        for (var line : content.split("\n")) {
+            var trimmed = line.trim();
+            // Remove trailing comments
+            var commentIndex = trimmed.indexOf('#');
+            if (commentIndex > 0) {
+                trimmed = trimmed.substring(0, commentIndex).trim();
+            }
+            // Match .brokk/** (comprehensive) or .brokk/ (directory)
+            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
+                return true;
+            }
         }
         return false;
     }

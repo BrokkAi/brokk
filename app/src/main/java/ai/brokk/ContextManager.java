@@ -168,9 +168,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Style guide generation completion tracking
     private volatile CompletableFuture<Void> styleGuideFuture = CompletableFuture.completedFuture(null);
 
-    // Callback to run after build settings dialog is shown and closed
-    private volatile @Nullable Runnable afterBuildSettingsCallback;
-
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
@@ -2107,22 +2104,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> getStyleGuideFuture() {
         return styleGuideFuture;
-    }
-
-    /**
-     * Registers a callback to run after the build settings dialog is shown and closed.
-     * This is used to sequence dialogs during initialization (e.g., showing git config
-     * dialog after the build settings dialog closes).
-     * Must be called before build details inference completes.
-     *
-     * @param callback the callback to run after build settings dialog closes, or null
-     */
-    public void setAfterBuildSettingsCallback(@Nullable Runnable callback) {
-        this.afterBuildSettingsCallback = callback;
-    }
-
-    public @Nullable Runnable getAfterBuildSettingsCallback() {
-        return afterBuildSettingsCallback;
     }
 
     /** Ensure review guide exists, generating if needed */

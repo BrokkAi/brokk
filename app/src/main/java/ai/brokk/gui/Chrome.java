@@ -3123,109 +3123,54 @@ public class Chrome
     }
 
     /**
-     * Checks if the project is fully configured and doesn't need the build settings dialog.
-     * A project is considered fully configured if:
-     * - Project properties file exists (.brokk/project.properties)
-     * - Style guide exists (AGENTS.md or .brokk/style.md)
-     * - Git is either not present OR already configured (isGitIgnoreSet())
-     *
-     * Works for both MainProject and WorktreeProject instances.
-     */
-    private boolean isProjectFullyConfigured() {
-        var project = getProject();
-
-        try {
-            // Check if project properties file exists
-            // For worktrees, getMasterRootPathForConfig() returns the main working tree path
-            Path brokkDir = project.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
-            Path projectPropertiesFile = brokkDir.resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
-            boolean hasProjectProperties = Files.exists(projectPropertiesFile);
-
-            // Check if style guide exists (either location)
-            Path agentsFile = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
-            Path legacyStyleFile = brokkDir.resolve("style.md");
-            boolean hasStyleGuide = Files.exists(agentsFile) || Files.exists(legacyStyleFile);
-
-            // Check if git is configured (or not present)
-            boolean gitConfigured = !project.hasGit() || project.isGitIgnoreSet();
-
-            boolean fullyConfigured = hasProjectProperties && hasStyleGuide && gitConfigured;
-
-            logger.debug(
-                    "Project configuration check: properties={}, styleGuide={}, gitConfigured={}, result={}",
-                    hasProjectProperties,
-                    hasStyleGuide,
-                    gitConfigured,
-                    fullyConfigured);
-
-            return fullyConfigured;
-        } catch (Exception e) {
-            logger.error("Error checking project configuration: {}", e.getMessage(), e);
-            return false; // On error, assume not configured (show dialog)
-        }
-    }
-
-    /**
      * Schedules the build settings dialog to show after initialization completes.
-     * If the project has git and needs configuration, also schedules the git config dialog
-     * to appear after the build settings dialog closes.
+     * Uses InitializationCoordinator to determine which dialogs are needed and
+     * shows them sequentially: Migration → Build Settings → Git Config (if needed).
      */
     private void scheduleGitConfigurationAfterInit() {
         logger.debug("Scheduling build settings dialog after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
 
-        CompletableFuture.allOf(styleFuture, buildFuture).thenRunAsync(() -> {
-            logger.debug("Initialization completed; both style guide and build details ready");
+        // Use InitializationCoordinator to determine which dialogs are needed
+        var coordinator = new ai.brokk.init.InitializationCoordinator();
+        var initResultFuture = coordinator.coordinate(getProject(), styleFuture, buildFuture);
 
-            // Check if migration is needed and show dialog BEFORE build settings
+        initResultFuture.thenAcceptAsync(result -> {
+            logger.debug("Initialization completed via coordinator");
+
+            // Show dialogs sequentially on EDT based on coordinator result
             SwingUtilities.invokeLater(() -> {
-                checkAndOfferStyleMdMigration();
-
-                // Check if project is fully configured
-                boolean fullyConfigured = isProjectFullyConfigured();
-
-                // Only register git config callback if project has git and needs configuration
-                boolean needsGitConfig = getProject().hasGit() && !getProject().isGitIgnoreSet();
-                if (needsGitConfig) {
-                    // Register callback to show git config dialog AFTER build settings closes
-                    contextManager.setAfterBuildSettingsCallback(() -> {
-                        logger.debug("Build settings closed; showing git config dialog");
-                        checkAndShowGitConfigDialog();
-                    });
-                    logger.debug("Git config callback registered; will show after build settings closes");
-                } else if (getProject().hasGit()) {
-                    logger.debug("Git already configured; no callback needed");
-                } else {
-                    logger.debug("No git repository; no git config dialog needed");
+                // 1. Migration dialog first (if needed)
+                if (result.needsMigrationDialog()) {
+                    logger.debug("Showing migration dialog");
+                    checkAndOfferStyleMdMigration();
                 }
 
-                // Only show build settings dialog if project needs configuration OR git config is needed
-                // If fully configured and no git config needed, skip the dialog
-                if (!fullyConfigured || needsGitConfig) {
-                    // Show build settings dialog now that both futures are complete
-                    // This ensures the style guide is loaded into the settings panel
-                    logger.info(
-                            "Showing build settings dialog (fullyConfigured={}, needsGitConfig={})",
-                            fullyConfigured,
-                            needsGitConfig);
+                // 2. Build settings dialog second (if needed)
+                if (result.needsBuildSettingsDialog()) {
+                    logger.info("Showing build settings dialog");
                     var dlg = SettingsDialog.showSettingsDialog(this, "Build");
                     dlg.getProjectPanel().showBuildBanner();
-
-                    // Settings dialog is modal, so this runs after user closes it
-                    var callback = contextManager.getAfterBuildSettingsCallback();
-                    if (callback != null) {
-                        contextManager.setAfterBuildSettingsCallback(null); // Clear after use
-                        logger.debug("Build settings dialog closed; running registered callback");
-                        callback.run();
-                    } else {
-                        logger.debug("Build settings dialog closed; no callback registered");
-                    }
-                } else {
-                    // Project is fully configured and doesn't need git config, skip dialog
-                    logger.info("Skipping build settings dialog; project is fully configured");
                 }
+
+                // 3. Git config dialog third (if needed)
+                if (result.needsGitConfigDialog()) {
+                    logger.debug("Showing git config dialog");
+                    checkAndShowGitConfigDialog();
+                }
+
+                logger.info("Initialization dialog sequence complete");
             });
+        }).exceptionally(ex -> {
+            logger.error("Error during initialization coordination", ex);
+            SwingUtilities.invokeLater(() ->
+                systemNotify(
+                    "Error during initialization: " + ex.getMessage(),
+                    "Initialization Error",
+                    javax.swing.JOptionPane.ERROR_MESSAGE)
+            );
+            return null;
         });
     }
 
