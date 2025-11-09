@@ -787,12 +787,29 @@ public final class MainProject extends AbstractProject {
     public void saveStyleGuide(String styleGuide) {
         Path targetPath;
 
+        // Check if legacy style.md exists and has non-empty content
+        boolean hasLegacyContent = false;
+        if (Files.exists(legacyStyleGuidePath)) {
+            try {
+                String legacyContent = Files.readString(legacyStyleGuidePath);
+                hasLegacyContent = !legacyContent.isBlank();
+            } catch (IOException e) {
+                logger.warn("Error reading legacy style guide: {}", e.getMessage());
+            }
+        }
+
+        // Decision logic:
+        // 1. If AGENTS.md already exists → use it (already migrated)
+        // 2. Else if .brokk/style.md has content → use it (preserve legacy)
+        // 3. Else → use AGENTS.md (default for fresh projects)
         if (Files.exists(styleGuidePath)) {
             targetPath = styleGuidePath;
-        } else if (Files.exists(legacyStyleGuidePath)) {
+        } else if (hasLegacyContent) {
             targetPath = legacyStyleGuidePath;
+            logger.debug("Legacy style guide has content; saving to .brokk/style.md");
         } else {
             targetPath = styleGuidePath;
+            logger.debug("No legacy content; saving to AGENTS.md");
         }
 
         try {
