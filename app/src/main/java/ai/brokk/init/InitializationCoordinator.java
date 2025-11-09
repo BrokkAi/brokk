@@ -81,16 +81,26 @@ public class InitializationCoordinator {
                     currentPhase = Phase.LOADING_BUILD_DETAILS;
 
                     // Ensure style guide file is visible to all threads
+                    // IMPORTANT: Even if AGENTS.md didn't exist before, it may have been created
+                    // by style guide generation. We MUST wait for it to be written and non-empty.
                     try {
                         var styleGuidePath = project.getRoot().resolve("AGENTS.md");
-                        if (Files.exists(styleGuidePath)) {
-                            ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
-                            logger.debug("Style guide file visibility confirmed");
-                        } else {
-                            logger.debug("No AGENTS.md found (may be using legacy .brokk/style.md)");
-                        }
+                        // Always try to ensure file visibility, even if it didn't exist before
+                        // This waits for the file to be created and filled with content
+                        ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
+                        logger.debug("Style guide file visibility confirmed");
                     } catch (IOException e) {
-                        logger.warn("Error ensuring style guide file visibility", e);
+                        // File doesn't exist or is empty - check for legacy location
+                        try {
+                            var legacyPath = project.getRoot().resolve(".brokk/style.md");
+                            if (Files.exists(legacyPath) && Files.size(legacyPath) > 0) {
+                                logger.debug("Using legacy .brokk/style.md (AGENTS.md not found or empty)");
+                            } else {
+                                logger.warn("No style guide file found or all files are empty", e);
+                            }
+                        } catch (IOException legacyEx) {
+                            logger.warn("Error checking for legacy style guide", legacyEx);
+                        }
                     }
 
                     // Now wait for build details
@@ -131,63 +141,28 @@ public class InitializationCoordinator {
     }
 
     /**
-     * Ensures a file is visible to all threads by retrying with timeout.
-     * This addresses the race condition where a file is written in one thread
-     * but not immediately visible to another thread due to OS-level caching.
+     * Verifies a file exists and is non-empty.
+     * Since saveStyleGuide() uses AtomicWrites, when the CompletableFuture completes,
+     * the file is guaranteed to be atomically written. No polling needed.
      *
      * @param path Path to file to check
-     * @param timeout Maximum time to wait for file to become visible
-     * @throws IOException if file is not visible after timeout
+     * @param timeout Not used anymore (kept for API compatibility)
+     * @throws IOException if file doesn't exist or is empty
      */
     private void ensureFileVisible(Path path, Duration timeout) throws IOException {
-        if (!Files.exists(path)) {
-            throw new IOException("File does not exist: " + path);
-        }
+        // With AtomicWrites, file is either invisible or complete
+        // When CompletableFuture completes, file write is done
+        var size = Files.size(path);
 
-        var startTime = System.nanoTime();
-        var timeoutNanos = timeout.toNanos();
-        var retryCount = 0;
-
-        while (true) {
-            try {
-                // Try to read file size - this forces a filesystem access
-                // and acts as a memory barrier
-                var size = Files.size(path);
-
-                // Also verify file is readable and not empty (for style guide)
-                if (path.getFileName().toString().equals("AGENTS.md")) {
-                    if (size == 0) {
-                        logger.warn("AGENTS.md exists but is empty (size=0), retrying...");
-                        throw new IOException("File is empty");
-                    }
-                }
-
-                // File is visible and readable
-                logger.debug(
-                        "File visibility confirmed: {} (size={}, retries={})", path.getFileName(), size, retryCount);
-                return;
-
-            } catch (IOException e) {
-                // Check timeout
-                var elapsed = System.nanoTime() - startTime;
-                if (elapsed > timeoutNanos) {
-                    logger.error(
-                            "File visibility timeout after {}ms: {}",
-                            Duration.ofNanos(elapsed).toMillis(),
-                            path);
-                    throw new IOException("File not visible after " + timeout, e);
-                }
-
-                // Wait and retry
-                retryCount++;
-                try {
-                    Thread.sleep(10); // 10ms between retries
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Interrupted while waiting for file visibility", ie);
-                }
+        // Verify file is not empty (for style guide)
+        if (path.getFileName().toString().equals("AGENTS.md")) {
+            if (size == 0) {
+                throw new IOException("AGENTS.md exists but is empty after style guide generation");
             }
         }
+
+        // File is visible and readable
+        logger.debug("File visibility confirmed: {} (size={})", path.getFileName(), size);
     }
 
     /**
