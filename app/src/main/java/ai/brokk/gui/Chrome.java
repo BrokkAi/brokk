@@ -3136,42 +3136,42 @@ public class Chrome
         var coordinator = new ai.brokk.init.InitializationCoordinator();
         var initResultFuture = coordinator.coordinate(getProject(), styleFuture, buildFuture);
 
-        initResultFuture.thenAcceptAsync(result -> {
-            logger.debug("Initialization completed via coordinator");
+        initResultFuture
+                .thenAcceptAsync(result -> {
+                    logger.debug("Initialization completed via coordinator");
 
-            // Show dialogs sequentially on EDT based on coordinator result
-            SwingUtilities.invokeLater(() -> {
-                // 1. Migration dialog first (if needed)
-                if (result.needsMigrationDialog()) {
-                    logger.debug("Showing migration dialog");
-                    checkAndOfferStyleMdMigration();
-                }
+                    // Show dialogs sequentially on EDT based on coordinator result
+                    SwingUtilities.invokeLater(() -> {
+                        // 1. Migration dialog first (if needed)
+                        if (result.needsMigrationDialog()) {
+                            logger.debug("Showing migration dialog");
+                            checkAndOfferStyleMdMigration();
+                        }
 
-                // 2. Build settings dialog second (if needed)
-                if (result.needsBuildSettingsDialog()) {
-                    logger.info("Showing build settings dialog");
-                    var dlg = SettingsDialog.showSettingsDialog(this, "Build");
-                    dlg.getProjectPanel().showBuildBanner();
-                }
+                        // 2. Build settings dialog second (if needed)
+                        if (result.needsBuildSettingsDialog()) {
+                            logger.info("Showing build settings dialog");
+                            var dlg = SettingsDialog.showSettingsDialog(this, "Build");
+                            dlg.getProjectPanel().showBuildBanner();
+                        }
 
-                // 3. Git config dialog third (if needed)
-                if (result.needsGitConfigDialog()) {
-                    logger.debug("Showing git config dialog");
-                    checkAndShowGitConfigDialog();
-                }
+                        // 3. Git config dialog third (if needed)
+                        if (result.needsGitConfigDialog()) {
+                            logger.debug("Showing git config dialog");
+                            checkAndShowGitConfigDialog();
+                        }
 
-                logger.info("Initialization dialog sequence complete");
-            });
-        }).exceptionally(ex -> {
-            logger.error("Error during initialization coordination", ex);
-            SwingUtilities.invokeLater(() ->
-                systemNotify(
-                    "Error during initialization: " + ex.getMessage(),
-                    "Initialization Error",
-                    javax.swing.JOptionPane.ERROR_MESSAGE)
-            );
-            return null;
-        });
+                        logger.info("Initialization dialog sequence complete");
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.error("Error during initialization coordination", ex);
+                    SwingUtilities.invokeLater(() -> systemNotify(
+                            "Error during initialization: " + ex.getMessage(),
+                            "Initialization Error",
+                            javax.swing.JOptionPane.ERROR_MESSAGE));
+                    return null;
+                });
     }
 
     /**

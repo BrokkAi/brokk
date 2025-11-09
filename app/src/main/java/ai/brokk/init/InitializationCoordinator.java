@@ -2,14 +2,14 @@ package ai.brokk.init;
 
 import ai.brokk.IProject;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Coordinates initialization phases and determines required dialogs.
@@ -29,11 +29,11 @@ public class InitializationCoordinator {
      * Initialization phases - tracks progress through initialization.
      */
     public enum Phase {
-        CREATING_PROJECT,      // Project object being created
+        CREATING_PROJECT, // Project object being created
         GENERATING_STYLE_GUIDE, // Background style guide generation in progress
         LOADING_BUILD_DETAILS, // Background build details inference in progress
-        FILES_READY,           // All files written and visible
-        COMPLETE               // All initialization finished
+        FILES_READY, // All files written and visible
+        COMPLETE // All initialization finished
     }
 
     /**
@@ -41,11 +41,11 @@ public class InitializationCoordinator {
      * This is a pure data structure with no UI logic.
      */
     public record InitializationResult(
-        boolean needsMigrationDialog,     // true if .brokk/style.md exists but no AGENTS.md
-        boolean needsBuildSettingsDialog, // true if project not fully configured
-        boolean needsGitConfigDialog,     // true if .gitignore not properly set
-        Phase finalPhase                  // Final phase reached
-    ) {}
+            boolean needsMigrationDialog, // true if .brokk/style.md exists but no AGENTS.md
+            boolean needsBuildSettingsDialog, // true if project not fully configured
+            boolean needsGitConfigDialog, // true if .gitignore not properly set
+            Phase finalPhase // Final phase reached
+            ) {}
 
     private volatile Phase currentPhase = Phase.CREATING_PROJECT;
 
@@ -68,64 +68,66 @@ public class InitializationCoordinator {
      * @return Future containing initialization result (which dialogs to show)
      */
     public CompletableFuture<InitializationResult> coordinate(
-        IProject project,
-        CompletableFuture<Void> styleGuideFuture,
-        CompletableFuture<BuildDetails> buildDetailsFuture
-    ) {
+            IProject project,
+            CompletableFuture<Void> styleGuideFuture,
+            CompletableFuture<BuildDetails> buildDetailsFuture) {
         logger.debug("Starting initialization coordination");
         currentPhase = Phase.GENERATING_STYLE_GUIDE;
 
         // Wait for style guide to complete
         return styleGuideFuture
-            .thenCompose(v -> {
-                logger.debug("Style guide future completed, ensuring file visibility");
-                currentPhase = Phase.LOADING_BUILD_DETAILS;
+                .thenCompose(v -> {
+                    logger.debug("Style guide future completed, ensuring file visibility");
+                    currentPhase = Phase.LOADING_BUILD_DETAILS;
 
-                // Ensure style guide file is visible to all threads
-                try {
-                    var styleGuidePath = project.getRoot().resolve("AGENTS.md");
-                    if (Files.exists(styleGuidePath)) {
-                        ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
-                        logger.debug("Style guide file visibility confirmed");
-                    } else {
-                        logger.debug("No AGENTS.md found (may be using legacy .brokk/style.md)");
+                    // Ensure style guide file is visible to all threads
+                    try {
+                        var styleGuidePath = project.getRoot().resolve("AGENTS.md");
+                        if (Files.exists(styleGuidePath)) {
+                            ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
+                            logger.debug("Style guide file visibility confirmed");
+                        } else {
+                            logger.debug("No AGENTS.md found (may be using legacy .brokk/style.md)");
+                        }
+                    } catch (IOException e) {
+                        logger.warn("Error ensuring style guide file visibility", e);
                     }
-                } catch (IOException e) {
-                    logger.warn("Error ensuring style guide file visibility", e);
-                }
 
-                // Now wait for build details
-                return buildDetailsFuture;
-            })
-            .thenApply(buildDetails -> {
-                logger.debug("Build details future completed, determining required dialogs");
-                currentPhase = Phase.FILES_READY;
+                    // Now wait for build details
+                    return buildDetailsFuture;
+                })
+                .thenApply(buildDetails -> {
+                    logger.debug("Build details future completed, determining required dialogs");
+                    currentPhase = Phase.FILES_READY;
 
-                // Ensure build details file is visible
-                try {
-                    var propsPath = project.getRoot().resolve(".brokk/project.properties");
-                    if (Files.exists(propsPath)) {
-                        ensureFileVisible(propsPath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
-                        logger.debug("Build details file visibility confirmed");
+                    // Ensure build details file is visible
+                    try {
+                        var propsPath = project.getRoot().resolve(".brokk/project.properties");
+                        if (Files.exists(propsPath)) {
+                            ensureFileVisible(propsPath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
+                            logger.debug("Build details file visibility confirmed");
+                        }
+                    } catch (IOException e) {
+                        logger.warn("Error ensuring build details file visibility", e);
                     }
-                } catch (IOException e) {
-                    logger.warn("Error ensuring build details file visibility", e);
-                }
 
-                // Determine which dialogs are needed
-                var result = determineRequiredDialogs(project);
-                currentPhase = Phase.COMPLETE;
+                    // Determine which dialogs are needed
+                    var result = determineRequiredDialogs(project);
+                    currentPhase = Phase.COMPLETE;
 
-                logger.info("Initialization coordination complete. Migration dialog: {}, Build settings: {}, Git config: {}",
-                    result.needsMigrationDialog, result.needsBuildSettingsDialog, result.needsGitConfigDialog);
+                    logger.info(
+                            "Initialization coordination complete. Migration dialog: {}, Build settings: {}, Git config: {}",
+                            result.needsMigrationDialog,
+                            result.needsBuildSettingsDialog,
+                            result.needsGitConfigDialog);
 
-                return result;
-            })
-            .exceptionally(ex -> {
-                logger.error("Error during initialization coordination", ex);
-                // Return a result that shows no dialogs on error (fail-safe)
-                return new InitializationResult(false, false, false, currentPhase);
-            });
+                    return result;
+                })
+                .exceptionally(ex -> {
+                    logger.error("Error during initialization coordination", ex);
+                    // Return a result that shows no dialogs on error (fail-safe)
+                    return new InitializationResult(false, false, false, currentPhase);
+                });
     }
 
     /**
@@ -161,16 +163,18 @@ public class InitializationCoordinator {
                 }
 
                 // File is visible and readable
-                logger.debug("File visibility confirmed: {} (size={}, retries={})",
-                    path.getFileName(), size, retryCount);
+                logger.debug(
+                        "File visibility confirmed: {} (size={}, retries={})", path.getFileName(), size, retryCount);
                 return;
 
             } catch (IOException e) {
                 // Check timeout
                 var elapsed = System.nanoTime() - startTime;
                 if (elapsed > timeoutNanos) {
-                    logger.error("File visibility timeout after {}ms: {}",
-                        Duration.ofNanos(elapsed).toMillis(), path);
+                    logger.error(
+                            "File visibility timeout after {}ms: {}",
+                            Duration.ofNanos(elapsed).toMillis(),
+                            path);
                     throw new IOException("File not visible after " + timeout, e);
                 }
 
@@ -229,15 +233,22 @@ public class InitializationCoordinator {
             boolean fullyConfigured = hasProperties && hasStyleGuide && gitConfigured;
             needsBuildSettings = !fullyConfigured;
 
-            logger.debug("Configuration check: properties={}, styleGuide={}, gitConfigured={}, fullyConfigured={}",
-                hasProperties, hasStyleGuide, gitConfigured, fullyConfigured);
+            logger.debug(
+                    "Configuration check: properties={}, styleGuide={}, gitConfigured={}, fullyConfigured={}",
+                    hasProperties,
+                    hasStyleGuide,
+                    gitConfigured,
+                    fullyConfigured);
 
             // Check 3: Git config dialog needed?
             // Show if .gitignore doesn't have comprehensive .brokk patterns
             needsGitConfig = !gitConfigured;
 
-            logger.debug("Dialog determination: migration={}, buildSettings={}, gitConfig={}",
-                needsMigration, needsBuildSettings, needsGitConfig);
+            logger.debug(
+                    "Dialog determination: migration={}, buildSettings={}, gitConfig={}",
+                    needsMigration,
+                    needsBuildSettings,
+                    needsGitConfig);
 
         } catch (Exception e) {
             logger.error("Error determining required dialogs", e);
@@ -267,7 +278,7 @@ public class InitializationCoordinator {
 
         // Check each line for comprehensive .brokk ignore patterns
         // Don't match partial patterns like .brokk/workspace.properties
-        for (var line : content.split("\n")) {
+        for (var line : Splitter.on('\n').split(content)) {
             var trimmed = line.trim();
 
             // Remove trailing comments

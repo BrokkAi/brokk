@@ -1,18 +1,17 @@
 package ai.brokk.init;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.IProject;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for InitializationCoordinator.
@@ -56,11 +55,8 @@ class InitializationCoordinatorTest {
      * Creates real directory structure in temp dir.
      */
     private IProject createMockProject(
-        boolean hasAgentsMd,
-        boolean hasLegacyStyleMd,
-        boolean hasGitignore,
-        boolean gitignoreComplete
-    ) throws Exception {
+            boolean hasAgentsMd, boolean hasLegacyStyleMd, boolean hasGitignore, boolean gitignoreComplete)
+            throws Exception {
         // Create .brokk directory
         Files.createDirectories(tempDir.resolve(".brokk"));
 
@@ -77,8 +73,8 @@ class InitializationCoordinatorTest {
         // Create .gitignore if requested
         if (hasGitignore) {
             var content = gitignoreComplete
-                ? ".brokk/**\n"  // Comprehensive pattern
-                : ".brokk/workspace.properties\n";  // Partial pattern
+                    ? ".brokk/**\n" // Comprehensive pattern
+                    : ".brokk/workspace.properties\n"; // Partial pattern
             Files.writeString(tempDir.resolve(".gitignore"), content);
         }
 
@@ -107,18 +103,16 @@ class InitializationCoordinatorTest {
     void testFreshProject_AllDialogsNeeded() throws Exception {
         // Setup: Fresh project with AGENTS.md but no .gitignore
         var project = createMockProject(
-            true,   // hasAgentsMd
-            false,  // hasLegacyStyleMd
-            false,  // hasGitignore
-            false   // gitignoreComplete (N/A)
-        );
+                true, // hasAgentsMd
+                false, // hasLegacyStyleMd
+                false, // hasGitignore
+                false // gitignoreComplete (N/A)
+                );
 
         // Execute
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify
         assertFalse(result.needsMigrationDialog(), "Should not need migration (no legacy file)");
@@ -134,18 +128,16 @@ class InitializationCoordinatorTest {
     void testLegacyProject_MigrationNeeded() throws Exception {
         // Setup: Project with .brokk/style.md but no AGENTS.md
         var project = createMockProject(
-            false,  // hasAgentsMd
-            true,   // hasLegacyStyleMd
-            true,   // hasGitignore
-            false   // gitignoreComplete (partial pattern)
-        );
+                false, // hasAgentsMd
+                true, // hasLegacyStyleMd
+                true, // hasGitignore
+                false // gitignoreComplete (partial pattern)
+                );
 
         // Execute
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify
         assertTrue(result.needsMigrationDialog(), "Should need migration (.brokk/style.md exists)");
@@ -160,18 +152,16 @@ class InitializationCoordinatorTest {
     void testFullyConfiguredProject_NoDialogs() throws Exception {
         // Setup: Project fully configured
         var project = createMockProject(
-            true,  // hasAgentsMd
-            false, // hasLegacyStyleMd
-            true,  // hasGitignore
-            true   // gitignoreComplete
-        );
+                true, // hasAgentsMd
+                false, // hasLegacyStyleMd
+                true, // hasGitignore
+                true // gitignoreComplete
+                );
 
         // Execute
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify
         assertFalse(result.needsMigrationDialog(), "Should not need migration");
@@ -186,7 +176,7 @@ class InitializationCoordinatorTest {
     void testEmptyLegacyFile_NoMigration() throws Exception {
         // Setup: .brokk/style.md exists but is empty
         Files.createDirectories(tempDir.resolve(".brokk"));
-        Files.writeString(tempDir.resolve(".brokk/style.md"), "");  // Empty file
+        Files.writeString(tempDir.resolve(".brokk/style.md"), ""); // Empty file
         Files.writeString(tempDir.resolve(".brokk/project.properties"), "# Properties");
         Files.writeString(tempDir.resolve("AGENTS.md"), "# Generated");
         Files.writeString(tempDir.resolve(".gitignore"), ".brokk/**");
@@ -194,11 +184,9 @@ class InitializationCoordinatorTest {
         var project = createMockProject(false, false, true, true);
 
         // Execute
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify
         assertFalse(result.needsMigrationDialog(), "Should NOT need migration (legacy file is empty)");
@@ -222,11 +210,9 @@ class InitializationCoordinatorTest {
         });
 
         // Execute - should wait for file to appear
-        var result = coordinator.coordinate(
-            project,
-            styleFuture,
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, styleFuture, createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify file exists (visibility was ensured)
         assertTrue(Files.exists(tempDir.resolve("AGENTS.md")));
@@ -242,11 +228,8 @@ class InitializationCoordinatorTest {
 
         assertEquals(InitializationCoordinator.Phase.CREATING_PROJECT, coordinator.getCurrentPhase());
 
-        var resultFuture = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        );
+        var resultFuture =
+                coordinator.coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture());
 
         // Wait for completion
         var result = resultFuture.get(5, TimeUnit.SECONDS);
@@ -270,11 +253,9 @@ class InitializationCoordinatorTest {
 
         var project = createMockProject(false, false, true, true);
 
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Should not need git config (comprehensive pattern exists)
         assertFalse(result.needsGitConfigDialog());
@@ -294,11 +275,9 @@ class InitializationCoordinatorTest {
 
         var project = createMockProject(false, false, true, true);
 
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Should recognize pattern despite comment
         assertFalse(result.needsGitConfigDialog());
@@ -310,18 +289,16 @@ class InitializationCoordinatorTest {
     @Test
     void testLegacyFileWithWhitespace_NoMigration() throws Exception {
         Files.createDirectories(tempDir.resolve(".brokk"));
-        Files.writeString(tempDir.resolve(".brokk/style.md"), "   \n\n  \t  ");  // Whitespace only
+        Files.writeString(tempDir.resolve(".brokk/style.md"), "   \n\n  \t  "); // Whitespace only
         Files.writeString(tempDir.resolve(".brokk/project.properties"), "# Properties");
         Files.writeString(tempDir.resolve("AGENTS.md"), "# Generated");
         Files.writeString(tempDir.resolve(".gitignore"), ".brokk/**");
 
         var project = createMockProject(false, false, true, true);
 
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Verify no migration needed (after trim, it's empty)
         assertFalse(result.needsMigrationDialog(), "Should NOT need migration (legacy file has only whitespace)");
@@ -340,11 +317,9 @@ class InitializationCoordinatorTest {
 
         var project = createMockProject(false, false, true, true);
 
-        var result = coordinator.coordinate(
-            project,
-            createSuccessfulStyleFuture(),
-            createSuccessfulBuildFuture()
-        ).get(5, TimeUnit.SECONDS);
+        var result = coordinator
+                .coordinate(project, createSuccessfulStyleFuture(), createSuccessfulBuildFuture())
+                .get(5, TimeUnit.SECONDS);
 
         // Should not need migration (AGENTS.md already exists)
         assertFalse(result.needsMigrationDialog());
