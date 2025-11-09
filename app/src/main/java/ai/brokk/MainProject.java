@@ -1142,11 +1142,6 @@ public final class MainProject extends AbstractProject {
                     "Starting .brokk/style.md to AGENTS.md (root) migration for {}",
                     getRoot().getFileName());
 
-            // Copy content from style.md to AGENTS.md at project root
-            String content = Files.readString(styleFile);
-            Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md at project root with content from .brokk/style.md");
-
             // If this is a Git repository, stage the changes
             if (hasGit()) {
                 GitRepo gitRepo = (GitRepo) getRepo();
@@ -1164,24 +1159,29 @@ public final class MainProject extends AbstractProject {
                             getRoot().getFileName());
                 } catch (Exception gitEx) {
                     logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
+                            "Error staging Git rename for style.md to AGENTS.md, falling back to manual copy+delete: {}",
                             gitEx.getMessage());
-                    // If GitRepo.move fails, just delete the old file manually
-                    // The new file will have been created above
+                    // If GitRepo.move fails, do manual copy and delete
                     try {
+                        String content = Files.readString(styleFile);
+                        Files.writeString(agentsFile, content);
                         Files.delete(styleFile);
-                        logger.debug("Deleted style.md manually");
-                    } catch (IOException deleteEx) {
-                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                        logger.debug("Manually copied style.md to AGENTS.md and deleted original");
+                    } catch (IOException fallbackEx) {
+                        logger.error("Failed to manually migrate style.md: {}", fallbackEx.getMessage());
+                        return false;
                     }
                 }
             } else {
-                // Not a Git repository; just delete the old file
+                // Not a Git repository; do manual copy and delete
                 try {
+                    String content = Files.readString(styleFile);
+                    Files.writeString(agentsFile, content);
                     Files.delete(styleFile);
-                    logger.debug("Deleted style.md (non-Git project)");
-                } catch (IOException deleteEx) {
-                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
+                    logger.debug("Manually migrated style.md to AGENTS.md (non-Git project)");
+                } catch (IOException copyEx) {
+                    logger.error("Failed to manually migrate style.md: {}", copyEx.getMessage());
+                    return false;
                 }
             }
 
