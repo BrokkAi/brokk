@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
  */
 public class InitializationCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(InitializationCoordinator.class);
-    private static final Duration DEFAULT_FILE_VISIBILITY_TIMEOUT = Duration.ofSeconds(10);
 
     /**
      * Initialization phases - tracks progress through initialization.
@@ -85,11 +84,11 @@ public class InitializationCoordinator {
                     // IMPORTANT: Even if AGENTS.md didn't exist before, it may have been created
                     // by style guide generation. We MUST wait for it to be written and non-empty.
                     try {
-                        var styleGuidePath = project.getMasterRootPathForConfig()
-                                .resolve(AbstractProject.STYLE_GUIDE_FILE);
+                        var styleGuidePath =
+                                project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
                         // Always try to ensure file visibility, even if it didn't exist before
                         // This waits for the file to be created and filled with content
-                        ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
+                        ensureFileVisible(styleGuidePath);
                         logger.debug("Style guide file visibility confirmed");
                     } catch (IOException e) {
                         // File doesn't exist or is empty - check for legacy location
@@ -120,7 +119,7 @@ public class InitializationCoordinator {
                                 .resolve(AbstractProject.BROKK_DIR)
                                 .resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
                         if (Files.exists(propsPath)) {
-                            ensureFileVisible(propsPath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
+                            ensureFileVisible(propsPath);
                             logger.debug("Build details file visibility confirmed");
                         }
                     } catch (IOException e) {
@@ -152,10 +151,9 @@ public class InitializationCoordinator {
      * the file is guaranteed to be atomically written. No polling needed.
      *
      * @param path Path to file to check
-     * @param timeout Not used anymore (kept for API compatibility)
      * @throws IOException if file doesn't exist or is empty
      */
-    private void ensureFileVisible(Path path, Duration timeout) throws IOException {
+    private void ensureFileVisible(Path path) throws IOException {
         // With AtomicWrites, file is either invisible or complete
         // When CompletableFuture completes, file write is done
         var size = Files.size(path);
@@ -188,8 +186,8 @@ public class InitializationCoordinator {
         try {
             var configRoot = project.getMasterRootPathForConfig();
             var agentsMd = configRoot.resolve(AbstractProject.STYLE_GUIDE_FILE);
-            var legacyStyleMd = configRoot.resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
+            var legacyStyleMd =
+                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
             var gitignorePath = configRoot.resolve(".gitignore");
 
             // Check 1: Migration needed?
@@ -208,8 +206,8 @@ public class InitializationCoordinator {
 
             // Check 2: Build settings dialog needed?
             // Show if project is not fully configured
-            boolean hasProperties = Files.exists(configRoot.resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.PROJECT_PROPERTIES_FILE));
+            boolean hasProperties = Files.exists(
+                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.PROJECT_PROPERTIES_FILE));
             boolean hasStyleGuide = Files.exists(agentsMd) || Files.exists(legacyStyleMd);
             boolean gitConfigured = isBrokkIgnored(gitignorePath);
 

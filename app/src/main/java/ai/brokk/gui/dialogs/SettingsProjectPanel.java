@@ -110,7 +110,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     public SettingsProjectPanel(
-            Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton, String providedStyleGuide) {
+            Chrome chrome,
+            SettingsDialog parentDialog,
+            JButton okButton,
+            JButton cancelButton,
+            JButton applyButton,
+            String providedStyleGuide) {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -972,13 +977,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // General Tab
         // Use provided style guide if available (fresh generation), otherwise read from disk
-        String styleGuide = providedStyleGuide != null
-            ? providedStyleGuide
-            : project.getStyleGuide();
-        System.out.println("=== SETTINGS PANEL DEBUG: providedStyleGuide length: " +
-            (providedStyleGuide != null ? providedStyleGuide.length() : -1) +
-            ", using: " + (providedStyleGuide != null ? "provided" : "disk") +
-            ", final length: " + styleGuide.length());
+        String styleGuide = providedStyleGuide != null ? providedStyleGuide : project.getStyleGuide();
         styleGuideArea.setText(styleGuide);
         commitFormatArea.setText(project.getCommitMessageFormat());
         if (reviewGuideArea != null) {

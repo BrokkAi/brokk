@@ -61,7 +61,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Project Settings Panel
         // Pass dialog buttons to project panel for enabling/disabling during build agent run
-        projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton, generatedStyleGuide);
+        projectSettingsPanel =
+                new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton, generatedStyleGuide);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
 
         updateProjectPanelEnablement(); // Initial enablement
