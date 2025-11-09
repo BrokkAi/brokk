@@ -166,7 +166,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
 
     // Style guide generation completion tracking
-    private volatile CompletableFuture<Void> styleGuideFuture = CompletableFuture.completedFuture(null);
+    private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
 
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
@@ -354,6 +354,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
+        // Ensure style guide is initialized BEFORE creating Chrome
+        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the future)
+        System.out.println("=== ContextManager.createGui: BEFORE setting styleGuideFuture");
+        styleGuideFuture = ensureStyleGuide();
+        System.out.println("=== ContextManager.createGui: AFTER setting styleGuideFuture");
+
         this.io = new Chrome(this);
         this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
@@ -400,8 +406,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextTask =
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
-        // Ensure style guide and build details are loaded/generated asynchronously
-        styleGuideFuture = ensureStyleGuide();
+        // Ensure review guide and build details are loaded/generated asynchronously
+        // (style guide was initialized earlier, before Chrome creation)
         ensureReviewGuide();
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
@@ -1971,21 +1977,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @return A CompletableFuture that completes when the style guide is ready (or skipped)
      */
-    private CompletableFuture<Void> ensureStyleGuide() {
+    private CompletableFuture<String> ensureStyleGuide() {
         String existingStyleGuide = project.getStyleGuide();
+        System.out.println("=== ensureStyleGuide: existingStyleGuide length: " + existingStyleGuide.length());
 
         if (!existingStyleGuide.isEmpty()) {
             logger.info("Style guide already exists; skipping generation");
-            return CompletableFuture.completedFuture(null);
+            System.out.println("=== ensureStyleGuide: returning existing (length: " + existingStyleGuide.length() + ")");
+            return CompletableFuture.completedFuture(existingStyleGuide);
         }
 
         if (!project.hasGit()) {
             logger.info("No Git repository found, skipping style guide generation.");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return CompletableFuture.completedFuture(null);
+            System.out.println("=== ensureStyleGuide: no Git, returning empty");
+            return CompletableFuture.completedFuture("");
         }
 
+        System.out.println("=== ensureStyleGuide: starting background task");
         return submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
@@ -2000,9 +2010,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "No classes found via PageRank for style guide generation.");
-                    project.saveStyleGuide(
-                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var codeForLLM = new StringBuilder();
@@ -2046,7 +2056,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (codeForLLM.isEmpty()) {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var messages = List.of(
@@ -2068,14 +2080,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     String message =
                             "Failed to generate style guide: " + result.error().getMessage();
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 var styleGuide = result.text();
                 if (styleGuide.isBlank()) {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
-                    project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 project.saveStyleGuide(styleGuide);
 
@@ -2088,10 +2102,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
-                return null;
+                System.out.println("=== ensureStyleGuide: background task returning content length: " + styleGuide.length());
+                return styleGuide;
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
-                return null;
+                String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+                project.saveStyleGuide(fallbackContent);
+                System.out.println("=== ensureStyleGuide: exception, returning fallback length: " + fallbackContent.length());
+                return fallbackContent;
             }
         });
     }
@@ -2100,9 +2118,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the CompletableFuture tracking style guide generation completion.
      * Never returns null; always initialized to a completed future.
      *
-     * @return A CompletableFuture that completes when the style guide is ready
+     * @return A CompletableFuture that completes with the style guide content
      */
-    public CompletableFuture<Void> getStyleGuideFuture() {
+    public CompletableFuture<String> getStyleGuideFuture() {
+        System.out.println("=== getStyleGuideFuture called, future is: " + styleGuideFuture);
         return styleGuideFuture;
     }
 

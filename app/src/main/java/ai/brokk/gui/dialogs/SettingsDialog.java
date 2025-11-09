@@ -36,6 +36,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
 
     public SettingsDialog(Frame owner, Chrome chrome) {
+        this(owner, chrome, null);
+    }
+
+    private SettingsDialog(Frame owner, Chrome chrome, String generatedStyleGuide) {
         super(owner, "Settings", true);
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -57,7 +61,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Project Settings Panel
         // Pass dialog buttons to project panel for enabling/disabling during build agent run
-        projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
+        projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton, generatedStyleGuide);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
 
         updateProjectPanelEnablement(); // Initial enablement
@@ -196,8 +200,20 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         this.uiScaleSettingsChanged = true;
     }
 
+    /**
+     * Shows settings dialog, reading style guide from disk.
+     * Used when opening settings manually after initialization.
+     */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
-        var dialog = new SettingsDialog(chrome.getFrame(), chrome);
+        return showSettingsDialog(chrome, targetTabName, null);
+    }
+
+    /**
+     * Shows settings dialog with pre-generated style guide content.
+     * Used during initialization to avoid race condition with file writes.
+     */
+    public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName, String generatedStyleGuide) {
+        var dialog = new SettingsDialog(chrome.getFrame(), chrome, generatedStyleGuide);
 
         // Load settings after dialog construction but before showing
         // This ensures any background file writes (e.g., style guide generation) have completed

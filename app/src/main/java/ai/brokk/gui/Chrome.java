@@ -3128,17 +3128,27 @@ public class Chrome
      * shows them sequentially: Migration → Build Settings → Git Config (if needed).
      */
     private void scheduleGitConfigurationAfterInit() {
+        System.out.println("=== Chrome.scheduleGitConfigurationAfterInit: START");
         logger.debug("Scheduling build settings dialog after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
+        System.out.println("=== Chrome: got styleFuture: " + styleFuture);
         var buildFuture = getProject().getBuildDetailsFuture();
 
         // Use InitializationCoordinator to determine which dialogs are needed
         var coordinator = new ai.brokk.init.InitializationCoordinator();
-        var initResultFuture = coordinator.coordinate(getProject(), styleFuture, buildFuture);
+        var initResultFuture = coordinator.coordinate(getProject(), styleFuture.thenApply(c -> null), buildFuture);
 
+        // Combine coordinator result with style guide content
         initResultFuture
-                .thenAcceptAsync(result -> {
+                .thenCombine(styleFuture, (result, styleContent) -> Map.entry(result, styleContent))
+                .thenAcceptAsync(combined -> {
+                    var result = combined.getKey();
+                    var styleContent = combined.getValue();
+
                     logger.debug("Initialization completed via coordinator");
+                    System.out.println("=== STYLE GUIDE DEBUG: content length: " +
+                        (styleContent != null ? styleContent.length() : -1) +
+                        ", empty: " + (styleContent == null || styleContent.isEmpty()));
 
                     // Show dialogs sequentially on EDT based on coordinator result
                     SwingUtilities.invokeLater(() -> {
@@ -3150,8 +3160,10 @@ public class Chrome
 
                         // 2. Build settings dialog second (if needed)
                         if (result.needsBuildSettingsDialog()) {
-                            logger.info("Showing build settings dialog");
-                            var dlg = SettingsDialog.showSettingsDialog(this, "Build");
+                            System.out.println("=== CHROME DEBUG: Showing build settings dialog with content length: " +
+                                (styleContent != null ? styleContent.length() : -1));
+                            logger.info("Showing build settings dialog with generated style guide");
+                            var dlg = SettingsDialog.showSettingsDialog(this, "Build", styleContent);
                             dlg.getProjectPanel().showBuildBanner();
                         }
 

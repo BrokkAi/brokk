@@ -1,5 +1,6 @@
 package ai.brokk.init;
 
+import ai.brokk.AbstractProject;
 import ai.brokk.IProject;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import com.google.common.base.Splitter;
@@ -84,7 +85,8 @@ public class InitializationCoordinator {
                     // IMPORTANT: Even if AGENTS.md didn't exist before, it may have been created
                     // by style guide generation. We MUST wait for it to be written and non-empty.
                     try {
-                        var styleGuidePath = project.getRoot().resolve("AGENTS.md");
+                        var styleGuidePath = project.getMasterRootPathForConfig()
+                                .resolve(AbstractProject.STYLE_GUIDE_FILE);
                         // Always try to ensure file visibility, even if it didn't exist before
                         // This waits for the file to be created and filled with content
                         ensureFileVisible(styleGuidePath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
@@ -92,7 +94,9 @@ public class InitializationCoordinator {
                     } catch (IOException e) {
                         // File doesn't exist or is empty - check for legacy location
                         try {
-                            var legacyPath = project.getRoot().resolve(".brokk/style.md");
+                            var legacyPath = project.getMasterRootPathForConfig()
+                                    .resolve(AbstractProject.BROKK_DIR)
+                                    .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
                             if (Files.exists(legacyPath) && Files.size(legacyPath) > 0) {
                                 logger.debug("Using legacy .brokk/style.md (AGENTS.md not found or empty)");
                             } else {
@@ -112,7 +116,9 @@ public class InitializationCoordinator {
 
                     // Ensure build details file is visible
                     try {
-                        var propsPath = project.getRoot().resolve(".brokk/project.properties");
+                        var propsPath = project.getMasterRootPathForConfig()
+                                .resolve(AbstractProject.BROKK_DIR)
+                                .resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
                         if (Files.exists(propsPath)) {
                             ensureFileVisible(propsPath, DEFAULT_FILE_VISIBILITY_TIMEOUT);
                             logger.debug("Build details file visibility confirmed");
@@ -180,10 +186,11 @@ public class InitializationCoordinator {
         boolean needsGitConfig = false;
 
         try {
-            var root = project.getRoot();
-            var agentsMd = root.resolve("AGENTS.md");
-            var legacyStyleMd = root.resolve(".brokk/style.md");
-            var gitignorePath = root.resolve(".gitignore");
+            var configRoot = project.getMasterRootPathForConfig();
+            var agentsMd = configRoot.resolve(AbstractProject.STYLE_GUIDE_FILE);
+            var legacyStyleMd = configRoot.resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
+            var gitignorePath = configRoot.resolve(".gitignore");
 
             // Check 1: Migration needed?
             // If .brokk/style.md exists with content AND AGENTS.md doesn't exist
@@ -201,7 +208,8 @@ public class InitializationCoordinator {
 
             // Check 2: Build settings dialog needed?
             // Show if project is not fully configured
-            boolean hasProperties = Files.exists(root.resolve(".brokk/project.properties"));
+            boolean hasProperties = Files.exists(configRoot.resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.PROJECT_PROPERTIES_FILE));
             boolean hasStyleGuide = Files.exists(agentsMd) || Files.exists(legacyStyleMd);
             boolean gitConfigured = isBrokkIgnored(gitignorePath);
 

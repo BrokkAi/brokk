@@ -45,6 +45,11 @@ class InitializationCoordinatorTest {
         }
 
         @Override
+        public Path getMasterRootPathForConfig() {
+            return root;
+        }
+
+        @Override
         public void close() {
             // No-op for tests
         }
