@@ -172,23 +172,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     var point = e.getPoint();
                     int offset = textArea.viewToModel2D(point);
                     cursorCoordinatesLabel.setText("координаты курсора " + offset);
-                    // If a hover suggestion popup is visible and the mouse moved, hide it to avoid stale popups
-                    if (hoverSuggestionMenu != null && hoverSuggestionMenu.isVisible()) {
-                        try {
-                            hoverSuggestionMenu.setVisible(false);
-                        } catch (Exception ex) {
-                            logger.debug("Failed to hide hover suggestion menu on mouse move", ex);
-                        }
-                        hoverSuggestionMenu = null;
+
+                    // If a hover suggestion popup is already showing on screen, keep it open.
+                    // Stop any pending hover timer so it cannot interfere with the visible popup.
+                    if (hoverSuggestionMenu != null && hoverSuggestionMenu.isShowing()) {
+                        lastMousePoint = point;
+                        // Ensure the pending timer won't trigger a recreate/hide of the menu
+                        hoverTimer.stop();
+                        return;
                     }
 
-                    // Update last mouse point and restart the hover timer
+                    // Update last mouse point and (re)start the hover timer so suggestions may appear.
+                    // `restart()` is safe regardless of the timer state.
                     lastMousePoint = point;
-                    if (hoverTimer.isRunning()) {
-                        hoverTimer.restart();
-                    } else {
-                        hoverTimer.start();
-                    }
+                    hoverTimer.restart();
                 } catch (Exception ex) {
                     // Swallow any unexpected exceptions to avoid disturbing UI; log if needed
                     logger.debug("Failed to compute cursor offset on mouse move", ex);
@@ -200,27 +197,50 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         textArea.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
+                // Stop the hover timer when the mouse leaves the text area, but do not automatically
+                // hide the suggestion popup; it should remain until the user selects an item or clicks outside.
                 hoverTimer.stop();
-                if (hoverSuggestionMenu != null) {
-                    try {
-                        hoverSuggestionMenu.setVisible(false);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to hide hover suggestion menu on mouse exit", ex);
-                    }
-                    hoverSuggestionMenu = null;
-                }
             }
 
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
+                // Stop any pending hover timer
                 hoverTimer.stop();
-                if (hoverSuggestionMenu != null) {
+
+                // If a hover suggestion menu is visible, only hide it when the user clicks outside its bounds.
+                if (hoverSuggestionMenu != null && hoverSuggestionMenu.isShowing()) {
                     try {
-                        hoverSuggestionMenu.setVisible(false);
+                        // Use screen coordinates to robustly detect whether the click was inside the popup.
+                        var clickOnScreen = e.getLocationOnScreen();
+                        var menuLocation = hoverSuggestionMenu.getLocationOnScreen();
+                        var menuRect = new Rectangle(
+                                menuLocation.x,
+                                menuLocation.y,
+                                hoverSuggestionMenu.getWidth(),
+                                hoverSuggestionMenu.getHeight());
+
+                        if (!menuRect.contains(clickOnScreen)) {
+                            try {
+                                hoverSuggestionMenu.setVisible(false);
+                            } catch (Exception ex) {
+                                logger.debug("Failed to hide hover suggestion menu on mouse press", ex);
+                            }
+                            hoverSuggestionMenu = null;
+                        } else {
+                            // Click occurred inside the popup - do not close it here.
+                        }
                     } catch (Exception ex) {
-                        logger.debug("Failed to hide hover suggestion menu on mouse press", ex);
+                        // If we cannot reliably compute screen coordinates, fall back to hiding the menu.
+                        try {
+                            if (hoverSuggestionMenu.isShowing()) {
+                                hoverSuggestionMenu.setVisible(false);
+                            }
+                        } catch (Exception inner) {
+                            logger.debug("Failed to hide hover suggestion menu on mouse press (fallback)", inner);
+                        } finally {
+                            hoverSuggestionMenu = null;
+                        }
                     }
-                    hoverSuggestionMenu = null;
                 }
             }
         });
@@ -1568,8 +1588,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         if (!textArea.isShowing()) return;
 
         // Avoid re-showing at the exact same location
+        // Use isShowing() to ensure the menu is actually displayed on-screen before skipping.
         if (hoverSuggestionMenu != null
-                && hoverSuggestionMenu.isVisible()
+                && hoverSuggestionMenu.isShowing()
                 && lastPopupPoint != null
                 && lastPopupPoint.equals(p)) {
             return;
