@@ -3128,25 +3128,26 @@ public class Chrome
      * - Project properties file exists (.brokk/project.properties)
      * - Style guide exists (AGENTS.md or .brokk/style.md)
      * - Git is either not present OR already configured (isGitIgnoreSet())
+     *
+     * Works for both MainProject and WorktreeProject instances.
      */
     private boolean isProjectFullyConfigured() {
-        if (!(getProject() instanceof MainProject mainProject)) {
-            return false; // Only check MainProject instances
-        }
+        var project = getProject();
 
         try {
             // Check if project properties file exists
-            Path brokkDir = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
+            // For worktrees, getMasterRootPathForConfig() returns the main working tree path
+            Path brokkDir = project.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
             Path projectPropertiesFile = brokkDir.resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
             boolean hasProjectProperties = Files.exists(projectPropertiesFile);
 
             // Check if style guide exists (either location)
-            Path agentsFile = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
+            Path agentsFile = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
             Path legacyStyleFile = brokkDir.resolve("style.md");
             boolean hasStyleGuide = Files.exists(agentsFile) || Files.exists(legacyStyleFile);
 
             // Check if git is configured (or not present)
-            boolean gitConfigured = !getProject().hasGit() || getProject().isGitIgnoreSet();
+            boolean gitConfigured = !project.hasGit() || project.isGitIgnoreSet();
 
             boolean fullyConfigured = hasProjectProperties && hasStyleGuide && gitConfigured;
 
