@@ -111,7 +111,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         setLayout(new BorderLayout());
         initComponents();
-        loadSettings(); // Load settings after components are initialized
+        // NOTE: loadSettings() is now called explicitly after dialog construction
+        // to avoid race condition with background file writes
     }
 
     private void initComponents() {

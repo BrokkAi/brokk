@@ -199,6 +199,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
+        // Load settings after dialog construction but before showing
+        // This ensures any background file writes (e.g., style guide generation) have completed
+        dialog.globalSettingsPanel.loadSettings();
+        dialog.projectSettingsPanel.loadSettings();
+
         boolean tabSelected = false;
         // Top-level tabs: "Global", "Project"
         // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models",
