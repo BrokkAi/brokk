@@ -26,7 +26,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
-import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;

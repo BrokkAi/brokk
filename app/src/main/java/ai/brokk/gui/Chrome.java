@@ -3150,8 +3150,12 @@ public class Chrome
 
             boolean fullyConfigured = hasProjectProperties && hasStyleGuide && gitConfigured;
 
-            logger.debug("Project configuration check: properties={}, styleGuide={}, gitConfigured={}, result={}",
-                        hasProjectProperties, hasStyleGuide, gitConfigured, fullyConfigured);
+            logger.debug(
+                    "Project configuration check: properties={}, styleGuide={}, gitConfigured={}, result={}",
+                    hasProjectProperties,
+                    hasStyleGuide,
+                    gitConfigured,
+                    fullyConfigured);
 
             return fullyConfigured;
         } catch (Exception e) {
@@ -3200,8 +3204,10 @@ public class Chrome
                 if (!fullyConfigured || needsGitConfig) {
                     // Show build settings dialog now that both futures are complete
                     // This ensures the style guide is loaded into the settings panel
-                    logger.info("Showing build settings dialog (fullyConfigured={}, needsGitConfig={})",
-                               fullyConfigured, needsGitConfig);
+                    logger.info(
+                            "Showing build settings dialog (fullyConfigured={}, needsGitConfig={})",
+                            fullyConfigured,
+                            needsGitConfig);
                     var dlg = SettingsDialog.showSettingsDialog(this, "Build");
                     dlg.getProjectPanel().showBuildBanner();
 
