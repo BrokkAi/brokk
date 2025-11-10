@@ -51,6 +51,13 @@ import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.init.GitIgnoreConfigurator;
+import ai.brokk.init.StyleGuideMigrator;
+import ai.brokk.init.onboarding.BuildSettingsStep;
+import ai.brokk.init.onboarding.GitConfigStep;
+import ai.brokk.init.onboarding.MigrationStep;
+import ai.brokk.init.onboarding.OnboardingOrchestrator;
+import ai.brokk.init.onboarding.OnboardingStep;
+import ai.brokk.init.onboarding.ProjectState;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.Environment;
@@ -2947,59 +2954,199 @@ public class Chrome
 
     /**
      * Schedules the build settings dialog to show after initialization completes.
-     * Uses InitializationCoordinator to determine which dialogs are needed and
+     * Uses OnboardingOrchestrator to determine which dialogs are needed and
      * shows them sequentially: Migration → Build Settings → Git Config (if needed).
      */
     private void scheduleGitConfigurationAfterInit() {
-        logger.debug("Scheduling build settings dialog after style guide and build details are ready");
+        logger.debug("Scheduling onboarding after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
 
-        // Use InitializationCoordinator to determine which dialogs are needed
-        var coordinator = new ai.brokk.init.InitializationCoordinator();
-        var initResultFuture = coordinator.coordinate(getProject(), styleFuture.thenApply(c -> null), buildFuture);
+        // Wait for both futures to complete
+        CompletableFuture.allOf(
+                        styleFuture.thenApply(c -> null),
+                        buildFuture)
+                .thenAcceptAsync(v -> {
+                    logger.debug("Style guide and build details ready, building onboarding plan");
 
-        // Combine coordinator result with style guide content
-        initResultFuture
-                .thenCombine(styleFuture, (result, styleContent) -> Map.entry(result, styleContent))
-                .thenAcceptAsync(combined -> {
-                    var result = combined.getKey();
-                    var styleContent = combined.getValue();
+                    // Build project state
+                    // Note: styleGenerationSkippedDueToNoGit is false since Chrome always generates style guide
+                    var state = OnboardingOrchestrator.buildProjectState(
+                            getProject(), styleFuture, buildFuture, false);
 
-                    logger.debug("Initialization completed via coordinator");
+                    // Build onboarding plan
+                    var orchestrator = new OnboardingOrchestrator();
+                    var plan = orchestrator.buildPlan(state);
 
-                    // Show dialogs sequentially on EDT based on coordinator result
-                    SwingUtilities.invokeLater(() -> {
-                        // 1. Migration dialog first (if needed)
-                        if (result.needsMigrationDialog()) {
-                            logger.debug("Showing migration dialog");
-                            checkAndOfferStyleMdMigration();
-                        }
+                    logger.info("Onboarding plan has {} steps", plan.size());
 
-                        // 2. Build settings dialog second (if needed)
-                        if (result.needsBuildSettingsDialog()) {
-                            logger.info("Showing build settings dialog with generated style guide");
-                            var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                            dlg.getProjectPanel().showBuildBanner();
-                        }
+                    // Execute all steps and collect results
+                    var stepFutures = plan.getSteps().stream()
+                            .map(step -> step.execute(state))
+                            .toList();
 
-                        // 3. Git config dialog third (if needed)
-                        if (result.needsGitConfigDialog()) {
-                            logger.debug("Showing git config dialog");
-                            checkAndShowGitConfigDialog();
-                        }
+                    // Wait for all steps to complete
+                    CompletableFuture.allOf(stepFutures.toArray(new CompletableFuture[0]))
+                            .thenAcceptAsync(ignore -> {
+                                // Collect all step results
+                                var results = stepFutures.stream()
+                                        .map(CompletableFuture::join)
+                                        .toList();
 
-                        logger.info("Initialization dialog sequence complete");
-                    });
+                                // Show dialogs on EDT
+                                SwingUtilities.invokeLater(() -> processOnboardingResults(results, styleFuture));
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error executing onboarding steps", ex);
+                                SwingUtilities.invokeLater(() -> systemNotify(
+                                        "Error during onboarding: " + ex.getMessage(),
+                                        "Onboarding Error",
+                                        javax.swing.JOptionPane.ERROR_MESSAGE));
+                                return null;
+                            });
                 })
                 .exceptionally(ex -> {
-                    logger.error("Error during initialization coordination", ex);
+                    logger.error("Error waiting for initialization", ex);
                     SwingUtilities.invokeLater(() -> systemNotify(
                             "Error during initialization: " + ex.getMessage(),
                             "Initialization Error",
                             javax.swing.JOptionPane.ERROR_MESSAGE));
                     return null;
                 });
+    }
+
+    /**
+     * Processes onboarding step results and shows appropriate dialogs.
+     * Called on EDT after all onboarding steps have completed.
+     * <p>
+     * Shows dialogs in dependency order:
+     * 1. Migration dialog (if MigrationStep flagged)
+     * 2. Build settings dialog (if BuildSettingsStep flagged)
+     * 3. Git config dialog (if GitConfigStep flagged)
+     *
+     * @param results list of step results
+     * @param styleFuture future with style guide content
+     */
+    private void processOnboardingResults(List<OnboardingStep.StepResult> results,
+                                          CompletableFuture<String> styleFuture) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        logger.debug("Processing {} onboarding results", results.size());
+
+        for (var result : results) {
+            if (!result.success()) {
+                logger.warn("Step {} failed: {}", result.stepId(), result.message());
+                continue;
+            }
+
+            if (!result.requiresUserDialog()) {
+                logger.debug("Step {} completed without dialog: {}", result.stepId(), result.message());
+                continue;
+            }
+
+            // Handle steps that require user dialogs
+            switch (result.stepId()) {
+                case MigrationStep.STEP_ID -> {
+                    logger.debug("Showing migration dialog");
+                    var data = (MigrationStep.MigrationDialogData) result.data();
+                    showMigrationDialog(data);
+                }
+                case BuildSettingsStep.STEP_ID -> {
+                    logger.info("Showing build settings dialog");
+                    try {
+                        var styleContent = styleFuture.get();
+                        var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
+                        dlg.getProjectPanel().showBuildBanner();
+                    } catch (Exception e) {
+                        logger.error("Error getting style content for build dialog", e);
+                        SettingsDialog.showSettingsDialog(this, "Build", Optional.empty());
+                    }
+                }
+                case GitConfigStep.STEP_ID -> {
+                    logger.debug("Showing git config dialog");
+                    showGitConfigDialog();
+                }
+                default -> logger.warn("Unknown step ID requiring dialog: {}", result.stepId());
+            }
+        }
+
+        logger.info("Onboarding dialog sequence complete");
+    }
+
+    /**
+     * Shows the migration confirmation dialog and performs migration if user accepts.
+     */
+    private void showMigrationDialog(MigrationStep.MigrationDialogData data) {
+        if (!(getProject() instanceof MainProject mainProject)) {
+            return; // Only main projects can be migrated
+        }
+
+        try {
+            // Check if user already declined
+            if (mainProject.getMigrationDeclined()) {
+                logger.debug("Migration previously declined by user");
+                return;
+            }
+
+            String message =
+                    """
+            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
+
+            Would you like to migrate `style.md` to `AGENTS.md`? This will:
+            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
+            - Stage the change in Git (if the project is a Git repository)
+            - You can then review and commit the changes
+            """;
+
+            int confirm = showConfirmDialog(
+                    getFrame(),
+                    message,
+                    "Migrate Style Guide to AGENTS.md",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                // Perform migration using StyleGuideMigrator
+                var repo = mainProject.getRepo();
+                var gitRepo = (repo instanceof ai.brokk.git.GitRepo) ? (ai.brokk.git.GitRepo) repo : null;
+                var result = StyleGuideMigrator.migrate(data.brokkDir(), data.agentsFile(), gitRepo);
+
+                if (result.performed()) {
+                    logger.info("Migration successful: {}", result.message());
+                    systemNotify(result.message(), "Migration Complete", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    logger.warn("Migration not performed: {}", result.message());
+                }
+            } else {
+                mainProject.setMigrationDeclined(true);
+                logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
+            }
+        } catch (Exception e) {
+            logger.error("Error during migration dialog: {}", e.getMessage(), e);
+            systemNotify("Error during migration: " + e.getMessage(),
+                    "Migration Error", javax.swing.JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Shows the git configuration confirmation dialog and performs setup if user accepts.
+     */
+    private void showGitConfigDialog() {
+        contextManager.submitBackgroundTask("Checking .gitignore", () -> {
+            if (!getProject().isGitIgnoreSet()) {
+                SwingUtilities.invokeLater(() -> {
+                    int result = showConfirmDialog(
+                            "Update .gitignore and add .brokk project files to git?",
+                            "Git Configuration",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE);
+                    if (result == JOptionPane.YES_OPTION) {
+                        setupGitIgnore();
+                    }
+                });
+            }
+            return null;
+        });
     }
 
     /**

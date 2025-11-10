@@ -1,16 +1,17 @@
 package ai.brokk.init.onboarding;
 
-import ai.brokk.IConsoleIO;
-import ai.brokk.init.GitIgnoreConfigurator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Onboarding step for configuring .gitignore with Brokk patterns.
+ * Onboarding step for git configuration confirmation.
  * <p>
- * Uses GitIgnoreConfigurator to set up .gitignore and stage files.
+ * This step flags that a git config dialog should be shown.
+ * The UI layer (Chrome) handles showing the confirm dialog and performing
+ * the actual configuration via GitIgnoreConfigurator.
+ * <p>
  * This step runs after build settings (if build settings was needed).
  */
 public class GitConfigStep implements OnboardingStep {
@@ -36,31 +37,16 @@ public class GitConfigStep implements OnboardingStep {
 
     @Override
     public CompletableFuture<StepResult> execute(ProjectState state) {
-        logger.info("Executing git config step");
+        logger.info("Executing git config step (flagging UI dialog)");
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Set up .gitignore and stage files
-                // Note: consoleIO is null here since we're in non-UI context
-                // The orchestrator can provide an IConsoleIO if needed
-                var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(state.project(), null);
-
-                if (result.errorMessage().isPresent()) {
-                    logger.error("Git config failed: {}", result.errorMessage().get());
-                    return StepResult.failure(STEP_ID, result.errorMessage().get());
-                }
-
-                var message = String.format("Git configured: gitignore=%s, staged=%d files",
-                        result.gitignoreUpdated() ? "updated" : "unchanged",
-                        result.stagedFiles().size());
-
-                logger.info(message);
-                return StepResult.success(STEP_ID, message);
-
-            } catch (Exception e) {
-                logger.error("Error during git config step", e);
-                return StepResult.failure(STEP_ID, "Git config failed: " + e.getMessage());
-            }
-        });
+        // Don't perform git config here - let UI handle user confirmation
+        // Return dialog data so Chrome can show confirm dialog and perform configuration
+        return CompletableFuture.completedFuture(
+                StepResult.successWithDialog(
+                        STEP_ID,
+                        "Git config dialog required",
+                        null // No additional data needed for git config
+                )
+        );
     }
 }

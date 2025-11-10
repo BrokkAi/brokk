@@ -1,8 +1,6 @@
 package ai.brokk.init.onboarding;
 
 import ai.brokk.AbstractProject;
-import ai.brokk.git.GitRepo;
-import ai.brokk.init.StyleGuideMigrator;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -10,9 +8,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Onboarding step for migrating legacy .brokk/style.md to AGENTS.md.
+ * Onboarding step for migration confirmation from legacy .brokk/style.md to AGENTS.md.
  * <p>
- * Uses StyleGuideMigrator to perform the actual migration.
+ * This step flags that a migration dialog should be shown.
+ * The UI layer (Chrome) handles showing the confirm dialog and performing
+ * the actual migration via StyleGuideMigrator.
+ * <p>
  * This step has no dependencies and runs first if applicable.
  */
 public class MigrationStep implements OnboardingStep {
@@ -37,33 +38,25 @@ public class MigrationStep implements OnboardingStep {
 
     @Override
     public CompletableFuture<StepResult> execute(ProjectState state) {
-        logger.info("Executing migration step");
+        logger.info("Executing migration step (flagging UI dialog)");
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                var brokkDir = state.configRoot().resolve(AbstractProject.BROKK_DIR);
-                var agentsFile = state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE);
-
-                // Get GitRepo if available
-                var repo = state.project().getRepo();
-                var gitRepo = (repo instanceof GitRepo) ? (GitRepo) repo : null;
-
-                // Perform migration
-                var result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
-
-                if (result.performed()) {
-                    logger.info("Migration successful: {}", result.message());
-                    // Migration succeeded - no user dialog needed, operation is complete
-                    return StepResult.success(STEP_ID, result.message());
-                } else {
-                    logger.warn("Migration not performed: {}", result.message());
-                    return StepResult.failure(STEP_ID, result.message());
-                }
-
-            } catch (Exception e) {
-                logger.error("Error during migration step", e);
-                return StepResult.failure(STEP_ID, "Migration failed: " + e.getMessage());
-            }
-        });
+        // Don't perform migration here - let UI handle user confirmation
+        // Return dialog data so Chrome can show confirm dialog and perform migration
+        return CompletableFuture.completedFuture(
+                StepResult.successWithDialog(
+                        STEP_ID,
+                        "Migration dialog required",
+                        new MigrationDialogData(
+                                state.configRoot().resolve(AbstractProject.BROKK_DIR),
+                                state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE)
+                        )
+                )
+        );
     }
+
+    /**
+     * Data for migration confirmation dialog.
+     * Contains paths needed to perform the migration after user confirms.
+     */
+    public record MigrationDialogData(Path brokkDir, Path agentsFile) {}
 }
