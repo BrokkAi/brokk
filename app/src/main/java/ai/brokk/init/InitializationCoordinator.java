@@ -248,7 +248,7 @@ public class InitializationCoordinator {
      * @param gitignorePath Path to .gitignore file
      * @return true if .brokk is comprehensively ignored
      */
-    private boolean isBrokkIgnored(Path gitignorePath) throws IOException {
+    public static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
         if (!Files.exists(gitignorePath)) {
             logger.debug(".gitignore does not exist");
             return false;

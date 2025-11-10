@@ -8,13 +8,13 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
+import ai.brokk.init.InitializationCoordinator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.common.base.Splitter;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
 import java.io.IOException;
@@ -721,7 +721,7 @@ public final class MainProject extends AbstractProject {
     public boolean isGitIgnoreSet() {
         try {
             var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
-            if (isBrokkIgnored(gitignorePath)) {
+            if (InitializationCoordinator.isBrokkIgnored(gitignorePath)) {
                 logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignorePath);
                 return true;
             }
@@ -737,7 +737,7 @@ public final class MainProject extends AbstractProject {
             if (excludesFile != null && !excludesFile.isBlank()) {
                 try {
                     var excludesFilePath = Path.of(excludesFile);
-                    if (isBrokkIgnored(excludesFilePath)) {
+                    if (InitializationCoordinator.isBrokkIgnored(excludesFilePath)) {
                         logger.debug("core.excludesfile at {} is set to ignore Brokk files.", excludesFilePath);
                         return true;
                     }
@@ -747,32 +747,6 @@ public final class MainProject extends AbstractProject {
             }
         } catch (IOException | ConfigInvalidException e) {
             logger.error("Error checking core.excludesfile setting in ~/.gitconfig: {}", e.getMessage());
-        }
-        return false;
-    }
-
-    // DEPRECATED: This logic has been moved to InitializationCoordinator.isBrokkIgnored()
-    // Keeping for now to avoid breaking existing callers, but should be removed in next refactor
-    @Deprecated
-    private static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
-        if (!Files.exists(gitignorePath)) {
-            return false;
-        }
-
-        var content = Files.readString(gitignorePath);
-        // Check each line for comprehensive .brokk ignore patterns
-        // Don't match partial patterns like .brokk/workspace.properties
-        for (var line : Splitter.on('\n').split(content)) {
-            var trimmed = line.trim();
-            // Remove trailing comments
-            var commentIndex = trimmed.indexOf('#');
-            if (commentIndex > 0) {
-                trimmed = trimmed.substring(0, commentIndex).trim();
-            }
-            // Match .brokk/** (comprehensive) or .brokk/ (directory)
-            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
-                return true;
-            }
         }
         return false;
     }
