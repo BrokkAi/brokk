@@ -1,8 +1,10 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -754,5 +756,35 @@ public class JavaAnalyzerTest {
         var topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
+    }
+
+    @Test
+    public void moduleCodeUnitCreated_withTopLevelClassChildren_only() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                        package p1;
+                        class A { class Inner {} }
+                        class B {}
+                        """,
+                        "A_B.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeModule = analyzer.getDefinition("p1");
+            assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p1' should be created");
+            var module = maybeModule.get();
+            assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");
+
+            var children = analyzer.getDirectChildren(module).stream()
+                    .map(CodeUnit::fqName)
+                    .sorted()
+                    .toList();
+
+            assertEquals(
+                    List.of("p1.A", "p1.B"),
+                    children,
+                    "Module children should include only top-level classes A and B (no nested types)");
+        }
     }
 }

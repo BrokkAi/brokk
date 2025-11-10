@@ -1968,7 +1968,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localCuByFqName,
                 localTopLevelCUs,
                 localSignatures,
-                localSourceRanges);
+                localSourceRanges,
+                localChildren);
 
         log.trace(
                 "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries.",
@@ -2044,6 +2045,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
      */
+    // Legacy signature retained for backward compatibility so subclasses (e.g., JS/TS analyzers)
+    // that override this continue to compile. Prefer overriding the variant with localChildren.
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
@@ -2052,7 +2055,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<String, CodeUnit> localCuByFqName,
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {}
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        // default no-op
+    }
+
+    /**
+     * Preferred variant that also provides access to localChildren so modules can attach their children.
+     * Delegates to the legacy method by default to keep existing overrides functioning.
+     */
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+        // Delegate to legacy signature for backward compatibility
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
+    }
 
     /* ---------- Signature Building Logic ---------- */
 

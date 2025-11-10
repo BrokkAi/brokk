@@ -385,17 +385,41 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             normalized = normalized.substring("import ".length()).trim();
 
             if (normalized.endsWith(".*")) {
-                // Wildcard import: resolve all classes in the package
+                // Prefer MODULE-based resolution if available: MODULE fqName == package name
                 String packageName =
                         normalized.substring(0, normalized.length() - 2).trim();
-                // Use a regex pattern to match all classes starting with the package name followed by dot
-                // This will match both top-level classes (package.ClassName) and nested classes (package.Outer.Inner)
+
+                // Look up all MODULE code units that represent this exact package, then collect their class children
+                Set<CodeUnit> moduleClasses = withCodeUnitProperties(props -> {
+                    var set = new LinkedHashSet<CodeUnit>();
+                    for (var entry : props.entrySet()) {
+                        CodeUnit cu = entry.getKey();
+                        if (cu.isModule() && cu.fqName().equals(packageName)) {
+                            for (var child : entry.getValue().children()) {
+                                if (child.isClass() && packageName.equals(child.packageName())) {
+                                    set.add(child);
+                                }
+                            }
+                        }
+                    }
+                    return set;
+                });
+
+                if (!moduleClasses.isEmpty()) {
+                    resolved.addAll(moduleClasses);
+                    continue;
+                }
+
+                // Fallback: Match fully-qualified, top-level classes in exactly this package (exclude nested types)
                 String escapedPackage = Pattern.quote(packageName);
-                String patternStr = "^" + escapedPackage + "\\.[A-Za-z_][a-zA-Z0-9_.]*$";
+                String patternStr = "^" + escapedPackage + "\\.[A-Za-z_][a-zA-Z0-9_]*$";
                 Pattern compiledPattern = Pattern.compile(patternStr);
+
                 List<CodeUnit> classesInPackage = searchDefinitionsImpl(patternStr, null, compiledPattern);
                 for (CodeUnit cu : classesInPackage) {
-                    if (cu.isClass()) {
+                    if (cu.isClass()
+                            && packageName.equals(cu.packageName())
+                            && !cu.shortName().contains(".")) {
                         resolved.add(cu);
                     }
                 }
@@ -433,5 +457,66 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         return JavaTypeAnalyzer.compute(
                 cu, tree, src, getTSLanguage(), this::textSlice, resolvedImports, this::searchDefinitions);
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+        // Create a MODULE CodeUnit for the current file's package and attach the file's top-level classes as children.
+        if (modulePackageName.isBlank()) {
+            return; // default package: no module CU
+        }
+
+        // Locate the package_declaration node to compute a precise range for the module signature
+        TSNode packageNode = null;
+        for (int i = 0; i < rootNode.getChildCount(); i++) {
+            TSNode child = rootNode.getChild(i);
+            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
+                packageNode = child;
+                break;
+            }
+        }
+
+        // Determine parent package and simple name, so that fqName(parent + "." + short) == modulePackageName
+        int idx = modulePackageName.lastIndexOf('.');
+        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
+        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+
+        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        // Signature for a Java package module
+        String signature = "package " + modulePackageName + ";";
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(signature);
+
+        // Range covering the package declaration (when available)
+        if (packageNode != null) {
+            Range r = new Range(
+                    packageNode.getStartByte(),
+                    packageNode.getEndByte(),
+                    packageNode.getStartPoint().getRow(),
+                    packageNode.getEndPoint().getRow(),
+                    packageNode.getStartByte());
+            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
+        }
+
+        // Children: include only top-level classes declared in this exact package
+        List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
+        for (CodeUnit cu : localTopLevelCUs) {
+            if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
+                classesInThisFileAndPackage.add(cu);
+            }
+        }
+        localChildren.put(moduleCu, classesInThisFileAndPackage);
+
+        // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
     }
 }
