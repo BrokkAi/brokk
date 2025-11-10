@@ -1465,6 +1465,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (contextHasImages() && !models.supportsVision(modelToUse)) {
             showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
+            updateButtonStates();
             return;
         }
 
@@ -1506,6 +1507,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runAskCommand(String input) {
         final var modelToUse = selectDropdownModelOrShowError("Ask", true);
         if (modelToUse == null) {
+            updateButtonStates();
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1544,6 +1546,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             logger.trace(
                     "Model selection failed for Search action: requireVision=true, contextHasImages={}",
                     contextHasImages());
+            updateButtonStates();
             return;
         }
 
@@ -1806,7 +1809,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // Go action
             switch (storedAction) {
-                case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
+                case ACTION_CODE -> {
+                    var model = selectDropdownModelOrShowError("Code", true);
+                    if (model != null) {
+                        prepareAndRunCodeCommand(model);
+                    } else {
+                        updateButtonStates();
+                    }
+                }
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
                 default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
