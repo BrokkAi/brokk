@@ -519,10 +519,12 @@ public class WorkspacePanel extends JPanel {
                     description = descOpt.get();
                 } else {
                     description = "(Loading...)";
-                    // Register for repaint when description completes
+                    // Register for repaint when description completes; log failures
                     cf.computedDescription().onComplete((desc, ex) -> {
                         if (ex == null) {
                             SwingUtilities.invokeLater(table::repaint);
+                        } else {
+                            logger.debug("Error computing fragment description for {}", fragment.shortDescription(), ex);
                         }
                     });
                 }
@@ -1060,8 +1062,8 @@ public class WorkspacePanel extends JPanel {
                         if (pi != null) {
                             pointer = pi.getLocation();
                         }
-                    } catch (Exception ignore) {
-                        // ignore
+                    } catch (Exception ex) {
+                        logger.debug("Could not access pointer info to position DropAction dialog", ex);
                     }
                     var selection = DropActionDialog.show(chrome.getFrame(), canSummarize, pointer);
                     if (selection == null) {
@@ -1423,6 +1425,8 @@ public class WorkspacePanel extends JPanel {
                         cf.computedText().onComplete((value, ex) -> {
                             if (ex == null && value != null) {
                                 SwingUtilities.invokeLater(this::updateContextTable);
+                            } else if (ex != null) {
+                                logger.debug("Error computing fragment text for {}", frag.shortDescription(), ex);
                             }
                         });
                     }
@@ -1502,6 +1506,8 @@ public class WorkspacePanel extends JPanel {
                                 contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
                             }
                         });
+                    } else if (ex != null) {
+                        logger.debug("Error computing associated files for {}", frozenFrag.shortDescription(), ex);
                     }
                 });
             }
@@ -2162,8 +2168,8 @@ public class WorkspacePanel extends JPanel {
         for (var l : bottomControlsListeners) {
             try {
                 l.bottomControlsHeightChanged(h);
-            } catch (Exception ignore) {
-                // Listener exceptions should not affect UI flow
+            } catch (Exception e) {
+                logger.debug("BottomControlsListener threw an exception; continuing", e);
             }
         }
     }

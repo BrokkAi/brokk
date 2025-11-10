@@ -2834,8 +2834,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         try {
                             var list = f.get();
                             allDiffEntries.addAll(list);
-                        } catch (Exception ignore) {
-                            // skip failed computations; best-effort aggregation
+                        } catch (Exception ex) {
+                            // Log and continue: best-effort aggregation should not fail the whole computation
+                            logger.debug("Skipping failed diff computation while aggregating cumulative changes", ex);
                         }
                     }
 
@@ -2982,8 +2983,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (root.getFileName() != null) {
                 projectName = root.getFileName().toString();
             }
-        } catch (Exception ignored) {
-            // fallback to default projectName
+        } catch (Exception e) {
+            logger.debug("Unable to resolve project name for aggregated Changes panel; using default", e);
         }
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
