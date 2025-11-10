@@ -19,9 +19,14 @@ class OnboardingOrchestratorTest {
      */
     private static class TestProject implements IProject {
         private final Path root;
+        private boolean hasGit = false;
 
         TestProject(Path root) {
             this.root = root;
+        }
+
+        void setHasGit(boolean hasGit) {
+            this.hasGit = hasGit;
         }
 
         @Override
@@ -41,7 +46,7 @@ class OnboardingOrchestratorTest {
 
         @Override
         public boolean hasGit() {
-            return false;
+            return hasGit;
         }
 
         @Override
@@ -191,6 +196,7 @@ class OnboardingOrchestratorTest {
     @Test
     void testPostGitStyleRegeneration_Included() {
         var project = new TestProject(Path.of("/tmp/test"));
+        project.setHasGit(true); // Git repository now present
         var state = new ProjectState(
                 project,
                 project.getRoot(),
@@ -340,6 +346,7 @@ class OnboardingOrchestratorTest {
     void testStepDependencies_CorrectOrder() {
         // Create state where all steps are applicable
         var project = new TestProject(Path.of("/tmp/test"));
+        project.setHasGit(true); // Git repository present
         var state = new ProjectState(
                 project,
                 project.getRoot(),

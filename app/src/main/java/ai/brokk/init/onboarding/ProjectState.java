@@ -97,11 +97,11 @@ public record ProjectState(
     /**
      * Checks if style guide regeneration should be offered after Git setup.
      * This is true when style generation was previously skipped due to missing Git
-     * and Git is now available/being configured.
+     * and Git repository is now present.
      *
      * @return true if post-git style regeneration should be offered
      */
     public boolean needsPostGitStyleRegeneration() {
-        return styleGenerationSkippedDueToNoGit && (gitignoreExists || needsGitConfig());
+        return styleGenerationSkippedDueToNoGit && project.hasGit();
     }
 }

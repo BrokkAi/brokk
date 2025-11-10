@@ -2092,6 +2092,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return fallbackContent;
                 }
                 project.saveStyleGuide(styleGuide);
+                styleGenerationSkippedDueToNoGit = false; // Reset flag after successful generation
 
                 String savedFileName;
                 Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
