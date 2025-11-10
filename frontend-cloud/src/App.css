@@ -1,37 +1,353 @@
 .App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  background-color: #1e1e1e;
+  color: #e0e0e0;
 }
 
-.App-link {
+.App-header {
+  background-color: #2d2d2d;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #404040;
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
   color: #61dafb;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
+.status {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #888;
+}
+
+.stats {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #61dafb;
+  font-weight: 500;
+}
+
+.App-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.events-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background-color: #252525;
+  border-radius: 8px;
+  min-height: 400px;
+}
+
+.placeholder {
+  text-align: center;
+  color: #666;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.loading {
+  text-align: center;
+  color: #61dafb;
+  padding: 1rem;
+  font-style: italic;
+}
+
+.event {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: 6px;
+  background-color: #2d2d2d;
+  border-left: 3px solid #61dafb;
+}
+
+.event-message {
+  border-left-color: #61dafb;
+}
+
+.event-tool {
+  border-left-color: #ff9800;
+  background-color: #2a2520;
+}
+
+.event-tool-result {
+  border-left-color: #4caf50;
+  background-color: #1e2a20;
+}
+
+.event-error {
+  border-left-color: #f44336;
+  background-color: #2a1e1e;
+}
+
+.event-info {
+  border-left-color: #9c27b0;
+  background-color: #26202a;
+}
+
+.event-confirm {
+  border-left-color: #ffc107;
+  background-color: #2a2720;
+}
+
+.event-default {
+  border-left-color: #666;
+}
+
+.event-type {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.event-message .event-type {
+  color: #61dafb;
+}
+
+.event-tool .event-type {
+  color: #ff9800;
+}
+
+.event-tool-result .event-type {
+  color: #4caf50;
+}
+
+.event-error .event-type {
+  color: #f44336;
+}
+
+.event-info .event-type {
+  color: #9c27b0;
+}
+
+.event-confirm .event-type {
+  color: #ffc107;
+}
+
+.event-content {
+  color: #e0e0e0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.event-content-markdown {
+  white-space: normal;
+}
+.event-content-markdown > *:first-child {
+  margin-top: 0;
+}
+.event-content-markdown > *:last-child {
+  margin-bottom: 0;
+}
+.event-content-markdown h1,
+.event-content-markdown h2,
+.event-content-markdown h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: #61dafb;
+  border-bottom: 1px solid #404040;
+  padding-bottom: 0.25rem;
+}
+.event-content-markdown p {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
+}
+.event-content-markdown ul,
+.event-content-markdown ol {
+  padding-left: 1.5rem;
+  margin: 1rem 0;
+}
+.event-content-markdown li {
+  margin-bottom: 0.25rem;
+}
+.event-content-markdown code {
+  background-color: #1e1e1e;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+.event-content-markdown pre {
+  background-color: #1e1e1e;
+  padding: 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.event-content-markdown pre code {
+  padding: 0;
+  background-color: transparent;
+}
+.event-content-markdown blockquote {
+  border-left: 3px solid #404040;
+  padding-left: 1rem;
+  margin-left: 0;
+  color: #aaa;
+}
+
+.event-content pre {
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  background-color: #1e1e1e;
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.event-note {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #888;
+  font-style: italic;
+}
+
+.event-truncated {
+  margin-top: 0.5rem;
+  color: #888;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+.input-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  background-color: #2d2d2d;
+  border-radius: 8px;
+}
+
+.message-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  border: 1px solid #404040;
+  border-radius: 6px;
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+  outline: none;
+}
+
+.message-input:focus {
+  border-color: #61dafb;
+}
+
+.message-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-button {
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background-color: #61dafb;
+  color: #1e1e1e;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.submit-button:hover:not(:disabled) {
+  background-color: #4fa8c5;
+}
+
+.submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Styles for Key-Value Display */
+.key-value-display {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+}
+
+.key-value-display.nested {
+  margin-left: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid #333;
+}
+
+.kv-key {
+  font-weight: 600;
+  color: #aaa;
+  text-align: right;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kv-value {
+  color: #e0e0e0;
+  word-break: break-word;
+}
+
+.kv-value pre {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  background-color: #252525;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.kv-list-item {
+  padding: 0.25rem 0.5rem;
+  background-color: #252525;
+  border: 1px solid #404040;
+  border-radius: 4px;
+}
+
+.progress-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background-color: #252525;
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 0.9rem;
+}
+
+.spinner {
+  width: 1.25em;
+  height: 1.25em;
+  border: 2px solid #404040;
+  border-top-color: #61dafb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
