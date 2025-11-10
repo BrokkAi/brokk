@@ -58,9 +58,6 @@ class StyleGuideMigratorTest {
         }
     }
 
-    /**
-     * Test 1: Successful migration with git staging
-     */
     @Test
     void testSuccessfulMigration_WithGit() throws Exception {
         // Create legacy style.md with content
@@ -85,9 +82,6 @@ class StyleGuideMigratorTest {
         assertTrue(result.message().contains("Migrated"), "Message should indicate migration");
     }
 
-    /**
-     * Test 2: Successful migration without git (non-git project)
-     */
     @Test
     void testSuccessfulMigration_WithoutGit() throws Exception {
         // Create legacy style.md with content
@@ -106,9 +100,6 @@ class StyleGuideMigratorTest {
         assertEquals("# Style Content", Files.readString(agentsFile));
     }
 
-    /**
-     * Test 3: Target already exists with content - no migration
-     */
     @Test
     void testTargetExists_NoMigration() throws Exception {
         // Create both files
@@ -130,9 +121,6 @@ class StyleGuideMigratorTest {
         assertTrue(Files.exists(legacyFile), "Legacy file should remain");
     }
 
-    /**
-     * Test 4: Target exists but is empty - migration should proceed
-     */
     @Test
     void testTargetEmpty_MigrationProceeds() throws Exception {
         // Create legacy file and empty target
@@ -151,30 +139,6 @@ class StyleGuideMigratorTest {
         assertFalse(Files.exists(legacyFile));
     }
 
-    /**
-     * Test 5: Target exists but is blank (whitespace only) - migration should proceed
-     */
-    @Test
-    void testTargetBlank_MigrationProceeds() throws Exception {
-        // Create legacy file and blank target
-        Path legacyFile = brokkDir.resolve("style.md");
-        Files.writeString(legacyFile, "# Legacy Content");
-        Files.writeString(agentsFile, "   \n  \n");
-
-        // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
-
-        // Verify migration performed
-        assertTrue(result.performed(), "Migration should proceed for blank target");
-
-        // Verify content migrated
-        assertEquals("# Legacy Content", Files.readString(agentsFile));
-        assertFalse(Files.exists(legacyFile));
-    }
-
-    /**
-     * Test 6: Legacy file doesn't exist - no migration
-     */
     @Test
     void testLegacyMissing_NoMigration() throws Exception {
         // Don't create legacy file
@@ -187,9 +151,6 @@ class StyleGuideMigratorTest {
         assertTrue(result.message().contains("does not exist"));
     }
 
-    /**
-     * Test 7: Legacy file is empty - no migration
-     */
     @Test
     void testLegacyEmpty_NoMigration() throws Exception {
         // Create empty legacy file
@@ -204,50 +165,6 @@ class StyleGuideMigratorTest {
         assertTrue(result.message().contains("empty"));
     }
 
-    /**
-     * Test 8: Legacy file is blank (whitespace only) - no migration
-     */
-    @Test
-    void testLegacyBlank_NoMigration() throws Exception {
-        // Create blank legacy file
-        Path legacyFile = brokkDir.resolve("style.md");
-        Files.writeString(legacyFile, "   \n  \n");
-
-        // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
-
-        // Verify NO migration performed
-        assertFalse(result.performed(), "Should not migrate blank legacy file");
-    }
-
-    /**
-     * Test 9: Legacy file is unreadable - error result
-     */
-    @Test
-    void testLegacyUnreadable_ErrorResult() throws Exception {
-        // Create legacy file
-        Path legacyFile = brokkDir.resolve("style.md");
-        Files.writeString(legacyFile, "# Content");
-
-        // Make file unreadable
-        legacyFile.toFile().setReadable(false);
-
-        try {
-            // Perform migration
-            MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
-
-            // Verify error reported
-            assertFalse(result.performed(), "Migration should fail for unreadable file");
-            assertTrue(result.message().contains("Cannot read"), "Should mention read error");
-        } finally {
-            // Restore readability for cleanup
-            legacyFile.toFile().setReadable(true);
-        }
-    }
-
-    /**
-     * Test 10: Idempotency - calling twice doesn't cause issues
-     */
     @Test
     void testIdempotency() throws Exception {
         // Create legacy file

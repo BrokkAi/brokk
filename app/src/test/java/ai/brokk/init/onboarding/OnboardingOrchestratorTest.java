@@ -53,27 +53,86 @@ class OnboardingOrchestratorTest {
         public void close() {}
     }
 
-    /**
-     * Test 1: Fresh project with no files - all steps needed except migration
-     */
+    /** Builder for creating ProjectState in tests with sensible defaults. */
+    private static class StateBuilder {
+        private TestProject project = new TestProject(Path.of("/tmp/test"));
+        private boolean agentsMdExists = false;
+        private boolean agentsMdHasContent = false;
+        private boolean legacyStyleMdExists = false;
+        private boolean legacyStyleMdHasContent = false;
+        private boolean styleGenerationSkippedDueToNoGit = false;
+        private boolean projectPropertiesExists = false;
+        private boolean projectPropertiesHasContent = false;
+        private boolean buildDetailsAvailable = false;
+        private boolean gitignoreExists = false;
+        private boolean gitignoreConfigured = false;
+
+        StateBuilder withProject(TestProject p) {
+            this.project = p;
+            return this;
+        }
+
+        StateBuilder withAgentsMd() {
+            agentsMdExists = true;
+            agentsMdHasContent = true;
+            return this;
+        }
+
+        StateBuilder withLegacyStyleMd() {
+            legacyStyleMdExists = true;
+            legacyStyleMdHasContent = true;
+            return this;
+        }
+
+        StateBuilder withEmptyLegacyStyleMd() {
+            legacyStyleMdExists = true;
+            return this;
+        }
+
+        StateBuilder withStyleSkippedDueToNoGit() {
+            styleGenerationSkippedDueToNoGit = true;
+            return this;
+        }
+
+        StateBuilder withProjectProperties() {
+            projectPropertiesExists = true;
+            projectPropertiesHasContent = true;
+            return this;
+        }
+
+        StateBuilder withBuildDetails() {
+            buildDetailsAvailable = true;
+            return this;
+        }
+
+        StateBuilder withGitIgnoreConfigured() {
+            gitignoreExists = true;
+            gitignoreConfigured = true;
+            return this;
+        }
+
+        ProjectState build() {
+            return new ProjectState(
+                    project,
+                    project.getRoot(),
+                    agentsMdExists,
+                    agentsMdHasContent,
+                    legacyStyleMdExists,
+                    legacyStyleMdHasContent,
+                    styleGenerationSkippedDueToNoGit,
+                    projectPropertiesExists,
+                    projectPropertiesHasContent,
+                    buildDetailsAvailable,
+                    gitignoreExists,
+                    gitignoreConfigured,
+                    null,
+                    null);
+        }
+    }
+
     @Test
     void testFreshProject_AllStepsExceptMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                false,
-                false, // no AGENTS.md
-                false,
-                false, // no legacy style.md
-                false, // styleGenerationSkippedDueToNoGit
-                false,
-                false, // no project.properties
-                false, // buildDetailsAvailable
-                false,
-                false, // no .gitignore
-                null,
-                null);
+        var state = new StateBuilder().build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -91,27 +150,9 @@ class OnboardingOrchestratorTest {
         assertEquals(GitConfigStep.STEP_ID, steps.get(1).id());
     }
 
-    /**
-     * Test 2: Legacy project needing migration - all steps needed
-     */
     @Test
     void testLegacyProject_NeedsMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                false,
-                false, // no AGENTS.md
-                true,
-                true, // legacy style.md exists with content
-                false, // styleGenerationSkippedDueToNoGit
-                false,
-                false, // no project.properties
-                false, // buildDetailsAvailable
-                false,
-                false, // no .gitignore
-                null,
-                null);
+        var state = new StateBuilder().withLegacyStyleMd().build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -129,27 +170,14 @@ class OnboardingOrchestratorTest {
         assertEquals(GitConfigStep.STEP_ID, steps.get(2).id());
     }
 
-    /**
-     * Test 3: Fully configured project - no steps needed
-     */
     @Test
     void testFullyConfigured_NoSteps() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                true,
-                true, // AGENTS.md exists with content
-                false,
-                false, // no legacy style.md
-                false, // styleGenerationSkippedDueToNoGit
-                true,
-                true, // project.properties exists with content
-                true, // buildDetailsAvailable
-                true,
-                true, // .gitignore configured
-                null,
-                null);
+        var state = new StateBuilder()
+                .withAgentsMd()
+                .withProjectProperties()
+                .withBuildDetails()
+                .withGitIgnoreConfigured()
+                .build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -159,27 +187,9 @@ class OnboardingOrchestratorTest {
         assertTrue(plan.isEmpty());
     }
 
-    /**
-     * Test 4: Git configured but not project - only build settings needed
-     */
     @Test
     void testGitConfigured_OnlyBuildSettings() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                true,
-                true, // AGENTS.md exists with content
-                false,
-                false, // no legacy style.md
-                false, // styleGenerationSkippedDueToNoGit
-                false,
-                false, // no project.properties
-                false, // buildDetailsAvailable
-                true,
-                true, // .gitignore configured
-                null,
-                null);
+        var state = new StateBuilder().withAgentsMd().withGitIgnoreConfigured().build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -190,28 +200,17 @@ class OnboardingOrchestratorTest {
         assertFalse(plan.hasStep(GitConfigStep.STEP_ID), "Git already configured");
     }
 
-    /**
-     * Test 5: Post-git style regeneration step included when applicable
-     */
     @Test
     void testPostGitStyleRegeneration_Included() {
         var project = new TestProject(Path.of("/tmp/test"));
-        project.setHasGit(true); // Git repository now present
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                true,
-                true, // AGENTS.md exists with content
-                false,
-                false, // no legacy style.md
-                true, // styleGenerationSkippedDueToNoGit = TRUE
-                true,
-                true, // project.properties exists
-                true, // buildDetailsAvailable
-                false,
-                false, // .gitignore NOT configured
-                null,
-                null);
+        project.setHasGit(true);
+        var state = new StateBuilder()
+                .withProject(project)
+                .withAgentsMd()
+                .withStyleSkippedDueToNoGit()
+                .withProjectProperties()
+                .withBuildDetails()
+                .build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -228,27 +227,13 @@ class OnboardingOrchestratorTest {
         assertTrue(gitConfigIndex < regenIndex, "Post-git regen should come after git config");
     }
 
-    /**
-     * Test 6: Post-git style regeneration NOT included when not applicable
-     */
     @Test
     void testPostGitStyleRegeneration_NotIncluded() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                true,
-                true, // AGENTS.md exists with content
-                false,
-                false, // no legacy style.md
-                false, // styleGenerationSkippedDueToNoGit = FALSE
-                true,
-                true, // project.properties exists
-                true, // buildDetailsAvailable
-                false,
-                false, // .gitignore NOT configured
-                null,
-                null);
+        var state = new StateBuilder()
+                .withAgentsMd()
+                .withProjectProperties()
+                .withBuildDetails()
+                .build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -259,27 +244,9 @@ class OnboardingOrchestratorTest {
                 plan.hasStep(PostGitStyleRegenerationStep.STEP_ID), "Should NOT offer regen when style wasn't skipped");
     }
 
-    /**
-     * Test 7: Empty legacy file - migration not needed
-     */
     @Test
     void testEmptyLegacyFile_NoMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                false,
-                false, // no AGENTS.md
-                true,
-                false, // legacy style.md exists but EMPTY
-                false, // styleGenerationSkippedDueToNoGit
-                false,
-                false, // no project.properties
-                false, // buildDetailsAvailable
-                false,
-                false, // no .gitignore
-                null,
-                null);
+        var state = new StateBuilder().withEmptyLegacyStyleMd().build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -288,27 +255,15 @@ class OnboardingOrchestratorTest {
         assertFalse(plan.hasStep(MigrationStep.STEP_ID), "Empty legacy file shouldn't trigger migration");
     }
 
-    /**
-     * Test 8: Both AGENTS.md and legacy exist - migration not needed
-     */
     @Test
     void testBothFilesExist_NoMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                true,
-                true, // AGENTS.md exists with content
-                true,
-                true, // legacy style.md exists with content
-                false, // styleGenerationSkippedDueToNoGit
-                true,
-                true, // project.properties exists
-                true, // buildDetailsAvailable
-                true,
-                true, // .gitignore configured
-                null,
-                null);
+        var state = new StateBuilder()
+                .withAgentsMd()
+                .withLegacyStyleMd()
+                .withProjectProperties()
+                .withBuildDetails()
+                .withGitIgnoreConfigured()
+                .build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -318,9 +273,6 @@ class OnboardingOrchestratorTest {
         assertFalse(plan.hasStep(MigrationStep.STEP_ID), "Migration not needed when AGENTS.md exists");
     }
 
-    /**
-     * Test 9: buildProjectState helper creates correct state
-     */
     @Test
     void testBuildProjectState_Helper() {
         var project = new TestProject(Path.of("/tmp/test"));
@@ -339,29 +291,16 @@ class OnboardingOrchestratorTest {
         assertEquals(buildFuture, state.buildDetailsFuture());
     }
 
-    /**
-     * Test 10: Verify step dependency ordering is correct
-     */
     @Test
     void testStepDependencies_CorrectOrder() {
         // Create state where all steps are applicable
         var project = new TestProject(Path.of("/tmp/test"));
-        project.setHasGit(true); // Git repository present
-        var state = new ProjectState(
-                project,
-                project.getRoot(),
-                false,
-                false, // no AGENTS.md
-                true,
-                true, // legacy style.md exists
-                true, // styleGenerationSkippedDueToNoGit = true
-                false,
-                false, // no project.properties
-                false, // buildDetailsAvailable
-                false,
-                false, // .gitignore NOT configured
-                null,
-                null);
+        project.setHasGit(true);
+        var state = new StateBuilder()
+                .withProject(project)
+                .withLegacyStyleMd()
+                .withStyleSkippedDueToNoGit()
+                .build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);

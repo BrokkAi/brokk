@@ -170,7 +170,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Track whether style guide generation was skipped due to missing Git
     // Used by PostGitStyleRegenerationStep to offer regeneration after Git is configured
-    private volatile boolean styleGenerationSkippedDueToNoGit = false;
+    private volatile boolean styleGenerationSkipped = false;
 
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
@@ -1911,12 +1911,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
-
-            // NOTE: We don't show the build settings dialog here anymore.
-            // It will be shown by Chrome.scheduleGitConfigurationAfterInit() after BOTH
-            // style guide and build details are complete, to avoid race conditions where
-            // the dialog loads an empty style guide.
-
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             return inferredDetails;
         });
@@ -1985,7 +1979,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         if (!project.hasGit()) {
             logger.info("No Git repository found, skipping style guide generation.");
-            styleGenerationSkippedDueToNoGit = true;
+            styleGenerationSkipped = true;
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
             return CompletableFuture.completedFuture("");
@@ -2088,7 +2082,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return fallbackContent;
                 }
                 project.saveStyleGuide(styleGuide);
-                styleGenerationSkippedDueToNoGit = false; // Reset flag after successful generation
+                styleGenerationSkipped = false; // Reset flag after successful generation
 
                 String savedFileName;
                 Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
@@ -2121,8 +2115,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Checks if style guide generation was skipped due to missing Git repository.
      * Used by onboarding to offer regeneration after Git is configured.
      */
-    public boolean wasStyleGenerationSkippedDueToNoGit() {
-        return styleGenerationSkippedDueToNoGit;
+    public boolean wasStyleGenerationSkipped() {
+        return styleGenerationSkipped;
     }
 
     /** Ensure review guide exists, generating if needed */

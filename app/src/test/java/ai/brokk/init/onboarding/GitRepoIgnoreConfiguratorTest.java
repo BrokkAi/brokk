@@ -123,9 +123,6 @@ class GitRepoIgnoreConfiguratorTest {
         }
     }
 
-    /**
-     * Test 1: Fresh project with no .gitignore - should create and stage it
-     */
     @Test
     void testFreshProject_CreatesGitignore() throws Exception {
         var project = new TestProject(projectRoot, gitRepo);
@@ -157,9 +154,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(consoleIO.getNotifications().stream().anyMatch(n -> n.contains("Updated .gitignore")));
     }
 
-    /**
-     * Test 2: Existing .gitignore without Brokk patterns - should update it
-     */
     @Test
     void testExistingGitignore_WithoutBrokkPatterns_UpdatesIt() throws Exception {
         // Create existing .gitignore without Brokk patterns
@@ -179,9 +173,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(gitignoreContent.contains(".brokk/**"), "Should add Brokk pattern");
     }
 
-    /**
-     * Test 3: Existing .gitignore with comprehensive Brokk pattern - should not update
-     */
     @Test
     void testExistingGitignore_WithComprehensivePattern_DoesNotUpdate() throws Exception {
         // Create .gitignore with comprehensive pattern
@@ -202,9 +193,6 @@ class GitRepoIgnoreConfiguratorTest {
                 "Should not notify about update");
     }
 
-    /**
-     * Test 4: Existing .gitignore with alternative pattern .brokk/ - should not update
-     */
     @Test
     void testExistingGitignore_WithAlternativePattern_DoesNotUpdate() throws Exception {
         // Create .gitignore with .brokk/ pattern
@@ -220,9 +208,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertFalse(result.gitignoreUpdated(), "gitignoreUpdated should be false for .brokk/ pattern");
     }
 
-    /**
-     * Test 5: Existing .gitignore with partial pattern - should update
-     */
     @Test
     void testExistingGitignore_WithPartialPattern_UpdatesIt() throws Exception {
         // Create .gitignore with only partial patterns (not comprehensive)
@@ -241,9 +226,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(gitignoreContent.contains(".brokk/**"), "Should add comprehensive pattern");
     }
 
-    /**
-     * Test 6: Pattern with trailing comment should be recognized
-     */
     @Test
     void testGitignore_PatternWithComment_IsRecognized() throws Exception {
         // Create .gitignore with pattern followed by comment
@@ -258,9 +240,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertFalse(result.gitignoreUpdated(), "Should recognize pattern despite comment");
     }
 
-    /**
-     * Test 7: Stub files are created
-     */
     @Test
     void testStubFiles_AreCreated() throws Exception {
         var project = new TestProject(projectRoot, gitRepo);
@@ -279,9 +258,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(Files.size(projectRoot.resolve(".brokk/review.md")) > 0, "review.md should not be empty");
     }
 
-    /**
-     * Test 8: Shared files are staged to git
-     */
     @Test
     void testSharedFiles_AreStaged() throws Exception {
         var project = new TestProject(projectRoot, gitRepo);
@@ -299,9 +275,6 @@ class GitRepoIgnoreConfiguratorTest {
                 stagedPaths.contains(Path.of(".brokk", "project.properties")), "project.properties should be staged");
     }
 
-    /**
-     * Test 9: NO migration - legacy style.md exists but configurator does not migrate
-     */
     @Test
     void testNoMigration_LegacyFileExists() throws Exception {
         // Create legacy .brokk/style.md with content
@@ -329,9 +302,6 @@ class GitRepoIgnoreConfiguratorTest {
                 "Legacy file should NOT be in staged files");
     }
 
-    /**
-     * Test 10: Project without GitRepo - returns error
-     */
     @Test
     void testNonGitProject_ReturnsError() throws Exception {
         // Create project without GitRepo
@@ -371,9 +341,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(result.stagedFiles().isEmpty());
     }
 
-    /**
-     * Test 11: Gitignore with leading/trailing whitespace in pattern
-     */
     @Test
     void testGitignore_WithWhitespace_IsRecognized() throws Exception {
         // Create .gitignore with pattern that has whitespace
@@ -388,9 +355,6 @@ class GitRepoIgnoreConfiguratorTest {
         assertFalse(result.gitignoreUpdated(), "Should recognize pattern with whitespace");
     }
 
-    /**
-     * Test 12: Ensures .gitignore ends with newline when updating
-     */
     @Test
     void testGitignore_EndsWithNewline() throws Exception {
         // Create .gitignore without trailing newline

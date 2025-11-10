@@ -4,7 +4,6 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
 import ai.brokk.AbstractProject;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
@@ -27,7 +26,6 @@ import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.git.*;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
@@ -2965,7 +2963,7 @@ public class Chrome
                     logger.debug("Style guide and build details ready, building onboarding plan");
 
                     // Build project state
-                    var styleSkipped = contextManager.wasStyleGenerationSkippedDueToNoGit();
+                    var styleSkipped = contextManager.wasStyleGenerationSkipped();
                     var state = OnboardingOrchestrator.buildProjectState(
                             getProject(), styleFuture, buildFuture, styleSkipped);
 
