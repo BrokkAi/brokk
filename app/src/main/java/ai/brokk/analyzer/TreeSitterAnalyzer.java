@@ -2490,140 +2490,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return signatureText;
     }
 
-    /**
-     * Parses Java class/interface header text to extract ordered raw supertype names (extends first, then implements).
-     * Assumes input is a single header line like:
-     *   "public class Foo extends pkg.Base implements A, B {"
-     */
-    private static List<String> parseJavaSupertypesFromHeader(String headerLine) {
-        // Remove trailing "{..."; keep before first '{'
-        String header = headerLine;
-        int brace = header.indexOf('{');
-        if (brace >= 0) header = header.substring(0, brace);
-        header = header.strip();
-
-        List<String> result = new ArrayList<>();
-
-        // Extract extends part
-        var extendsMatcher = Pattern.compile("\\bextends\\s+([^\\{]+?)(?=\\bimplements\\b|\\{|$)")
-                .matcher(header);
-        if (extendsMatcher.find()) {
-            String ext = extendsMatcher.group(1).strip();
-            result.addAll(splitTypeListRespectingGenerics(ext));
-        }
-
-        // Extract implements part
-        var implementsMatcher =
-                Pattern.compile("\\bimplements\\s+([^\\{]+?)(?=\\{|$)").matcher(header);
-        if (implementsMatcher.find()) {
-            String impls = implementsMatcher.group(1).strip();
-            result.addAll(splitTypeListRespectingGenerics(impls));
-        }
-
-        // For interfaces: "interface X extends A, B"
-        // The 'extends' part above already captures it; no special casing needed.
-
-        // Normalize whitespace
-        return result.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-    }
-
-    /**
-     * Splits a comma-separated type list while respecting generic angle brackets, e.g.
-     * "Foo<Bar,Baz>, Qux" => ["Foo<Bar,Baz>", "Qux"]
-     */
-    private static List<String> splitTypeListRespectingGenerics(String text) {
-        List<String> out = new ArrayList<>();
-        StringBuilder sb = new StringBuilder();
-        int depth = 0;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '<') {
-                depth++;
-                sb.append(c);
-            } else if (c == '>') {
-                depth = Math.max(0, depth - 1);
-                sb.append(c);
-            } else if (c == ',' && depth == 0) {
-                String token = sb.toString().trim();
-                if (!token.isEmpty()) out.add(token);
-                sb.setLength(0);
-            } else {
-                sb.append(c);
-            }
-        }
-        String token = sb.toString().trim();
-        if (!token.isEmpty()) out.add(token);
-        return out;
-    }
-
-    /**
-     * Resolves cached Java raw supertype names to CodeUnits using imports, same-package, java.lang, and global scan.
-     * Maintains the original order.
-     */
-    private List<CodeUnit> resolveJavaSupertypesFromCached(
-            List<String> rawNames, String currentPackage, Set<CodeUnit> resolvedImports, TreeSitterAnalyzer delegate) {
-
-        List<CodeUnit> resolved = new ArrayList<>();
-        for (String raw : rawNames) {
-            String name = ai.brokk.analyzer.JavaAnalyzer.stripGenericTypeArguments(raw)
-                    .trim();
-            if (name.isEmpty()) continue;
-
-            Optional<CodeUnit> found = Optional.empty();
-
-            // Fully-qualified exact
-            if (name.contains(".")) {
-                found = delegate.getDefinition(name).filter(CodeUnit::isClass);
-                if (found.isPresent()) {
-                    resolved.add(found.get());
-                    continue;
-                }
-            }
-
-            // Simple name
-            String simple = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
-
-            // Imports by simple name
-            Optional<CodeUnit> inImports = resolvedImports.stream()
-                    .filter(cu -> cu.isClass() && cu.identifier().equals(simple))
-                    .findFirst();
-            if (inImports.isPresent()) {
-                resolved.add(inImports.get());
-                continue;
-            }
-
-            // Same package
-            if (!currentPackage.isBlank()) {
-                String candidate = currentPackage + "." + simple;
-                var def = delegate.getDefinition(candidate).filter(CodeUnit::isClass);
-                if (def.isPresent()) {
-                    resolved.add(def.get());
-                    continue;
-                }
-            }
-
-            // java.lang
-            String javaLangCandidate = "java.lang." + simple;
-            var def = delegate.getDefinition(javaLangCandidate).filter(CodeUnit::isClass);
-            if (def.isPresent()) {
-                resolved.add(def.get());
-                continue;
-            }
-
-            // Fallback: global scan (linear over all known declarations)
-            var fallback = delegate.getAllDeclarations().stream()
-                    .filter(CodeUnit::isClass)
-                    .filter(cu -> {
-                        String fq = cu.fqName();
-                        return fq.equals(simple) || fq.endsWith("." + simple);
-                    })
-                    .findFirst();
-
-            fallback.ifPresent(resolved::add);
-        }
-        return List.copyOf(resolved);
-    }
-
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
     protected String assembleFunctionSignature(
             TSNode funcNode,
@@ -3614,7 +3480,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         try {
             // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
             TreeSitterAnalyzer delegateForImports =
-                    (this.state == baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
+                    Objects.equals(this.state, baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
             Map<ProjectFile, FileProperties> updatedFileState = new HashMap<>(baseState.fileState());
 
             for (var entry : baseState.fileState().entrySet()) {
@@ -3650,7 +3516,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         try {
             // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
             TreeSitterAnalyzer delegateForTypes =
-                    (this.state == baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
+                    Objects.equals(this.state, baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
             Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>(baseState.codeUnitState());
 
             for (var entry : baseState.codeUnitState().entrySet()) {
