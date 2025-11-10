@@ -33,11 +33,11 @@ public record ToolExecutionResult(
     }
 
     public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.REQUEST_ERROR, "Request error: " + errorMessage);
+        return new ToolExecutionResult(request, Status.REQUEST_ERROR, errorMessage);
     }
 
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.INTERNAL_ERROR, "Internal error: " + errorMessage);
+        return new ToolExecutionResult(request, Status.INTERNAL_ERROR, errorMessage);
     }
 
     // --- Convenience Accessors ---
@@ -66,7 +66,7 @@ public record ToolExecutionResult(
         String text =
                 switch (status) {
                     case SUCCESS -> resultText; // Already handled null/blank in factory
-                    case REQUEST_ERROR -> "Error: " + resultText;
+                    case REQUEST_ERROR -> "Request error: " + resultText;
                     case INTERNAL_ERROR -> "Internal error: " + resultText;
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
