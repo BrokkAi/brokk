@@ -1279,6 +1279,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Returns a diagnostic message about the service state for logging purposes.
+     * Useful for distinguishing configuration errors (bad key, invalid proxy) from transient network issues.
+     */
+    private String getServiceDiagnosticsMessage() {
+        try {
+            var models = contextManager.getService();
+            // If we have an UnavailableStreamingModel, the service failed to initialize
+            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+                return "Service contains unavailable model stub (initialization may have failed)";
+            }
+            return "Service appears initialized; check network connectivity and API key validity";
+        } catch (Exception e) {
+            return "Exception accessing service state: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
+    }
+
+    /**
      * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
      * fails or vision is required but unsupported.
      */
@@ -1292,6 +1309,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     "LLM service offline for action '{}': service online=false, contextHasImages={}",
                     actionLabel,
                     contextHasImages());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
             chrome.toolError("LLM service is offline; please check your connection or key.");
             return null;
         }
@@ -1326,6 +1344,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     config.reasoning(),
                     contextHasImages(),
                     models.isOnline());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
             chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
             return null;
         }

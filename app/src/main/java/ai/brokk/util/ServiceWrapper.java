@@ -11,8 +11,17 @@ public class ServiceWrapper {
     @Nullable
     private volatile CompletableFuture<Service> future = null;
 
+    @Nullable
+    private volatile Throwable lastInitializationError = null;
+
     public void reinit(IProject project) {
-        future = CompletableFuture.supplyAsync(() -> new Service(project));
+        lastInitializationError = null; // Clear previous error
+        future = CompletableFuture.supplyAsync(() -> new Service(project))
+                .exceptionally(ex -> {
+                    lastInitializationError = ex;
+                    // Re-throw the exception to propagate the failure
+                    throw ex instanceof RuntimeException ? (RuntimeException) ex : new RuntimeException(ex);
+                });
     }
 
     public Service get() {
@@ -21,7 +30,9 @@ public class ServiceWrapper {
             throw new IllegalStateException("ServiceWrapper not initialized. Call reinit() first.");
         }
         try {
-            return currentFuture.get();
+            Service result = currentFuture.get();
+            lastInitializationError = null; // Clear error on successful completion
+            return result;
         } catch (InterruptedException | ExecutionException e) {
             throw new ServiceInitializationException(e);
         }
@@ -35,6 +46,18 @@ public class ServiceWrapper {
 
     public StreamingChatModel quickModel() {
         return get().quickModel();
+    }
+
+    /**
+     * Returns the last initialization error captured from a failed future, or null if the last
+     * initialization succeeded. This can help distinguish configuration errors (e.g., invalid proxy URL,
+     * bad API key) from transient network failures.
+     *
+     * @return The last initialization error, or null if initialization succeeded.
+     */
+    @Nullable
+    public Throwable getLastInitializationError() {
+        return lastInitializationError;
     }
 
     public static class ServiceInitializationException extends RuntimeException {
