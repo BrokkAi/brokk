@@ -557,14 +557,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public void clearCaches() {
-        super.clearCaches(); // Clear cached trees to free memory
-        fileContentCache.clear();
-        skeletonGenerator.clearCache();
-        namespaceProcessor.clearCache();
-    }
-
-    @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
         if (NAMESPACE_DEFINITION.equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName("name");
