@@ -22,10 +22,7 @@ import ai.brokk.gui.util.ContextMenuUtils;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.prompts.CopyExternalPrompts;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.HtmlToMarkdown;
-import ai.brokk.util.ImageUtil;
-import ai.brokk.util.Messages;
-import ai.brokk.util.StackTrace;
+import ai.brokk.util.*;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -1425,7 +1422,7 @@ public class WorkspacePanel extends JPanel {
                     if (textOpt.isEmpty()) {
                         cf.computedText().onComplete((value, ex) -> {
                             if (ex == null && value != null) {
-                                SwingUtilities.invokeLater(() -> updateContextTable());
+                                SwingUtilities.invokeLater(this::updateContextTable);
                             }
                         });
                     }
@@ -1450,7 +1447,7 @@ public class WorkspacePanel extends JPanel {
 
             // Build file references for the record (supports async ComputedFileFragment)
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
-            ai.brokk.util.ComputedValue<Set<ProjectFile>> filesCv = null;
+            ComputedValue<Set<ProjectFile>> filesCv = null;
             boolean filesReady = true;
 
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
