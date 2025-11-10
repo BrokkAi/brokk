@@ -2965,16 +2965,12 @@ public class Chrome
         logger.debug("Style guide and build details ready, building onboarding plan");
 
         // Build project state
-        // TODO: ContextManager does not currently expose a flag tracking whether style guide
-        // generation was skipped due to missing Git. To enable PostGitStyleRegenerationStep,
-        // add a public method like contextManager.wasStyleGenerationSkippedDueToNoGit() that
-        // returns true when ensureStyleGuide() skipped generation due to !project.hasGit().
-        // For now, hardcoded to false, meaning post-git regeneration is never offered.
+        var styleSkipped = contextManager.wasStyleGenerationSkippedDueToNoGit();
         var state = OnboardingOrchestrator.buildProjectState(
         getProject(),
         styleFuture,
         buildFuture,
-        false);
+        styleSkipped);
 
                     // Build onboarding plan
                     var orchestrator = new OnboardingOrchestrator();

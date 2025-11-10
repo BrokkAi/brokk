@@ -168,6 +168,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Style guide generation completion tracking
     private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
 
+    // Track whether style guide generation was skipped due to missing Git
+    // Used by PostGitStyleRegenerationStep to offer regeneration after Git is configured
+    private volatile boolean styleGenerationSkippedDueToNoGit = false;
+
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
 
@@ -1985,6 +1989,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         if (!project.hasGit()) {
             logger.info("No Git repository found, skipping style guide generation.");
+            styleGenerationSkippedDueToNoGit = true;
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
             return CompletableFuture.completedFuture("");
@@ -2115,6 +2120,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<String> getStyleGuideFuture() {
         return styleGuideFuture;
+    }
+
+    /**
+     * Checks if style guide generation was skipped due to missing Git repository.
+     * Used by onboarding to offer regeneration after Git is configured.
+     *
+     * @return true if generation was skipped due to missing Git
+     */
+    public boolean wasStyleGenerationSkippedDueToNoGit() {
+        return styleGenerationSkippedDueToNoGit;
     }
 
     /** Ensure review guide exists, generating if needed */
