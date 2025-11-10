@@ -3,7 +3,6 @@ package ai.brokk.init.onboarding;
 import ai.brokk.AbstractProject;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,17 +36,17 @@ public class MigrationStep implements OnboardingStep {
     }
 
     @Override
-    public CompletableFuture<StepResult> execute(ProjectState state) {
+    public StepResult execute(ProjectState state) {
         logger.info("Executing migration step (flagging UI dialog)");
 
         // Don't perform migration here - let UI handle user confirmation
         // Return dialog data so Chrome can show confirm dialog and perform migration
-        return CompletableFuture.completedFuture(StepResult.successWithDialog(
+        return StepResult.successWithDialog(
                 STEP_ID,
                 "Migration dialog required",
                 new MigrationDialogData(
                         state.configRoot().resolve(AbstractProject.BROKK_DIR),
-                        state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE))));
+                        state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE)));
     }
 
     /**

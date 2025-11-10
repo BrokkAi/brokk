@@ -2975,30 +2975,13 @@ public class Chrome
 
                     logger.info("Onboarding plan has {} steps", plan.size());
 
-                    // Execute all steps and collect results
-                    var stepFutures = plan.getSteps().stream()
+                    // Execute all steps synchronously and collect results
+                    var results = plan.getSteps().stream()
                             .map(step -> step.execute(state))
                             .toList();
 
-                    // Wait for all steps to complete
-                    CompletableFuture.allOf(stepFutures.toArray(new CompletableFuture[0]))
-                            .thenAcceptAsync(ignore -> {
-                                // Collect all step results
-                                var results = stepFutures.stream()
-                                        .map(CompletableFuture::join)
-                                        .toList();
-
-                                // Show dialogs on EDT
-                                SwingUtilities.invokeLater(() -> processOnboardingResults(results, styleFuture));
-                            })
-                            .exceptionally(ex -> {
-                                logger.error("Error executing onboarding steps", ex);
-                                SwingUtilities.invokeLater(() -> systemNotify(
-                                        "Error during onboarding: " + ex.getMessage(),
-                                        "Onboarding Error",
-                                        javax.swing.JOptionPane.ERROR_MESSAGE));
-                                return null;
-                            });
+                    // Show dialogs on EDT
+                    SwingUtilities.invokeLater(() -> processOnboardingResults(results, styleFuture));
                 })
                 .exceptionally(ex -> {
                     logger.error("Error waiting for initialization", ex);

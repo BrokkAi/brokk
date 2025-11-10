@@ -1,7 +1,6 @@
 package ai.brokk.init.onboarding;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,18 +38,18 @@ public class PostGitStyleRegenerationStep implements OnboardingStep {
     }
 
     @Override
-    public CompletableFuture<StepResult> execute(ProjectState state) {
+    public StepResult execute(ProjectState state) {
         logger.info("Executing post-git style regeneration step");
 
         // This step just flags that UI should offer regeneration
         // The actual regeneration is triggered by the UI layer if user accepts
-        return CompletableFuture.completedFuture(StepResult.successWithDialog(
+        return StepResult.successWithDialog(
                 STEP_ID,
                 "Style guide regeneration available now that Git is configured",
                 new RegenerationOfferData(
                         "Style guide was generated without Git repository access. "
                                 + "Would you like to regenerate it now for better quality?",
-                        state.project())));
+                        state.project()));
     }
 
     /**

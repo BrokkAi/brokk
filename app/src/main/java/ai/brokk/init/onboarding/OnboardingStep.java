@@ -1,7 +1,6 @@
 package ai.brokk.init.onboarding;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -53,13 +52,13 @@ public interface OnboardingStep {
      * Returns a result that the UI layer can interpret to determine
      * what actions to take (e.g., show a dialog, update notifications).
      * <p>
-     * Steps may return CompletableFuture to support async operations.
-     * The orchestrator will handle proper sequencing.
+     * Steps execute synchronously and return immediately.
+     * The orchestrator handles proper sequencing via dependency resolution.
      *
      * @param state current project state
-     * @return future completing with step result
+     * @return step result
      */
-    CompletableFuture<StepResult> execute(ProjectState state);
+    StepResult execute(ProjectState state);
 
     /**
      * Result of executing an onboarding step.

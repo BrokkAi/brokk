@@ -1,7 +1,6 @@
 package ai.brokk.init.onboarding;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,13 +35,12 @@ public class GitConfigStep implements OnboardingStep {
     }
 
     @Override
-    public CompletableFuture<StepResult> execute(ProjectState state) {
+    public StepResult execute(ProjectState state) {
         logger.info("Executing git config step (flagging UI dialog)");
 
         // Don't perform git config here - let UI handle user confirmation
         // Return dialog data so Chrome can show confirm dialog and perform configuration
-        return CompletableFuture.completedFuture(
-                StepResult.successWithDialog(STEP_ID, "Git config dialog required", new GitConfigDialogData()));
+        return StepResult.successWithDialog(STEP_ID, "Git config dialog required", new GitConfigDialogData());
     }
 
     /**
