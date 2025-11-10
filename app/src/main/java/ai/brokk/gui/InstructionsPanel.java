@@ -1298,7 +1298,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            selectedModel = castNonNull(models.getModel(Service.GPT_5_MINI));
+            selectedModel = models.getModel(Service.GPT_5_MINI);
+        }
+
+        // If fallback also failed, show error and return null
+        if (selectedModel == null) {
+            logger.warn(
+                    "No available model for action '{}': selected config name='{}', reasoning='{}', service online={}",
+                    actionLabel,
+                    config.name(),
+                    config.reasoning(),
+                    models.isOnline());
+            chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
+            return null;
         }
 
         if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
@@ -1507,7 +1519,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void executeSearchInternal(String query) {
         final var modelToUse = selectDropdownModelOrShowError("Search", true);
         if (modelToUse == null) {
-            throw new IllegalStateException("LLM not found, usually this indicates a network error");
+            logger.trace(
+                    "Model selection failed for Search action: requireVision=true, contextHasImages={}",
+                    contextHasImages());
+            return;
         }
 
         autoClearCompletedTasks();
