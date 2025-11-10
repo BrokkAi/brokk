@@ -2958,12 +2958,12 @@ public class Chrome
         logger.debug("Scheduling onboarding after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
-        
+
         // Wait for both futures to complete
         CompletableFuture.allOf(styleFuture.thenApply(c -> null), buildFuture)
         .thenAcceptAsync(v -> {
         logger.debug("Style guide and build details ready, building onboarding plan");
-        
+
         // Build project state
         // TODO: ContextManager does not currently expose a flag tracking whether style guide
         // generation was skipped due to missing Git. To enable PostGitStyleRegenerationStep,
@@ -3077,11 +3077,11 @@ public class Chrome
                             "Regenerate Style Guide",
                             JOptionPane.YES_NO_OPTION,
                             JOptionPane.QUESTION_MESSAGE);
-                    
+
                     if (confirm == JOptionPane.YES_OPTION) {
                         logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
-                        
+
                         var regenerationFuture = contextManager.ensureStyleGuide();
                         regenerationFuture.thenAcceptAsync(styleContent -> {
                             SwingUtilities.invokeLater(() -> {
@@ -3202,21 +3202,6 @@ public class Chrome
             }
             return null;
         });
-    }
-
-    /**
-     * Shows the post-git style regeneration offer dialog.
-     * This is shown when style guide was initially generated without Git access
-     * and Git has now been configured.
-     */
-    private void showPostGitStyleRegenerationDialog(PostGitStyleRegenerationStep.RegenerationOfferData data) {
-        int result = showConfirmDialog(
-                data.message(), "Regenerate Style Guide", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-
-        if (result == JOptionPane.YES_OPTION) {
-            showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Style guide regeneration will be available in a future update");
-        }
     }
 
     public Action getGlobalUndoAction() {
