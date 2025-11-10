@@ -8,7 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
-import ai.brokk.init.InitializationCoordinator;
+import ai.brokk.init.GitIgnoreUtils;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;
@@ -721,7 +721,7 @@ public final class MainProject extends AbstractProject {
     public boolean isGitIgnoreSet() {
         try {
             var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
-            if (InitializationCoordinator.isBrokkIgnored(gitignorePath)) {
+            if (GitIgnoreUtils.isBrokkIgnored(gitignorePath)) {
                 logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignorePath);
                 return true;
             }
@@ -737,7 +737,7 @@ public final class MainProject extends AbstractProject {
             if (excludesFile != null && !excludesFile.isBlank()) {
                 try {
                     var excludesFilePath = Path.of(excludesFile);
-                    if (InitializationCoordinator.isBrokkIgnored(excludesFilePath)) {
+                    if (GitIgnoreUtils.isBrokkIgnored(excludesFilePath)) {
                         logger.debug("core.excludesfile at {} is set to ignore Brokk files.", excludesFilePath);
                         return true;
                     }

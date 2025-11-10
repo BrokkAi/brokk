@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+// Note: GitIgnoreUtils is in same package, no import needed but included for clarity
+
 /**
  * Tests for InitializationCoordinator.
  * These tests run without UI (no Swing dependencies).
@@ -447,26 +449,26 @@ class InitializationCoordinatorTest {
         var gitignorePath = tempDir.resolve(".gitignore");
 
         // No .gitignore
-        assertFalse(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignorePath));
 
         // Comprehensive pattern .brokk/**
         Files.writeString(gitignorePath, ".brokk/**\n");
-        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignorePath));
 
         // Alternative pattern .brokk/
         Files.writeString(gitignorePath, ".brokk/\n");
-        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignorePath));
 
         // Partial pattern (not comprehensive)
         Files.writeString(gitignorePath, ".brokk/workspace.properties\n");
-        assertFalse(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Partial pattern should not match");
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Partial pattern should not match");
 
         // Pattern with comment
         Files.writeString(gitignorePath, ".brokk/** # Brokk files\n");
-        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Should recognize pattern with comment");
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Should recognize pattern with comment");
 
         // Pattern with whitespace
         Files.writeString(gitignorePath, "  .brokk/**  \n");
-        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Should recognize pattern with whitespace");
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Should recognize pattern with whitespace");
     }
 }

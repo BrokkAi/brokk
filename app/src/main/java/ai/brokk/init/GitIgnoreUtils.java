@@ -1,0 +1,60 @@
+package ai.brokk.init;
+
+import com.google.common.base.Splitter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Utility class for Git ignore operations.
+ * <p>
+ * This class provides shared functionality for checking .gitignore patterns,
+ * used by both InitializationCoordinator and OnboardingOrchestrator as well
+ * as MainProject.
+ */
+public class GitIgnoreUtils {
+    private static final Logger logger = LoggerFactory.getLogger(GitIgnoreUtils.class);
+
+    // Utility class - prevent instantiation
+    private GitIgnoreUtils() {}
+
+    /**
+     * Checks if .brokk directory is properly ignored in .gitignore.
+     * Requires exact match of .brokk/** or .brokk/ patterns.
+     *
+     * @param gitignorePath Path to .gitignore file
+     * @return true if .brokk is comprehensively ignored
+     * @throws IOException if there's an error reading the file
+     */
+    public static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
+        if (!Files.exists(gitignorePath)) {
+            logger.debug(".gitignore does not exist");
+            return false;
+        }
+
+        var content = Files.readString(gitignorePath);
+
+        // Check each line for comprehensive .brokk ignore patterns
+        // Don't match partial patterns like .brokk/workspace.properties
+        for (var line : Splitter.on('\n').split(content)) {
+            var trimmed = line.trim();
+
+            // Remove trailing comments
+            var commentIndex = trimmed.indexOf('#');
+            if (commentIndex > 0) {
+                trimmed = trimmed.substring(0, commentIndex).trim();
+            }
+
+            // Match .brokk/** (comprehensive) or .brokk/ (directory)
+            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
+                logger.debug("Found comprehensive .brokk ignore pattern: {}", trimmed);
+                return true;
+            }
+        }
+
+        logger.debug(".gitignore exists but lacks comprehensive .brokk ignore pattern");
+        return false;
+    }
+}

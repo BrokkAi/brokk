@@ -3,7 +3,6 @@ package ai.brokk.init;
 import ai.brokk.AbstractProject;
 import ai.brokk.IProject;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +19,16 @@ import org.slf4j.LoggerFactory;
  * - File visibility guarantees
  * - Determination of which dialogs are needed
  * - State tracking through initialization phases
+ * <p>
+ * <b>Architecture Note:</b> This class provides the legacy approach to initialization.
+ * For new code, consider using {@link ai.brokk.init.onboarding.OnboardingOrchestrator}
+ * which offers better extensibility, testability, and explicit step dependencies.
+ * Both approaches can coexist; this class continues to be maintained for backward
+ * compatibility with existing Chrome integration.
+ * <p>
+ * The static helper methods ({@link #hasAgentsMd}, {@link #hasLegacyStyleMd}, etc.)
+ * are shared between both approaches and provide a single source of truth for
+ * project state checks.
  */
 public class InitializationCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(InitializationCoordinator.class);
@@ -171,6 +180,10 @@ public class InitializationCoordinator {
     /**
      * Determines which dialogs need to be shown based on project state.
      * This is pure logic with no UI dependencies.
+     * <p>
+     * Note: This method provides the legacy dialog determination approach.
+     * For new code, consider using OnboardingOrchestrator which offers
+     * better extensibility and testability.
      *
      * @param project Project to check
      * @return InitializationResult indicating which dialogs are needed
@@ -184,30 +197,19 @@ public class InitializationCoordinator {
 
         try {
             var configRoot = project.getMasterRootPathForConfig();
-            var agentsMd = configRoot.resolve(AbstractProject.STYLE_GUIDE_FILE);
-            var legacyStyleMd =
-                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
             var gitignorePath = configRoot.resolve(".gitignore");
 
             // Check 1: Migration needed?
-            // If .brokk/style.md exists with content AND AGENTS.md doesn't exist
-            if (Files.exists(legacyStyleMd) && !Files.exists(agentsMd)) {
-                try {
-                    var content = Files.readString(legacyStyleMd).trim();
-                    if (!content.isEmpty()) {
-                        needsMigration = true;
-                        logger.debug("Migration needed: .brokk/style.md exists with content, AGENTS.md missing");
-                    }
-                } catch (IOException e) {
-                    logger.warn("Error reading legacy style.md", e);
-                }
+            // Use state probes for consistency with OnboardingOrchestrator
+            needsMigration = hasLegacyStyleMdWithContent(configRoot) && !hasAgentsMd(configRoot);
+            if (needsMigration) {
+                logger.debug("Migration needed: .brokk/style.md exists with content, AGENTS.md missing");
             }
 
             // Check 2: Build settings dialog needed?
             // Show if project is not fully configured
-            boolean hasProperties = Files.exists(
-                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.PROJECT_PROPERTIES_FILE));
-            boolean hasStyleGuide = Files.exists(agentsMd) || Files.exists(legacyStyleMd);
+            boolean hasProperties = hasProjectProperties(configRoot);
+            boolean hasStyleGuide = hasAgentsMd(configRoot) || hasLegacyStyleMd(configRoot);
             boolean gitConfigured = isBrokkIgnored(gitignorePath);
 
             boolean fullyConfigured = hasProperties && hasStyleGuide && gitConfigured;
@@ -244,38 +246,16 @@ public class InitializationCoordinator {
     /**
      * Checks if .brokk directory is properly ignored in .gitignore.
      * Requires exact match of .brokk/** or .brokk/ patterns.
+     * <p>
+     * This method delegates to {@link GitIgnoreUtils#isBrokkIgnored(Path)} which
+     * provides shared git ignore checking logic across the codebase.
      *
      * @param gitignorePath Path to .gitignore file
      * @return true if .brokk is comprehensively ignored
+     * @throws IOException if there's an error reading the file
      */
     public static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
-        if (!Files.exists(gitignorePath)) {
-            logger.debug(".gitignore does not exist");
-            return false;
-        }
-
-        var content = Files.readString(gitignorePath);
-
-        // Check each line for comprehensive .brokk ignore patterns
-        // Don't match partial patterns like .brokk/workspace.properties
-        for (var line : Splitter.on('\n').split(content)) {
-            var trimmed = line.trim();
-
-            // Remove trailing comments
-            var commentIndex = trimmed.indexOf('#');
-            if (commentIndex > 0) {
-                trimmed = trimmed.substring(0, commentIndex).trim();
-            }
-
-            // Match .brokk/** (comprehensive) or .brokk/ (directory)
-            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
-                logger.debug("Found comprehensive .brokk ignore pattern: {}", trimmed);
-                return true;
-            }
-        }
-
-        logger.debug(".gitignore exists but lacks comprehensive .brokk ignore pattern");
-        return false;
+        return GitIgnoreUtils.isBrokkIgnored(gitignorePath);
     }
 
     /**
