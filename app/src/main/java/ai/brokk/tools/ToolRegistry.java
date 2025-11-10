@@ -299,16 +299,15 @@ public class ToolRegistry {
 
     private static List<Object> parseArguments(ToolExecutionRequest request, Method method) {
         Parameter[] jsonParams = method.getParameters();
-        
+
         if (request.arguments().isBlank()) {
             if (jsonParams.length == 0) {
                 return List.of();
             }
-            throw new ToolValidationException(
-                "Tool '%s' requires %d parameter(s) but received empty arguments"
+            throw new ToolValidationException("Tool '%s' requires %d parameter(s) but received empty arguments"
                     .formatted(method.getName(), jsonParams.length));
         }
-        
+
         try {
             Map<String, Object> argumentsMap =
                     OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {});

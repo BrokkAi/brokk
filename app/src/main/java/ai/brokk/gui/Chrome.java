@@ -1521,7 +1521,8 @@ public class Chrome
         if (SwingUtilities.isEventDispatchThread()) {
             historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning);
         } else {
-            SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+            SwingUtilities.invokeLater(
+                    () -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
         }
     }
 
