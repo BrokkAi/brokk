@@ -2597,6 +2597,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         restorer.restore(gitState);
     }
 
+    /**
+     * Override the active {@link IConsoleIO}. Intended for headless execution: callers should install
+     * their console implementation before starting a job and restore the previous console around the job run.
+     *
+     * <p>The provided console must be non-null; it will be wired into {@link UserActionManager} so that
+     * user-action callbacks and background tasks emit events through the replacement console.
+     */
+    public void setIo(IConsoleIO io) {
+        this.io = io;
+        this.userActions.setIo(this.io);
+    }
+
     @Override
     public IConsoleIO getIo() {
         return io;

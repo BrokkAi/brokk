@@ -93,20 +93,31 @@ public final class BlitzForge {
     /**
      * Execute a set of per-file tasks in parallel, using AdaptiveExecutor token-aware scheduling when possible. The
      * provided processor should be thread-safe.
+     *
+     * <p><strong>Invariant:</strong> Any returned {@link TaskResult} carries a live (unfrozen) {@link Context}.
+     * This is enforced by an assertion in the {@code TaskResult} constructor. All context creation for the result
+     * must use {@link #createLiveResultingContext()} to ensure compliance with this invariant.
+     *
+     * @param files the collection of files to process in parallel
+     * @param processor a thread-safe function that processes each file and returns a {@link FileResult}
+     * @return a {@link TaskResult} containing aggregated results, with a live context
      */
     public TaskResult executeParallel(Collection<ProjectFile> files, Function<ProjectFile, FileResult> processor) {
+        logger.debug(
+                "BlitzForge.executeParallel start: totalFiles={}, thread={}",
+                files.size(),
+                Thread.currentThread().getName());
         listener.onStart(files.size());
 
         if (files.isEmpty()) {
-            // No files → produce an empty successful TaskResult whose resultingContext is the current top context
-            Context resultingCtx = cm.topContext();
+            // No files -> produce an empty successful TaskResult whose resultingContext is the current top context
             var meta = new TaskResult.TaskMeta(
                     TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
             var emptyResult = new TaskResult(
                     cm,
                     config.instructions(),
                     List.of(),
-                    resultingCtx,
+                    createLiveResultingContext(),
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
                     meta);
             listener.onComplete(emptyResult);
@@ -134,7 +145,8 @@ public final class BlitzForge {
         var results = new ArrayList<FileResult>(files.size());
 
         try {
-            // Warm-up: if sharedContext is non-empty, process the first (smallest) file synchronously to "prime" any
+            // Warm-up: if sharedContext is non-empty, process the first (smallest) file synchronously to "prime"
+            // any
             // server caches
             int startIdx = 0;
             if (!config.sharedContext().get().isBlank()) {
@@ -192,6 +204,7 @@ public final class BlitzForge {
             int pending = sortedFiles.size() - startIdx;
             for (int i = 0; i < pending; i++) {
                 if (Thread.currentThread().isInterrupted()) {
+                    logger.debug("BlitzForge.executeParallel main thread interrupted during collection");
                     return interruptedResult(processedCount, files);
                 }
 
@@ -200,6 +213,7 @@ public final class BlitzForge {
                     fut = completionService.take();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.debug("BlitzForge.executeParallel interrupted while taking from completion service");
                     return interruptedResult(processedCount, files);
                 }
 
@@ -210,6 +224,7 @@ public final class BlitzForge {
                     listener.onFileResult(res.file(), res.edited(), res.errorMessage(), res.llmOutput());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    logger.debug("BlitzForge.executeParallel interrupted while getting result");
                     return interruptedResult(processedCount, files);
                 } catch (ExecutionException e) {
                     var cause = e.getCause() == null ? e : e.getCause();
@@ -264,15 +279,33 @@ public final class BlitzForge {
                 : new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
 
         // Build a resulting Context that represents the current topContext with any changed files added as editable
-        var top = cm.topContext();
-        var resultingCtx = top.addPathFragments(cm.toPathFragments(changedFiles));
+        var resultingCtx = createLiveResultingContext().addPathFragments(cm.toPathFragments(changedFiles));
 
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
         var finalResult = new TaskResult(cm, config.instructions(), uiMessages, resultingCtx, sd, meta);
 
+        logger.debug(
+                "BlitzForge.executeParallel delivering onComplete: reason={}, processed={}/{}, thread={}",
+                finalResult.stopDetails().reason(),
+                processedCount,
+                files.size(),
+                Thread.currentThread().getName());
         listener.onComplete(finalResult);
         return finalResult;
+    }
+
+    /**
+     * Creates a live (unfrozen) Context from the current top context.
+     *
+     * <p>TaskResult requires a live (unfrozen) context as enforced by an assertion in its
+     * constructor. This helper centralizes the invariant and eliminates duplication across
+     * multiple result-building code paths.
+     *
+     * @return an unfrozen Context representing the current top context state
+     */
+    private Context createLiveResultingContext() {
+        return Context.unfreeze(cm.topContext());
     }
 
     private static long fileSize(ProjectFile file) {
@@ -284,12 +317,12 @@ public final class BlitzForge {
     }
 
     private TaskResult interruptedResult(int processed, Collection<ProjectFile> files) {
+        logger.debug("BlitzForge interrupted: processed {} of {}", processed, files.size());
         var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
-        var tr = new TaskResult(cm, config.instructions(), List.of(), cm.topContext(), sd, meta);
+        var tr = new TaskResult(cm, config.instructions(), List.of(), createLiveResultingContext(), sd, meta);
         listener.onComplete(tr);
-        logger.debug("Interrupted; processed {} of {}", processed, files.size());
         return tr;
     }
 }

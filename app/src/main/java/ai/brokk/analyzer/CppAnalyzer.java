@@ -977,6 +977,52 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
+    @Override
+    protected Comparator<CodeUnit> prioritizingComparator() {
+        // Prefer implementations over declarations for C/C++ functions.
+        // Short rationale: returning implementation first lets clients reliably "pick first" and get the .c/.cpp body.
+        // Priority ordering (lower is better):
+        // -2: function with body in .c/.cc/.cpp/.cxx
+        // -1: function with body in header (inline/template)
+        //  0: everything else (declarations)
+        return (cu1, cu2) -> {
+            // Non-functions have no preference
+            if (!cu1.isFunction() || !cu2.isFunction()) {
+                return 0;
+            }
+
+            boolean cu1HasBody = withCodeUnitProperties(props -> {
+                var p = props.get(cu1);
+                return p != null && p.hasBody();
+            });
+
+            boolean cu2HasBody = withCodeUnitProperties(props -> {
+                var p = props.get(cu2);
+                return p != null && p.hasBody();
+            });
+
+            // Declarations have no priority advantage
+            if (!cu1HasBody && !cu2HasBody) {
+                return 0;
+            }
+
+            // Prefer definitions (with body) over declarations
+            if (cu1HasBody && !cu2HasBody) return -1;
+            if (!cu1HasBody && cu2HasBody) return 1;
+
+            // Both have body: prefer source files (.c/.cc/.cpp/.cxx) over headers
+            String ext1 = cu1.source().extension().toLowerCase(Locale.ROOT);
+            String ext2 = cu2.source().extension().toLowerCase(Locale.ROOT);
+            boolean cu1IsSource = ext1.equals(".c") || ext1.equals(".cc") || ext1.equals(".cpp") || ext1.equals(".cxx");
+            boolean cu2IsSource = ext2.equals(".c") || ext2.equals(".cc") || ext2.equals(".cpp") || ext2.equals(".cxx");
+
+            if (cu1IsSource && !cu2IsSource) return -1;
+            if (!cu1IsSource && cu2IsSource) return 1;
+
+            return 0;
+        };
+    }
+
     public String getCacheStatistics() {
         // Count non-null parsed trees in fileState
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()

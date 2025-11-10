@@ -1,7 +1,6 @@
 package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
@@ -188,7 +187,7 @@ public class WorkspaceTools {
 
     @Tool(
             value =
-                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you will need to edit as part of your current task, unless the edits are localized to a single function.")
+                    "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
             @P(
                             "Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty. 'Discarded Context' fragment is not itself drop-able.")
@@ -343,7 +342,7 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Retrieves summaries (fields and method signatures) for all classes defined within specified project files and adds them to the Workspace.
+                  Retrieves summaries (class fields, method and top-level function signatures) of top-level symbols defined within specified project files and adds them to the Workspace.
                   Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                   Faster and more efficient than reading entire files when you just need the API definitions.
                   (But if you don't know where what you want is located, you should use Search Agent instead.)
@@ -371,7 +370,7 @@ public class WorkspaceTools {
 
     @Tool(
             """
-                  Retrieves the full source code of specific methods and adds to the Workspace each as a separate read-only text fragment.
+                  Retrieves the full source code of specific methods or functions and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
     public String addMethodsToWorkspace(
@@ -393,48 +392,6 @@ public class WorkspaceTools {
         }
 
         return "Added %d method source(s).".formatted(addedCount);
-    }
-
-    @Tool("Returns the file paths relative to the project root for the given fully-qualified class names.")
-    public String getFiles(
-            @P(
-                            "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
-                    List<String> classNames) {
-        if (classNames.isEmpty()) {
-            return "Class names list cannot be empty.";
-        }
-
-        List<String> foundFiles = new ArrayList<>();
-        List<String> notFoundClasses = new ArrayList<>();
-        var analyzer = getAnalyzer();
-
-        classNames.stream().distinct().forEach(className -> {
-            if (className.isBlank()) {
-                notFoundClasses.add("<blank or null>");
-                return;
-            }
-            var fileOpt = AnalyzerUtil.getFileFor(analyzer, className);
-            if (fileOpt.isPresent()) {
-                foundFiles.add(fileOpt.get().toString());
-            } else {
-                notFoundClasses.add(className);
-                logger.warn("Could not find file for class: {}", className);
-            }
-        });
-
-        if (foundFiles.isEmpty()) {
-            return "Could not find files for any of the provided class names: " + String.join(", ", classNames);
-        }
-
-        String resultMessage =
-                "Files found: " + String.join(", ", foundFiles.stream().sorted().toList());
-
-        if (!notFoundClasses.isEmpty()) {
-            resultMessage += ". Could not find files for the following classes: [%s]"
-                    .formatted(String.join(", ", notFoundClasses));
-        }
-
-        return resultMessage;
     }
 
     @Tool(

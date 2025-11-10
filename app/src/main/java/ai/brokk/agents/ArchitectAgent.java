@@ -41,7 +41,6 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -235,8 +234,7 @@ public class ArchitectAgent {
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
         var searchAgent =
                 new SearchAgent(context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), scope);
-        var tr = searchAgent.scanInitialContext();
-        context = scope.append(tr);
+        searchAgent.scanInitialContext();
         var result = searchAgent.execute();
         // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
         threadlocalSearchResult.set(result);
@@ -284,8 +282,7 @@ public class ArchitectAgent {
         var scanModel = cm.getService().getScanModel();
         var searchAgent =
                 new SearchAgent(context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), this.scope);
-        var scanResult = searchAgent.scanInitialContext();
-        context = scope.append(scanResult);
+        searchAgent.scanInitialContext();
 
         // Run Architect proper
         var archResult = this.execute();
@@ -448,12 +445,6 @@ public class ArchitectAgent {
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
-            io.llmOutput(
-                    "\nTool call(s): %s"
-                            .formatted(deduplicatedRequests.stream()
-                                    .map(req -> "`" + req.name() + "`")
-                                    .collect(Collectors.joining(", "))),
-                    ChatMessageType.AI);
 
             // execute tool calls in the following order:
             // 1. projectFinished
