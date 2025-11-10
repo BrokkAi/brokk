@@ -703,14 +703,10 @@ public class SearchAgent {
         sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
         sessionMessages.add(result.aiMessage());
 
-        // Execute tool requests
+        // Execute tool requests (one shot; we're not responding back with results)
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            try {
-                tr.executeTool(req);
-            } catch (Exception e) {
-                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
-            }
+            tr.executeTool(req);
         }
         context = wst.getContext();
     }

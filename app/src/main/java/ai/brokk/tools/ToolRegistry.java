@@ -217,8 +217,8 @@ public class ToolRegistry {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e, st -> {});
-            var msg = e.getMessage() == null ? "[no exception message]" : e.getMessage();
-            return ToolExecutionResult.internalError(request, msg);
+            return ToolExecutionResult.internalError(
+                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }
     }
 
@@ -227,7 +227,8 @@ public class ToolRegistry {
         try {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
-            return ToolExecutionResult.requestError(request, e.getMessage());
+            var msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.requestError(request, msg);
         }
 
         try {

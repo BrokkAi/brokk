@@ -27,33 +27,17 @@ public record ToolExecutionResult(
 
     // --- Factory Methods ---
 
-    /**
-     * Creates a success result.
-     *
-     * @param request The original request.
-     * @param resultText The textual result for the LLM (can be null, will default to "Success").
-     * @return A new ToolExecutionResult instance.
-     */
     public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
         String finalText = (resultText == null || resultText.isBlank()) ? "Success" : resultText;
         return new ToolExecutionResult(request, Status.SUCCESS, finalText);
     }
 
-    /**
-     * Creates a failure result.
-     *
-     * @param request The original request.
-     * @param errorMessage The error message describing the failure.
-     * @return A new ToolExecutionResult instance.
-     */
-    public static ToolExecutionResult requestError(ToolExecutionRequest request, @Nullable String errorMessage) {
-        String finalError = (errorMessage == null || errorMessage.isBlank()) ? "Unknown error" : errorMessage;
-        // Store the error message in the resultText field for simplicity
-        return new ToolExecutionResult(request, Status.REQUEST_ERROR, finalError);
+    public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
+        return new ToolExecutionResult(request, Status.REQUEST_ERROR, "Request error: " + errorMessage);
     }
 
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
-        return new ToolExecutionResult(request, Status.INTERNAL_ERROR, errorMessage);
+        return new ToolExecutionResult(request, Status.INTERNAL_ERROR, "Internal error: " + errorMessage);
     }
 
     // --- Convenience Accessors ---
