@@ -1,4 +1,4 @@
-package ai.brokk.init;
+package ai.brokk.init.onboarding;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;

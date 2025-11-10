@@ -8,7 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
-import ai.brokk.init.GitIgnoreUtils;
+import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;

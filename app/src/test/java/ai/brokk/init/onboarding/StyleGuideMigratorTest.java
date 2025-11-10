@@ -1,10 +1,10 @@
-package ai.brokk.init;
+package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
-import ai.brokk.init.StyleGuideMigrator.MigrationResult;
+import ai.brokk.init.onboarding.StyleGuideMigrator.MigrationResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;

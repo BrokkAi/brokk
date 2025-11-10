@@ -1,4 +1,4 @@
-package ai.brokk.init;
+package ai.brokk.init.onboarding;
 
 import com.google.common.base.Splitter;
 import java.io.IOException;
@@ -11,8 +11,7 @@ import org.slf4j.LoggerFactory;
  * Utility class for Git ignore operations.
  * <p>
  * This class provides shared functionality for checking .gitignore patterns,
- * used by both InitializationCoordinator and OnboardingOrchestrator as well
- * as MainProject.
+ * used by OnboardingOrchestrator and MainProject.
  */
 public class GitIgnoreUtils {
     private static final Logger logger = LoggerFactory.getLogger(GitIgnoreUtils.class);

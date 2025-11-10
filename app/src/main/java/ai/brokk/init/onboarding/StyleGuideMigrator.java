@@ -1,4 +1,4 @@
-package ai.brokk.init;
+package ai.brokk.init.onboarding;
 
 import ai.brokk.git.GitRepo;
 import java.io.IOException;

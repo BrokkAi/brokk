@@ -2,8 +2,6 @@ package ai.brokk.init.onboarding;
 
 import ai.brokk.AbstractProject;
 import ai.brokk.IProject;
-import ai.brokk.init.GitIgnoreUtils;
-import ai.brokk.init.InitializationCoordinator;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
