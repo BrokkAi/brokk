@@ -159,14 +159,17 @@ public class SessionsDialog extends JDialog {
         activityTable.setTableHeader(null);
         // Allow Tab/Shift+Tab to exit the activity table instead of trapping focus
         activityTable.setFocusTraversalKeysEnabled(false);
-        activityTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "sessActNext");
+        activityTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "sessActNext");
         activityTable.getActionMap().put("sessActNext", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 activityTable.transferFocus();
             }
         });
-        activityTable.getInputMap(JComponent.WHEN_FOCUSED)
+        activityTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "sessActPrev");
         activityTable.getActionMap().put("sessActPrev", new AbstractAction() {
             @Override

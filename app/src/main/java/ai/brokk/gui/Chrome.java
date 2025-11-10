@@ -678,10 +678,10 @@ public class Chrome
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
             Component oldFocusOwner = (Component) evt.getOldValue();
             Component newFocusOwner = (Component) evt.getNewValue();
-            
+
             // Apply global focus highlighting
             applyFocusHighlighting(oldFocusOwner, newFocusOwner);
-            
+
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
                 historyOutputPanel.getLlmStreamArea();
@@ -3749,14 +3749,12 @@ public class Chrome
         private final java.util.List<java.awt.Component> order;
 
         public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
-            this.order = order.stream()
-                    .filter(Objects::nonNull)
-                    .collect(java.util.stream.Collectors.toList());
+            this.order = order.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toList());
         }
 
         private int getIndex(java.awt.Component c) {
             if (c == null) return -1;
-            
+
             // Find component or one of its ancestors in the order list
             for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
                 int i = order.indexOf(comp);
@@ -3785,8 +3783,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getComponentBefore(
-                java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+        public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
             if (order.isEmpty()) return null;
             int idx = getIndex(aComponent);
             if (idx == -1) {
@@ -3856,7 +3853,7 @@ public class Chrome
         if (component == null || !component.isFocusable()) {
             return false;
         }
-        
+
         // Check if component is one of our main navigable components
         return component == instructionsPanel.getInstructionsArea()
                 || component == instructionsPanel.getMicButton()
@@ -3882,17 +3879,17 @@ public class Chrome
             if (jcomp.getClientProperty("originalBorder") == null) {
                 jcomp.putClientProperty("originalBorder", jcomp.getBorder());
             }
-            
+
             // Apply focus border
             var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
             var focusBorder = BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2);
-            
+
             if (originalBorder != null) {
                 jcomp.setBorder(BorderFactory.createCompoundBorder(focusBorder, originalBorder));
             } else {
                 jcomp.setBorder(focusBorder);
             }
-            
+
             jcomp.repaint();
         }
     }

@@ -2486,7 +2486,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-
     /**
      * Small square badge that displays the current mode.
      * Uses ThemeColors for background/foreground and accent for the border.

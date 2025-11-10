@@ -17,13 +17,13 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
-import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -269,7 +269,8 @@ public final class DependenciesPanel extends JPanel {
                 addButton.transferFocus();
             }
         });
-        addButton.getInputMap(JComponent.WHEN_FOCUSED)
+        addButton
+                .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "depsPrev");
         addButton.getActionMap().put("depsPrev", new AbstractAction() {
             @Override
@@ -285,7 +286,8 @@ public final class DependenciesPanel extends JPanel {
                 removeButton.transferFocus();
             }
         });
-        removeButton.getInputMap(JComponent.WHEN_FOCUSED)
+        removeButton
+                .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "depsPrev");
         removeButton.getActionMap().put("depsPrev", new AbstractAction() {
             @Override

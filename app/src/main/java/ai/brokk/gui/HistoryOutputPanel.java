@@ -475,7 +475,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 toggleTabs.run();
             }
         });
-        llmStreamArea.getInputMap(JComponent.WHEN_FOCUSED)
+        llmStreamArea
+                .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
         llmStreamArea.getActionMap().put("toggleTabsSpace", new AbstractAction() {
             @Override
@@ -740,7 +741,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 historyTable.transferFocus();
             }
         });
-        historyTable.getInputMap(JComponent.WHEN_FOCUSED)
+        historyTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "histPrev");
         historyTable.getActionMap().put("histPrev", new AbstractAction() {
             @Override

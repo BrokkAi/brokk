@@ -38,9 +38,7 @@ public final class FocusTraversalOrderTest {
         frame.pack();
         frame.setVisible(true);
 
-        List<Component> order = List.of(
-                instructions, action, model, mic, wand, history
-        );
+        List<Component> order = List.of(instructions, action, model, mic, wand, history);
 
         // Reflective access to private static inner class ChromeFocusTraversalPolicy
         Class<?> policyClass = Class.forName("ai.brokk.gui.Chrome$ChromeFocusTraversalPolicy");
@@ -64,5 +62,3 @@ public final class FocusTraversalOrderTest {
         System.out.println("FocusTraversalOrderTest passed.");
     }
 }
-
-
