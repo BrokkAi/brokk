@@ -948,7 +948,7 @@ public class ContextSerializationTest {
 
         // Allow both histories to be loaded
         context.awaitContextsAreComputed(Duration.ofSeconds(10));
-        loadedHistory.topContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
 
         assertContextsEqual(
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));

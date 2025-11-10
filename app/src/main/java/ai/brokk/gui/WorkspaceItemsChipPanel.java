@@ -1172,7 +1172,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
                     return;
                 }
-                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
                 if (!onLatest) {
                     chrome.systemNotify(
                             "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
@@ -1321,7 +1321,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             return;
         }
         // Enforce latest-context gating (read-only when viewing historical context)
-        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
         if (!onLatest) {
             chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -1703,7 +1703,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                             "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
-                if (!Objects.equals(contextManager.selectedContext(), contextManager.topContext())) {
+                if (!Objects.equals(contextManager.selectedContext(), contextManager.liveContext())) {
                     chrome.systemNotify(
                             "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                     return;
@@ -1856,7 +1856,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
-                    if (!Objects.equals(contextManager.selectedContext(), contextManager.topContext())) {
+                    if (!Objects.equals(contextManager.selectedContext(), contextManager.liveContext())) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;

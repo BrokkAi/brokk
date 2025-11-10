@@ -1610,7 +1610,7 @@ public class WorkspacePanel extends JPanel {
      * historical context and should be read-only.
      */
     private boolean isOnLatestContext() {
-        return Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        return Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */

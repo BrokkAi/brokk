@@ -955,7 +955,7 @@ public class Chrome
             workspacePanel.populateContextTable(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
-            Context latestContext = contextManager.getContextHistory().topContext();
+            Context latestContext = contextManager.getContextHistory().liveContext();
             isEditable = latestContext.equals(ctx);
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
@@ -2095,7 +2095,7 @@ public class Chrome
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
-            var latestCtx = contextManager.getContextHistory().topContext();
+            var latestCtx = contextManager.getContextHistory().liveContext();
             boolean isCurrentContext = latestCtx.allFragments().anyMatch(f -> f.id().equals(fragment.id()));
 
             // Resolve title once and cache it for reuse

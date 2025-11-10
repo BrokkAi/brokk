@@ -148,11 +148,6 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Context topContext() {
-        return liveContext();
-    }
-
-    @Override
     public Service getService() {
         return stubService;
     }

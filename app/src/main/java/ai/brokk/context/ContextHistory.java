@@ -99,7 +99,7 @@ public class ContextHistory {
     }
 
     /** Latest context or {@code null} when uninitialised. */
-    public synchronized Context topContext() {
+    public synchronized Context liveContext() {
         return castNonNull(history.peekLast());
     }
 
@@ -113,7 +113,7 @@ public class ContextHistory {
 
     public synchronized @Nullable Context getSelectedContext() {
         if (selected == null || !getContextIds().contains(selected.id())) {
-            selected = topContext();
+            selected = liveContext();
         }
         return selected;
     }
@@ -140,15 +140,15 @@ public class ContextHistory {
     }
 
     public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(topContext());
+        var updatedLiveContext = contextGenerator.apply(liveContext());
         // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
         // materialize
-        if (Objects.equals(topContext(), updatedLiveContext)) {
-            return topContext();
+        if (Objects.equals(liveContext(), updatedLiveContext)) {
+            return liveContext();
         }
 
         pushContext(updatedLiveContext);
-        return topContext();
+        return liveContext();
     }
 
     /** Push {@code ctx}, select it, and clear redo stack. */
@@ -181,12 +181,12 @@ public class ContextHistory {
      * @return The new frozen context if a change was made, otherwise null.
      */
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
-        var refreshedLive = topContext().copyAndRefresh(changed);
-        if (refreshedLive.equals(topContext())) {
+        var refreshedLive = liveContext().copyAndRefresh(changed);
+        if (refreshedLive.equals(liveContext())) {
             return null;
         }
 
-        var previousAction = topContext().getAction();
+        var previousAction = liveContext().getAction();
         boolean isContinuation = previousAction.startsWith("Load external changes");
 
         String newAction = "Load external changes";
@@ -349,8 +349,8 @@ public class ContextHistory {
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
-        applySnapshotToWorkspace(topContext(), io);
-        selected = topContext();
+        applySnapshotToWorkspace(liveContext(), io);
+        selected = liveContext();
         return UndoResult.success(toUndo);
     }
 
@@ -417,7 +417,7 @@ public class ContextHistory {
         var popped = redo.removeLast();
         history.addLast(popped);
         truncateHistory();
-        selected = topContext();
+        selected = liveContext();
         applySnapshotToWorkspace(history.peekLast(), io);
         redoFileDeletions(io, project, popped);
         return true;

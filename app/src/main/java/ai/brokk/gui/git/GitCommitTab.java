@@ -736,7 +736,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 // 8. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
                     var contextHistory = contextManager.getContextHistory();
-                    var frozenContext = contextHistory.topContext();
+                    var frozenContext = contextHistory.liveContext();
                     var info = new ContextHistory.ContextHistoryEntryInfo(deletedFilesInfo);
                     contextHistory.addEntryInfo(frozenContext.id(), info);
                     contextManager

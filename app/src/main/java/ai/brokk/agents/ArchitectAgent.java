@@ -207,7 +207,7 @@ public class ArchitectAgent {
             logger.debug(resultMsg);
             io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             // Synchronize local context with latest global state after undo
-            context = cm.topContext();
+            context = cm.liveContext();
             return resultMsg;
         } else {
             var resultMsg = "Nothing to undo (concurrency bug?)";

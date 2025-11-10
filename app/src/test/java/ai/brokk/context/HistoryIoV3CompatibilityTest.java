@@ -46,7 +46,7 @@ class HistoryIoV3CompatibilityTest {
         assertNotNull(history, "History should not be null");
         assertFalse(history.getHistory().isEmpty(), "History contexts should not be empty");
 
-        Context top = history.topContext();
+        Context top = history.liveContext();
         // Let fragments materialize
         top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
@@ -105,7 +105,7 @@ class HistoryIoV3CompatibilityTest {
         // Validate basic deserialization
         assertNotNull(history, "ContextHistory should not be null");
         assertFalse(history.getHistory().isEmpty(), "Contexts should not be empty");
-        Context live = history.topContext();
+        Context live = history.liveContext();
         assertNotNull(live, "Live context should not be null");
         assertTrue(live.allFragments().findAny().isPresent(), "Live context should have fragments");
 

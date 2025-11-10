@@ -770,7 +770,7 @@ public class GitWorktreeTab extends JPanel {
                         new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
                 if (copyWorkspace) {
                     logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
-                    openProjectBuilder.sourceContextForSession(contextManager.topContext());
+                    openProjectBuilder.sourceContextForSession(contextManager.liveContext());
                 }
 
                 final String finalBranchForWorktree = branchForWorktree; // for lambda

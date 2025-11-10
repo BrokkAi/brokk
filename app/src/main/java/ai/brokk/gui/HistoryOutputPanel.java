@@ -2071,7 +2071,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
         var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-        var history = contextManager.topContext().getTaskHistory();
+        var history = contextManager.liveContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
         OutputWindow newStreamingWindow =
