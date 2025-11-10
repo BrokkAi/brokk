@@ -762,11 +762,10 @@ public class JavaAnalyzerTest {
     public void moduleCodeUnitCreated_withTopLevelClassChildren_only() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                        package p1;
-                        class A { class Inner {} }
-                        class B {}
-                        """,
-                        "A_B.java")
+    package p1;
+    class A { class Inner {} }
+    class B {}
+    """, "A_B.java")
                 .build()) {
 
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -785,6 +784,36 @@ public class JavaAnalyzerTest {
                     List.of("p1.A", "p1.B"),
                     children,
                     "Module children should include only top-level classes A and B (no nested types)");
+        }
+    }
+
+    @Test
+    public void moduleCodeUnitAggregatesChildrenAcrossFiles_excludesNested() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    package p2;
+    class A { class Inner {} }
+    class C { static class Nested {} }
+    """,
+                        "A_C.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeModule = analyzer.getDefinition("p2");
+            assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p2' should be created");
+            var module = maybeModule.get();
+            assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");
+
+            var children = analyzer.getDirectChildren(module).stream()
+                    .map(CodeUnit::fqName)
+                    .sorted()
+                    .toList();
+
+            assertEquals(
+                    List.of("p2.A", "p2.C"),
+                    children,
+                    "Module children should include only top-level classes A and C (exclude nested types)");
         }
     }
 }
