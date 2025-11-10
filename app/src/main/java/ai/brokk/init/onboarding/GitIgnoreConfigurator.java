@@ -23,25 +23,14 @@ import org.jetbrains.annotations.Nullable;
 public class GitIgnoreConfigurator {
     private static final Logger logger = LogManager.getLogger(GitIgnoreConfigurator.class);
 
-    /**
-     * Result of git ignore setup operation.
-     *
-     * @param gitignoreUpdated Whether .gitignore was modified
-     * @param stagedFiles List of files that were staged to git
-     * @param errorMessage Error message if operation failed
-     */
+    /** Result of git ignore setup operation. */
     public record SetupResult(boolean gitignoreUpdated, List<ProjectFile> stagedFiles, Optional<String> errorMessage) {}
 
     /**
      * Sets up .gitignore with Brokk entries and stages project files to git.
-     *
-     * <p>Note: This method does NOT perform legacy style.md → AGENTS.md migration.
+     * Note: This method does NOT perform legacy style.md → AGENTS.md migration.
      * Migration is the responsibility of the orchestrator and should be done via
      * StyleGuideMigrator before calling this method if desired.
-     *
-     * @param project The project to configure
-     * @param consoleIO Console for logging (can be null for silent operation)
-     * @return Result containing what was done and any errors
      */
     public static SetupResult setupGitIgnoreAndStageFiles(IProject project, @Nullable IConsoleIO consoleIO) {
         var stagedFiles = new ArrayList<ProjectFile>();

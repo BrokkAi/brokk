@@ -29,12 +29,8 @@ public class OnboardingOrchestrator {
 
     /**
      * Builds an onboarding plan from the current project state.
-     * <p>
      * Evaluates all available steps, filters to those that are applicable,
      * and orders them by dependencies.
-     *
-     * @param state current project state
-     * @return plan containing ordered, applicable steps
      */
     public OnboardingPlan buildPlan(ProjectState state) {
         logger.debug("Building onboarding plan for project: {}", state.project().getRoot());
@@ -64,15 +60,7 @@ public class OnboardingOrchestrator {
 
     /**
      * Creates a ProjectState from the given project and async handles.
-     * <p>
-     * This is a helper method that probes the project's current state
-     * to build the ProjectState record.
-     *
-     * @param project the project
-     * @param styleGuideFuture future for style guide content (can be null)
-     * @param buildDetailsFuture future for build details (can be null)
-     * @param styleGenerationSkippedDueToNoGit flag from ContextManager
-     * @return project state snapshot
+     * This helper probes the project's current state to build the ProjectState record.
      */
     public static ProjectState buildProjectState(
             IProject project,
@@ -161,11 +149,8 @@ public class OnboardingOrchestrator {
 
     /**
      * Creates all available onboarding steps.
-     * <p>
      * This is where we instantiate concrete step implementations.
      * Steps will be filtered later based on applicability.
-     *
-     * @return list of all available steps
      */
     private List<OnboardingStep> createAllSteps() {
         var steps = new ArrayList<OnboardingStep>();

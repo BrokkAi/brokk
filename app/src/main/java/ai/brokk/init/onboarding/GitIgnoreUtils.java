@@ -22,10 +22,6 @@ public class GitIgnoreUtils {
     /**
      * Checks if .brokk directory is properly ignored in .gitignore.
      * Requires exact match of .brokk/** or .brokk/ patterns.
-     *
-     * @param gitignorePath Path to .gitignore file
-     * @return true if .brokk is comprehensively ignored
-     * @throws IOException if there's an error reading the file
      */
     public static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
         if (!Files.exists(gitignorePath)) {

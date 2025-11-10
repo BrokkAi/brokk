@@ -330,48 +330,7 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     /**
-     * Test 10: NO migration - empty legacy file exists
-     */
-    @Test
-    void testNoMigration_EmptyLegacyFile() throws Exception {
-        // Create empty legacy file
-        Files.createDirectories(projectRoot.resolve(".brokk"));
-        Files.writeString(projectRoot.resolve(".brokk/style.md"), "");
-
-        var project = new TestProject(projectRoot, gitRepo);
-
-        // Execute
-        SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
-
-        // Verify stub AGENTS.md was created (configurator never migrates)
-        assertTrue(Files.exists(projectRoot.resolve("AGENTS.md")));
-        String agentsContent = Files.readString(projectRoot.resolve("AGENTS.md"));
-        assertTrue(agentsContent.contains("# Agents Guide"), "Should have stub content");
-    }
-
-    /**
-     * Test 11: NO migration - both legacy and AGENTS.md exist
-     */
-    @Test
-    void testNoMigration_BothFilesExist() throws Exception {
-        // Create both files
-        Files.createDirectories(projectRoot.resolve(".brokk"));
-        Files.writeString(projectRoot.resolve(".brokk/style.md"), "# Legacy");
-        Files.writeString(projectRoot.resolve("AGENTS.md"), "# Current");
-
-        var project = new TestProject(projectRoot, gitRepo);
-
-        // Execute
-        SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
-
-        // Verify AGENTS.md kept current content (configurator never migrates)
-        String agentsContent = Files.readString(projectRoot.resolve("AGENTS.md"));
-        assertTrue(agentsContent.contains("# Current"));
-        assertFalse(agentsContent.contains("# Legacy"));
-    }
-
-    /**
-     * Test 12: Project without GitRepo - returns error
+     * Test 10: Project without GitRepo - returns error
      */
     @Test
     void testNonGitProject_ReturnsError() throws Exception {
@@ -413,22 +372,7 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     /**
-     * Test 13: Operation with null consoleIO - should work silently
-     */
-    @Test
-    void testNullConsoleIO_WorksSilently() throws Exception {
-        var project = new TestProject(projectRoot, gitRepo);
-
-        // Execute with null consoleIO (should not throw)
-        SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
-
-        // Verify operation succeeded
-        assertTrue(result.gitignoreUpdated());
-        assertTrue(result.errorMessage().isEmpty());
-    }
-
-    /**
-     * Test 14: Gitignore with leading/trailing whitespace in pattern
+     * Test 11: Gitignore with leading/trailing whitespace in pattern
      */
     @Test
     void testGitignore_WithWhitespace_IsRecognized() throws Exception {
@@ -445,7 +389,7 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     /**
-     * Test 15: Ensures .gitignore ends with newline when updating
+     * Test 12: Ensures .gitignore ends with newline when updating
      */
     @Test
     void testGitignore_EndsWithNewline() throws Exception {

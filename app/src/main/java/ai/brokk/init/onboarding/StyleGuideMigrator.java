@@ -16,37 +16,15 @@ import org.jetbrains.annotations.Nullable;
 public class StyleGuideMigrator {
     private static final Logger logger = LogManager.getLogger(StyleGuideMigrator.class);
 
-    /**
-     * Result of migration operation.
-     *
-     * @param performed Whether migration was actually performed
-     * @param message Optional message describing what happened or why migration was skipped
-     */
+    /** Result of migration operation. */
     public record MigrationResult(boolean performed, String message) {}
 
     /**
      * Migrates legacy .brokk/style.md to AGENTS.md at project root if appropriate.
-     *
-     * <p>Migration is performed only if:
-     * <ul>
-     *   <li>Legacy file (.brokk/style.md) exists and is not blank
-     *   <li>Target file (AGENTS.md) either doesn't exist or is blank/empty
-     * </ul>
-     *
-     * <p>The migration involves:
-     * <ul>
-     *   <li>Reading content from .brokk/style.md
-     *   <li>Writing content to AGENTS.md
-     *   <li>Deleting .brokk/style.md
-     *   <li>Optionally staging both files to git (if gitRepo provided)
-     * </ul>
-     *
-     * <p>This operation is idempotent - calling it multiple times will not cause issues.
-     *
-     * @param brokkDir Path to .brokk directory (e.g., /project/.brokk)
-     * @param agentsFile Path to AGENTS.md file (e.g., /project/AGENTS.md)
-     * @param gitRepo Optional GitRepo for staging changes (can be null for non-git operations)
-     * @return Result indicating whether migration was performed and a descriptive message
+     * Migration is performed only if legacy file exists with content and target doesn't exist or is blank.
+     * The migration reads content from .brokk/style.md, writes to AGENTS.md, deletes .brokk/style.md,
+     * and optionally stages both files to git.
+     * This operation is idempotent - calling it multiple times will not cause issues.
      */
     public static MigrationResult migrate(Path brokkDir, Path agentsFile, @Nullable GitRepo gitRepo) {
         var legacyStylePath = brokkDir.resolve("style.md");

@@ -28,8 +28,6 @@ public class OnboardingPlan {
     /**
      * Creates an onboarding plan with the given steps.
      * Steps are assumed to already be in dependency order.
-     *
-     * @param steps ordered list of steps to execute
      */
     public OnboardingPlan(List<OnboardingStep> steps) {
         this.steps = List.copyOf(steps); // immutable copy
@@ -43,61 +41,35 @@ public class OnboardingPlan {
                 steps.stream().map(OnboardingStep::id).toList());
     }
 
-    /**
-     * Gets all steps in execution order.
-     *
-     * @return immutable list of steps
-     */
+    /** Gets all steps in execution order. */
     public List<OnboardingStep> getSteps() {
         return steps;
     }
 
-    /**
-     * Gets a step by its ID.
-     *
-     * @param stepId step identifier
-     * @return step, or null if not found
-     */
+    /** Gets a step by its ID, or null if not found. */
     public @Nullable OnboardingStep getStep(String stepId) {
         return stepById.get(stepId);
     }
 
-    /**
-     * Checks if the plan contains a step with the given ID.
-     *
-     * @param stepId step identifier
-     * @return true if step is in the plan
-     */
+    /** Checks if the plan contains a step with the given ID. */
     public boolean hasStep(String stepId) {
         return stepById.containsKey(stepId);
     }
 
-    /**
-     * Gets the number of steps in the plan.
-     *
-     * @return step count
-     */
+    /** Gets the number of steps in the plan. */
     public int size() {
         return steps.size();
     }
 
-    /**
-     * Checks if the plan is empty.
-     *
-     * @return true if no steps in plan
-     */
+    /** Checks if the plan is empty. */
     public boolean isEmpty() {
         return steps.isEmpty();
     }
 
     /**
      * Orders steps based on their dependencies using topological sort.
-     * <p>
      * If there are circular dependencies, logs an error and returns
      * the steps in the order they were provided.
-     *
-     * @param steps steps to order
-     * @return steps in dependency order
      */
     static List<OnboardingStep> orderByDependencies(List<OnboardingStep> steps) {
         if (steps.isEmpty()) {

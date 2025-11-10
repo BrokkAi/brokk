@@ -16,47 +16,33 @@ import org.jetbrains.annotations.Nullable;
 public interface OnboardingStep {
 
     /**
-     * Unique identifier for this step.
+     * Unique identifier for this step (e.g., "MIGRATION", "BUILD_SETTINGS", "GIT_CONFIG").
      * Used for dependency resolution and logging.
-     *
-     * @return step ID (e.g., "MIGRATION", "BUILD_SETTINGS", "GIT_CONFIG")
      */
     String id();
 
     /**
      * IDs of steps that must complete before this step can run.
      * Empty list means no dependencies.
-     * <p>
      * Example: BuildSettingsStep depends on MigrationStep completing first.
-     *
-     * @return list of step IDs this step depends on
      */
     List<String> dependsOn();
 
     /**
      * Determines if this step should be included in the onboarding plan.
-     * <p>
      * Checks ProjectState to decide if the step is needed.
      * For example, MigrationStep is applicable only if legacy style.md exists
      * with content and AGENTS.md doesn't exist.
-     *
-     * @param state current project state
-     * @return true if this step should be executed
      */
     boolean isApplicable(ProjectState state);
 
     /**
      * Executes the step's logic.
-     * <p>
      * This method contains pure business logic with no UI code.
      * Returns a result that the UI layer can interpret to determine
      * what actions to take (e.g., show a dialog, update notifications).
-     * <p>
      * Steps execute synchronously and return immediately.
      * The orchestrator handles proper sequencing via dependency resolution.
-     *
-     * @param state current project state
-     * @return step result
      */
     StepResult execute(ProjectState state);
 

@@ -51,8 +51,6 @@ public record ProjectState(
      * - A style guide (AGENTS.md or legacy style.md with content)
      * - Project properties file
      * - Properly configured .gitignore
-     *
-     * @return true if project is fully configured
      */
     public boolean isFullyConfigured() {
         boolean hasStyleGuide =
@@ -68,8 +66,6 @@ public record ProjectState(
      * Migration is needed if:
      * - Legacy style.md exists with content
      * - AGENTS.md doesn't exist or is empty
-     *
-     * @return true if migration should be offered
      */
     public boolean needsMigration() {
         return legacyStyleMdExists && legacyStyleMdHasContent && (!agentsMdExists || !agentsMdHasContent);
@@ -78,17 +74,13 @@ public record ProjectState(
     /**
      * Checks if build settings dialog should be shown.
      * Show if project is not fully configured.
-     *
-     * @return true if build settings dialog is needed
      */
     public boolean needsBuildSettings() {
         return !isFullyConfigured();
     }
 
     /**
-     * Checks if git configuration is needed.
-     *
-     * @return true if .gitignore needs Brokk patterns
+     * Checks if git configuration is needed (.gitignore needs Brokk patterns).
      */
     public boolean needsGitConfig() {
         return !gitignoreConfigured;
@@ -98,8 +90,6 @@ public record ProjectState(
      * Checks if style guide regeneration should be offered after Git setup.
      * This is true when style generation was previously skipped due to missing Git
      * and Git repository is now present.
-     *
-     * @return true if post-git style regeneration should be offered
      */
     public boolean needsPostGitStyleRegeneration() {
         return styleGenerationSkippedDueToNoGit && project.hasGit();

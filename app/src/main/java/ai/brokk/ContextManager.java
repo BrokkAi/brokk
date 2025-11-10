@@ -1974,11 +1974,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /**
-     * Ensure style guide exists, generating if needed.
-     *
-     * @return A CompletableFuture that completes when the style guide is ready (or skipped)
-     */
+    /** Ensure style guide exists, generating if needed. */
     public CompletableFuture<String> ensureStyleGuide() {
         String existingStyleGuide = project.getStyleGuide();
 
@@ -2116,8 +2112,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the CompletableFuture tracking style guide generation completion.
      * Never returns null; always initialized to a completed future.
-     *
-     * @return A CompletableFuture that completes with the style guide content
      */
     public CompletableFuture<String> getStyleGuideFuture() {
         return styleGuideFuture;
@@ -2126,8 +2120,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Checks if style guide generation was skipped due to missing Git repository.
      * Used by onboarding to offer regeneration after Git is configured.
-     *
-     * @return true if generation was skipped due to missing Git
      */
     public boolean wasStyleGenerationSkippedDueToNoGit() {
         return styleGenerationSkippedDueToNoGit;
