@@ -270,7 +270,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .switchSessionAsync(sel.id())
                                 .thenRun(() -> updateSessionComboBox())
                                 .exceptionally(ex -> {
-                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    logger.debug("Session switch rejected", ex);
+                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                     return null;
                                 });
                     }
@@ -297,7 +298,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     .switchSessionAsync(sel.id())
                                     .thenRun(() -> updateSessionComboBox())
                                     .exceptionally(ex -> {
-                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        logger.debug("Session switch rejected", ex);
+                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                         return null;
                                     });
                         }
@@ -1814,6 +1816,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Returns true if the MarkdownOutputPanel has displayable content.
+     *
+     * <p>This method checks if there is rendered output visible in the panel, even if
+     * {@link #getLlmRawMessages()} returns an empty list due to staged {@code pendingHistory}.
+     * It is suitable for determining UI state (e.g., enabling/disabling buttons) based on
+     * whether there is actual content to display.
+     *
+     * @return true if the panel has displayable output, false otherwise
+     */
+    public boolean hasDisplayableOutput() {
+        // First check if there is rendered/displayed text in the panel
+        String displayedText = llmStreamArea.getDisplayedText();
+        if (!displayedText.isEmpty()) {
+            return true;
+        }
+
+        // Fall back to checking raw messages (in case displayed text is not yet available)
+        return !llmStreamArea.getRawMessages().isEmpty();
+    }
+
+    /**
      * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
      * (for the last task).
      *
@@ -1831,14 +1854,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Preset the next history to show on the Output panel without immediately updating the UI;
      * the preset will apply automatically on the first token of the next new message, the main area will be cleared.
+     * Must be called on EDT (Chrome ensures this).
      */
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        Runnable r = () -> pendingHistory = history;
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
+        assert SwingUtilities.isEventDispatchThread() : "prepareOutputForNextStream must be called on EDT";
+        pendingHistory = history;
     }
 
     /**

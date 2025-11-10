@@ -2070,8 +2070,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return null;
                 }
                 project.saveStyleGuide(styleGuide);
+
+                String savedFileName;
+                Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
+                if (Files.exists(agentsPath)) {
+                    savedFileName = "AGENTS.md";
+                } else {
+                    savedFileName = ".brokk/style.md";
+                }
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to .brokk/style.md");
+                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
             }
@@ -2587,6 +2595,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var restorer = new GitProjectStateRestorer(project, io);
         restorer.restore(gitState);
+    }
+
+    /**
+     * Override the active {@link IConsoleIO}. Intended for headless execution: callers should install
+     * their console implementation before starting a job and restore the previous console around the job run.
+     *
+     * <p>The provided console must be non-null; it will be wired into {@link UserActionManager} so that
+     * user-action callbacks and background tasks emit events through the replacement console.
+     */
+    public void setIo(IConsoleIO io) {
+        this.io = io;
+        this.userActions.setIo(this.io);
     }
 
     @Override

@@ -54,6 +54,10 @@ public abstract class MemoryConsole implements IConsoleIO {
         };
     }
 
+    protected final void resetTranscript() {
+        messages.clear();
+    }
+
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         return List.copyOf(messages);

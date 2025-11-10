@@ -503,6 +503,17 @@ tasks.register<JavaExec>("runCli") {
     }
 }
 
+tasks.register<JavaExec>("runHeadlessExecutor") {
+    group = "application"
+    description = "Runs the Brokk Headless Executor"
+    mainClass.set("ai.brokk.executor.HeadlessExecutorMain")
+    classpath = sourceSets.main.get().runtimeClasspath
+    
+    // Configuration via environment variables:
+    // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
+    systemProperty("brokk.devmode", "false")
+}
+
 tasks.register<JavaExec>("runSkeletonPrinter") {
     group = "application"
     description = "Runs the SkeletonPrinter tool"

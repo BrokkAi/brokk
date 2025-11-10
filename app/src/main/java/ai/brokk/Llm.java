@@ -130,7 +130,8 @@ public class Llm {
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
-    private final int MAX_ATTEMPTS = 8;
+    private static final int DEFAULT_MAX_ATTEMPTS = 8;
+    private final int MAX_ATTEMPTS;
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
@@ -157,6 +158,8 @@ public class Llm {
         this.forceReasoningEcho = forceReasoningEcho;
         this.tagRetain = tagRetain;
         this.echo = echo;
+        this.MAX_ATTEMPTS = determineMaxAttempts();
+        logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
@@ -197,6 +200,35 @@ public class Llm {
 
     private static String logFileTimestamp() {
         return LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
+    }
+
+    /**
+     * Determine MAX_ATTEMPTS, overridable by environment variable BRK_LLM_ATTEMPTS.
+     * If the env var is not present or not a positive integer, DEFAULT_MAX_ATTEMPTS is used.
+     */
+    private int determineMaxAttempts() {
+        var env = System.getenv("BRK_LLM_ATTEMPTS");
+        if (env == null || env.isBlank()) {
+            return DEFAULT_MAX_ATTEMPTS;
+        }
+        try {
+            int parsed = Integer.parseInt(env.trim());
+            if (parsed <= 0) {
+                logger.warn(
+                        "BRK_LLM_ATTEMPTS value '{}' is not a positive integer; falling back to default {}",
+                        env,
+                        DEFAULT_MAX_ATTEMPTS);
+                return DEFAULT_MAX_ATTEMPTS;
+            }
+            logger.debug("Overriding MAX_ATTEMPTS with BRK_LLM_ATTEMPTS={}", parsed);
+            return parsed;
+        } catch (NumberFormatException e) {
+            logger.warn(
+                    "Could not parse BRK_LLM_ATTEMPTS='{}' as integer; falling back to default {}",
+                    env,
+                    DEFAULT_MAX_ATTEMPTS);
+            return DEFAULT_MAX_ATTEMPTS;
+        }
     }
 
     /**

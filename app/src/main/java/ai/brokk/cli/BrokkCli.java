@@ -381,8 +381,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new SearchAgent(
                         cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), scope);
                 if (!disableContextScan) {
-                    var scanResult = agent.scanInitialContext(searchModel);
-                    scope.append(scanResult);
+                    agent.scanInitialContext(searchModel);
                 }
                 searchResult = agent.execute();
                 scope.append(searchResult);
@@ -590,8 +589,7 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.ANSWER),
                             scope);
-                    var tr = agent.scanInitialContext();
-                    context = scope.append(tr);
+                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
                 } else if (build) {
@@ -642,8 +640,7 @@ public final class BrokkCli implements Callable<Integer> {
                             planModel,
                             EnumSet.of(Terminal.TASK_LIST),
                             scope);
-                    var tr = agent.scanInitialContext();
-                    context = scope.append(tr);
+                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
 

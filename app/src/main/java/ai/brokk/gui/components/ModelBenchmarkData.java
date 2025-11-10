@@ -148,27 +148,64 @@ public class ModelBenchmarkData {
         ModelKey key = new ModelKey(modelName, normalizedLevel);
         Map<TokenRange, Integer> rangeData = BENCHMARK_DATA.get(key);
         if (rangeData == null) {
-            // Try fallback for untested combinations
-            // For Claude models, fall back to MEDIUM (what was actually benchmarked)
-            // For other models, fall back to DEFAULT
-            Service.ReasoningLevel fallbackLevel =
-                    modelName.contains("claude") ? Service.ReasoningLevel.MEDIUM : Service.ReasoningLevel.DEFAULT;
-
-            if (!normalizedLevel.equals(fallbackLevel)) {
-                ModelKey fallbackKey = new ModelKey(modelName, fallbackLevel);
+            // Try model name variants/fallbacks
+            String fallbackModelName = tryModelNameVariants(modelName, normalizedLevel);
+            if (fallbackModelName != null) {
+                ModelKey fallbackKey = new ModelKey(fallbackModelName, normalizedLevel);
                 rangeData = BENCHMARK_DATA.get(fallbackKey);
-                if (rangeData != null) {
-                    // Found fallback level; use it but this is an approximate combination
-                    Integer successRate = rangeData.get(range);
-                    return successRate != null ? successRate : -1;
+            }
+
+            // If still not found, try reasoning level fallback
+            if (rangeData == null) {
+                // Try fallback for untested combinations
+                // For Claude models, fall back to MEDIUM (what was actually benchmarked)
+                // For other models, fall back to DEFAULT
+                Service.ReasoningLevel fallbackLevel =
+                        modelName.contains("claude") ? Service.ReasoningLevel.MEDIUM : Service.ReasoningLevel.DEFAULT;
+
+                if (!normalizedLevel.equals(fallbackLevel)) {
+                    ModelKey fallbackKey = new ModelKey(modelName, fallbackLevel);
+                    rangeData = BENCHMARK_DATA.get(fallbackKey);
+                    if (rangeData != null) {
+                        // Found fallback level; use it but this is an approximate combination
+                        Integer successRate = rangeData.get(range);
+                        return successRate != null ? successRate : -1;
+                    }
                 }
             }
-            // Model not found at all: return -1 to signal "unknown"
-            return -1;
+
+            // If still not found, return -1
+            if (rangeData == null) {
+                return -1;
+            }
         }
 
         Integer successRate = rangeData.get(range);
         return successRate != null ? successRate : -1;
+    }
+
+    /**
+     * Tries to find a matching model name in the benchmark data by applying common transformations.
+     * Returns the matched model name from BENCHMARK_DATA, or null if no match found.
+     */
+    @Nullable
+    private static String tryModelNameVariants(String modelName, Service.ReasoningLevel reasoningLevel) {
+        // Normalize model name for lookup: "qwen-3-coder-480b" -> "qwen3-coder"
+        // 1. Remove hyphens between name and version number: qwen-3 -> qwen3
+        String normalized = modelName.replaceFirst("-(\\d)", "$1");
+
+        // 2. Strip size suffixes: -480b, -30b, -70b, etc.
+        normalized = normalized.replaceAll("-\\d+[bB]$", "");
+
+        // Try the normalized name if different from original
+        if (!normalized.equals(modelName)) {
+            ModelKey testKey = new ModelKey(normalized, reasoningLevel);
+            if (BENCHMARK_DATA.containsKey(testKey)) {
+                return normalized;
+            }
+        }
+
+        return null;
     }
 
     public static int getSuccessRate(Service.ModelConfig config, int tokenCount) {
@@ -178,6 +215,12 @@ public class ModelBenchmarkData {
         if (modelName.contains("-nothink")) {
             modelName = modelName.replace("-nothink", "");
             reasoningLevel = Service.ReasoningLevel.DISABLE;
+        }
+
+        // Strip provider prefix (e.g., "cerebras/qwen3-coder" → "qwen3-coder")
+        // to match benchmark data keys which don't include provider prefixes
+        if (modelName.contains("/")) {
+            modelName = modelName.substring(modelName.indexOf('/') + 1);
         }
 
         return getSuccessRate(modelName, reasoningLevel, tokenCount);
