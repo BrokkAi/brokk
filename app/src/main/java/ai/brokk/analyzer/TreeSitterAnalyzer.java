@@ -3087,7 +3087,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Merge code unit state
         analysisResult.codeUnitState().forEach((cu, newState) -> {
-            targetCodeUnitState.compute(cu, (k, existing) -> {
+            // For MODULE CodeUnits (e.g., Java packages), prefer merging using a canonical key
+            // so that children from multiple files aggregate under a single module entry.
+            CodeUnit mergeKey = cu;
+            if (cu.isModule()) {
+                for (CodeUnit existingKey : targetCodeUnitState.keySet()) {
+                    if (existingKey.isModule() && existingKey.fqName().equals(cu.fqName())) {
+                        mergeKey = existingKey; // use the canonical key already present
+                        break;
+                    }
+                }
+            }
+
+            targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
                             newState.children(),

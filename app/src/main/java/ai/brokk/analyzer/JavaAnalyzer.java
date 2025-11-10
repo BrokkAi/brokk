@@ -385,42 +385,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             normalized = normalized.substring("import ".length()).trim();
 
             if (normalized.endsWith(".*")) {
-                // Prefer MODULE-based resolution if available: MODULE fqName == package name
                 String packageName =
                         normalized.substring(0, normalized.length() - 2).trim();
 
-                // Look up all MODULE code units that represent this exact package, then collect their class children
-                Set<CodeUnit> moduleClasses = withCodeUnitProperties(props -> {
-                    var set = new LinkedHashSet<CodeUnit>();
-                    for (var entry : props.entrySet()) {
-                        CodeUnit cu = entry.getKey();
-                        if (cu.isModule() && cu.fqName().equals(packageName)) {
-                            for (var child : entry.getValue().children()) {
-                                if (child.isClass() && packageName.equals(child.packageName())) {
-                                    set.add(child);
-                                }
-                            }
+                // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
+                Optional<CodeUnit> pkgModule = getDefinition(packageName);
+                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
+                    for (CodeUnit child : getDirectChildren(pkgModule.get())) {
+                        if (child.isClass() && packageName.equals(child.packageName())) {
+                            resolved.add(child);
                         }
-                    }
-                    return set;
-                });
-
-                if (!moduleClasses.isEmpty()) {
-                    resolved.addAll(moduleClasses);
-                    continue;
-                }
-
-                // Fallback: Match fully-qualified, top-level classes in exactly this package (exclude nested types)
-                String escapedPackage = Pattern.quote(packageName);
-                String patternStr = "^" + escapedPackage + "\\.[A-Za-z_][a-zA-Z0-9_]*$";
-                Pattern compiledPattern = Pattern.compile(patternStr);
-
-                List<CodeUnit> classesInPackage = searchDefinitionsImpl(patternStr, null, compiledPattern);
-                for (CodeUnit cu : classesInPackage) {
-                    if (cu.isClass()
-                            && packageName.equals(cu.packageName())
-                            && !cu.shortName().contains(".")) {
-                        resolved.add(cu);
                     }
                 }
             } else if (!normalized.isEmpty()) {
