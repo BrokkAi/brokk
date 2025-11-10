@@ -1535,7 +1535,18 @@ public class Chrome
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.prepareOutputForNextStream(history));
+        if (SwingUtilities.isEventDispatchThread()) {
+            historyOutputPanel.prepareOutputForNextStream(history);
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(() -> historyOutputPanel.prepareOutputForNextStream(history));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while preparing output for next stream", e);
+            } catch (InvocationTargetException e) {
+                logger.error("Error preparing output for next stream", e);
+            }
+        }
     }
 
     @Override
