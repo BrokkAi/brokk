@@ -16,12 +16,11 @@ public class ServiceWrapper {
 
     public void reinit(IProject project) {
         lastInitializationError = null; // Clear previous error
-        future = CompletableFuture.supplyAsync(() -> new Service(project))
-                .exceptionally(ex -> {
-                    lastInitializationError = ex;
-                    // Re-throw the exception to propagate the failure
-                    throw ex instanceof RuntimeException runtimeException ? runtimeException : new RuntimeException(ex);
-                });
+        future = CompletableFuture.supplyAsync(() -> new Service(project)).exceptionally(ex -> {
+            lastInitializationError = ex;
+            // Re-throw the exception to propagate the failure
+            throw ex instanceof RuntimeException runtimeException ? runtimeException : new RuntimeException(ex);
+        });
     }
 
     public Service get() {
