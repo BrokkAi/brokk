@@ -57,6 +57,7 @@ import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
+import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -792,7 +793,7 @@ public class Chrome
      * from partial patterns like ".brokk/workspace.properties".
      */
     private boolean isBrokkPatternInGitignore(String gitignoreContent) {
-        for (var line : gitignoreContent.split("\n")) {
+        for (var line : Splitter.on('\n').split(gitignoreContent)) {
             var trimmed = line.trim();
             // Remove trailing comments
             var commentIndex = trimmed.indexOf('#');
@@ -3194,7 +3195,7 @@ public class Chrome
                         // 2. Build settings dialog second (if needed)
                         if (result.needsBuildSettingsDialog()) {
                             logger.info("Showing build settings dialog with generated style guide");
-                            var dlg = SettingsDialog.showSettingsDialog(this, "Build", styleContent);
+                            var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
                             dlg.getProjectPanel().showBuildBanner();
                         }
 

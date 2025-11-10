@@ -14,6 +14,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Optional;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,10 +37,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
 
     public SettingsDialog(Frame owner, Chrome chrome) {
-        this(owner, chrome, null);
+        this(owner, chrome, Optional.empty());
     }
 
-    private SettingsDialog(Frame owner, Chrome chrome, String generatedStyleGuide) {
+    private SettingsDialog(Frame owner, Chrome chrome, Optional<String> generatedStyleGuide) {
         super(owner, "Settings", true);
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -206,14 +207,15 @@ public class SettingsDialog extends JDialog implements ThemeAware {
      * Used when opening settings manually after initialization.
      */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
-        return showSettingsDialog(chrome, targetTabName, null);
+        return showSettingsDialog(chrome, targetTabName, Optional.empty());
     }
 
     /**
      * Shows settings dialog with pre-generated style guide content.
      * Used during initialization to avoid race condition with file writes.
      */
-    public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName, String generatedStyleGuide) {
+    public static SettingsDialog showSettingsDialog(
+            Chrome chrome, String targetTabName, Optional<String> generatedStyleGuide) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome, generatedStyleGuide);
 
         // Load settings after dialog construction but before showing

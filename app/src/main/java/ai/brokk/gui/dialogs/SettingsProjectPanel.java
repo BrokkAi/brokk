@@ -101,12 +101,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
-    // Pre-generated style guide content (null means read from disk)
-    private final String providedStyleGuide;
+    // Pre-generated style guide content (Optional.empty() means read from disk)
+    private final Optional<String> providedStyleGuide;
 
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        this(chrome, parentDialog, okButton, cancelButton, applyButton, null);
+        this(chrome, parentDialog, okButton, cancelButton, applyButton, Optional.empty());
     }
 
     public SettingsProjectPanel(
@@ -115,7 +115,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             JButton okButton,
             JButton cancelButton,
             JButton applyButton,
-            String providedStyleGuide) {
+            Optional<String> providedStyleGuide) {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -977,7 +977,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // General Tab
         // Use provided style guide if available (fresh generation), otherwise read from disk
-        String styleGuide = providedStyleGuide != null ? providedStyleGuide : project.getStyleGuide();
+        String styleGuide = providedStyleGuide.orElseGet(() -> project.getStyleGuide());
         styleGuideArea.setText(styleGuide);
         commitFormatArea.setText(project.getCommitMessageFormat());
         if (reviewGuideArea != null) {

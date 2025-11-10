@@ -14,6 +14,7 @@ import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.base.Splitter;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
 import java.io.IOException;
@@ -761,7 +762,7 @@ public final class MainProject extends AbstractProject {
         var content = Files.readString(gitignorePath);
         // Check each line for comprehensive .brokk ignore patterns
         // Don't match partial patterns like .brokk/workspace.properties
-        for (var line : content.split("\n")) {
+        for (var line : Splitter.on('\n').split(content)) {
             var trimmed = line.trim();
             // Remove trailing comments
             var commentIndex = trimmed.indexOf('#');
