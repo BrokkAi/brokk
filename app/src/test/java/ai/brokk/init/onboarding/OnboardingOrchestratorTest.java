@@ -57,14 +57,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                false, false, // no AGENTS.md
-                false, false, // no legacy style.md
+                false,
+                false, // no AGENTS.md
+                false,
+                false, // no legacy style.md
                 false, // styleGenerationSkippedDueToNoGit
-                false, false, // no project.properties
+                false,
+                false, // no project.properties
                 false, // buildDetailsAvailable
-                false, false, // no .gitignore
-                null, null
-        );
+                false,
+                false, // no .gitignore
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -91,14 +95,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                false, false, // no AGENTS.md
-                true, true, // legacy style.md exists with content
+                false,
+                false, // no AGENTS.md
+                true,
+                true, // legacy style.md exists with content
                 false, // styleGenerationSkippedDueToNoGit
-                false, false, // no project.properties
+                false,
+                false, // no project.properties
                 false, // buildDetailsAvailable
-                false, false, // no .gitignore
-                null, null
-        );
+                false,
+                false, // no .gitignore
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -125,14 +133,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                true, true, // AGENTS.md exists with content
-                false, false, // no legacy style.md
+                true,
+                true, // AGENTS.md exists with content
+                false,
+                false, // no legacy style.md
                 false, // styleGenerationSkippedDueToNoGit
-                true, true, // project.properties exists with content
+                true,
+                true, // project.properties exists with content
                 true, // buildDetailsAvailable
-                true, true, // .gitignore configured
-                null, null
-        );
+                true,
+                true, // .gitignore configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -151,14 +163,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                true, true, // AGENTS.md exists with content
-                false, false, // no legacy style.md
+                true,
+                true, // AGENTS.md exists with content
+                false,
+                false, // no legacy style.md
                 false, // styleGenerationSkippedDueToNoGit
-                false, false, // no project.properties
+                false,
+                false, // no project.properties
                 false, // buildDetailsAvailable
-                true, true, // .gitignore configured
-                null, null
-        );
+                true,
+                true, // .gitignore configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -178,14 +194,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                true, true, // AGENTS.md exists with content
-                false, false, // no legacy style.md
+                true,
+                true, // AGENTS.md exists with content
+                false,
+                false, // no legacy style.md
                 true, // styleGenerationSkippedDueToNoGit = TRUE
-                true, true, // project.properties exists
+                true,
+                true, // project.properties exists
                 true, // buildDetailsAvailable
-                false, false, // .gitignore NOT configured
-                null, null
-        );
+                false,
+                false, // .gitignore NOT configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -196,14 +216,8 @@ class OnboardingOrchestratorTest {
 
         // POST_GIT_STYLE_REGENERATION should come after GIT_CONFIG
         var steps = plan.getSteps();
-        var gitConfigIndex = steps.stream()
-                .map(OnboardingStep::id)
-                .toList()
-                .indexOf(GitConfigStep.STEP_ID);
-        var regenIndex = steps.stream()
-                .map(OnboardingStep::id)
-                .toList()
-                .indexOf(PostGitStyleRegenerationStep.STEP_ID);
+        var gitConfigIndex = steps.stream().map(OnboardingStep::id).toList().indexOf(GitConfigStep.STEP_ID);
+        var regenIndex = steps.stream().map(OnboardingStep::id).toList().indexOf(PostGitStyleRegenerationStep.STEP_ID);
 
         assertTrue(gitConfigIndex < regenIndex, "Post-git regen should come after git config");
     }
@@ -217,22 +231,26 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                true, true, // AGENTS.md exists with content
-                false, false, // no legacy style.md
+                true,
+                true, // AGENTS.md exists with content
+                false,
+                false, // no legacy style.md
                 false, // styleGenerationSkippedDueToNoGit = FALSE
-                true, true, // project.properties exists
+                true,
+                true, // project.properties exists
                 true, // buildDetailsAvailable
-                false, false, // .gitignore NOT configured
-                null, null
-        );
+                false,
+                false, // .gitignore NOT configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
 
         // Should have GIT_CONFIG but NOT POST_GIT_STYLE_REGENERATION
         assertTrue(plan.hasStep(GitConfigStep.STEP_ID));
-        assertFalse(plan.hasStep(PostGitStyleRegenerationStep.STEP_ID),
-                "Should NOT offer regen when style wasn't skipped");
+        assertFalse(
+                plan.hasStep(PostGitStyleRegenerationStep.STEP_ID), "Should NOT offer regen when style wasn't skipped");
     }
 
     /**
@@ -244,14 +262,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                false, false, // no AGENTS.md
-                true, false, // legacy style.md exists but EMPTY
+                false,
+                false, // no AGENTS.md
+                true,
+                false, // legacy style.md exists but EMPTY
                 false, // styleGenerationSkippedDueToNoGit
-                false, false, // no project.properties
+                false,
+                false, // no project.properties
                 false, // buildDetailsAvailable
-                false, false, // no .gitignore
-                null, null
-        );
+                false,
+                false, // no .gitignore
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -269,14 +291,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                true, true, // AGENTS.md exists with content
-                true, true, // legacy style.md exists with content
+                true,
+                true, // AGENTS.md exists with content
+                true,
+                true, // legacy style.md exists with content
                 false, // styleGenerationSkippedDueToNoGit
-                true, true, // project.properties exists
+                true,
+                true, // project.properties exists
                 true, // buildDetailsAvailable
-                true, true, // .gitignore configured
-                null, null
-        );
+                true,
+                true, // .gitignore configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -296,11 +322,8 @@ class OnboardingOrchestratorTest {
         var buildFuture = CompletableFuture.completedFuture(null);
 
         var state = OnboardingOrchestrator.buildProjectState(
-                project,
-                styleFuture,
-                buildFuture,
-                true // styleGenerationSkippedDueToNoGit
-        );
+                project, styleFuture, buildFuture, true // styleGenerationSkippedDueToNoGit
+                );
 
         assertNotNull(state);
         assertEquals(project, state.project());
@@ -320,14 +343,18 @@ class OnboardingOrchestratorTest {
         var state = new ProjectState(
                 project,
                 project.getRoot(),
-                false, false, // no AGENTS.md
-                true, true, // legacy style.md exists
+                false,
+                false, // no AGENTS.md
+                true,
+                true, // legacy style.md exists
                 true, // styleGenerationSkippedDueToNoGit = true
-                false, false, // no project.properties
+                false,
+                false, // no project.properties
                 false, // buildDetailsAvailable
-                false, false, // .gitignore NOT configured
-                null, null
-        );
+                false,
+                false, // .gitignore NOT configured
+                null,
+                null);
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);

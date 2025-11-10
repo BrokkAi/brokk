@@ -273,7 +273,8 @@ class StyleGuideMigratorTest {
     void testMultilineContent() throws Exception {
         // Create legacy file with multiline content
         Path legacyFile = brokkDir.resolve("style.md");
-        String multilineContent = """
+        String multilineContent =
+                """
                 # Style Guide
 
                 ## Formatting

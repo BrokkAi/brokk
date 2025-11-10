@@ -44,17 +44,13 @@ public class PostGitStyleRegenerationStep implements OnboardingStep {
 
         // This step just flags that UI should offer regeneration
         // The actual regeneration is triggered by the UI layer if user accepts
-        return CompletableFuture.completedFuture(
-                StepResult.successWithDialog(
-                        STEP_ID,
-                        "Style guide regeneration available now that Git is configured",
-                        new RegenerationOfferData(
-                                "Style guide was generated without Git repository access. " +
-                                        "Would you like to regenerate it now for better quality?",
-                                state.project()
-                        )
-                )
-        );
+        return CompletableFuture.completedFuture(StepResult.successWithDialog(
+                STEP_ID,
+                "Style guide regeneration available now that Git is configured",
+                new RegenerationOfferData(
+                        "Style guide was generated without Git repository access. "
+                                + "Would you like to regenerate it now for better quality?",
+                        state.project())));
     }
 
     /**

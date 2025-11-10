@@ -4,7 +4,6 @@ import ai.brokk.AbstractProject;
 import ai.brokk.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -55,7 +54,9 @@ public class OnboardingOrchestrator {
         // Order by dependencies
         List<OnboardingStep> orderedSteps = OnboardingPlan.orderByDependencies(applicableSteps);
 
-        logger.info("Created onboarding plan with {} steps: {}", orderedSteps.size(),
+        logger.info(
+                "Created onboarding plan with {} steps: {}",
+                orderedSteps.size(),
                 orderedSteps.stream().map(OnboardingStep::id).toList());
 
         return new OnboardingPlan(orderedSteps);
@@ -87,14 +88,15 @@ public class OnboardingOrchestrator {
             boolean agentsMdExists = Files.exists(agentsMdPath);
             boolean agentsMdHasContent = agentsMdExists && Files.size(agentsMdPath) > 0;
 
-            var legacyPath = configRoot.resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
+            var legacyPath =
+                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
             boolean legacyExists = Files.exists(legacyPath);
-            boolean legacyHasContent = legacyExists && !Files.readString(legacyPath).isBlank();
+            boolean legacyHasContent =
+                    legacyExists && !Files.readString(legacyPath).isBlank();
 
             // Check project.properties
-            var propsPath = configRoot.resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
+            var propsPath =
+                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
             boolean propsExists = Files.exists(propsPath);
             boolean propsHasContent = propsExists && Files.size(propsPath) > 0;
 
@@ -108,11 +110,16 @@ public class OnboardingOrchestrator {
                     && buildDetailsFuture.isDone()
                     && !buildDetailsFuture.isCompletedExceptionally();
 
-            logger.debug("Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, buildAvailable={}",
-                    agentsMdExists, agentsMdHasContent,
-                    legacyExists, legacyHasContent,
-                    propsExists, propsHasContent,
-                    gitignoreExists, gitignoreConfigured,
+            logger.debug(
+                    "Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, buildAvailable={}",
+                    agentsMdExists,
+                    agentsMdHasContent,
+                    legacyExists,
+                    legacyHasContent,
+                    propsExists,
+                    propsHasContent,
+                    gitignoreExists,
+                    gitignoreConfigured,
                     buildDetailsAvailable);
 
             return new ProjectState(
@@ -129,8 +136,7 @@ public class OnboardingOrchestrator {
                     gitignoreExists,
                     gitignoreConfigured,
                     styleGuideFuture,
-                    buildDetailsFuture
-            );
+                    buildDetailsFuture);
 
         } catch (IOException e) {
             logger.error("Error building project state", e);
@@ -138,10 +144,18 @@ public class OnboardingOrchestrator {
             return new ProjectState(
                     project,
                     project.getMasterRootPathForConfig(),
-                    false, false, false, false, styleGenerationSkippedDueToNoGit,
-                    false, false, false, false, false,
-                    styleGuideFuture, buildDetailsFuture
-            );
+                    false,
+                    false,
+                    false,
+                    false,
+                    styleGenerationSkippedDueToNoGit,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    styleGuideFuture,
+                    buildDetailsFuture);
         }
     }
 

@@ -55,8 +55,8 @@ public record ProjectState(
      * @return true if project is fully configured
      */
     public boolean isFullyConfigured() {
-        boolean hasStyleGuide = (agentsMdExists && agentsMdHasContent)
-                || (legacyStyleMdExists && legacyStyleMdHasContent);
+        boolean hasStyleGuide =
+                (agentsMdExists && agentsMdHasContent) || (legacyStyleMdExists && legacyStyleMdHasContent);
         boolean hasProperties = projectPropertiesExists && projectPropertiesHasContent;
         boolean gitConfigured = gitignoreConfigured;
 
@@ -72,8 +72,7 @@ public record ProjectState(
      * @return true if migration should be offered
      */
     public boolean needsMigration() {
-        return legacyStyleMdExists && legacyStyleMdHasContent
-                && (!agentsMdExists || !agentsMdHasContent);
+        return legacyStyleMdExists && legacyStyleMdHasContent && (!agentsMdExists || !agentsMdHasContent);
     }
 
     /**

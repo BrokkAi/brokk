@@ -56,7 +56,6 @@ import ai.brokk.init.onboarding.GitIgnoreConfigurator;
 import ai.brokk.init.onboarding.MigrationStep;
 import ai.brokk.init.onboarding.OnboardingOrchestrator;
 import ai.brokk.init.onboarding.OnboardingStep;
-import ai.brokk.init.onboarding.ProjectState;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
@@ -72,7 +71,6 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -2961,16 +2959,13 @@ public class Chrome
         var buildFuture = getProject().getBuildDetailsFuture();
 
         // Wait for both futures to complete
-        CompletableFuture.allOf(
-                        styleFuture.thenApply(c -> null),
-                        buildFuture)
+        CompletableFuture.allOf(styleFuture.thenApply(c -> null), buildFuture)
                 .thenAcceptAsync(v -> {
                     logger.debug("Style guide and build details ready, building onboarding plan");
 
                     // Build project state
                     // Note: styleGenerationSkippedDueToNoGit is false since Chrome always generates style guide
-                    var state = OnboardingOrchestrator.buildProjectState(
-                            getProject(), styleFuture, buildFuture, false);
+                    var state = OnboardingOrchestrator.buildProjectState(getProject(), styleFuture, buildFuture, false);
 
                     // Build onboarding plan
                     var orchestrator = new OnboardingOrchestrator();
@@ -3025,8 +3020,8 @@ public class Chrome
      * @param results list of step results
      * @param styleFuture future with style guide content
      */
-    private void processOnboardingResults(List<OnboardingStep.StepResult> results,
-                                          CompletableFuture<String> styleFuture) {
+    private void processOnboardingResults(
+            List<OnboardingStep.StepResult> results, CompletableFuture<String> styleFuture) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         logger.debug("Processing {} onboarding results", results.size());
@@ -3047,7 +3042,11 @@ public class Chrome
                 case MigrationStep.STEP_ID -> {
                     logger.debug("Showing migration dialog");
                     var data = (MigrationStep.MigrationDialogData) result.data();
-                    showMigrationDialog(data);
+                    if (data != null) {
+                        showMigrationDialog(data);
+                    } else {
+                        logger.error("MigrationStep returned null data despite requiresUserDialog=true");
+                    }
                 }
                 case BuildSettingsStep.STEP_ID -> {
                     logger.info("Showing build settings dialog");
@@ -3106,7 +3105,7 @@ public class Chrome
             if (confirm == JOptionPane.YES_OPTION) {
                 // Perform migration using StyleGuideMigrator
                 var repo = mainProject.getRepo();
-                var gitRepo = (repo instanceof ai.brokk.git.GitRepo) ? (ai.brokk.git.GitRepo) repo : null;
+                ai.brokk.git.GitRepo gitRepo = (repo instanceof ai.brokk.git.GitRepo r) ? r : null;
                 var result = StyleGuideMigrator.migrate(data.brokkDir(), data.agentsFile(), gitRepo);
 
                 if (result.performed()) {
@@ -3121,8 +3120,10 @@ public class Chrome
             }
         } catch (Exception e) {
             logger.error("Error during migration dialog: {}", e.getMessage(), e);
-            systemNotify("Error during migration: " + e.getMessage(),
-                    "Migration Error", javax.swing.JOptionPane.ERROR_MESSAGE);
+            systemNotify(
+                    "Error during migration: " + e.getMessage(),
+                    "Migration Error",
+                    javax.swing.JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -3146,7 +3147,6 @@ public class Chrome
             return null;
         });
     }
-
 
     public Action getGlobalUndoAction() {
         return globalUndoAction;

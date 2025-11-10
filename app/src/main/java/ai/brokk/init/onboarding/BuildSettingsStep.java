@@ -39,13 +39,8 @@ public class BuildSettingsStep implements OnboardingStep {
     public CompletableFuture<StepResult> execute(ProjectState state) {
         logger.info("Executing build settings step (flagging UI dialog)");
 
-        return CompletableFuture.completedFuture(
-                StepResult.successWithDialog(
-                        STEP_ID,
-                        "Build settings dialog required",
-                        new BuildSettingsDialogData(state.styleGuideFuture())
-                )
-        );
+        return CompletableFuture.completedFuture(StepResult.successWithDialog(
+                STEP_ID, "Build settings dialog required", new BuildSettingsDialogData(state.styleGuideFuture())));
     }
 
     /**

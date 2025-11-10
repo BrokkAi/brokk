@@ -37,7 +37,9 @@ public class OnboardingPlan {
         for (var step : steps) {
             stepById.put(step.id(), step);
         }
-        logger.debug("Created onboarding plan with {} steps: {}", steps.size(),
+        logger.debug(
+                "Created onboarding plan with {} steps: {}",
+                steps.size(),
                 steps.stream().map(OnboardingStep::id).toList());
     }
 
@@ -158,7 +160,9 @@ public class OnboardingPlan {
             return new ArrayList<>(steps);
         }
 
-        logger.debug("Ordered {} steps by dependencies: {}", ordered.size(),
+        logger.debug(
+                "Ordered {} steps by dependencies: {}",
+                ordered.size(),
                 ordered.stream().map(OnboardingStep::id).toList());
 
         return ordered;

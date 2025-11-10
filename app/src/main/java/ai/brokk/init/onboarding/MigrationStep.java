@@ -42,16 +42,12 @@ public class MigrationStep implements OnboardingStep {
 
         // Don't perform migration here - let UI handle user confirmation
         // Return dialog data so Chrome can show confirm dialog and perform migration
-        return CompletableFuture.completedFuture(
-                StepResult.successWithDialog(
-                        STEP_ID,
-                        "Migration dialog required",
-                        new MigrationDialogData(
-                                state.configRoot().resolve(AbstractProject.BROKK_DIR),
-                                state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE)
-                        )
-                )
-        );
+        return CompletableFuture.completedFuture(StepResult.successWithDialog(
+                STEP_ID,
+                "Migration dialog required",
+                new MigrationDialogData(
+                        state.configRoot().resolve(AbstractProject.BROKK_DIR),
+                        state.configRoot().resolve(AbstractProject.STYLE_GUIDE_FILE))));
     }
 
     /**

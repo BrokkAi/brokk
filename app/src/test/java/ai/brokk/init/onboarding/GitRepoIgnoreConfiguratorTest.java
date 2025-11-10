@@ -376,29 +376,27 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testNonGitProject_ReturnsError() throws Exception {
         // Create project without GitRepo
-        var nonGitProject = new TestProject(projectRoot, new GitRepo(projectRoot) {
-            @Override
-            public void add(Path path) {
-            }
+        var nonGitProject =
+                new TestProject(projectRoot, new GitRepo(projectRoot) {
+                    @Override
+                    public void add(Path path) {}
 
-            @Override
-            public void add(java.util.Collection<ProjectFile> files) {
-            }
+                    @Override
+                    public void add(java.util.Collection<ProjectFile> files) {}
 
-            @Override
-            public void remove(ProjectFile file) {
-            }
-        }) {
-            @Override
-            public GitRepo getRepo() {
-                return null;
-            }
+                    @Override
+                    public void remove(ProjectFile file) {}
+                }) {
+                    @Override
+                    public GitRepo getRepo() {
+                        return null;
+                    }
 
-            @Override
-            public boolean hasGit() {
-                return false;
-            }
-        };
+                    @Override
+                    public boolean hasGit() {
+                        return false;
+                    }
+                };
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(nonGitProject, null);
