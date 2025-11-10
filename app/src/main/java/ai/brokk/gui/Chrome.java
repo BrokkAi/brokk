@@ -50,6 +50,7 @@ import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
+import ai.brokk.init.GitIgnoreConfigurator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.Environment;
@@ -57,7 +58,6 @@ import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
-import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -787,27 +787,6 @@ public class Chrome
         return (AbstractProject) contextManager.getProject();
     }
 
-    /**
-     * Checks if .gitignore contains comprehensive .brokk patterns.
-     * Uses exact line matching (not substring) to avoid false positives
-     * from partial patterns like ".brokk/workspace.properties".
-     */
-    private boolean isBrokkPatternInGitignore(String gitignoreContent) {
-        for (var line : Splitter.on('\n').split(gitignoreContent)) {
-            var trimmed = line.trim();
-            // Remove trailing comments
-            var commentIndex = trimmed.indexOf('#');
-            if (commentIndex > 0) {
-                trimmed = trimmed.substring(0, commentIndex).trim();
-            }
-            // Match comprehensive patterns only
-            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** Sets up .gitignore entries and adds .brokk project files to git */
     private void setupGitIgnore() {
         // If project does not have git, nothing to do.
@@ -815,250 +794,61 @@ public class Chrome
             logger.debug("setupGitIgnore called but project has no git repository; skipping.");
             return;
         }
+
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
-            try {
-                var project = getProject();
-                var repo = project.getRepo();
-                if (!(repo instanceof GitRepo gitRepo)) {
-                    // Defensive: project claims to have git but repo isn't a GitRepo instance.
-                    logger.warn(
-                            "setupGitIgnore: project {} reports git but repo is not a GitRepo instance. Skipping.",
-                            project.getRoot());
+            var project = getProject();
+            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, this);
+
+            if (result.errorMessage().isPresent()) {
+                logger.error("Git setup failed: {}", result.errorMessage().get());
+                toolError(
+                        "Error setting up .gitignore: " + result.errorMessage().get(), "Error");
+                return;
+            }
+
+            var gitTopLevel = project.getMasterRootPathForConfig();
+
+            // Refresh the commit panel to show the new files
+            updateCommitPanel();
+
+            // Open commit dialog with staged files
+            SwingUtilities.invokeLater(() -> {
+                var filesToCommit = new ArrayList<>(result.stagedFiles());
+
+                // Include all the files that should be in the commit
+                // (GitIgnoreConfigurator already staged them)
+                if (result.migrationPerformed()) {
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                }
+
+                if (filesToCommit.isEmpty()) {
+                    logger.debug("No files to commit");
                     return;
                 }
-                var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
-                // Update .gitignore (located at gitTopLevel)
-                var gitignorePath = gitTopLevel.resolve(".gitignore");
-                String content = "";
-
-                if (Files.exists(gitignorePath)) {
-                    content = Files.readString(gitignorePath);
-                    if (!content.endsWith("\n")) {
-                        content += "\n";
-                    }
+                var repo = project.getRepo();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    return;
                 }
 
-                // Add entries to .gitignore if they don't exist
-                // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
-                // Use exact pattern matching (not substring) to avoid false positives
-                if (!isBrokkPatternInGitignore(content)) {
-                    content += "\n### BROKK'S CONFIGURATION ###\n";
-                    content += ".brokk/**\n"; // Ignore .brokk dir in sub-projects (worktrees)
-                    content +=
-                            "/.brokk/workspace.properties\n"; // Ignore workspace properties in main repo and worktrees
-                    content += "/.brokk/sessions/\n"; // Ignore sessions dir in main repo
-                    content += "/.brokk/dependencies/\n"; // Ignore dependencies dir in main repo
-                    content += "/.brokk/history.zip\n"; // Ignore legacy history zip
-                    content += "!AGENTS.md\n"; // DO track AGENTS.md at project root
-                    content += "!.brokk/style.md\n"; // DO track legacy style.md (for projects that haven't migrated)
-                    content += "!.brokk/review.md\n"; // DO track review.md (which lives in masterRoot/.brokk)
-                    content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
-
-                    Files.writeString(gitignorePath, content);
-                    showNotification(NotificationRole.INFO, "Updated .gitignore with .brokk entries");
-
-                    // Add .gitignore itself to git if it's not already in the index
-                    // The path for 'add' should be relative to the git repo's CWD, or absolute.
-                    // gitRepo.add() handles paths relative to its own root, or absolute paths.
-                    // Here, gitignorePath is absolute.
-                    try {
-                        gitRepo.add(gitignorePath);
-                        logger.debug("Staged .gitignore to git");
-                    } catch (Exception ex) {
-                        logger.warn("Error staging .gitignore to git: {}", ex.getMessage());
-                        // Continue gracefully; .gitignore is on disk even if not staged
-                    }
-                }
-
-                // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
-                var sharedBrokkDir = gitTopLevel.resolve(".brokk");
-                Files.createDirectories(sharedBrokkDir);
-
-                // Add specific shared files to git
-                var agentsMdPath = gitTopLevel.resolve("AGENTS.md"); // AGENTS.md lives at project root
-                var reviewMdPath = sharedBrokkDir.resolve("review.md");
-                var projectPropsPath = sharedBrokkDir.resolve("project.properties");
-
-                // Migrate legacy style.md to AGENTS.md if it exists and has content
-                // Only migrate if AGENTS.md doesn't already exist or is empty
-                var legacyStylePath = sharedBrokkDir.resolve("style.md");
-                String legacyContentForMigration = null;
-                final boolean[] migrationPerformedHolder = {false
-                }; // Track if migration actually happened (array for lambda)
-                if (Files.exists(legacyStylePath)) {
-                    try {
-                        // Read content once and reuse it to avoid race condition
-                        String legacyContent = Files.readString(legacyStylePath);
-
-                        // Check if we should migrate (legacy exists with content AND target is missing/empty)
-                        boolean targetMissing = !Files.exists(agentsMdPath);
-                        boolean targetEmpty = false;
-                        if (!targetMissing) {
-                            try {
-                                targetEmpty = Files.readString(agentsMdPath).isBlank();
-                            } catch (IOException ex) {
-                                logger.warn("Error reading target AGENTS.md: {}", ex.getMessage());
-                                targetEmpty = true; // Treat read errors as "empty for migration purposes"
-                            }
-                        }
-
-                        if ((targetMissing || targetEmpty) && !legacyContent.isBlank()) {
-                            legacyContentForMigration = legacyContent;
-                        }
-                    } catch (IOException ex) {
-                        logger.warn("Error checking legacy style.md for migration: {}", ex.getMessage());
-                    }
-                }
-
-                if (legacyContentForMigration != null) {
-                    try {
-                        // Use MainProject's migration method to handle Git staging/rename
-                        var mainProject = getProject() instanceof MainProject mp ? mp : null;
-                        if (mainProject != null) {
-                            try {
-                                boolean migrationSuccess = mainProject.performStyleMdToAgentsMdMigration(this);
-                                if (migrationSuccess) {
-                                    logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
-                                    migrationPerformedHolder[0] = true;
-                                } else {
-                                    logger.debug("Migration returned false; stub AGENTS.md will be created if needed");
-                                }
-                            } catch (Exception migrationEx) {
-                                logger.warn(
-                                        "MainProject migration failed: {}; attempting manual fallback",
-                                        migrationEx.getMessage());
-                                // Fallback to manual migration if MainProject method fails
-                                try {
-                                    // Stage the file before deleting so git tracks the deletion
-                                    gitRepo.add(legacyStylePath);
-
-                                    Files.writeString(agentsMdPath, legacyContentForMigration);
-                                    Files.delete(legacyStylePath);
-                                    logger.info(
-                                            "Migrated style guide from .brokk/style.md to AGENTS.md (manual fallback)");
-                                    migrationPerformedHolder[0] = true;
-                                } catch (IOException ioEx) {
-                                    logger.warn("Manual migration also failed: {}", ioEx.getMessage());
-                                    // Continue; stub will be created below
-                                }
-                            }
-                        } else {
-                            // Fallback: manual migration if not a MainProject
-                            try {
-                                // Stage the file before deleting so git tracks the deletion
-                                gitRepo.add(legacyStylePath);
-
-                                Files.writeString(agentsMdPath, legacyContentForMigration);
-                                Files.delete(legacyStylePath);
-                                logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
-                                migrationPerformedHolder[0] = true;
-                            } catch (IOException ioEx) {
-                                logger.warn("Manual migration failed: {}", ioEx.getMessage());
-                                // Continue; stub will be created below
-                            }
-                        }
-                    } catch (Exception ex) {
-                        logger.error("Error during style.md migration attempt: {}", ex.getMessage(), ex);
-                        // Continue with stub file creation; migration is best-effort
-                    }
-                }
-
-                // Create shared files if they don't exist (empty files or stubs)
-                // This ensures files exist even if migration failed
-                // Use defensive try-catch for each file to ensure all stubs are created
-                if (!Files.exists(agentsMdPath)) {
-                    try {
-                        Files.writeString(agentsMdPath, "# Agents Guide\n");
-                        logger.debug("Created stub AGENTS.md");
-                    } catch (IOException ex) {
-                        logger.error("Failed to create stub AGENTS.md: {}", ex.getMessage());
-                    }
-                }
-                if (!Files.exists(reviewMdPath)) {
-                    try {
-                        Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
-                        logger.debug("Created stub review.md");
-                    } catch (IOException ex) {
-                        logger.error("Failed to create stub review.md: {}", ex.getMessage());
-                    }
-                }
-                if (!Files.exists(projectPropsPath)) {
-                    try {
-                        Files.writeString(projectPropsPath, "# Brokk project configuration\n");
-                        logger.debug("Created stub project.properties");
-                    } catch (IOException ex) {
-                        logger.error("Failed to create stub project.properties: {}", ex.getMessage());
-                    }
-                }
-
-                // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
-                // Here, paths are relative to gitTopLevel.
-                var filesToAdd = new ArrayList<ProjectFile>();
-                // Always include AGENTS.md (will have migrated content if legacy style.md existed,
-                // or a stub if neither migration nor generation produced content)
-                try {
-                    filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
-                    filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
-                    filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
-
-                    // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
-                    // The GitRepo instance is for the current project (which could be a worktree),
-                    // but 'add' operations apply to the whole repository.
-                    try {
-                        gitRepo.add(filesToAdd);
-                        logger.debug("Successfully staged shared project files to git");
-                    } catch (Exception addEx) {
-                        logger.warn("Error staging shared project files to git: {}", addEx.getMessage());
-                        // Continue gracefully; files are on disk even if not staged
-                    }
-                    showNotification(
-                            NotificationRole.INFO,
-                            "Added shared project files (AGENTS.md, review.md, project.properties) to git");
-                } catch (Exception ex) {
-                    logger.error("Error preparing shared files for git: {}", ex.getMessage(), ex);
-                    // Continue; commit dialog will be shown regardless
-                }
-
-                // Refresh the commit panel to show the new files
-                updateCommitPanel();
-
-                // Open commit dialog with prebaked message for project files
-                SwingUtilities.invokeLater(() -> {
-                    // Get the files that were just staged (including .gitignore if it was added)
-                    var filesToCommit = new ArrayList<ProjectFile>();
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
-                    filesToCommit.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
-
-                    // Include .brokk/style.md deletion if migration was performed
-                    if (migrationPerformedHolder[0]) {
-                        filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
-                    }
-
-                    // Open commit dialog with prebaked message
-                    var dialog = new CommitDialog(
-                            frame,
-                            this,
-                            contextManager,
-                            new GitWorkflow(contextManager),
-                            filesToCommit,
-                            "Add Brokk project files", // Pre-filled message
-                            commitResult -> {
-                                showNotification(
-                                        NotificationRole.INFO,
-                                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
-                                                + commitResult.firstLine());
-                                updateCommitPanel();
-                                updateLogTab();
-                            });
-                    dialog.setVisible(true);
-                });
-            } catch (Exception e) {
-                logger.error(e);
-                toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
-            }
+                // Open commit dialog with prebaked message
+                var dialog = new CommitDialog(
+                        frame,
+                        this,
+                        contextManager,
+                        new GitWorkflow(contextManager),
+                        filesToCommit,
+                        "Add Brokk project files", // Pre-filled message
+                        commitResult -> {
+                            showNotification(
+                                    NotificationRole.INFO,
+                                    "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                            + commitResult.firstLine());
+                            updateCommitPanel();
+                            updateLogTab();
+                        });
+                dialog.setVisible(true);
+            });
         });
     }
 
