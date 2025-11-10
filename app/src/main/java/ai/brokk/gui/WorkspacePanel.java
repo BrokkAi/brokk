@@ -524,7 +524,8 @@ public class WorkspacePanel extends JPanel {
                         if (ex == null) {
                             SwingUtilities.invokeLater(table::repaint);
                         } else {
-                            logger.debug("Error computing fragment description for {}", fragment.shortDescription(), ex);
+                            logger.debug(
+                                    "Error computing fragment description for {}", fragment.shortDescription(), ex);
                         }
                     });
                 }
