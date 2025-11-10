@@ -5,9 +5,8 @@ import static dev.langchain4j.internal.Utils.quoted;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import org.jetbrains.annotations.VisibleForTesting;
-
 import java.util.Objects;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Represents the result of a tool execution in response to a {@link ToolExecutionRequest}.
