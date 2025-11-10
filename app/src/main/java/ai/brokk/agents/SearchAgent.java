@@ -370,7 +370,10 @@ public class SearchAgent {
         try {
             metrics.recordToolCall(req.name());
             termExec = registry.executeTool(req);
-            context = wst.getContext();
+            // Only copy context back if this was a workspace tool
+            if (isWorkspaceTool(req, registry)) {
+                context = wst.getContext();
+            }
         } catch (Exception e) {
             logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
             termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
@@ -999,7 +1002,7 @@ public class SearchAgent {
                     String instructions)
             throws InterruptedException, FatalLlmException {
         // append first the SearchAgent's result so far, CodeAgent appends its own result
-        scope.append(createResult("Search: " + goal, goal));
+        context = scope.append(createResult("Search: " + goal, goal));
 
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
