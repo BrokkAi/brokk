@@ -5,7 +5,6 @@ import ai.brokk.IProject;
 import ai.brokk.MainProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
-import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;

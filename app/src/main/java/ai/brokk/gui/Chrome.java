@@ -2961,16 +2961,13 @@ public class Chrome
 
         // Wait for both futures to complete
         CompletableFuture.allOf(styleFuture.thenApply(c -> null), buildFuture)
-        .thenAcceptAsync(v -> {
-        logger.debug("Style guide and build details ready, building onboarding plan");
+                .thenAcceptAsync(v -> {
+                    logger.debug("Style guide and build details ready, building onboarding plan");
 
-        // Build project state
-        var styleSkipped = contextManager.wasStyleGenerationSkippedDueToNoGit();
-        var state = OnboardingOrchestrator.buildProjectState(
-        getProject(),
-        styleFuture,
-        buildFuture,
-        styleSkipped);
+                    // Build project state
+                    var styleSkipped = contextManager.wasStyleGenerationSkippedDueToNoGit();
+                    var state = OnboardingOrchestrator.buildProjectState(
+                            getProject(), styleFuture, buildFuture, styleSkipped);
 
                     // Build onboarding plan
                     var orchestrator = new OnboardingOrchestrator();
@@ -3083,30 +3080,37 @@ public class Chrome
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
 
                         var regenerationFuture = contextManager.ensureStyleGuide();
-                        regenerationFuture.thenAcceptAsync(styleContent -> {
-                            SwingUtilities.invokeLater(() -> {
-                                try {
-                                    logger.info("[{}] Style regeneration completed successfully", result.stepId());
-                                    showNotification(
-                                            IConsoleIO.NotificationRole.INFO,
-                                            "Style guide regenerated successfully");
-                                    SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                                } catch (Exception ex) {
-                                    logger.error("[{}] Error showing Build tab after regeneration", result.stepId(), ex);
-                                    showNotification(
-                                            IConsoleIO.NotificationRole.ERROR,
-                                            "Style guide regenerated but failed to open settings: " + ex.getMessage());
-                                }
-                            });
-                        }).exceptionally(ex -> {
-                            SwingUtilities.invokeLater(() -> {
-                                logger.error("[{}] Style regeneration failed", result.stepId(), ex);
-                                toolError(
-                                        "Failed to regenerate style guide: " + ex.getMessage(),
-                                        "Style Regeneration Error");
-                            });
-                            return null;
-                        });
+                        regenerationFuture
+                                .thenAcceptAsync(styleContent -> {
+                                    SwingUtilities.invokeLater(() -> {
+                                        try {
+                                            logger.info(
+                                                    "[{}] Style regeneration completed successfully", result.stepId());
+                                            showNotification(
+                                                    IConsoleIO.NotificationRole.INFO,
+                                                    "Style guide regenerated successfully");
+                                            SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
+                                        } catch (Exception ex) {
+                                            logger.error(
+                                                    "[{}] Error showing Build tab after regeneration",
+                                                    result.stepId(),
+                                                    ex);
+                                            showNotification(
+                                                    IConsoleIO.NotificationRole.ERROR,
+                                                    "Style guide regenerated but failed to open settings: "
+                                                            + ex.getMessage());
+                                        }
+                                    });
+                                })
+                                .exceptionally(ex -> {
+                                    SwingUtilities.invokeLater(() -> {
+                                        logger.error("[{}] Style regeneration failed", result.stepId(), ex);
+                                        toolError(
+                                                "Failed to regenerate style guide: " + ex.getMessage(),
+                                                "Style Regeneration Error");
+                                    });
+                                    return null;
+                                });
                     } else {
                         logger.info("[{}] User declined style regeneration", result.stepId());
                     }

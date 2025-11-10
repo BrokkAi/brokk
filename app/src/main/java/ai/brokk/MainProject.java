@@ -1120,8 +1120,7 @@ public final class MainProject extends AbstractProject {
                 return true;
             } else {
                 logger.info("Migration not performed: {}", result.message());
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
         } catch (Exception e) {
@@ -1133,18 +1132,6 @@ public final class MainProject extends AbstractProject {
             chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
-    }
-
-    /**
-     * DEPRECATED: Use performStyleMdToAgentsMdMigration(Chrome) instead.
-     * Delegates to the new consolidated migration path.
-     *
-     * @param chrome the Chrome instance for showing notifications
-     * @return true if migration succeeded, false otherwise
-     */
-    @Deprecated
-    public boolean performStyleMdToAgentsMdMigrationOld(Chrome chrome) {
-        return performStyleMdToAgentsMdMigration(chrome);
     }
 
     public static String getGitHubToken() {
