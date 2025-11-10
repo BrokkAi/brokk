@@ -1286,10 +1286,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         var models = cm.getService();
 
+        // Pre-check: is the LLM service online?
+        if (!models.isOnline()) {
+            logger.warn(
+                    "LLM service offline for action '{}': service online=false, contextHasImages={}",
+                    actionLabel,
+                    contextHasImages());
+            chrome.toolError("LLM service is offline; please check your connection or key.");
+            return null;
+        }
+
         Service.ModelConfig config;
         try {
             config = modelSelector.getModel();
         } catch (IllegalStateException e) {
+            logger.warn(
+                    "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
+                    actionLabel,
+                    e.getMessage(),
+                    contextHasImages(),
+                    models.isOnline());
             chrome.toolError("Please finish configuring your custom model or select a favorite first.");
             return null;
         }
@@ -1304,16 +1320,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If fallback also failed, show error and return null
         if (selectedModel == null) {
             logger.warn(
-                    "No available model for action '{}': selected config name='{}', reasoning='{}', service online={}",
+                    "No available model for action '{}': selected config name='{}', reasoning='{}', contextHasImages={}, service online={}",
                     actionLabel,
                     config.name(),
                     config.reasoning(),
+                    contextHasImages(),
                     models.isOnline());
             chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
             return null;
         }
 
         if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
+            logger.warn(
+                    "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
+                    actionLabel,
+                    models.nameOf(selectedModel),
+                    models.isOnline());
             showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
             return null;
         }
