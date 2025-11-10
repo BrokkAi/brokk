@@ -329,4 +329,144 @@ class InitializationCoordinatorTest {
         // Should not need migration (AGENTS.md already exists)
         assertFalse(result.needsMigrationDialog());
     }
+
+    // ========== Tests for State Probe Helpers ==========
+
+    /**
+     * Test 11: hasAgentsMd helper
+     */
+    @Test
+    void testHasAgentsMd() throws Exception {
+        // Setup: No AGENTS.md
+        assertFalse(InitializationCoordinator.hasAgentsMd(tempDir));
+
+        // Create AGENTS.md
+        Files.writeString(tempDir.resolve("AGENTS.md"), "# Agents");
+
+        // Verify
+        assertTrue(InitializationCoordinator.hasAgentsMd(tempDir));
+    }
+
+    /**
+     * Test 12: hasAgentsMdWithContent helper
+     */
+    @Test
+    void testHasAgentsMdWithContent() throws Exception {
+        // Setup: No file
+        assertFalse(InitializationCoordinator.hasAgentsMdWithContent(tempDir));
+
+        // Create empty file
+        Files.writeString(tempDir.resolve("AGENTS.md"), "");
+        assertFalse(InitializationCoordinator.hasAgentsMdWithContent(tempDir), "Empty file should return false");
+
+        // Add content
+        Files.writeString(tempDir.resolve("AGENTS.md"), "# Agents");
+        assertTrue(InitializationCoordinator.hasAgentsMdWithContent(tempDir));
+    }
+
+    /**
+     * Test 13: hasLegacyStyleMd helper
+     */
+    @Test
+    void testHasLegacyStyleMd() throws Exception {
+        // Setup: No legacy file
+        Files.createDirectories(tempDir.resolve(".brokk"));
+        assertFalse(InitializationCoordinator.hasLegacyStyleMd(tempDir));
+
+        // Create legacy file
+        Files.writeString(tempDir.resolve(".brokk/style.md"), "# Legacy");
+
+        // Verify
+        assertTrue(InitializationCoordinator.hasLegacyStyleMd(tempDir));
+    }
+
+    /**
+     * Test 14: hasLegacyStyleMdWithContent helper
+     */
+    @Test
+    void testHasLegacyStyleMdWithContent() throws Exception {
+        Files.createDirectories(tempDir.resolve(".brokk"));
+
+        // Setup: No file
+        assertFalse(InitializationCoordinator.hasLegacyStyleMdWithContent(tempDir));
+
+        // Create empty file
+        Files.writeString(tempDir.resolve(".brokk/style.md"), "");
+        assertFalse(InitializationCoordinator.hasLegacyStyleMdWithContent(tempDir), "Empty file should return false");
+
+        // Create file with only whitespace
+        Files.writeString(tempDir.resolve(".brokk/style.md"), "   \n  \t  ");
+        assertFalse(InitializationCoordinator.hasLegacyStyleMdWithContent(tempDir), "Whitespace-only file should return false");
+
+        // Add actual content
+        Files.writeString(tempDir.resolve(".brokk/style.md"), "# Legacy Style");
+        assertTrue(InitializationCoordinator.hasLegacyStyleMdWithContent(tempDir));
+    }
+
+    /**
+     * Test 15: hasProjectProperties helper
+     */
+    @Test
+    void testHasProjectProperties() throws Exception {
+        Files.createDirectories(tempDir.resolve(".brokk"));
+
+        // Setup: No properties file
+        assertFalse(InitializationCoordinator.hasProjectProperties(tempDir));
+
+        // Create properties file
+        Files.writeString(tempDir.resolve(".brokk/project.properties"), "# Properties");
+
+        // Verify
+        assertTrue(InitializationCoordinator.hasProjectProperties(tempDir));
+    }
+
+    /**
+     * Test 16: hasProjectPropertiesWithContent helper
+     */
+    @Test
+    void testHasProjectPropertiesWithContent() throws Exception {
+        Files.createDirectories(tempDir.resolve(".brokk"));
+
+        // Setup: No file
+        assertFalse(InitializationCoordinator.hasProjectPropertiesWithContent(tempDir));
+
+        // Create empty file
+        Files.writeString(tempDir.resolve(".brokk/project.properties"), "");
+        assertFalse(InitializationCoordinator.hasProjectPropertiesWithContent(tempDir), "Empty file should return false");
+
+        // Add content
+        Files.writeString(tempDir.resolve(".brokk/project.properties"), "# Properties");
+        assertTrue(InitializationCoordinator.hasProjectPropertiesWithContent(tempDir));
+    }
+
+    /**
+     * Test 17: isBrokkIgnored helper with various patterns
+     */
+    @Test
+    void testIsBrokkIgnored_VariousPatterns() throws Exception {
+        var gitignorePath = tempDir.resolve(".gitignore");
+
+        // No .gitignore
+        assertFalse(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+
+        // Comprehensive pattern .brokk/**
+        Files.writeString(gitignorePath, ".brokk/**\n");
+        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+
+        // Alternative pattern .brokk/
+        Files.writeString(gitignorePath, ".brokk/\n");
+        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath));
+
+        // Partial pattern (not comprehensive)
+        Files.writeString(gitignorePath, ".brokk/workspace.properties\n");
+        assertFalse(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Partial pattern should not match");
+
+        // Pattern with comment
+        Files.writeString(gitignorePath, ".brokk/** # Brokk files\n");
+        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Should recognize pattern with comment");
+
+        // Pattern with whitespace
+        Files.writeString(gitignorePath, "  .brokk/**  \n");
+        assertTrue(InitializationCoordinator.isBrokkIgnored(gitignorePath), "Should recognize pattern with whitespace");
+    }
 }

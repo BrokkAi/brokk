@@ -286,4 +286,94 @@ public class InitializationCoordinator {
     public Phase getCurrentPhase() {
         return currentPhase;
     }
+
+    // ========== State Probe Helpers ==========
+    // These helpers allow OnboardingOrchestrator to query project state
+    // without duplicating the isBrokkIgnored logic
+
+    /**
+     * Checks if AGENTS.md file exists.
+     *
+     * @param configRoot project configuration root
+     * @return true if AGENTS.md exists
+     */
+    public static boolean hasAgentsMd(Path configRoot) {
+        return Files.exists(configRoot.resolve(AbstractProject.STYLE_GUIDE_FILE));
+    }
+
+    /**
+     * Checks if AGENTS.md file exists with content.
+     *
+     * @param configRoot project configuration root
+     * @return true if AGENTS.md exists and is not empty
+     */
+    public static boolean hasAgentsMdWithContent(Path configRoot) {
+        try {
+            var path = configRoot.resolve(AbstractProject.STYLE_GUIDE_FILE);
+            return Files.exists(path) && Files.size(path) > 0;
+        } catch (IOException e) {
+            logger.warn("Error checking AGENTS.md content", e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if legacy .brokk/style.md file exists.
+     *
+     * @param configRoot project configuration root
+     * @return true if legacy style.md exists
+     */
+    public static boolean hasLegacyStyleMd(Path configRoot) {
+        return Files.exists(configRoot.resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE));
+    }
+
+    /**
+     * Checks if legacy .brokk/style.md file exists with content.
+     *
+     * @param configRoot project configuration root
+     * @return true if legacy style.md exists and has non-blank content
+     */
+    public static boolean hasLegacyStyleMdWithContent(Path configRoot) {
+        try {
+            var path = configRoot.resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.LEGACY_STYLE_GUIDE_FILE);
+            if (!Files.exists(path)) {
+                return false;
+            }
+            var content = Files.readString(path);
+            return !content.isBlank();
+        } catch (IOException e) {
+            logger.warn("Error checking legacy style.md content", e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if project.properties file exists.
+     *
+     * @param configRoot project configuration root
+     * @return true if project.properties exists
+     */
+    public static boolean hasProjectProperties(Path configRoot) {
+        return Files.exists(configRoot.resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.PROJECT_PROPERTIES_FILE));
+    }
+
+    /**
+     * Checks if project.properties file exists with content.
+     *
+     * @param configRoot project configuration root
+     * @return true if project.properties exists and is not empty
+     */
+    public static boolean hasProjectPropertiesWithContent(Path configRoot) {
+        try {
+            var path = configRoot.resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.PROJECT_PROPERTIES_FILE);
+            return Files.exists(path) && Files.size(path) > 0;
+        } catch (IOException e) {
+            logger.warn("Error checking project.properties content", e);
+            return false;
+        }
+    }
 }
