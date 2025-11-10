@@ -56,5 +56,5 @@ public class PostGitStyleRegenerationStep implements OnboardingStep {
     /**
      * Data for style regeneration offer dialog.
      */
-    public record RegenerationOfferData(String message, Object project) {}
+    public record RegenerationOfferData(String message, Object project) implements OnboardingDialogData {}
 }

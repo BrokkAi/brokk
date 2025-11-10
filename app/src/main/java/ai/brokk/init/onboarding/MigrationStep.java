@@ -54,5 +54,5 @@ public class MigrationStep implements OnboardingStep {
      * Data for migration confirmation dialog.
      * Contains paths needed to perform the migration after user confirms.
      */
-    public record MigrationDialogData(Path brokkDir, Path agentsFile) {}
+    public record MigrationDialogData(Path brokkDir, Path agentsFile) implements OnboardingDialogData {}
 }

@@ -56,6 +56,7 @@ import ai.brokk.init.onboarding.GitIgnoreConfigurator;
 import ai.brokk.init.onboarding.MigrationStep;
 import ai.brokk.init.onboarding.OnboardingOrchestrator;
 import ai.brokk.init.onboarding.OnboardingStep;
+import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
@@ -3016,6 +3017,7 @@ public class Chrome
      * 1. Migration dialog (if MigrationStep flagged)
      * 2. Build settings dialog (if BuildSettingsStep flagged)
      * 3. Git config dialog (if GitConfigStep flagged)
+     * 4. Post-git style regeneration offer (if applicable)
      *
      * @param results list of step results
      * @param styleFuture future with style guide content
@@ -3028,42 +3030,51 @@ public class Chrome
 
         for (var result : results) {
             if (!result.success()) {
-                logger.warn("Step {} failed: {}", result.stepId(), result.message());
+                logger.warn("[{}] Step failed: {}", result.stepId(), result.message());
                 continue;
             }
 
             if (!result.requiresUserDialog()) {
-                logger.debug("Step {} completed without dialog: {}", result.stepId(), result.message());
+                logger.debug("[{}] Step completed without dialog: {}", result.stepId(), result.message());
                 continue;
             }
 
-            // Handle steps that require user dialogs
-            switch (result.stepId()) {
-                case MigrationStep.STEP_ID -> {
-                    logger.debug("Showing migration dialog");
-                    var data = (MigrationStep.MigrationDialogData) result.data();
-                    if (data != null) {
-                        showMigrationDialog(data);
-                    } else {
-                        logger.error("MigrationStep returned null data despite requiresUserDialog=true");
-                    }
+            var dialogData = result.data();
+            if (dialogData == null) {
+                logger.error("[{}] Step requires dialog but data is null", result.stepId());
+                continue;
+            }
+
+            // Handle steps that require user dialogs using pattern matching on typed data
+            switch (dialogData) {
+                case MigrationStep.MigrationDialogData migrationData -> {
+                    logger.info("[{}] Showing migration dialog", result.stepId());
+                    showMigrationDialog(migrationData);
                 }
-                case BuildSettingsStep.STEP_ID -> {
-                    logger.info("Showing build settings dialog");
+                case BuildSettingsStep.BuildSettingsDialogData buildData -> {
+                    logger.info("[{}] Showing build settings dialog", result.stepId());
                     try {
                         var styleContent = styleFuture.get();
                         var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
                         dlg.getProjectPanel().showBuildBanner();
                     } catch (Exception e) {
-                        logger.error("Error getting style content for build dialog", e);
+                        logger.error("[{}] Error getting style content for build dialog", result.stepId(), e);
                         SettingsDialog.showSettingsDialog(this, "Build", Optional.empty());
                     }
                 }
-                case GitConfigStep.STEP_ID -> {
-                    logger.debug("Showing git config dialog");
-                    showGitConfigDialog();
+                case PostGitStyleRegenerationStep.RegenerationOfferData regenData -> {
+                    logger.info("[{}] Showing post-git style regeneration offer", result.stepId());
+                    showPostGitStyleRegenerationDialog(regenData);
                 }
-                default -> logger.warn("Unknown step ID requiring dialog: {}", result.stepId());
+                default -> {
+                    // GitConfigStep has no data payload - handle by step ID
+                    if (result.stepId().equals(GitConfigStep.STEP_ID)) {
+                        logger.info("[{}] Showing git config dialog", result.stepId());
+                        showGitConfigDialog();
+                    } else {
+                        logger.warn("[{}] Unknown dialog data type: {}", result.stepId(), dialogData.getClass());
+                    }
+                }
             }
         }
 
@@ -3146,6 +3157,21 @@ public class Chrome
             }
             return null;
         });
+    }
+
+    /**
+     * Shows the post-git style regeneration offer dialog.
+     * This is shown when style guide was initially generated without Git access
+     * and Git has now been configured.
+     */
+    private void showPostGitStyleRegenerationDialog(PostGitStyleRegenerationStep.RegenerationOfferData data) {
+        int result = showConfirmDialog(
+                data.message(), "Regenerate Style Guide", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result == JOptionPane.YES_OPTION) {
+            showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Style guide regeneration will be available in a future update");
+        }
     }
 
     public Action getGlobalUndoAction() {

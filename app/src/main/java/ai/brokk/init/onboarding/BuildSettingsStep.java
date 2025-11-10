@@ -47,5 +47,6 @@ public class BuildSettingsStep implements OnboardingStep {
      * Data for build settings dialog.
      * Contains the style guide future so UI can access generated content.
      */
-    public record BuildSettingsDialogData(@Nullable CompletableFuture<String> styleGuideFuture) {}
+    public record BuildSettingsDialogData(@Nullable CompletableFuture<String> styleGuideFuture)
+            implements OnboardingDialogData {}
 }

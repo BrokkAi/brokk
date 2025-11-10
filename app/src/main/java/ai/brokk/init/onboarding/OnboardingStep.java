@@ -72,7 +72,7 @@ public interface OnboardingStep {
             boolean success,
             boolean requiresUserDialog, // true if UI should show a dialog
             String message, // optional message for logging/display
-            @Nullable Object data // optional step-specific data for UI
+            @Nullable OnboardingDialogData data // optional step-specific data for UI
             ) {
 
         /**
@@ -85,7 +85,8 @@ public interface OnboardingStep {
         /**
          * Creates a successful result that requires a UI dialog.
          */
-        public static StepResult successWithDialog(String stepId, String message, @Nullable Object dialogData) {
+        public static StepResult successWithDialog(
+                String stepId, String message, @Nullable OnboardingDialogData dialogData) {
             return new StepResult(stepId, true, true, message, dialogData);
         }
 
