@@ -2,6 +2,7 @@ package ai.brokk.init.onboarding;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents a single step in the project onboarding process.
@@ -71,7 +72,7 @@ public interface OnboardingStep {
             boolean success,
             boolean requiresUserDialog, // true if UI should show a dialog
             String message, // optional message for logging/display
-            Object data // optional step-specific data for UI
+            @Nullable Object data // optional step-specific data for UI
             ) {
 
         /**
@@ -84,7 +85,7 @@ public interface OnboardingStep {
         /**
          * Creates a successful result that requires a UI dialog.
          */
-        public static StepResult successWithDialog(String stepId, String message, Object dialogData) {
+        public static StepResult successWithDialog(String stepId, String message, @Nullable Object dialogData) {
             return new StepResult(stepId, true, true, message, dialogData);
         }
 

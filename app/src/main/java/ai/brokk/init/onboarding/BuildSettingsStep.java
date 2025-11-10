@@ -2,6 +2,7 @@ package ai.brokk.init.onboarding;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,5 +52,5 @@ public class BuildSettingsStep implements OnboardingStep {
      * Data for build settings dialog.
      * Contains the style guide future so UI can access generated content.
      */
-    public record BuildSettingsDialogData(CompletableFuture<String> styleGuideFuture) {}
+    public record BuildSettingsDialogData(@Nullable CompletableFuture<String> styleGuideFuture) {}
 }

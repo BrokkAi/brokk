@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +56,7 @@ public class OnboardingPlan {
      * @param stepId step identifier
      * @return step, or null if not found
      */
-    public OnboardingStep getStep(String stepId) {
+    public @Nullable OnboardingStep getStep(String stepId) {
         return stepById.get(stepId);
     }
 
@@ -103,12 +104,10 @@ public class OnboardingPlan {
 
         // Build dependency graph
         Map<String, OnboardingStep> stepMap = new HashMap<>();
-        Map<String, List<String>> graph = new HashMap<>();
         Map<String, Integer> inDegree = new HashMap<>();
 
         for (var step : steps) {
             stepMap.put(step.id(), step);
-            graph.put(step.id(), new ArrayList<>(step.dependsOn()));
             inDegree.put(step.id(), 0);
         }
 
@@ -129,7 +128,7 @@ public class OnboardingPlan {
 
         // Find all steps with no dependencies
         for (var step : steps) {
-            if (inDegree.get(step.id()) == 0) {
+            if (inDegree.getOrDefault(step.id(), 0) == 0) {
                 ready.add(step.id());
             }
         }

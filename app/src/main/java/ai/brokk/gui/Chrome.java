@@ -813,8 +813,6 @@ public class Chrome
                 return;
             }
 
-            var gitTopLevel = project.getMasterRootPathForConfig();
-
             // Refresh the commit panel to show the new files
             updateCommitPanel();
 
@@ -3149,77 +3147,6 @@ public class Chrome
         });
     }
 
-    /**
-     * Checks if style.md to AGENTS.md migration is needed and offers it to the user.
-     * This is called after both style guide and build details are ready, but before
-     * showing the build settings dialog, to avoid dialog stacking issues.
-     */
-    private void checkAndOfferStyleMdMigration() {
-        if (!(getProject() instanceof MainProject mainProject)) {
-            return; // Only main projects can be migrated
-        }
-
-        try {
-            Path brokkDir = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
-            Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = mainProject.getMasterRootPathForConfig().resolve("AGENTS.md");
-
-            // Check conditions: style.md exists, AGENTS.md doesn't, and user hasn't declined
-            if (!Files.exists(styleFile) || Files.exists(agentsFile) || mainProject.getMigrationDeclined()) {
-                return;
-            }
-
-            logger.debug("Detected style.md without AGENTS.md. Prompting user for migration.");
-
-            String message =
-                    """
-            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
-
-            Would you like to migrate `style.md` to `AGENTS.md`? This will:
-            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
-            - Stage the change in Git (if the project is a Git repository)
-            - You can then review and commit the changes
-            """;
-
-            int confirm = showConfirmDialog(
-                    getFrame(),
-                    message,
-                    "Migrate Style Guide to AGENTS.md",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE);
-
-            if (confirm == JOptionPane.YES_OPTION) {
-                mainProject.performStyleMdToAgentsMdMigration(this);
-            } else {
-                mainProject.setMigrationDeclined(true);
-                logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
-            }
-        } catch (Exception e) {
-            logger.error("Error checking for style.md migration: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Shows the git configuration prompt and handles the user's response.
-     * Extracted to be callable from callback after build settings dialog closes.
-     */
-    private void checkAndShowGitConfigDialog() {
-        contextManager.submitBackgroundTask("Checking .gitignore", () -> {
-            if (!getProject().isGitIgnoreSet()) {
-                SwingUtilities.invokeLater(() -> {
-                    int result = showConfirmDialog(
-                            "Update .gitignore and add .brokk project files to git?",
-                            "Git Configuration",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-                    if (result == JOptionPane.YES_OPTION) {
-                        setupGitIgnore();
-                    }
-                });
-            }
-            return null;
-        });
-    }
 
     public Action getGlobalUndoAction() {
         return globalUndoAction;
