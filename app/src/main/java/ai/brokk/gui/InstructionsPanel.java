@@ -289,6 +289,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
+        // Add explicit focus border to make focus visible on the mic button
+        micButton.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                // Use a brighter, thicker focus border for visibility
+                var focusColor = new Color(0x3DA9FF);
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                if (original == null) {
+                    micButton.putClientProperty("originalBorder", micButton.getBorder());
+                }
+                var focusBorder = BorderFactory.createLineBorder(focusColor, 4, true);
+                var inner = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(BorderFactory.createCompoundBorder(focusBorder, inner));
+                micButton.repaint();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(original);
+                micButton.repaint();
+            }
+        });
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(

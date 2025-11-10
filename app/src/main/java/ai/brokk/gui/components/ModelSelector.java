@@ -11,11 +11,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.swing.JComponent;
+import javax.swing.AbstractAction;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import org.jetbrains.annotations.Nullable;
 
 public class ModelSelector {
@@ -62,6 +66,23 @@ public class ModelSelector {
 
         splitButton.setMenuSupplier(menuSupplier);
         splitButton.addActionListener(e -> splitButton.showPopupMenuInternal());
+
+        // Keyboard access: Space/Enter when focused opens the popup menu
+        splitButton.setFocusable(true);
+        splitButton.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "openPopup");
+        splitButton.getActionMap().put("openPopup", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                splitButton.showPopupMenuInternal();
+            }
+        });
+        splitButton.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "openPopupEnter");
+        splitButton.getActionMap().put("openPopupEnter", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                splitButton.showPopupMenuInternal();
+            }
+        });
 
         refresh();
     }

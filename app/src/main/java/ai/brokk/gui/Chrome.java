@@ -3777,7 +3777,7 @@ public class Chrome
             for (int i = 1; i <= order.size(); i++) {
                 int nextIdx = (idx + i) % order.size();
                 java.awt.Component nextComp = order.get(nextIdx);
-                if (nextComp != null && nextComp.isFocusable() && nextComp.isShowing()) {
+                if (nextComp != null && nextComp.isFocusable() && nextComp.isShowing() && nextComp.isEnabled()) {
                     return nextComp;
                 }
             }
@@ -3795,7 +3795,7 @@ public class Chrome
             for (int i = 1; i <= order.size(); i++) {
                 int prevIdx = (idx - i + order.size()) % order.size();
                 java.awt.Component prevComp = order.get(prevIdx);
-                if (prevComp != null && prevComp.isFocusable() && prevComp.isShowing()) {
+                if (prevComp != null && prevComp.isFocusable() && prevComp.isShowing() && prevComp.isEnabled()) {
                     return prevComp;
                 }
             }
@@ -3807,7 +3807,7 @@ public class Chrome
             if (order.isEmpty()) return null;
             for (int i = 0; i < order.size(); i++) {
                 java.awt.Component comp = order.get(i);
-                if (comp != null && comp.isFocusable() && comp.isShowing()) {
+                if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
                     return comp;
                 }
             }
@@ -3819,7 +3819,7 @@ public class Chrome
             if (order.isEmpty()) return null;
             for (int i = order.size() - 1; i >= 0; i--) {
                 java.awt.Component comp = order.get(i);
-                if (comp != null && comp.isFocusable() && comp.isShowing()) {
+                if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
                     return comp;
                 }
             }
