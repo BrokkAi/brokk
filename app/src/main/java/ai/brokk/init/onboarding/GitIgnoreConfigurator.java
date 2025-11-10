@@ -60,17 +60,19 @@ public class GitIgnoreConfigurator {
 
             // Update .gitignore
             var gitignorePath = gitTopLevel.resolve(".gitignore");
-            String content = "";
 
-            if (Files.exists(gitignorePath)) {
-                content = Files.readString(gitignorePath);
-                if (!content.endsWith("\n")) {
-                    content += "\n";
+            // Check if .gitignore already has comprehensive Brokk patterns
+            if (!GitIgnoreUtils.isBrokkIgnored(gitignorePath)) {
+                // Read existing content (or start fresh)
+                String content = "";
+                if (Files.exists(gitignorePath)) {
+                    content = Files.readString(gitignorePath);
+                    if (!content.endsWith("\n")) {
+                        content += "\n";
+                    }
                 }
-            }
 
-            // Add entries to .gitignore if they don't exist
-            if (!isBrokkPatternInGitignore(content)) {
+                // Add Brokk entries
                 content += "\n### BROKK'S CONFIGURATION ###\n";
                 content += ".brokk/**\n";
                 content += "/.brokk/workspace.properties\n";
@@ -167,27 +169,5 @@ public class GitIgnoreConfigurator {
                     e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             return new SetupResult(gitignoreUpdated, stagedFiles, Optional.of(errorMsg));
         }
-    }
-
-    /**
-     * Checks if gitignore content contains comprehensive .brokk patterns.
-     *
-     * @param gitignoreContent The content of .gitignore file
-     * @return true if .brokk/** or .brokk/ pattern is found
-     */
-    private static boolean isBrokkPatternInGitignore(String gitignoreContent) {
-        for (var line : Splitter.on('\n').split(gitignoreContent)) {
-            var trimmed = line.trim();
-            // Remove trailing comments
-            var commentIndex = trimmed.indexOf('#');
-            if (commentIndex > 0) {
-                trimmed = trimmed.substring(0, commentIndex).trim();
-            }
-            // Match comprehensive patterns only
-            if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
-                return true;
-            }
-        }
-        return false;
     }
 }

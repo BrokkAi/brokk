@@ -2958,15 +2958,23 @@ public class Chrome
         logger.debug("Scheduling onboarding after style guide and build details are ready");
         var styleFuture = contextManager.getStyleGuideFuture();
         var buildFuture = getProject().getBuildDetailsFuture();
-
+        
         // Wait for both futures to complete
         CompletableFuture.allOf(styleFuture.thenApply(c -> null), buildFuture)
-                .thenAcceptAsync(v -> {
-                    logger.debug("Style guide and build details ready, building onboarding plan");
-
-                    // Build project state
-                    // Note: styleGenerationSkippedDueToNoGit is false since Chrome always generates style guide
-                    var state = OnboardingOrchestrator.buildProjectState(getProject(), styleFuture, buildFuture, false);
+        .thenAcceptAsync(v -> {
+        logger.debug("Style guide and build details ready, building onboarding plan");
+        
+        // Build project state
+        // TODO: ContextManager does not currently expose a flag tracking whether style guide
+        // generation was skipped due to missing Git. To enable PostGitStyleRegenerationStep,
+        // add a public method like contextManager.wasStyleGenerationSkippedDueToNoGit() that
+        // returns true when ensureStyleGuide() skipped generation due to !project.hasGit().
+        // For now, hardcoded to false, meaning post-git regeneration is never offered.
+        var state = OnboardingOrchestrator.buildProjectState(
+        getProject(),
+        styleFuture,
+        buildFuture,
+        false);
 
                     // Build onboarding plan
                     var orchestrator = new OnboardingOrchestrator();
