@@ -1518,7 +1518,11 @@ public class Chrome
 
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+        if (SwingUtilities.isEventDispatchThread()) {
+            historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning);
+        } else {
+            SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+        }
     }
 
     /**

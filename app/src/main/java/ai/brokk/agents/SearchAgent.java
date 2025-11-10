@@ -773,6 +773,7 @@ public class SearchAgent {
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
             context = scope.append(contextAgentResult);
+            return;
         }
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
