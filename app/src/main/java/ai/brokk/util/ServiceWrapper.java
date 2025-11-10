@@ -20,7 +20,7 @@ public class ServiceWrapper {
                 .exceptionally(ex -> {
                     lastInitializationError = ex;
                     // Re-throw the exception to propagate the failure
-                    throw ex instanceof RuntimeException ? (RuntimeException) ex : new RuntimeException(ex);
+                    throw ex instanceof RuntimeException runtimeException ? runtimeException : new RuntimeException(ex);
                 });
     }
 
