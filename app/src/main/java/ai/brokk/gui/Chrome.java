@@ -3066,6 +3066,10 @@ public class Chrome
                         SettingsDialog.showSettingsDialog(this, "Build", Optional.empty());
                     }
                 }
+                case GitConfigStep.GitConfigDialogData gitConfigData -> {
+                    logger.info("[{}] Showing git config dialog", result.stepId());
+                    showGitConfigDialog();
+                }
                 case PostGitStyleRegenerationStep.RegenerationOfferData regenData -> {
                     logger.info("[{}] Showing post-git style regeneration offer", result.stepId());
                     int confirm = showConfirmDialog(
@@ -3105,15 +3109,6 @@ public class Chrome
                         });
                     } else {
                         logger.info("[{}] User declined style regeneration", result.stepId());
-                    }
-                }
-                default -> {
-                    // GitConfigStep has no data payload - handle by step ID
-                    if (result.stepId().equals(GitConfigStep.STEP_ID)) {
-                        logger.info("[{}] Showing git config dialog", result.stepId());
-                        showGitConfigDialog();
-                    } else {
-                        logger.warn("[{}] Unknown dialog data type: {}", result.stepId(), dialogData.getClass());
                     }
                 }
             }

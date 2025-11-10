@@ -41,8 +41,13 @@ public class GitConfigStep implements OnboardingStep {
 
         // Don't perform git config here - let UI handle user confirmation
         // Return dialog data so Chrome can show confirm dialog and perform configuration
-        return CompletableFuture.completedFuture(StepResult.successWithDialog(
-                STEP_ID, "Git config dialog required", null // No additional data needed for git config
-                ));
+        return CompletableFuture.completedFuture(
+                StepResult.successWithDialog(STEP_ID, "Git config dialog required", new GitConfigDialogData()));
     }
+
+    /**
+     * Marker data for git config dialog.
+     * No additional data needed - just signals that git config dialog should be shown.
+     */
+    public record GitConfigDialogData() implements OnboardingDialogData {}
 }

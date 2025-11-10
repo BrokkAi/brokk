@@ -12,4 +12,5 @@ package ai.brokk.init.onboarding;
 public sealed interface OnboardingDialogData
         permits MigrationStep.MigrationDialogData,
                 BuildSettingsStep.BuildSettingsDialogData,
+                GitConfigStep.GitConfigDialogData,
                 PostGitStyleRegenerationStep.RegenerationOfferData {}
