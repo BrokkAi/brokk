@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
@@ -210,11 +211,23 @@ public class ToolRegistry {
 
     /** Executes a tool exclusively from the registry (no instance tools). */
     public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
+        try {
+            return executeToolInternal(request);
+        } catch (InterruptedException ie) {
+            throw ie;
+        } catch (Exception e) {
+            GlobalExceptionHandler.handle(e, st -> {});
+            var msg = e.getMessage() == null ? "[no exception message]" : e.getMessage();
+            return ToolExecutionResult.internalError(request, msg);
+        }
+    }
+
+    private ToolExecutionResult executeToolInternal(ToolExecutionRequest request) throws InterruptedException {
         ValidatedInvocation validated;
         try {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
-            return ToolExecutionResult.failure(request, e.getMessage());
+            return ToolExecutionResult.requestError(request, e.getMessage());
         }
 
         try {

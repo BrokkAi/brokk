@@ -90,7 +90,7 @@ public final class MergeOneFile {
     }
 
     /** Merge-loop for a single file. Returns an Outcome describing the result. */
-    public Outcome merge() {
+    public Outcome merge() throws InterruptedException {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
         var llm =
@@ -203,13 +203,7 @@ public final class MergeOneFile {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
 
-                ToolExecutionResult exec;
-                try {
-                    exec = tr.executeTool(req);
-                } catch (Exception e) {
-                    logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-                    exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
-                }
+                ToolExecutionResult exec = tr.executeTool(req);
 
                 currentSessionMessages.add(exec.toExecutionResultMessage());
                 if (!exec.resultText().isBlank()) {

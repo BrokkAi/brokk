@@ -474,7 +474,7 @@ public class ArchitectAgent {
                 if (multipleRequests) {
                     var ignoredMsg =
                             "Ignored 'projectFinished' because other tool calls were present in the same turn.";
-                    var toolResult = ToolExecutionResult.failure(answerReq, ignoredMsg);
+                    var toolResult = ToolExecutionResult.requestError(answerReq, ignoredMsg);
                     // Record the ignored result in the architect message history so planning history reflects this.
                     architectMessages.add(toolResult.toExecutionResultMessage());
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
@@ -489,7 +489,7 @@ public class ArchitectAgent {
             if (abortReq != null) {
                 if (multipleRequests) {
                     var ignoredMsg = "Ignored 'abortProject' because other tool calls were present in the same turn.";
-                    var toolResult = ToolExecutionResult.failure(abortReq, ignoredMsg);
+                    var toolResult = ToolExecutionResult.requestError(abortReq, ignoredMsg);
                     architectMessages.add(toolResult.toExecutionResultMessage());
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
@@ -560,7 +560,7 @@ public class ArchitectAgent {
                             .formatted(Objects.toString(
                                     e.getCause() != null ? e.getCause().getMessage() : "Unknown error",
                                     "Unknown execution error"));
-                    var failure = ToolExecutionResult.failure(request, errorMessage);
+                    var failure = ToolExecutionResult.requestError(request, errorMessage);
                     architectMessages.add(failure.toExecutionResultMessage());
                 }
             }

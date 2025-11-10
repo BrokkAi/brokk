@@ -315,17 +315,12 @@ public class SearchAgent {
         }
     }
 
-    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst) {
-        ToolExecutionResult termExec;
-        try {
-            metrics.recordToolCall(req.name());
-            termExec = registry.executeTool(req);
-            context = wst.getContext();
-        } catch (Exception e) {
-            logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-            termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
-        }
-        return termExec;
+    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
+            throws InterruptedException {
+        metrics.recordToolCall(req.name());
+        var result = registry.executeTool(req);
+        context = wst.getContext();
+        return result;
     }
 
     // =======================
