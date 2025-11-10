@@ -12,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
 public record ToolExecutionResult(
         ToolExecutionRequest request,
         Status status,
-        String resultText // Contains the primary output on SUCCESS, or error message on FAILURE.
+        String resultText // Contains the primary output on SUCCESS, or error message on REQUEST_ERROR or INTERNAL_ERROR.
         ) {
 
     /** Overall status of the tool execution. */
