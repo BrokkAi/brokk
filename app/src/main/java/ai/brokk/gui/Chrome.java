@@ -797,7 +797,10 @@ public class Chrome
 
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             var project = getProject();
-            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, this);
+            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                    project,
+                    this,
+                    GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
 
             if (result.errorMessage().isPresent()) {
                 logger.error("Git setup failed: {}", result.errorMessage().get());
@@ -814,12 +817,6 @@ public class Chrome
             // Open commit dialog with staged files
             SwingUtilities.invokeLater(() -> {
                 var filesToCommit = new ArrayList<>(result.stagedFiles());
-
-                // Include all the files that should be in the commit
-                // (GitIgnoreConfigurator already staged them)
-                if (result.migrationPerformed()) {
-                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
-                }
 
                 if (filesToCommit.isEmpty()) {
                     logger.debug("No files to commit");

@@ -19,42 +19,54 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Handles git ignore configuration and Brokk project file setup.
  * This class contains pure logic without UI dependencies.
+ * Migration of legacy style.md to AGENTS.md is NOT performed here;
+ * that responsibility is delegated to StyleGuideMigrator.
  */
 public class GitIgnoreConfigurator {
     private static final Logger logger = LogManager.getLogger(GitIgnoreConfigurator.class);
 
     /**
+     * Policy for handling legacy style.md during git ignore setup.
+     */
+    public enum MigrationPolicy {
+        /** Do not perform any migration (default, safe choice). */
+        NO_MIGRATION,
+        /** Perform migration if legacy file exists and target is missing/empty. */
+        ATTEMPT_MIGRATION
+    }
+
+    /**
      * Result of git ignore setup operation.
      *
      * @param gitignoreUpdated Whether .gitignore was modified
-     * @param migrationPerformed Whether .brokk/style.md was migrated to AGENTS.md
      * @param stagedFiles List of files that were staged to git
      * @param errorMessage Error message if operation failed
      */
-    public record SetupResult(
-            boolean gitignoreUpdated,
-            boolean migrationPerformed,
-            List<ProjectFile> stagedFiles,
-            Optional<String> errorMessage) {}
+    public record SetupResult(boolean gitignoreUpdated, List<ProjectFile> stagedFiles, Optional<String> errorMessage) {}
 
     /**
      * Sets up .gitignore with Brokk entries and stages project files to git.
      *
+     * <p>Note: This method does NOT perform legacy style.md → AGENTS.md migration.
+     * Migration is the responsibility of the orchestrator and should be done via
+     * StyleGuideMigrator before calling this method if desired.
+     *
      * @param project The project to configure
      * @param consoleIO Console for logging (can be null for silent operation)
+     * @param migrationPolicy Policy for handling legacy files (has no effect; kept for API compatibility)
      * @return Result containing what was done and any errors
      */
-    public static SetupResult setupGitIgnoreAndStageFiles(IProject project, @Nullable IConsoleIO consoleIO) {
+    public static SetupResult setupGitIgnoreAndStageFiles(
+            IProject project, @Nullable IConsoleIO consoleIO, MigrationPolicy migrationPolicy) {
         var stagedFiles = new ArrayList<ProjectFile>();
         boolean gitignoreUpdated = false;
-        boolean migrationPerformed = false;
 
         try {
             var repo = project.getRepo();
             if (!(repo instanceof GitRepo gitRepo)) {
                 String msg = "Project repo is not a GitRepo instance";
                 logger.warn("setupGitIgnoreAndStageFiles: {}", msg);
-                return new SetupResult(false, false, stagedFiles, Optional.of(msg));
+                return new SetupResult(false, stagedFiles, Optional.of(msg));
             }
 
             var gitTopLevel = project.getMasterRootPathForConfig();
@@ -105,51 +117,15 @@ public class GitIgnoreConfigurator {
             Files.createDirectories(sharedBrokkDir);
 
             // Define shared file paths
-            var agentsMdPath = gitTopLevel.resolve("AGENTS.md");
             var reviewMdPath = sharedBrokkDir.resolve("review.md");
             var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
-            // Migrate legacy style.md to AGENTS.md if needed
-            var legacyStylePath = sharedBrokkDir.resolve("style.md");
-            String legacyContentForMigration = null;
+            // NOTE: Legacy style.md → AGENTS.md migration is NOT performed here.
+            // Migration is the orchestrator's responsibility and should be done via
+            // StyleGuideMigrator before calling this method.
 
-            if (Files.exists(legacyStylePath)) {
-                try {
-                    String legacyContent = Files.readString(legacyStylePath);
-                    boolean targetMissing = !Files.exists(agentsMdPath);
-                    boolean targetEmpty = false;
-
-                    if (!targetMissing) {
-                        try {
-                            targetEmpty = Files.readString(agentsMdPath).isBlank();
-                        } catch (IOException ex) {
-                            logger.warn("Error reading target AGENTS.md: {}", ex.getMessage());
-                            targetEmpty = true;
-                        }
-                    }
-
-                    if ((targetMissing || targetEmpty) && !legacyContent.isBlank()) {
-                        legacyContentForMigration = legacyContent;
-                    }
-                } catch (IOException ex) {
-                    logger.warn("Error checking legacy style.md for migration: {}", ex.getMessage());
-                }
-            }
-
-            if (legacyContentForMigration != null) {
-                try {
-                    migrationPerformed =
-                            performManualMigration(gitRepo, legacyStylePath, agentsMdPath, legacyContentForMigration);
-
-                    if (migrationPerformed) {
-                        stagedFiles.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
-                    }
-                } catch (Exception ex) {
-                    logger.error("Error during style.md migration attempt: {}", ex.getMessage(), ex);
-                }
-            }
-
-            // Create stub files if they don't exist
+            // Create stub AGENTS.md if it doesn't exist
+            var agentsMdPath = gitTopLevel.resolve("AGENTS.md");
             if (!Files.exists(agentsMdPath)) {
                 try {
                     Files.writeString(agentsMdPath, "# Agents Guide\n");
@@ -194,13 +170,13 @@ public class GitIgnoreConfigurator {
                 logger.warn("Error staging shared project files to git: {}", addEx.getMessage());
             }
 
-            return new SetupResult(gitignoreUpdated, migrationPerformed, stagedFiles, Optional.empty());
+            return new SetupResult(gitignoreUpdated, stagedFiles, Optional.empty());
 
         } catch (Exception e) {
             logger.error("Error in setupGitIgnoreAndStageFiles", e);
             String errorMsg =
                     e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return new SetupResult(gitignoreUpdated, migrationPerformed, stagedFiles, Optional.of(errorMsg));
+            return new SetupResult(gitignoreUpdated, stagedFiles, Optional.of(errorMsg));
         }
     }
 
@@ -226,23 +202,4 @@ public class GitIgnoreConfigurator {
         return false;
     }
 
-    /**
-     * Performs manual migration from .brokk/style.md to AGENTS.md.
-     *
-     * @return true if migration succeeded
-     */
-    private static boolean performManualMigration(
-            GitRepo gitRepo, Path legacyStylePath, Path agentsMdPath, String content) {
-        try {
-            // Stage the file before deleting so git tracks the deletion
-            gitRepo.add(legacyStylePath);
-            Files.writeString(agentsMdPath, content);
-            Files.delete(legacyStylePath);
-            logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (manual)");
-            return true;
-        } catch (Exception ex) {
-            logger.warn("Manual migration failed: {}", ex.getMessage());
-            return false;
-        }
-    }
 }

@@ -1,0 +1,303 @@
+package ai.brokk.init;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import ai.brokk.IConsoleIO;
+import ai.brokk.IProject;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * Unit tests for GitIgnoreConfigurator.
+ * Verifies that implicit migration has been removed and git ignore setup works correctly.
+ * Uses default interface implementations instead of mocking frameworks (per project style guide).
+ */
+class GitIgnoreConfiguratorTest {
+
+    private IProject testProject;
+    private GitRepo testGitRepo;
+    private IConsoleIO testConsoleIO;
+
+    @BeforeEach
+    void setUp(@TempDir Path tempDir) throws Exception {
+        // Test implementations using default interface pattern
+        testProject = new IProject() {
+            private final Path root = tempDir;
+            private final GitRepo repo = new GitRepo(tempDir) {
+                @Override
+                public void add(Path path) {}
+
+                @Override
+                public void add(java.util.List<ProjectFile> files) {}
+            };
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return repo;
+            }
+
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return root;
+            }
+        };
+
+        testGitRepo = (GitRepo) testProject.getRepo();
+        testConsoleIO = new IConsoleIO() {
+            @Override
+            public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+
+            @Override
+            public void toolError(String msg, String title) {}
+        };
+    }
+
+    @Test
+    void testSetupGitIgnoreUpdatesFile(@TempDir Path tempDir) throws IOException {
+        // Setup
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {}
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {}
+                };
+            }
+        };
+
+        Path gitignorePath = tempDir.resolve(".gitignore");
+        assertFalse(Files.exists(gitignorePath));
+
+        // Execute
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: .gitignore created and updated
+        assertTrue(result.gitignoreUpdated());
+        assertTrue(Files.exists(gitignorePath));
+        String content = Files.readString(gitignorePath);
+        assertTrue(content.contains(".brokk/**"));
+        assertTrue(content.contains("!AGENTS.md"));
+    }
+
+    @Test
+    void testSetupGitIgnoreNoMigrationByDefault(@TempDir Path tempDir) throws IOException {
+        // Setup: legacy style.md exists
+        Path brokkDir = tempDir.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+        Path legacyPath = brokkDir.resolve("style.md");
+        Files.writeString(legacyPath, "Legacy style guide");
+
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {}
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {}
+                };
+            }
+        };
+
+        // Execute
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: setup succeeded but legacy file NOT deleted (no implicit migration)
+        assertTrue(result.gitignoreUpdated());
+        assertTrue(Files.exists(legacyPath));
+        assertFalse(Files.exists(tempDir.resolve("AGENTS.md")));
+    }
+
+    @Test
+    void testSetupGitIgnoreStagesToGit(@TempDir Path tempDir) throws IOException {
+        // Setup
+        List<Path> stagedPaths = new ArrayList<>();
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {
+                        stagedPaths.add(path);
+                    }
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {
+                        // Not used in this test
+                    }
+                };
+            }
+        };
+
+        // Ensure .brokk directory exists
+        Path brokkDir = tempDir.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+
+        // Execute
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: files staged to git
+        assertTrue(result.gitignoreUpdated());
+        assertFalse(result.stagedFiles().isEmpty());
+        assertTrue(stagedPaths.size() > 0);
+    }
+
+    @Test
+    void testSetupGitIgnoreCreatesStubFiles(@TempDir Path tempDir) throws IOException {
+        // Setup
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {}
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {}
+                };
+            }
+        };
+
+        // Execute
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: stub files created
+        assertTrue(result.gitignoreUpdated());
+        assertTrue(Files.exists(tempDir.resolve("AGENTS.md")));
+        assertTrue(Files.exists(tempDir.resolve(".brokk").resolve("review.md")));
+        assertTrue(Files.exists(tempDir.resolve(".brokk").resolve("project.properties")));
+    }
+
+    @Test
+    void testSetupGitIgnoreHandlesNonGitRepo(@TempDir Path tempDir) {
+        // Setup: test project with non-GitRepo
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new ai.brokk.git.IGitRepo() {}; // Not GitRepo
+            }
+        };
+
+        // Execute
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: error reported
+        assertFalse(result.gitignoreUpdated());
+        assertTrue(result.errorMessage().isPresent());
+        assertTrue(result.errorMessage().get().contains("not a GitRepo instance"));
+    }
+
+    @Test
+    void testSetupGitIgnoreMigrationPolicyIgnoredWithNoMigration(@TempDir Path tempDir) throws IOException {
+        // Setup: legacy exists
+        Path brokkDir = tempDir.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+        Path legacyPath = brokkDir.resolve("style.md");
+        Files.writeString(legacyPath, "Legacy content");
+
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {}
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {}
+                };
+            }
+        };
+
+        // Execute with NO_MIGRATION policy
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: no migration occurred
+        assertTrue(result.gitignoreUpdated());
+        assertTrue(Files.exists(legacyPath));
+        assertFalse(Files.exists(tempDir.resolve("AGENTS.md")));
+    }
+
+    @Test
+    void testSetupGitIgnoreAfterExplicitMigration(@TempDir Path tempDir) throws IOException {
+        // Setup: orchestrator has already performed migration via StyleGuideMigrator
+        Path brokkDir = tempDir.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+
+        Path agentsMdPath = tempDir.resolve("AGENTS.md");
+        Files.writeString(agentsMdPath, "Already migrated content");
+
+        testProject = new IProject() {
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return tempDir;
+            }
+
+            @Override
+            public ai.brokk.git.IGitRepo getRepo() {
+                return new GitRepo(tempDir) {
+                    @Override
+                    public void add(Path path) {}
+
+                    @Override
+                    public void add(java.util.List<ProjectFile> files) {}
+                };
+            }
+        };
+
+        // Execute: configurator should not re-migrate
+        GitIgnoreConfigurator.SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
+                testProject, testConsoleIO, GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+
+        // Verify: setup succeeds, existing AGENTS.md preserved
+        assertTrue(result.gitignoreUpdated());
+        assertEquals("Already migrated content", Files.readString(agentsMdPath));
+    }
+}
