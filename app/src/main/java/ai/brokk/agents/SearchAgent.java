@@ -35,7 +35,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -315,7 +314,11 @@ public class SearchAgent {
                     }
 
                     // Write to visible transcript and to Context history
-                    sessionMessages.add(ToolExecutionResultMessage.from(req, display));
+                    var messageResult = exec;
+                    if (summarize) {
+                        messageResult = ToolExecutionResult.success(req, display);
+                    }
+                    sessionMessages.add(messageResult.toExecutionResultMessage());
 
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
@@ -335,7 +338,7 @@ public class SearchAgent {
                     var termExec = executeTool(termReq, tr, wst);
 
                     var display = termExec.resultText();
-                    sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
+                    sessionMessages.add(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(
@@ -365,20 +368,15 @@ public class SearchAgent {
         }
     }
 
-    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst) {
-        ToolExecutionResult termExec;
-        try {
-            metrics.recordToolCall(req.name());
-            termExec = registry.executeTool(req);
-            // Only copy context back if this was a workspace tool
-            if (isWorkspaceTool(req, registry)) {
-                context = wst.getContext();
-            }
-        } catch (Exception e) {
-            logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-            termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
+    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
+            throws InterruptedException {
+        metrics.recordToolCall(req.name());
+        var result = registry.executeTool(req);
+        // Only copy context back if this was a workspace tool
+        if (isWorkspaceTool(req, registry)) {
+            context = wst.getContext();
         }
-        return termExec;
+        return result;
     }
 
     // =======================

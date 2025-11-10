@@ -111,7 +111,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return new LoggingExecutorService(
                 toWrap,
                 th -> GlobalExceptionHandler.handle(
-                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
+                        th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
     }
 
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)

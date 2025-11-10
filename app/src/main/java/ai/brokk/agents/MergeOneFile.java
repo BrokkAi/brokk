@@ -21,7 +21,6 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -91,7 +90,7 @@ public final class MergeOneFile {
     }
 
     /** Merge-loop for a single file. Returns an Outcome describing the result. */
-    public Outcome merge() {
+    public Outcome merge() throws InterruptedException {
         var repo = (GitRepo) cm.getProject().getRepo();
         var file = conflict.file();
         var llm =
@@ -204,15 +203,9 @@ public final class MergeOneFile {
                     io.llmOutput("\n" + explanation, ChatMessageType.AI);
                 }
 
-                ToolExecutionResult exec;
-                try {
-                    exec = tr.executeTool(req);
-                } catch (Exception e) {
-                    logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-                    exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
-                }
+                ToolExecutionResult exec = tr.executeTool(req);
 
-                currentSessionMessages.add(ToolExecutionResultMessage.from(req, exec.resultText()));
+                currentSessionMessages.add(exec.toExecutionResultMessage());
                 if (!exec.resultText().isBlank()) {
                     io.llmOutput(exec.resultText(), ChatMessageType.AI);
                 }
