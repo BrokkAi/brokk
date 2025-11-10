@@ -242,7 +242,7 @@ public class ContextHistory {
      * computation to avoid blocking the UI indefinitely. For fragments that timeout during diff computation,
      * falls back to empty content rather than blocking.
      *
-     * <p>This service does NOT call {@code freeze()} on contexts; instead, it materializes computed values
+     * <p>This service materializes computed values
      * asynchronously as needed via {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
      */
     public static final class DiffService {

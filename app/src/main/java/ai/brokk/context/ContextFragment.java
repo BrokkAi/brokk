@@ -1361,7 +1361,7 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            // Paste fragments are self-freezing; we don't need to recompute or clone.
+            // Paste fragments are static; we don't need to recompute or clone.
             // Keeping the same instance preserves the content-hash id and ComputedValues.
             return this;
         }

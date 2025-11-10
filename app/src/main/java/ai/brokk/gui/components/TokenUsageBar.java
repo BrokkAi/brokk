@@ -18,6 +18,7 @@ import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -1252,8 +1253,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             for (var s : cvSubscriptions) {
                 try {
                     s.dispose();
-                } catch (Exception ignore) {
-                    // safe
+                } catch (CancellationException executionException) {
+                    logger.warn("Failed to cancel the ComputedValue subscription", executionException);
                 }
             }
             cvSubscriptions.clear();

@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
@@ -960,8 +961,7 @@ public class Context {
 
     /**
      * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
-     * Accepts both live and frozen contexts. This method awaits all async computations (e.g., ComputedValue)
-     * before returning the final diff list.
+     * This method awaits all async computations (e.g., ComputedValue) before returning the final diff list.
      */
     public List<DiffEntry> getDiff(Context other) {
         var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
@@ -1146,7 +1146,7 @@ public class Context {
     }
 
     /**
-     * Extract image bytes from a fragment, handling FrozenFragment and ComputedFragment.
+     * Extract image bytes from a fragment, handling ComputedFragment.
      */
     private byte @Nullable [] extractImageBytes(ContextFragment fragment) {
         try {
@@ -1155,24 +1155,11 @@ public class Context {
                 var image = imgFrag.image();
                 return ImageUtil.imageToBytes(image);
             }
-        } catch (java.util.concurrent.CancellationException e) {
+        } catch (CancellationException | IOException e) {
             logger.warn(
                     "Computation cancelled for image fragment '{}'; image will show as changed. Cause: {}",
                     fragment.shortDescription(),
                     e.getMessage());
-            return null;
-        } catch (UncheckedIOException e) {
-            logger.warn(
-                    "IO error reading image for fragment '{}'; image will show as changed. Cause: {}",
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return null;
-        } catch (Exception e) {
-            logger.error(
-                    "Unexpected error extracting image bytes for fragment '{}': {}",
-                    fragment.shortDescription(),
-                    e.getMessage(),
-                    e);
             return null;
         }
 

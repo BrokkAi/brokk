@@ -66,7 +66,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     // Register a ComputedValue subscription on a chip for later disposal
     @SuppressWarnings("unchecked")
     private void registerCvSubscription(JComponent chip, ComputedValue.Subscription sub) {
-        var existing = (List<ai.brokk.util.ComputedValue.Subscription>) chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
+        var existing = (List<ComputedValue.Subscription>) chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
         if (existing == null) {
             existing = new ArrayList<>();
             chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, existing);
@@ -84,7 +84,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                         subscription.dispose();
                     }
                 } catch (Exception ex) {
-                    logger.debug("Error disposing ComputedValue subscription", ex);
+                    logger.error("Error disposing ComputedValue subscription!", ex);
                 }
             }
             chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, null);
@@ -116,7 +116,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             try {
                 sd = fragment.shortDescription();
             } catch (Exception e) {
-                sd = "";
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
             }
             newLabelText = capitalizeFirst(sd);
         } else {
@@ -124,7 +125,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             try {
                 sd = fragment.shortDescription();
             } catch (Exception e) {
-                sd = "";
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
             }
             newLabelText = sd.isBlank() ? label.getText() : sd;
         }
@@ -184,7 +186,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 refreshChipLabelAndTooltip(chip, label, fragment);
             });
         });
-        registerCvSubscription((JComponent) chip, s1);
+        registerCvSubscription(chip, s1);
 
         // Description completion => update tooltip
         var s2 = cf.computedDescription().onComplete((v, ex) -> {
@@ -193,7 +195,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     fragment,
                     ex == null);
             SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) {
+                if (!isChipCurrent(fragment, chip)) {
                     logger.debug(
                             "subscribeToComputedUpdates: skipping stale chip after description completion for fragment {}",
                             fragment);
@@ -252,13 +254,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         try {
             label.setToolTipText(buildAggregateSummaryTooltip(summaries));
         } catch (Exception ex) {
-            logger.debug("Failed to build aggregate summary tooltip", ex);
+            logger.warn("Failed to build aggregate summary tooltip", ex);
         }
 
         try {
             label.getAccessibleContext().setAccessibleDescription("All summaries combined");
         } catch (Exception ex) {
-            logger.debug("Failed to set accessibility description for synthetic chip", ex);
+            logger.warn("Failed to set accessibility description for synthetic chip", ex);
         }
 
         styleChip((JPanel) chip, label, null);
@@ -1532,7 +1534,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         try {
             chipById.put(fragment.id(), chip);
         } catch (Exception ex) {
-            logger.debug("Failed to index chip by fragment id for {}", fragment, ex);
+            logger.error("Failed to index chip by fragment id for {}", fragment, ex);
         }
         styleChip(chip, label, fragment);
 
