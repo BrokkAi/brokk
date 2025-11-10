@@ -3072,7 +3072,44 @@ public class Chrome
                 }
                 case PostGitStyleRegenerationStep.RegenerationOfferData regenData -> {
                     logger.info("[{}] Showing post-git style regeneration offer", result.stepId());
-                    showPostGitStyleRegenerationDialog(regenData);
+                    int confirm = showConfirmDialog(
+                            regenData.message(),
+                            "Regenerate Style Guide",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE);
+                    
+                    if (confirm == JOptionPane.YES_OPTION) {
+                        logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
+                        showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
+                        
+                        var regenerationFuture = contextManager.ensureStyleGuide();
+                        regenerationFuture.thenAcceptAsync(styleContent -> {
+                            SwingUtilities.invokeLater(() -> {
+                                try {
+                                    logger.info("[{}] Style regeneration completed successfully", result.stepId());
+                                    showNotification(
+                                            IConsoleIO.NotificationRole.INFO,
+                                            "Style guide regenerated successfully");
+                                    SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
+                                } catch (Exception ex) {
+                                    logger.error("[{}] Error showing Build tab after regeneration", result.stepId(), ex);
+                                    showNotification(
+                                            IConsoleIO.NotificationRole.ERROR,
+                                            "Style guide regenerated but failed to open settings: " + ex.getMessage());
+                                }
+                            });
+                        }).exceptionally(ex -> {
+                            SwingUtilities.invokeLater(() -> {
+                                logger.error("[{}] Style regeneration failed", result.stepId(), ex);
+                                toolError(
+                                        "Failed to regenerate style guide: " + ex.getMessage(),
+                                        "Style Regeneration Error");
+                            });
+                            return null;
+                        });
+                    } else {
+                        logger.info("[{}] User declined style regeneration", result.stepId());
+                    }
                 }
                 default -> {
                     // GitConfigStep has no data payload - handle by step ID

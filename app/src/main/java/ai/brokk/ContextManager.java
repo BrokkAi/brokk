@@ -1975,7 +1975,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @return A CompletableFuture that completes when the style guide is ready (or skipped)
      */
-    private CompletableFuture<String> ensureStyleGuide() {
+    public CompletableFuture<String> ensureStyleGuide() {
         String existingStyleGuide = project.getStyleGuide();
 
         if (!existingStyleGuide.isEmpty()) {

@@ -9,6 +9,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
+import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;
@@ -1095,179 +1096,55 @@ public final class MainProject extends AbstractProject {
 
     /**
      * Performs the actual style.md to AGENTS.md migration.
-     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
+     * Delegates to StyleGuideMigrator for the core migration logic.
      *
      * @param chrome the Chrome instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
     public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
         try {
-            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
-            Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = getMasterRootPathForConfig().resolve("AGENTS.md");
+            var brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
+            var agentsFile = getMasterRootPathForConfig().resolve(STYLE_GUIDE_FILE);
+            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
 
-            if (!Files.exists(styleFile)) {
-                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
+            logger.info(
+                    "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",
+                    getRoot().getFileName());
+
+            var result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+            if (result.performed()) {
+                logger.info("Migration successful: {}", result.message());
+                setMigrationDeclined(false);
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
+                return true;
+            } else {
+                logger.info("Migration not performed: {}", result.message());
                 chrome.showNotification(
-                        IConsoleIO.NotificationRole.ERROR, "Migration failed: .brokk/style.md not found");
+                        IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
-
-            logger.info(
-                    "Starting .brokk/style.md to AGENTS.md (root) migration for {}",
-                    getRoot().getFileName());
-
-            // If this is a Git repository, stage the changes
-            if (hasGit()) {
-                GitRepo gitRepo = (GitRepo) getRepo();
-
-                try {
-                    // Use GitRepo.move to handle the rename with proper Git staging
-                    String relStylePath =
-                            getMasterRootPathForConfig().relativize(styleFile).toString();
-                    String relAgentsPath =
-                            getMasterRootPathForConfig().relativize(agentsFile).toString();
-
-                    gitRepo.move(relStylePath, relAgentsPath);
-                    logger.info(
-                            "Staged style.md -> AGENTS.md rename in Git for {}",
-                            getRoot().getFileName());
-                } catch (Exception gitEx) {
-                    logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, falling back to manual copy+delete: {}",
-                            gitEx.getMessage());
-                    // If GitRepo.move fails, do manual copy and delete
-                    try {
-                        String content = Files.readString(styleFile);
-                        Files.writeString(agentsFile, content);
-                        Files.delete(styleFile);
-                        logger.debug("Manually copied style.md to AGENTS.md and deleted original");
-                    } catch (IOException fallbackEx) {
-                        logger.error("Failed to manually migrate style.md: {}", fallbackEx.getMessage());
-                        return false;
-                    }
-                }
-            } else {
-                // Not a Git repository; do manual copy and delete
-                try {
-                    String content = Files.readString(styleFile);
-                    Files.writeString(agentsFile, content);
-                    Files.delete(styleFile);
-                    logger.debug("Manually migrated style.md to AGENTS.md (non-Git project)");
-                } catch (IOException copyEx) {
-                    logger.error("Failed to manually migrate style.md: {}", copyEx.getMessage());
-                    return false;
-                }
-            }
-
-            // Mark migration as complete by resetting the declined flag
-            setMigrationDeclined(false);
-            logger.info(
-                    "Completed .brokk/style.md to AGENTS.md (root) migration for {}",
-                    getRoot().getFileName());
-
-            chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Migration complete: .brokk/style.md has been renamed to AGENTS.md at project root and staged in Git.");
-            return true;
         } catch (Exception e) {
             logger.error(
                     "Error performing style.md to AGENTS.md migration for {}: {}",
                     getRoot().getFileName(),
                     e.getMessage(),
                     e);
-            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Migration failed: " + e.getMessage());
+            chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
     }
 
     /**
      * DEPRECATED: Use performStyleMdToAgentsMdMigration(Chrome) instead.
-     * Performs the actual style.md to AGENTS.md migration.
-     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
+     * Delegates to the new consolidated migration path.
      *
      * @param chrome the Chrome instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
     @Deprecated
     public boolean performStyleMdToAgentsMdMigrationOld(Chrome chrome) {
-        try {
-            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
-            Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = brokkDir.resolve("AGENTS.md");
-
-            if (!Files.exists(styleFile)) {
-                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.ERROR, "Migration failed: style.md not found at " + styleFile);
-                return false;
-            }
-
-            logger.info(
-                    "Starting style.md to AGENTS.md migration for {}", getRoot().getFileName());
-
-            // Copy content from style.md to AGENTS.md
-            String content = Files.readString(styleFile);
-            Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md with content from style.md");
-
-            // If this is a Git repository, stage the changes
-            if (hasGit()) {
-                GitRepo gitRepo = (GitRepo) getRepo();
-
-                try {
-                    // Use GitRepo.move to handle the rename with proper Git staging
-                    String relStylePath =
-                            getMasterRootPathForConfig().relativize(styleFile).toString();
-                    String relAgentsPath =
-                            getMasterRootPathForConfig().relativize(agentsFile).toString();
-
-                    gitRepo.move(relStylePath, relAgentsPath);
-                    logger.info(
-                            "Staged style.md -> AGENTS.md rename in Git for {}",
-                            getRoot().getFileName());
-                } catch (Exception gitEx) {
-                    logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
-                            gitEx.getMessage());
-                    // If GitRepo.move fails, just delete the old file manually
-                    // The new file will have been created above
-                    try {
-                        Files.delete(styleFile);
-                        logger.debug("Deleted style.md manually");
-                    } catch (IOException deleteEx) {
-                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                    }
-                }
-            } else {
-                // Not a Git repository; just delete the old file
-                try {
-                    Files.delete(styleFile);
-                    logger.debug("Deleted style.md (non-Git project)");
-                } catch (IOException deleteEx) {
-                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                }
-            }
-
-            // Mark migration as complete by resetting the declined flag
-            setMigrationDeclined(false);
-            logger.info(
-                    "Completed style.md to AGENTS.md migration for {}",
-                    getRoot().getFileName());
-
-            chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
-            return true;
-        } catch (Exception e) {
-            logger.error(
-                    "Error performing style.md to AGENTS.md migration for {}: {}",
-                    getRoot().getFileName(),
-                    e.getMessage(),
-                    e);
-            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Migration failed: " + e.getMessage());
-            return false;
-        }
+        return performStyleMdToAgentsMdMigration(chrome);
     }
 
     public static String getGitHubToken() {
