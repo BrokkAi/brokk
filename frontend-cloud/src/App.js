@@ -61,6 +61,7 @@ function App() {
   const [status, setStatus] = useState('Connecting...');
   const [progressMessage, setProgressMessage] = useState('');
   const [tokenBuffer, setTokenBuffer] = useState('');
+  const [reasoningBuffer, setReasoningBuffer] = useState('');
   const [totalCost, setTotalCost] = useState(0);
   const [totalTokens, setTotalTokens] = useState(0);
   const [requestCount, setRequestCount] = useState(0);
@@ -101,13 +102,110 @@ function App() {
     return false;
   }
 
+  function isReasoningEvent(ev) {
+    const data = ev?.data;
+    if (!data) {
+      return false;
+    }
+
+    if (data.isReasoning === true) {
+      return true;
+    }
+
+    const type = typeof data.type === 'string' ? data.type.toLowerCase() : '';
+    if (type.includes('reasoning')) {
+      return true;
+    }
+
+    const stream = typeof data.stream === 'string' ? data.stream.toLowerCase() : '';
+    if (stream === 'reasoning') {
+      return true;
+    }
+
+    const channel = typeof data.channel === 'string' ? data.channel.toLowerCase() : '';
+    if (channel === 'reasoning') {
+      return true;
+    }
+
+    const category = typeof data.category === 'string' ? data.category.toLowerCase() : '';
+    if (category === 'reasoning') {
+      return true;
+    }
+
+    const source = typeof data.source === 'string' ? data.source.toLowerCase() : '';
+    if (source === 'reasoning') {
+      return true;
+    }
+
+    const tags = data.tags;
+    if (Array.isArray(tags)) {
+      if (tags.some(tag => typeof tag === 'string' && tag.toLowerCase().includes('reasoning'))) {
+        return true;
+      }
+    } else if (tags && typeof tags === 'object') {
+      for (const [key, value] of Object.entries(tags)) {
+        if (typeof key === 'string' && key.toLowerCase().includes('reasoning')) {
+          return true;
+        }
+        if (typeof value === 'string' && value.toLowerCase().includes('reasoning')) {
+          return true;
+        }
+        if (value === true && typeof key === 'string' && key.toLowerCase().includes('reasoning')) {
+          return true;
+        }
+      }
+    }
+
+    const metadata = data.metadata;
+    if (metadata && typeof metadata === 'object') {
+      for (const value of Object.values(metadata)) {
+        if (typeof value === 'string' && value.toLowerCase().includes('reasoning')) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function reasoningTextFromData(data) {
+    if (typeof data === 'string') {
+      return data;
+    }
+
+    if (data == null) {
+      return '';
+    }
+
+    if (typeof data.message === 'string') {
+      return data.message;
+    }
+
+    if (typeof data.text === 'string') {
+      return data.text;
+    }
+
+    if (typeof data.reasoning === 'string') {
+      return data.reasoning;
+    }
+
+    if (Array.isArray(data.content)) {
+      return data.content
+        .filter(block => block && block.type === 'text' && typeof block.text === 'string')
+        .map(block => block.text)
+        .join('\n');
+    }
+
+    return '';
+  }
+
   useEffect(() => {
     checkHealth();
   }, []);
 
   useEffect(() => {
     eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [events]);
+  }, [events, tokenBuffer, reasoningBuffer]);
 
   useEffect(() => {
     if (currentJobId) {
@@ -143,6 +241,7 @@ function App() {
     setIsLoading(true);
     setEvents([]);
     setTokenBuffer('');
+    setReasoningBuffer('');
     setProgressMessage('Processing...');
     
     try {
@@ -199,6 +298,15 @@ function App() {
               if (isContextBaselineEvent(event)) {
                 continue;
               }
+
+              if (eventType.includes('reasoning')) {
+                const reasoningText = reasoningTextFromData(event.data);
+                if (reasoningText) {
+                  setReasoningBuffer(prev => prev + reasoningText);
+                  setProgressMessage('Thinking...');
+                }
+                continue;
+              }
               
               // Handle LLM_TOKEN/LM_TOKEN: render tokens as markdown content
               // - push every token event to the stream (renderer shows only token content as Markdown)
@@ -206,8 +314,14 @@ function App() {
               if (eventType === 'lm_token' || eventType === 'llm_token') {
                 const token = event.data?.token;
                 if (typeof token === 'string' && token.length > 0) {
-                  setProgressMessage(token);
-                  setTokenBuffer(prev => prev + token);
+                  if (isReasoningEvent(event)) {
+                    setReasoningBuffer(prev => prev + token);
+                    setProgressMessage('Thinking...');
+                  } else {
+                    setTokenBuffer(prev => prev + token);
+                    const trimmedToken = token.trim();
+                    setProgressMessage(trimmedToken.length > 0 ? trimmedToken : 'Generating response...');
+                  }
                 }
                 continue;
               }
@@ -427,6 +541,15 @@ function App() {
             <div className="placeholder">Ask a question to get started...</div>
           )}
           {events.map((event, index) => renderEvent(event, index))}
+          {reasoningBuffer && (
+            <details className="event event-reasoning">
+              <summary>Model Reasoning (click to expand)</summary>
+              <div
+                className="event-content event-content-markdown event-reasoning-content"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(reasoningBuffer)) }}
+              />
+            </details>
+          )}
           {tokenBuffer && (
             <div className="event event-message">
               <div className="event-type">LLM Output</div>

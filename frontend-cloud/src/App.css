@@ -87,6 +87,44 @@
   background-color: #1e2a20;
 }
 
+.event-reasoning {
+  border-left-color: #757575;
+  background-color: #242424;
+  color: #ccc;
+}
+
+.event-reasoning summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #bbb;
+  outline: none;
+}
+
+.event-reasoning[open] summary {
+  color: #61dafb;
+}
+
+.event-reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+.event-reasoning summary::before {
+  content: '>';
+  display: inline-block;
+  margin-right: 0.5rem;
+  transition: transform 0.2s ease;
+}
+
+.event-reasoning[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.event-reasoning-content {
+  margin-top: 0.75rem;
+}
+
 .event-error {
   border-left-color: #f44336;
   background-color: #2a1e1e;
