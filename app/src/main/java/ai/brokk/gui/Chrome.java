@@ -716,21 +716,21 @@ public class Chrome
 
         // Set up focus traversal with individual components for granular navigation
         var focusOrder = List.<Component>of(
+                instructionsPanel.getInstructionsArea(),
                 instructionsPanel.getActionButton(),
                 instructionsPanel.getModelSelectorComponent(),
                 instructionsPanel.getMicButton(),
                 instructionsPanel.getWandButton(),
                 instructionsPanel.getHistoryDropdown(),
-                instructionsPanel.getInstructionsArea(),
+                taskListPanel.getGoStopButton(),
+                taskListPanel.getTaskInput(),
+                taskListPanel.getTaskList(),
                 projectFilesPanel.getSearchField(),
                 projectFilesPanel.getRefreshButton(),
                 projectFilesPanel.getProjectTree(),
                 dependenciesPanel.getDependencyTable(),
                 dependenciesPanel.getAddButton(),
                 dependenciesPanel.getRemoveButton(),
-                taskListPanel.getTaskInput(),
-                taskListPanel.getGoStopButton(),
-                taskListPanel.getTaskList(),
                 historyOutputPanel.getHistoryTable(),
                 historyOutputPanel.getLlmStreamArea());
         frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
