@@ -3,261 +3,312 @@ package ai.brokk.init;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.git.GitRepo;
-import java.io.IOException;
+import ai.brokk.git.GitTestCleanupUtil;
+import ai.brokk.init.StyleGuideMigrator.MigrationResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Set;
+import org.eclipse.jgit.api.Git;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit tests for StyleGuideMigrator.
- * Covers success paths (git and non-git), edge cases, and idempotency.
+ * Tests for StyleGuideMigrator.
+ * Covers git and non-git scenarios, edge cases, and idempotency.
  */
 class StyleGuideMigratorTest {
 
-    private StyleGuideMigrator migrator;
+    @TempDir
+    Path tempDir;
+
+    private Path projectRoot;
+    private Path brokkDir;
+    private Path agentsFile;
+    private GitRepo gitRepo;
 
     @BeforeEach
-    void setUp() {
-        migrator = new StyleGuideMigrator();
+    void setUp() throws Exception {
+        projectRoot = tempDir.resolve("testProject");
+        Files.createDirectories(projectRoot);
+        brokkDir = projectRoot.resolve(".brokk");
+        Files.createDirectories(brokkDir);
+        agentsFile = projectRoot.resolve("AGENTS.md");
+
+        // Initialize git repository
+        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
+            // Create an initial commit
+            Path readme = projectRoot.resolve("README.md");
+            Files.writeString(readme, "Initial commit file.");
+            git.add().addFilepattern("README.md").call();
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Test User", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        gitRepo = new GitRepo(projectRoot);
     }
 
-    @Test
-    void testMigrateSuccessNonGit(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy style.md with content, no git repo
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        String content = "# Style Guide\nCode style rules here.";
-        Files.writeString(legacyPath, content);
-
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-        // Verify
-        assertTrue(result.success());
-        assertTrue(result.wasMigrated());
-        assertFalse(result.stagedToGit()); // No git repo provided
-        assertNull(result.errorMessage());
-        assertTrue(Files.exists(agentsMdPath));
-        assertEquals(content, Files.readString(agentsMdPath));
-        assertFalse(Files.exists(legacyPath));
-    }
-
-    @Test
-    void testMigrateLegacyNotFound(@TempDir Path tempDir) {
-        // Setup: no legacy style.md
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-        // Verify: idempotent (no-op)
-        assertTrue(result.success());
-        assertFalse(result.wasMigrated());
-        assertNull(result.errorMessage());
-    }
-
-    @Test
-    void testMigrateLegacyEmpty(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy style.md exists but is empty
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        Files.writeString(legacyPath, "   \n\n  ");
-
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-        // Verify: idempotent (no-op)
-        assertTrue(result.success());
-        assertFalse(result.wasMigrated());
-        assertNull(result.errorMessage());
-        assertTrue(Files.exists(legacyPath)); // Not deleted
-    }
-
-    @Test
-    void testMigrateTargetAlreadyExists(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy with content, target AGENTS.md with content
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        Files.writeString(legacyPath, "Legacy content");
-
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-        String existingContent = "Existing AGENTS content";
-        Files.writeString(agentsMdPath, existingContent);
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-        // Verify: idempotent (no-op)
-        assertTrue(result.success());
-        assertFalse(result.wasMigrated());
-        assertNull(result.errorMessage());
-        assertEquals(existingContent, Files.readString(agentsMdPath)); // Unchanged
-        assertTrue(Files.exists(legacyPath)); // Not deleted
-    }
-
-    @Test
-    void testMigrateTargetExistsButEmpty(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy with content, target AGENTS.md exists but is empty
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        String legacyContent = "# Important Guide";
-        Files.writeString(legacyPath, legacyContent);
-
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-        Files.writeString(agentsMdPath, "  \n  ");
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-        // Verify: migrates because target is empty
-        assertTrue(result.success());
-        assertTrue(result.wasMigrated());
-        assertNull(result.errorMessage());
-        assertEquals(legacyContent, Files.readString(agentsMdPath));
-        assertFalse(Files.exists(legacyPath));
-    }
-
-    @Test
-    void testMigrateUnreadableLegacy(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy style.md that cannot be read
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        Files.writeString(legacyPath, "content");
-
-        // Make file unreadable
-        legacyPath.toFile().setReadable(false);
-
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
-
-        try {
-            // Execute
-            StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, null);
-
-            // Verify: failure with error message
-            assertFalse(result.success());
-            assertFalse(result.wasMigrated());
-            assertNotNull(result.errorMessage());
-            assertTrue(result.errorMessage().contains("Unable to read legacy style.md"));
-        } finally {
-            // Restore permissions for cleanup
-            legacyPath.toFile().setReadable(true);
+    @AfterEach
+    void tearDown() throws Exception {
+        if (gitRepo != null) {
+            GitTestCleanupUtil.cleanupGitResources(gitRepo);
         }
     }
 
+    /**
+     * Test 1: Successful migration with git staging
+     */
     @Test
-    void testMigrateIdempotentAfterSuccess(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy style.md with content
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        String content = "# Style Guide";
-        Files.writeString(legacyPath, content);
+    void testSuccessfulMigration_WithGit() throws Exception {
+        // Create legacy style.md with content
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Legacy Style Guide\nOld content here");
 
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
 
-        // Execute first migration
-        StyleGuideMigrator.MigrationResult result1 = migrator.migrate(brokkDir, agentsMdPath, null);
-        assertTrue(result1.success());
-        assertTrue(result1.wasMigrated());
+        // Verify migration performed
+        assertTrue(result.performed(), "Migration should be performed");
 
-        // Execute second migration (should be no-op)
-        StyleGuideMigrator.MigrationResult result2 = migrator.migrate(brokkDir, agentsMdPath, null);
+        // Verify AGENTS.md has the legacy content
+        assertTrue(Files.exists(agentsFile), "AGENTS.md should exist");
+        String agentsContent = Files.readString(agentsFile);
+        assertEquals("# Legacy Style Guide\nOld content here", agentsContent);
 
-        // Verify: idempotent
-        assertTrue(result2.success());
-        assertFalse(result2.wasMigrated());
-        assertNull(result2.errorMessage());
+        // Verify legacy file was deleted
+        assertFalse(Files.exists(legacyFile), "Legacy style.md should be deleted");
+
+        // Verify message
+        assertTrue(result.message().contains("Migrated"), "Message should indicate migration");
     }
 
+    /**
+     * Test 2: Successful migration without git (non-git project)
+     */
     @Test
-    void testMigrateWithMockGitRepo(@TempDir Path tempDir) throws IOException {
-        // Setup: legacy style.md, test GitRepo implementation that tracks adds
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        String content = "# Style Guide";
-        Files.writeString(legacyPath, content);
+    void testSuccessfulMigration_WithoutGit() throws Exception {
+        // Create legacy style.md with content
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Style Content");
 
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
+        // Perform migration without git
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, null);
 
-        // Test GitRepo that tracks calls (default interface implementation pattern)
-        Set<Path> stagedPaths = new HashSet<>();
-        GitRepo testRepo = new GitRepo(tempDir) {
-            @Override
-            public void add(Path path) {
-                stagedPaths.add(path);
-            }
+        // Verify migration performed
+        assertTrue(result.performed(), "Migration should be performed");
 
-            @Override
-            public void add(java.util.List<ai.brokk.analyzer.ProjectFile> files) {
-                // Not used in this test
-            }
-        };
-
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, testRepo);
-
-        // Verify
-        assertTrue(result.success());
-        assertTrue(result.wasMigrated());
-        assertTrue(result.stagedToGit());
-        assertNull(result.errorMessage());
-        assertEquals(content, Files.readString(agentsMdPath));
-        assertFalse(Files.exists(legacyPath));
-        assertTrue(stagedPaths.contains(legacyPath));
-        assertTrue(stagedPaths.contains(agentsMdPath));
+        // Verify files
+        assertTrue(Files.exists(agentsFile), "AGENTS.md should exist");
+        assertFalse(Files.exists(legacyFile), "Legacy file should be deleted");
+        assertEquals("# Style Content", Files.readString(agentsFile));
     }
 
+    /**
+     * Test 3: Target already exists with content - no migration
+     */
     @Test
-    void testMigrateGitRepoStageFailureNonFatal(@TempDir Path tempDir) throws IOException {
-        // Setup: migration should succeed even if git staging fails
-        Path brokkDir = tempDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        Path legacyPath = brokkDir.resolve("style.md");
-        String content = "# Style Guide";
-        Files.writeString(legacyPath, content);
+    void testTargetExists_NoMigration() throws Exception {
+        // Create both files
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Legacy");
+        Files.writeString(agentsFile, "# Current Content");
 
-        Path agentsMdPath = tempDir.resolve("AGENTS.md");
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
 
-        // Test GitRepo that throws on add() (default interface implementation pattern)
-        GitRepo testRepo = new GitRepo(tempDir) {
-            @Override
-            public void add(Path path) throws Exception {
-                throw new IOException("Git staging failed");
-            }
+        // Verify NO migration performed
+        assertFalse(result.performed(), "Should not migrate when target exists with content");
 
-            @Override
-            public void add(java.util.List<ai.brokk.analyzer.ProjectFile> files) throws Exception {
-                throw new IOException("Git staging failed");
-            }
-        };
+        // Verify AGENTS.md kept current content
+        String agentsContent = Files.readString(agentsFile);
+        assertEquals("# Current Content", agentsContent);
 
-        // Execute
-        StyleGuideMigrator.MigrationResult result = migrator.migrate(brokkDir, agentsMdPath, testRepo);
+        // Verify legacy file still exists
+        assertTrue(Files.exists(legacyFile), "Legacy file should remain");
+    }
 
-        // Verify: migration succeeds, but staging failed
-        assertTrue(result.success());
-        assertTrue(result.wasMigrated());
-        assertFalse(result.stagedToGit());
-        assertNotNull(result.errorMessage());
-        assertTrue(result.errorMessage().contains("Failed to stage migration to git"));
-        // Files should still be migrated
-        assertEquals(content, Files.readString(agentsMdPath));
-        assertFalse(Files.exists(legacyPath));
+    /**
+     * Test 4: Target exists but is empty - migration should proceed
+     */
+    @Test
+    void testTargetEmpty_MigrationProceeds() throws Exception {
+        // Create legacy file and empty target
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Legacy Content");
+        Files.writeString(agentsFile, "");
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify migration performed
+        assertTrue(result.performed(), "Migration should proceed for empty target");
+
+        // Verify content migrated
+        assertEquals("# Legacy Content", Files.readString(agentsFile));
+        assertFalse(Files.exists(legacyFile));
+    }
+
+    /**
+     * Test 5: Target exists but is blank (whitespace only) - migration should proceed
+     */
+    @Test
+    void testTargetBlank_MigrationProceeds() throws Exception {
+        // Create legacy file and blank target
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Legacy Content");
+        Files.writeString(agentsFile, "   \n  \n");
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify migration performed
+        assertTrue(result.performed(), "Migration should proceed for blank target");
+
+        // Verify content migrated
+        assertEquals("# Legacy Content", Files.readString(agentsFile));
+        assertFalse(Files.exists(legacyFile));
+    }
+
+    /**
+     * Test 6: Legacy file doesn't exist - no migration
+     */
+    @Test
+    void testLegacyMissing_NoMigration() throws Exception {
+        // Don't create legacy file
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify NO migration performed
+        assertFalse(result.performed(), "Should not migrate when legacy file missing");
+        assertTrue(result.message().contains("does not exist"));
+    }
+
+    /**
+     * Test 7: Legacy file is empty - no migration
+     */
+    @Test
+    void testLegacyEmpty_NoMigration() throws Exception {
+        // Create empty legacy file
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "");
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify NO migration performed
+        assertFalse(result.performed(), "Should not migrate empty legacy file");
+        assertTrue(result.message().contains("empty"));
+    }
+
+    /**
+     * Test 8: Legacy file is blank (whitespace only) - no migration
+     */
+    @Test
+    void testLegacyBlank_NoMigration() throws Exception {
+        // Create blank legacy file
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "   \n  \n");
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify NO migration performed
+        assertFalse(result.performed(), "Should not migrate blank legacy file");
+    }
+
+    /**
+     * Test 9: Legacy file is unreadable - error result
+     */
+    @Test
+    void testLegacyUnreadable_ErrorResult() throws Exception {
+        // Create legacy file
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Content");
+
+        // Make file unreadable
+        legacyFile.toFile().setReadable(false);
+
+        try {
+            // Perform migration
+            MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+            // Verify error reported
+            assertFalse(result.performed(), "Migration should fail for unreadable file");
+            assertTrue(result.message().contains("Cannot read"), "Should mention read error");
+        } finally {
+            // Restore readability for cleanup
+            legacyFile.toFile().setReadable(true);
+        }
+    }
+
+    /**
+     * Test 10: Idempotency - calling twice doesn't cause issues
+     */
+    @Test
+    void testIdempotency() throws Exception {
+        // Create legacy file
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Content");
+
+        // Perform migration first time
+        MigrationResult result1 = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        assertTrue(result1.performed(), "First migration should succeed");
+
+        // Perform migration second time
+        MigrationResult result2 = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        assertFalse(result2.performed(), "Second migration should be no-op");
+
+        // Verify AGENTS.md still has correct content
+        assertEquals("# Content", Files.readString(agentsFile));
+    }
+
+    /**
+     * Test 11: Migration with multiline content
+     */
+    @Test
+    void testMultilineContent() throws Exception {
+        // Create legacy file with multiline content
+        Path legacyFile = brokkDir.resolve("style.md");
+        String multilineContent = """
+                # Style Guide
+
+                ## Formatting
+                - Use spaces
+                - No trailing whitespace
+
+                ## Naming
+                - Use camelCase
+                """;
+        Files.writeString(legacyFile, multilineContent);
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify migration
+        assertTrue(result.performed());
+        assertEquals(multilineContent, Files.readString(agentsFile));
+        assertFalse(Files.exists(legacyFile));
+    }
+
+    /**
+     * Test 12: Migration preserves exact content including special characters
+     */
+    @Test
+    void testSpecialCharacters() throws Exception {
+        // Create legacy file with special characters
+        Path legacyFile = brokkDir.resolve("style.md");
+        String specialContent = "# Style\n\nUse `code` and *emphasis* and [links](http://example.com)\n";
+        Files.writeString(legacyFile, specialContent);
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+
+        // Verify exact content preserved
+        assertTrue(result.performed());
+        assertEquals(specialContent, Files.readString(agentsFile));
     }
 }

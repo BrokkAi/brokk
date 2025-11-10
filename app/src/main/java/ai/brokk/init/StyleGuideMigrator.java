@@ -9,127 +9,104 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Non-UI helper for migrating legacy .brokk/style.md to AGENTS.md at project root.
- * Handles both Git-based (with staging) and non-Git scenarios, including edge cases.
- * Designed to be called explicitly by orchestrators, never implicitly by UI setup steps.
+ * Handles migration of legacy .brokk/style.md to AGENTS.md at project root.
+ * This is a standalone utility that can be called by orchestrators before
+ * setting up git ignore configuration.
  */
 public class StyleGuideMigrator {
     private static final Logger logger = LogManager.getLogger(StyleGuideMigrator.class);
 
     /**
-     * Result of a migration attempt.
+     * Result of migration operation.
      *
-     * @param success true if migration completed (including idempotent no-op)
-     * @param wasMigrated true if files were actually moved/copied
-     * @param stagedToGit true if migrated file was staged to git
-     * @param errorMessage optional error details if success is false
+     * @param performed Whether migration was actually performed
+     * @param message Optional message describing what happened or why migration was skipped
      */
-    public record MigrationResult(
-            boolean success, boolean wasMigrated, boolean stagedToGit, @Nullable String errorMessage) {}
+    public record MigrationResult(boolean performed, String message) {}
 
     /**
-     * Migrates .brokk/style.md to AGENTS.md at the project root.
+     * Migrates legacy .brokk/style.md to AGENTS.md at project root if appropriate.
      *
-     * <p>Behavior:
+     * <p>Migration is performed only if:
      * <ul>
-     *   <li>If AGENTS.md already exists and has content, does nothing (idempotent).
-     *   <li>If .brokk/style.md is missing or empty, does nothing (idempotent).
-     *   <li>Otherwise, copies content to AGENTS.md and deletes .brokk/style.md.
-     *   <li>If gitRepo is provided and non-null, stages the files to git.
+     *   <li>Legacy file (.brokk/style.md) exists and is not blank
+     *   <li>Target file (AGENTS.md) either doesn't exist or is blank/empty
      * </ul>
      *
-     * @param brokkDir path to .brokk directory
-     * @param agentsMdPath path to target AGENTS.md (typically projectRoot/AGENTS.md)
-     * @param gitRepo optional GitRepo for staging; if null, no git staging occurs
-     * @return MigrationResult with outcome details
+     * <p>The migration involves:
+     * <ul>
+     *   <li>Reading content from .brokk/style.md
+     *   <li>Writing content to AGENTS.md
+     *   <li>Deleting .brokk/style.md
+     *   <li>Optionally staging both files to git (if gitRepo provided)
+     * </ul>
+     *
+     * <p>This operation is idempotent - calling it multiple times will not cause issues.
+     *
+     * @param brokkDir Path to .brokk directory (e.g., /project/.brokk)
+     * @param agentsFile Path to AGENTS.md file (e.g., /project/AGENTS.md)
+     * @param gitRepo Optional GitRepo for staging changes (can be null for non-git operations)
+     * @return Result indicating whether migration was performed and a descriptive message
      */
-    public MigrationResult migrate(Path brokkDir, Path agentsMdPath, @Nullable GitRepo gitRepo) {
+    public static MigrationResult migrate(Path brokkDir, Path agentsFile, @Nullable GitRepo gitRepo) {
+        var legacyStylePath = brokkDir.resolve("style.md");
+
+        // Check if legacy file exists
+        if (!Files.exists(legacyStylePath)) {
+            return new MigrationResult(false, "Legacy style.md does not exist");
+        }
+
+        // Read legacy content
+        String legacyContent;
         try {
-            Path legacyStylePath = brokkDir.resolve("style.md");
+            legacyContent = Files.readString(legacyStylePath);
+        } catch (IOException ex) {
+            logger.warn("Cannot read legacy style.md: {}", ex.getMessage());
+            return new MigrationResult(false, "Cannot read legacy style.md: " + ex.getMessage());
+        }
 
-            // Check if legacy file exists and is readable
-            if (!Files.exists(legacyStylePath)) {
-                logger.debug("Legacy style.md not found at {}; migration is idempotent (no-op)", legacyStylePath);
-                return new MigrationResult(true, false, false, null);
-            }
+        // Skip if legacy content is blank
+        if (legacyContent.isBlank()) {
+            return new MigrationResult(false, "Legacy style.md is empty");
+        }
 
-            String legacyContent;
+        // Check target file status
+        boolean targetMissing = !Files.exists(agentsFile);
+        boolean targetEmpty = false;
+
+        if (!targetMissing) {
             try {
-                legacyContent = Files.readString(legacyStylePath);
-            } catch (IOException e) {
-                String errorMsg = "Unable to read legacy style.md: " + e.getMessage();
-                logger.error(errorMsg);
-                return new MigrationResult(false, false, false, errorMsg);
+                targetEmpty = Files.readString(agentsFile).isBlank();
+            } catch (IOException ex) {
+                logger.warn("Error reading target AGENTS.md, treating as empty: {}", ex.getMessage());
+                targetEmpty = true;
+            }
+        }
+
+        // Skip if target exists and has content
+        if (!targetMissing && !targetEmpty) {
+            return new MigrationResult(false, "AGENTS.md already exists with content");
+        }
+
+        // Perform migration
+        try {
+            // If git repo provided, stage legacy file before deleting so git tracks the deletion
+            if (gitRepo != null) {
+                gitRepo.add(legacyStylePath);
             }
 
-            // Skip if legacy file is empty
-            if (legacyContent.isBlank()) {
-                logger.debug("Legacy style.md is empty; migration is idempotent (no-op)");
-                return new MigrationResult(true, false, false, null);
-            }
-
-            // Check if target already exists and has content
-            if (Files.exists(agentsMdPath)) {
-                try {
-                    String targetContent = Files.readString(agentsMdPath);
-                    if (!targetContent.isBlank()) {
-                        logger.debug(
-                                "AGENTS.md already exists with content; migration is idempotent (no-op)");
-                        return new MigrationResult(true, false, false, null);
-                    }
-                } catch (IOException e) {
-                    String errorMsg = "Unable to read target AGENTS.md: " + e.getMessage();
-                    logger.error(errorMsg);
-                    return new MigrationResult(false, false, false, errorMsg);
-                }
-            }
-
-            // Perform migration: write target, then delete legacy
-            try {
-                Files.writeString(agentsMdPath, legacyContent);
-                logger.debug("Created AGENTS.md with content from style.md");
-            } catch (IOException e) {
-                String errorMsg = "Failed to write AGENTS.md: " + e.getMessage();
-                logger.error(errorMsg);
-                return new MigrationResult(false, false, false, errorMsg);
-            }
+            // Write content to new location
+            Files.writeString(agentsFile, legacyContent);
 
             // Delete legacy file
-            try {
-                Files.delete(legacyStylePath);
-                logger.debug("Deleted legacy style.md");
-            } catch (IOException e) {
-                String errorMsg = "Failed to delete legacy style.md (AGENTS.md was created): " + e.getMessage();
-                logger.error(errorMsg);
-                // Still consider migration successful since target was written
-                return new MigrationResult(true, true, false, errorMsg);
-            }
+            Files.delete(legacyStylePath);
 
-            // Stage to git if repo is provided
-            boolean stagedToGit = false;
-            if (gitRepo != null) {
-                try {
-                    // Stage the deletion of legacy file (git tracks it)
-                    gitRepo.add(legacyStylePath);
-                    // Stage the new target file
-                    gitRepo.add(agentsMdPath);
-                    stagedToGit = true;
-                    logger.info("Staged style.md -> AGENTS.md migration to git");
-                } catch (Exception gitEx) {
-                    String gitError = "Failed to stage migration to git: " + gitEx.getMessage();
-                    logger.warn(gitError);
-                    // Migration itself succeeded, just git staging failed
-                    return new MigrationResult(true, true, false, gitError);
-                }
-            }
+            logger.info("Successfully migrated style guide from .brokk/style.md to AGENTS.md");
+            return new MigrationResult(true, "Migrated style.md to AGENTS.md");
 
-            logger.info("Successfully migrated style.md to AGENTS.md");
-            return new MigrationResult(true, true, stagedToGit, null);
-
-        } catch (Exception e) {
-            String errorMsg = "Unexpected error during migration: " + e.getMessage();
-            logger.error(errorMsg, e);
-            return new MigrationResult(false, false, false, errorMsg);
+        } catch (Exception ex) {
+            logger.error("Migration failed: {}", ex.getMessage(), ex);
+            return new MigrationResult(false, "Migration failed: " + ex.getMessage());
         }
     }
 }

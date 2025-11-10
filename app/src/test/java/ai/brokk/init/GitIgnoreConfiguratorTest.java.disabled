@@ -33,10 +33,16 @@ class GitIgnoreConfiguratorTest {
             private final Path root = tempDir;
             private final GitRepo repo = new GitRepo(tempDir) {
                 @Override
-                public void add(Path path) {}
+                public void add(Path path) {
+                }
 
                 @Override
-                public void add(java.util.List<ProjectFile> files) {}
+                public void add(java.util.List<ProjectFile> files) {
+                }
+
+                @Override
+                public void remove(ProjectFile file) {
+                }
             };
 
             @Override
@@ -53,10 +59,12 @@ class GitIgnoreConfiguratorTest {
         testGitRepo = (GitRepo) testProject.getRepo();
         testConsoleIO = new IConsoleIO() {
             @Override
-            public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+            public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            }
 
             @Override
-            public void toolError(String msg, String title) {}
+            public void toolError(String msg, String title) {
+            }
         };
     }
 
@@ -73,10 +81,16 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {}
+                    public void add(Path path) throws Exception {
+                    }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {}
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
+                    }
                 };
             }
         };
@@ -114,10 +128,16 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {}
+                    public void add(Path path) throws Exception {
+                    }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {}
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
+                    }
                 };
             }
         };
@@ -146,13 +166,17 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {
+                    public void add(Path path) throws Exception {
                         stagedPaths.add(path);
                     }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
                         // Not used in this test
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
                     }
                 };
             }
@@ -185,10 +209,16 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {}
+                    public void add(Path path) throws Exception {
+                    }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {}
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
+                    }
                 };
             }
         };
@@ -247,10 +277,16 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {}
+                    public void add(Path path) throws Exception {
+                    }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {}
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
+                    }
                 };
             }
         };
@@ -284,10 +320,16 @@ class GitIgnoreConfiguratorTest {
             public ai.brokk.git.IGitRepo getRepo() {
                 return new GitRepo(tempDir) {
                     @Override
-                    public void add(Path path) {}
+                    public void add(Path path) throws Exception {
+                    }
 
                     @Override
-                    public void add(java.util.List<ProjectFile> files) {}
+                    public void add(java.util.List<ProjectFile> files) throws Exception {
+                    }
+
+                    @Override
+                    public void remove(ProjectFile file) throws Exception {
+                    }
                 };
             }
         };

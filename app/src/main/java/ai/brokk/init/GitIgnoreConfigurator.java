@@ -26,16 +26,6 @@ public class GitIgnoreConfigurator {
     private static final Logger logger = LogManager.getLogger(GitIgnoreConfigurator.class);
 
     /**
-     * Policy for handling legacy style.md during git ignore setup.
-     */
-    public enum MigrationPolicy {
-        /** Do not perform any migration (default, safe choice). */
-        NO_MIGRATION,
-        /** Perform migration if legacy file exists and target is missing/empty. */
-        ATTEMPT_MIGRATION
-    }
-
-    /**
      * Result of git ignore setup operation.
      *
      * @param gitignoreUpdated Whether .gitignore was modified
@@ -53,11 +43,9 @@ public class GitIgnoreConfigurator {
      *
      * @param project The project to configure
      * @param consoleIO Console for logging (can be null for silent operation)
-     * @param migrationPolicy Policy for handling legacy files (has no effect; kept for API compatibility)
      * @return Result containing what was done and any errors
      */
-    public static SetupResult setupGitIgnoreAndStageFiles(
-            IProject project, @Nullable IConsoleIO consoleIO, MigrationPolicy migrationPolicy) {
+    public static SetupResult setupGitIgnoreAndStageFiles(IProject project, @Nullable IConsoleIO consoleIO) {
         var stagedFiles = new ArrayList<ProjectFile>();
         boolean gitignoreUpdated = false;
 
@@ -117,6 +105,7 @@ public class GitIgnoreConfigurator {
             Files.createDirectories(sharedBrokkDir);
 
             // Define shared file paths
+            var agentsMdPath = gitTopLevel.resolve("AGENTS.md");
             var reviewMdPath = sharedBrokkDir.resolve("review.md");
             var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
@@ -124,8 +113,7 @@ public class GitIgnoreConfigurator {
             // Migration is the orchestrator's responsibility and should be done via
             // StyleGuideMigrator before calling this method.
 
-            // Create stub AGENTS.md if it doesn't exist
-            var agentsMdPath = gitTopLevel.resolve("AGENTS.md");
+            // Create stub AGENTS.md if it doesn't exist (or preserve existing)
             if (!Files.exists(agentsMdPath)) {
                 try {
                     Files.writeString(agentsMdPath, "# Agents Guide\n");
@@ -134,6 +122,7 @@ public class GitIgnoreConfigurator {
                     logger.error("Failed to create stub AGENTS.md: {}", ex.getMessage());
                 }
             }
+
             if (!Files.exists(reviewMdPath)) {
                 try {
                     Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
@@ -142,6 +131,7 @@ public class GitIgnoreConfigurator {
                     logger.error("Failed to create stub review.md: {}", ex.getMessage());
                 }
             }
+
             if (!Files.exists(projectPropsPath)) {
                 try {
                     Files.writeString(projectPropsPath, "# Brokk project configuration\n");
@@ -201,5 +191,4 @@ public class GitIgnoreConfigurator {
         }
         return false;
     }
-
 }

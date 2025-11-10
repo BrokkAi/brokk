@@ -797,10 +797,7 @@ public class Chrome
 
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             var project = getProject();
-            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(
-                    project,
-                    this,
-                    GitIgnoreConfigurator.MigrationPolicy.NO_MIGRATION);
+            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, this);
 
             if (result.errorMessage().isPresent()) {
                 logger.error("Git setup failed: {}", result.errorMessage().get());

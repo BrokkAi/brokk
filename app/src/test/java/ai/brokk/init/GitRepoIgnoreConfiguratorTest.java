@@ -300,10 +300,10 @@ class GitRepoIgnoreConfiguratorTest {
     }
 
     /**
-     * Test 9: Migration - legacy style.md exists and AGENTS.md missing
+     * Test 9: NO migration - legacy style.md exists but configurator does not migrate
      */
     @Test
-    void testMigration_LegacyFileExists_PerformsMigration() throws Exception {
+    void testNoMigration_LegacyFileExists() throws Exception {
         // Create legacy .brokk/style.md with content
         Files.createDirectories(projectRoot.resolve(".brokk"));
         Files.writeString(projectRoot.resolve(".brokk/style.md"), "# Legacy Style Guide\nOld content here");
@@ -313,29 +313,27 @@ class GitRepoIgnoreConfiguratorTest {
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
 
-        // Verify migration performed
-        assertTrue(result.migrationPerformed(), "Migration should be performed");
-
-        // Verify AGENTS.md has the legacy content
+        // Verify NO migration performed - configurator never migrates
+        // Instead, a stub AGENTS.md should be created
         assertTrue(Files.exists(projectRoot.resolve("AGENTS.md")));
         String agentsContent = Files.readString(projectRoot.resolve("AGENTS.md"));
-        assertTrue(agentsContent.contains("Legacy Style Guide"));
-        assertTrue(agentsContent.contains("Old content here"));
+        assertTrue(agentsContent.contains("# Agents Guide"), "Should have stub content");
+        assertFalse(agentsContent.contains("Legacy Style Guide"), "Should NOT contain legacy content");
 
-        // Verify legacy file was deleted
-        assertFalse(Files.exists(projectRoot.resolve(".brokk/style.md")), "Legacy file should be deleted");
+        // Verify legacy file still exists (not deleted)
+        assertTrue(Files.exists(projectRoot.resolve(".brokk/style.md")), "Legacy file should remain");
 
-        // Verify legacy file is in staged files list (using Path for platform independence)
-        assertTrue(
+        // Verify legacy file is NOT in staged files list
+        assertFalse(
                 result.stagedFiles().stream().anyMatch(f -> f.getRelPath().equals(Path.of(".brokk", "style.md"))),
-                "Legacy file should be in staged files");
+                "Legacy file should NOT be in staged files");
     }
 
     /**
-     * Test 10: Migration - empty legacy file - no migration
+     * Test 10: NO migration - empty legacy file exists
      */
     @Test
-    void testMigration_EmptyLegacyFile_NoMigration() throws Exception {
+    void testNoMigration_EmptyLegacyFile() throws Exception {
         // Create empty legacy file
         Files.createDirectories(projectRoot.resolve(".brokk"));
         Files.writeString(projectRoot.resolve(".brokk/style.md"), "");
@@ -345,20 +343,17 @@ class GitRepoIgnoreConfiguratorTest {
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
 
-        // Verify NO migration performed
-        assertFalse(result.migrationPerformed(), "Should not migrate empty file");
-
-        // Verify stub AGENTS.md was created
+        // Verify stub AGENTS.md was created (configurator never migrates)
         assertTrue(Files.exists(projectRoot.resolve("AGENTS.md")));
         String agentsContent = Files.readString(projectRoot.resolve("AGENTS.md"));
         assertTrue(agentsContent.contains("# Agents Guide"), "Should have stub content");
     }
 
     /**
-     * Test 11: Migration - legacy file exists but AGENTS.md already exists
+     * Test 11: NO migration - both legacy and AGENTS.md exist
      */
     @Test
-    void testMigration_BothFilesExist_NoMigration() throws Exception {
+    void testNoMigration_BothFilesExist() throws Exception {
         // Create both files
         Files.createDirectories(projectRoot.resolve(".brokk"));
         Files.writeString(projectRoot.resolve(".brokk/style.md"), "# Legacy");
@@ -369,10 +364,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
 
-        // Verify NO migration performed
-        assertFalse(result.migrationPerformed(), "Should not migrate when AGENTS.md exists");
-
-        // Verify AGENTS.md kept current content
+        // Verify AGENTS.md kept current content (configurator never migrates)
         String agentsContent = Files.readString(projectRoot.resolve("AGENTS.md"));
         assertTrue(agentsContent.contains("# Current"));
         assertFalse(agentsContent.contains("# Legacy"));
@@ -384,7 +376,19 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testNonGitProject_ReturnsError() throws Exception {
         // Create project without GitRepo
-        var nonGitProject = new TestProject(projectRoot, null) {
+        var nonGitProject = new TestProject(projectRoot, new GitRepo(projectRoot) {
+            @Override
+            public void add(Path path) {
+            }
+
+            @Override
+            public void add(java.util.Collection<ProjectFile> files) {
+            }
+
+            @Override
+            public void remove(ProjectFile file) {
+            }
+        }) {
             @Override
             public GitRepo getRepo() {
                 return null;
@@ -407,7 +411,6 @@ class GitRepoIgnoreConfiguratorTest {
 
         // Verify no operations performed
         assertFalse(result.gitignoreUpdated());
-        assertFalse(result.migrationPerformed());
         assertTrue(result.stagedFiles().isEmpty());
     }
 
