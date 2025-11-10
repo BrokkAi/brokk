@@ -4,7 +4,6 @@ import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -12,7 +11,6 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer {
@@ -413,24 +411,20 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     public List<CodeUnit> computeSupertypes(CodeUnit cu) {
         if (!cu.isClass()) return List.of();
 
-        // Obtain the cached parse tree for this file
-        TSTree tree = treeOf(cu.source());
-        if (tree == null) {
-            return List.of();
-        }
-        // Load source text for slice operations
-        final String src;
-        try {
-            src = Files.readString(cu.source().absPath());
-        } catch (Exception e) {
+        // Pull cached raw supertypes from CodeUnitProperties
+        var rawNames = withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+
+        if (rawNames.isEmpty()) {
             return List.of();
         }
 
         // Get resolved imports for this file from the analyzer pipeline
         Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
 
+        // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                cu, tree, src, getTSLanguage(), this::textSlice, resolvedImports, this::searchDefinitions);
+                rawNames, cu.packageName(), resolvedImports, this::getDefinition, this::searchDefinitions);
     }
 
     @Override
@@ -492,5 +486,77 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
         localCuByFqName.put(moduleCu.fqName(), moduleCu);
+    }
+
+    @Override
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Java-specific extraction preserving [extends, implements...] order using AST fields
+        try {
+            List<String> result = new ArrayList<>();
+
+            TSNode extendsNode = classNode.getChildByFieldName("superclass");
+            if (extendsNode != null && !extendsNode.isNull()) {
+                String raw = textSlice(extendsNode, src).strip();
+                if (!raw.isEmpty()) {
+                    // Strip the leading 'extends' keyword if present
+                    raw = raw.replaceFirst("^extends\\s+", "").strip();
+                    if (!raw.isEmpty()) {
+                        result.add(raw);
+                    }
+                }
+            }
+
+            TSNode interfacesNode = classNode.getChildByFieldName("interfaces");
+            if (interfacesNode != null && !interfacesNode.isNull()) {
+                String rawList = textSlice(interfacesNode, src).strip();
+                if (!rawList.isEmpty()) {
+                    // For classes: implements A, B; interfaces: extends A, B
+                    rawList = rawList.replaceFirst("^(implements|extends)\\s+", "")
+                            .strip();
+                    if (!rawList.isEmpty()) {
+                        for (String t : splitTypeListRespectingGenericsJava(rawList)) {
+                            String tt = t.strip();
+                            if (!tt.isEmpty()) {
+                                result.add(tt);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return result;
+        } catch (Throwable t) {
+            log.debug(
+                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {}: {}",
+                    cu.fqName(),
+                    t.toString());
+            return List.of();
+        }
+    }
+
+    private static List<String> splitTypeListRespectingGenericsJava(String text) {
+        List<String> out = new ArrayList<>();
+        StringBuilder sb = new StringBuilder(text.length());
+        int depth = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '<') {
+                depth++;
+                sb.append(c);
+            } else if (c == '>') {
+                if (depth > 0) depth--;
+                sb.append(c);
+            } else if (c == ',' && depth == 0) {
+                String token = sb.toString().trim();
+                if (!token.isEmpty()) out.add(token);
+                sb.setLength(0);
+            } else {
+                sb.append(c);
+            }
+        }
+        String token = sb.toString().trim();
+        if (!token.isEmpty()) out.add(token);
+        return List.copyOf(out);
     }
 }

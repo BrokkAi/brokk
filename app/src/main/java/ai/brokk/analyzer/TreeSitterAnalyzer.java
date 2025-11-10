@@ -132,11 +132,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> children,
             List<String> signatures,
             List<Range> ranges,
+            List<String> rawSupertypes,
             List<CodeUnit> supertypes,
             boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
+                    Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
@@ -1488,6 +1490,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
+        Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
@@ -1837,6 +1840,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         simpleName);
             }
 
+            // Allow language-specific extraction of raw supertypes (e.g., extends/implements for Java)
+            if (cu.isClass()) {
+                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, src);
+                if (!rawSupers.isEmpty()) {
+                    localRawSupertypes.put(cu, rawSupers);
+                }
+            }
+
             // Handle potential duplicates (e.g. JS export and direct lexical declaration).
             // If `cu` is `equals()` to `existingCUforKeyLookup` (e.g., overloads), signatures are accumulated.
             // If they are not `equals()` but have same FQName, this logic might replace based on export preference.
@@ -1997,11 +2008,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
+            var rawSupers = localRawSupertypes.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
             localStates.put(
                     cu,
                     new CodeUnitProperties(
-                            List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), List.of(), hasBody));
+                            List.copyOf(kids),
+                            List.copyOf(sigs),
+                            List.copyOf(rngs),
+                            List.copyOf(rawSupers),
+                            List.of(),
+                            hasBody));
         }
 
         // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
@@ -2040,6 +2057,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String determineClassName(String captureName, String shortName) {
         return shortName;
+    }
+
+    /**
+     * Hook to extract raw supertype names (extends/implements) for a class-like node.
+     * Default implementation returns an empty list. Language analyzers (e.g., JavaAnalyzer)
+     * should override this to return ordered raw type names as they appear in source.
+     *
+     * The returned names should be raw textual representations (possibly including generics)
+     * and will be resolved later in runTypeAnalysis via imports and global search.
+     *
+     * @param cu           the CodeUnit representing the class-like declaration
+     * @param classNode    the TSNode for the class/interface/enum/record declaration
+     * @param signature    the rendered signature text (first line typically), if useful
+     * @param src          the source code string
+     * @return ordered list of raw supertypes; empty if none or not applicable
+     */
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Default: languages that need inheritance extraction should override this.
+        return List.of();
     }
 
     /**
@@ -2451,6 +2488,140 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     protected String formatHeritage(String signatureText) {
         return signatureText;
+    }
+
+    /**
+     * Parses Java class/interface header text to extract ordered raw supertype names (extends first, then implements).
+     * Assumes input is a single header line like:
+     *   "public class Foo extends pkg.Base implements A, B {"
+     */
+    private static List<String> parseJavaSupertypesFromHeader(String headerLine) {
+        // Remove trailing "{..."; keep before first '{'
+        String header = headerLine;
+        int brace = header.indexOf('{');
+        if (brace >= 0) header = header.substring(0, brace);
+        header = header.strip();
+
+        List<String> result = new ArrayList<>();
+
+        // Extract extends part
+        var extendsMatcher = Pattern.compile("\\bextends\\s+([^\\{]+?)(?=\\bimplements\\b|\\{|$)")
+                .matcher(header);
+        if (extendsMatcher.find()) {
+            String ext = extendsMatcher.group(1).strip();
+            result.addAll(splitTypeListRespectingGenerics(ext));
+        }
+
+        // Extract implements part
+        var implementsMatcher =
+                Pattern.compile("\\bimplements\\s+([^\\{]+?)(?=\\{|$)").matcher(header);
+        if (implementsMatcher.find()) {
+            String impls = implementsMatcher.group(1).strip();
+            result.addAll(splitTypeListRespectingGenerics(impls));
+        }
+
+        // For interfaces: "interface X extends A, B"
+        // The 'extends' part above already captures it; no special casing needed.
+
+        // Normalize whitespace
+        return result.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+    }
+
+    /**
+     * Splits a comma-separated type list while respecting generic angle brackets, e.g.
+     * "Foo<Bar,Baz>, Qux" => ["Foo<Bar,Baz>", "Qux"]
+     */
+    private static List<String> splitTypeListRespectingGenerics(String text) {
+        List<String> out = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '<') {
+                depth++;
+                sb.append(c);
+            } else if (c == '>') {
+                depth = Math.max(0, depth - 1);
+                sb.append(c);
+            } else if (c == ',' && depth == 0) {
+                String token = sb.toString().trim();
+                if (!token.isEmpty()) out.add(token);
+                sb.setLength(0);
+            } else {
+                sb.append(c);
+            }
+        }
+        String token = sb.toString().trim();
+        if (!token.isEmpty()) out.add(token);
+        return out;
+    }
+
+    /**
+     * Resolves cached Java raw supertype names to CodeUnits using imports, same-package, java.lang, and global scan.
+     * Maintains the original order.
+     */
+    private List<CodeUnit> resolveJavaSupertypesFromCached(
+            List<String> rawNames, String currentPackage, Set<CodeUnit> resolvedImports, TreeSitterAnalyzer delegate) {
+
+        List<CodeUnit> resolved = new ArrayList<>();
+        for (String raw : rawNames) {
+            String name = ai.brokk.analyzer.JavaAnalyzer.stripGenericTypeArguments(raw)
+                    .trim();
+            if (name.isEmpty()) continue;
+
+            Optional<CodeUnit> found = Optional.empty();
+
+            // Fully-qualified exact
+            if (name.contains(".")) {
+                found = delegate.getDefinition(name).filter(CodeUnit::isClass);
+                if (found.isPresent()) {
+                    resolved.add(found.get());
+                    continue;
+                }
+            }
+
+            // Simple name
+            String simple = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
+
+            // Imports by simple name
+            Optional<CodeUnit> inImports = resolvedImports.stream()
+                    .filter(cu -> cu.isClass() && cu.identifier().equals(simple))
+                    .findFirst();
+            if (inImports.isPresent()) {
+                resolved.add(inImports.get());
+                continue;
+            }
+
+            // Same package
+            if (!currentPackage.isBlank()) {
+                String candidate = currentPackage + "." + simple;
+                var def = delegate.getDefinition(candidate).filter(CodeUnit::isClass);
+                if (def.isPresent()) {
+                    resolved.add(def.get());
+                    continue;
+                }
+            }
+
+            // java.lang
+            String javaLangCandidate = "java.lang." + simple;
+            var def = delegate.getDefinition(javaLangCandidate).filter(CodeUnit::isClass);
+            if (def.isPresent()) {
+                resolved.add(def.get());
+                continue;
+            }
+
+            // Fallback: global scan (linear over all known declarations)
+            var fallback = delegate.getAllDeclarations().stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(cu -> {
+                        String fq = cu.fqName();
+                        return fq.equals(simple) || fq.endsWith("." + simple);
+                    })
+                    .findFirst();
+
+            fallback.ifPresent(resolved::add);
+        }
+        return List.copyOf(resolved);
     }
 
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
@@ -3105,6 +3276,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             newState.children(),
                             newState.signatures(),
                             newState.ranges(),
+                            newState.rawSupertypes(),
                             newState.supertypes(),
                             newState.hasBody());
                 }
@@ -3132,6 +3304,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
+                List<String> mergedRawSupers = existing.rawSupertypes();
+                var newRawSupers = newState.rawSupertypes();
+                if (!newRawSupers.isEmpty()) {
+                    var tmp = new ArrayList<String>(existing.rawSupertypes().size() + newRawSupers.size());
+                    tmp.addAll(existing.rawSupertypes());
+                    for (var s : newRawSupers) if (!tmp.contains(s)) tmp.add(s);
+                    mergedRawSupers = List.copyOf(tmp);
+                }
+
                 List<CodeUnit> mergedSupertypes = existing.supertypes();
                 var newSupertypes = newState.supertypes();
                 if (!newSupertypes.isEmpty()) {
@@ -3143,7 +3324,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedSupertypes, mergedHasBody);
+                return new CodeUnitProperties(
+                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSupertypes, mergedHasBody);
             });
         });
 
@@ -3217,6 +3399,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                 List.copyOf(filteredKids),
                                                 state.signatures(),
                                                 state.ranges(),
+                                                state.rawSupertypes(),
                                                 state.supertypes(),
                                                 state.hasBody());
                             });
@@ -3468,15 +3651,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             for (var entry : baseState.codeUnitState().entrySet()) {
                 var cu = entry.getKey();
+                var props = entry.getValue();
                 if (!cu.isClass()) continue;
 
                 List<CodeUnit> supers = List.copyOf(delegateForTypes.computeSupertypes(cu));
-                var props = entry.getValue();
+
                 if (!Objects.equals(props.supertypes(), supers)) {
                     updatedCodeUnitState.put(
                             cu,
                             new CodeUnitProperties(
-                                    props.children(), props.signatures(), props.ranges(), supers, props.hasBody()));
+                                    props.children(),
+                                    props.signatures(),
+                                    props.ranges(),
+                                    props.rawSupertypes(),
+                                    supers,
+                                    props.hasBody()));
                 }
             }
 
