@@ -83,8 +83,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     if (sObj instanceof ComputedValue.Subscription subscription) {
                         subscription.dispose();
                     }
-                } catch (Exception ignored) {
-                    // safe cleanup
+                } catch (Exception ex) {
+                    logger.debug("Error disposing ComputedValue subscription", ex);
                 }
             }
             chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, null);
@@ -837,8 +837,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
             }
-        } catch (Exception ignored) {
-            // Best effort; if anything goes wrong, just return no metrics
+        } catch (Exception ex) {
+            logger.trace("Failed to compute metrics for fragment {}", fragment, ex);
         }
         return "";
     }
@@ -1146,8 +1146,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             JMenuItem dropOther = new JMenuItem("Drop Others");
             try {
                 dropOther.getAccessibleContext().setAccessibleName("Drop Others");
-            } catch (Exception ignored) {
-                // Accessibility support is optional, failure is non-fatal
+            } catch (Exception ex) {
+                logger.trace("Failed to set accessible name for 'Drop Others' menu item", ex);
             }
 
             // Determine enabled state at menu construction time
@@ -1531,8 +1531,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Track by id for grouped-segment multi-highlight
         try {
             chipById.put(fragment.id(), chip);
-        } catch (Exception ignored) {
-            // best-effort; id() should be stable, but guard against any exceptions
+        } catch (Exception ex) {
+            logger.debug("Failed to index chip by fragment id for {}", fragment, ex);
         }
         styleChip(chip, label, fragment);
 
