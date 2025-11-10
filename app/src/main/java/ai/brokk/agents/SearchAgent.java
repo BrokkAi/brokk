@@ -34,7 +34,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -268,7 +267,11 @@ public class SearchAgent {
                     }
 
                     // Write to visible transcript and to Context history
-                    sessionMessages.add(ToolExecutionResultMessage.from(req, display));
+                    var messageResult = exec;
+                    if (summarize) {
+                        messageResult = ToolExecutionResult.success(req, display);
+                    }
+                    sessionMessages.add(messageResult.toExecutionResultMessage());
 
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
@@ -288,7 +291,7 @@ public class SearchAgent {
                     var termExec = executeTool(termReq, tr, wst);
 
                     var display = termExec.resultText();
-                    sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
+                    sessionMessages.add(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(

@@ -21,7 +21,6 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -212,7 +211,7 @@ public final class MergeOneFile {
                     exec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
                 }
 
-                currentSessionMessages.add(ToolExecutionResultMessage.from(req, exec.resultText()));
+                currentSessionMessages.add(exec.toExecutionResultMessage());
                 if (!exec.resultText().isBlank()) {
                     io.llmOutput(exec.resultText(), ChatMessageType.AI);
                 }

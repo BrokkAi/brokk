@@ -79,7 +79,6 @@ public record ToolExecutionResult(
             // For failure, the resultText field holds the error message (set by the factory)
             text = "Error: " + resultText;
         }
-        // Use the ID from the original request if available, otherwise default? LC4J seems okay with null ID here.
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
     }
 }
