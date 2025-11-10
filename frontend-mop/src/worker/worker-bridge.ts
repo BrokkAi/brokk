@@ -44,6 +44,19 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
   });
 }
 
+export function collapseDiff(markdown: string, bubbleId: number, blockId: string) {
+  // 1. Ask worker to mark this block as "collapsed" by user
+  worker.postMessage(<InboundToWorker>{ type: 'collapse-diff', bubbleId, blockId });
+  // 2. Trigger a slow parse to reflect the collapsed state, without touching the worker buffer
+  worker.postMessage(<InboundToWorker>{
+    type: 'parse',
+    seq: bubbleId,
+    text: markdown,
+    fast: false,
+    updateBuffer: false
+  });
+}
+
 /* context helper -------------------------------------------------- */
 function getContextId(): string {
   // Use constant context ID
