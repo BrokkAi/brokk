@@ -1037,7 +1037,9 @@ public interface ContextFragment {
                 int numericId = Integer.parseInt(existingId);
                 ContextFragment.setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
-                if (isDynamic()) {
+                // Allow non-numeric IDs for non-dynamic, content-hashed fragments (e.g., PasteFragment).
+                // Enforce numeric IDs only for truly dynamic fragments (ComputedVirtualFragment subclasses).
+                if (isDynamic() && !(this instanceof PasteFragment)) {
                     throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
                 }
             }
