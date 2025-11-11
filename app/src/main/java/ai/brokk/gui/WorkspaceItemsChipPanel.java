@@ -1018,10 +1018,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
+        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription.
+        // Prefer CodeUnit.uiLabel() for code fragments so chips show simple names (e.g., class or method name).
         ChipKind kindForLabel = classify(fragment);
         String labelText;
-        if (kindForLabel == ChipKind.SUMMARY) {
+        if (fragment instanceof ContextFragment.CodeFragment codeFragment) {
+            // For code fragments, prefer the unit's UI-friendly label (class name or member identifier)
+            labelText = codeFragment.getCodeUnit().uiLabel();
+        } else if (kindForLabel == ChipKind.SUMMARY) {
             labelText = buildSummaryLabel(fragment);
         } else if (kindForLabel == ChipKind.OTHER) {
             labelText = capitalizeFirst(safeShortDescription);
