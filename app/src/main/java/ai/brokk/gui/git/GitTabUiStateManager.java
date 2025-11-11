@@ -68,4 +68,40 @@ public final class GitTabUiStateManager {
         TableCellRenderer renderer = useRichRenderer ? richRenderer : simpleRenderer;
         table.getColumnModel().getColumn(columnIndex).setCellRenderer(renderer);
     }
+
+    /**
+     * Sets the error state for a Git tab table, managing row height, renderer, error display, and control state.
+     * Must be called on the EDT.
+     *
+     * @param table The JTable to update
+     * @param tableModel The DefaultTableModel backing the table
+     * @param titleColumnIndex The index of the title column to update renderer for
+     * @param richRenderer The renderer to use for normal rows (rich/multi-line)
+     * @param defaultRenderer The renderer to use for error rows (single-line)
+     * @param isError true to set error state, false to set normal state
+     * @param errorMessage The error message to display (used only if isError is true)
+     * @param errorRowData The row data to add when showing error (used only if isError is true)
+     * @param onErrorCallback Callback to execute when entering error state (used only if isError is true)
+     */
+    public static void setErrorState(
+            JTable table,
+            DefaultTableModel tableModel,
+            int titleColumnIndex,
+            TableCellRenderer richRenderer,
+            TableCellRenderer defaultRenderer,
+            boolean isError,
+            String errorMessage,
+            Object[] errorRowData,
+            Runnable onErrorCallback) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (isError) {
+            table.setRowHeight(30);
+            setTitleRenderer(table, titleColumnIndex, richRenderer, defaultRenderer, false);
+            showError(tableModel, errorRowData, onErrorCallback);
+        } else {
+            table.setRowHeight(48);
+            setTitleRenderer(table, titleColumnIndex, richRenderer, defaultRenderer, true);
+        }
+    }
 }
