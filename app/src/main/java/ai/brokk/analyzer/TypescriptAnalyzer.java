@@ -275,15 +275,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
-        var namespaces = new java.util.ArrayList<String>();
+        // Optimized: use ArrayDeque for O(1) prepend instead of ArrayList's O(n) addAll(0, ...)
+        var namespaces = new java.util.ArrayDeque<String>();
         TSNode current = definitionNode.getParent();
         boolean insideClass = false;
+
+        // Cache the class-like node types Set to avoid repeated getter calls
+        var classLikeTypes = getLanguageSyntaxProfile().classLikeNodeTypes();
 
         while (current != null && !current.isNull()) {
             String nodeType = current.getType();
 
-            if (getLanguageSyntaxProfile().classLikeNodeTypes().contains(nodeType)
-                    && !"internal_module".equals(nodeType)) {
+            if (classLikeTypes.contains(nodeType) && !"internal_module".equals(nodeType)) {
                 insideClass = true;
                 break;
             }
@@ -292,9 +295,20 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String name = cachedTextSliceStripped(nameNode, src);
-                    // Use Splitter for safer, more maintainable string parsing
-                    var parts = Splitter.on('.').omitEmptyStrings().splitToList(name);
-                    namespaces.addAll(0, parts);
+                    // Manual dot-splitting instead of Splitter (faster, less overhead)
+                    // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
+                    int start = 0;
+                    int dotIndex;
+                    while ((dotIndex = name.indexOf('.', start)) >= 0) {
+                        if (dotIndex > start) { // Skip empty segments (matches omitEmptyStrings)
+                            namespaces.addFirst(name.substring(start, dotIndex));
+                        }
+                        start = dotIndex + 1;
+                    }
+                    // Add last segment
+                    if (start < name.length()) {
+                        namespaces.addFirst(name.substring(start));
+                    }
                 }
             }
 
