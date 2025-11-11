@@ -721,9 +721,9 @@ public final class MainProject extends AbstractProject {
     @Override
     public boolean isGitIgnoreSet() {
         try {
-            var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
-            if (GitIgnoreUtils.isBrokkIgnored(gitignorePath)) {
-                logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignorePath);
+            var gitignoreFile = new ProjectFile(getMasterRootPathForConfig(), ".gitignore");
+            if (GitIgnoreUtils.isBrokkIgnored(gitignoreFile)) {
+                logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignoreFile.absPath());
                 return true;
             }
         } catch (IOException e) {
