@@ -10,20 +10,26 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public final class AdaptiveExecutor {
+    private static final Logger logger = LogManager.getLogger(AdaptiveExecutor.class);
+
     public static ExecutorService create(Service service, StreamingChatModel model, int taskCount) {
         @Nullable Integer maxConcurrentRequests = service.getMaxConcurrentRequests(model);
         @Nullable Integer tokensPerMinute = service.getTokensPerMinute(model);
 
         if (maxConcurrentRequests != null) {
             int poolSize = Math.min(maxConcurrentRequests, Math.max(1, taskCount));
+            logger.debug("Creating executor with pool size {} for model {}", poolSize, model);
             return Executors.newFixedThreadPool(poolSize);
         }
         if (tokensPerMinute != null) {
             // A large pool size is used, with the expectation that the TokenRateLimiter will be the primary
             // mechanism for controlling throughput.
+            logger.debug("Creating executor {} tokens per minute for model {}", tokensPerMinute, model);
             return new RateLimitedExecutor(100, tokensPerMinute);
         }
         throw new IllegalStateException(

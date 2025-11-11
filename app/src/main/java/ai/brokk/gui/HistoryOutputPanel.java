@@ -2188,7 +2188,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             continue;
                         }
                         var ter = tr.executeTool(req);
-                        if (ter.status() == ToolExecutionResult.Status.REQUEST_ERROR) {
+                        if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                         }
                     }

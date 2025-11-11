@@ -562,7 +562,7 @@ public class ArchitectAgent {
             // code agent calls are done serially
             for (var req : codeAgentReqs) {
                 ToolExecutionResult toolResult = tr.executeTool(req);
-                if (toolResult.status() == ToolExecutionResult.Status.FATAL_RESOURCE) {
+                if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
 

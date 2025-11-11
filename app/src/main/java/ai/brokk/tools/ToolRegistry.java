@@ -189,8 +189,8 @@ public class ToolRegistry {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e, st -> {});
-            var msg = e.getMessage() == null ? "[no exception message]" : e.getMessage();
-            return ToolExecutionResult.internalError(request, msg);
+            return ToolExecutionResult.internalError(
+                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
         }
     }
 
@@ -199,7 +199,8 @@ public class ToolRegistry {
         try {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
-            return ToolExecutionResult.requestError(request, e.getMessage());
+            var msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.requestError(request, msg);
         }
 
         try {
@@ -219,7 +220,7 @@ public class ToolRegistry {
                     return switch (tce.status()) {
                         case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg);
                         case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg);
-                        case FATAL_RESOURCE -> ToolExecutionResult.fatal(request, msg);
+                        case FATAL -> ToolExecutionResult.fatal(request, msg);
                         default -> {
                             throw new AssertionError(
                                     "Status %s should not be used in ToolCallException".formatted(tce.status()));
@@ -489,7 +490,7 @@ public class ToolRegistry {
 
     public static class FatalLlmException extends ToolCallException {
         public FatalLlmException(String message) {
-            super(ToolExecutionResult.Status.FATAL_RESOURCE, message);
+            super(ToolExecutionResult.Status.FATAL, message);
         }
     }
 }

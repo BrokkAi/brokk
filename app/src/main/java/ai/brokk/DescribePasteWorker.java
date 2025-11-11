@@ -92,12 +92,11 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
                 // If we are here, the result was not valid. Provide feedback and retry.
                 messages.add(result.aiMessage());
                 if (syntaxStyle == null || syntaxStyles.contains(syntaxStyle)) {
-                    // This case handles nulls or other unexpected issues
-                    messages.add(new UserMessage(
-                            "Tool call did not provide valid summary and syntaxStyle. Please try again."));
-                } else {
                     messages.add(new UserMessage(
                             "Invalid syntax style '" + syntaxStyle + "'. Please choose from the provided list."));
+                } else {
+                    messages.add(new UserMessage(
+                            "Tool call did not provide valid summary and syntaxStyle. Please try again."));
                 }
                 // Reset fields for the next attempt
                 resultSummary = null;
