@@ -823,9 +823,12 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
+        // Normalize paths to forward slashes for JGit (required on all platforms)
+        String fromRepo = from.replace('\\', '/');
+        String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
-        git.rm().addFilepattern(from).call();
-        git.add().addFilepattern(to).call();
+        git.rm().addFilepattern(fromRepo).call();
+        git.add().addFilepattern(toRepo).call();
         invalidateCaches();
     }
 
