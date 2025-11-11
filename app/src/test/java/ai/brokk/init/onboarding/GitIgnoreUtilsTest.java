@@ -102,9 +102,7 @@ class GitIgnoreUtilsTest {
     void testIsBrokkIgnored_WithCommentAndLeadingSlash() throws IOException {
         Path gitignorePath = tempDir.resolve(".gitignore");
         Files.writeString(gitignorePath, "/.brokk/  # Brokk config directory\n");
-        assertTrue(
-                GitIgnoreUtils.isBrokkIgnored(gitignorePath),
-                "/.brokk/ with trailing comment should be recognized");
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "/.brokk/ with trailing comment should be recognized");
     }
 
     @Test
@@ -174,17 +172,13 @@ class GitIgnoreUtilsTest {
     void testIsBrokkIgnored_CommentOnly_ShouldNotMatch() throws IOException {
         Path gitignorePath = tempDir.resolve(".gitignore");
         Files.writeString(gitignorePath, "# .brokk/**\n");
-        assertFalse(
-                GitIgnoreUtils.isBrokkIgnored(gitignorePath),
-                "Commented out pattern should NOT be recognized");
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Commented out pattern should NOT be recognized");
     }
 
     @Test
     void testIsBrokkIgnored_PatternInMiddleOfLine_ShouldNotMatch() throws IOException {
         Path gitignorePath = tempDir.resolve(".gitignore");
         Files.writeString(gitignorePath, "something/.brokk/**\n");
-        assertFalse(
-                GitIgnoreUtils.isBrokkIgnored(gitignorePath),
-                "Pattern in middle of path should NOT be recognized");
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Pattern in middle of path should NOT be recognized");
     }
 }

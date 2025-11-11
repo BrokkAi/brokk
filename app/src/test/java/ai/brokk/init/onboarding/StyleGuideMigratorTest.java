@@ -190,6 +190,7 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "# Legacy Style Guide\nOld content");
 
         try (Git git = Git.open(projectRoot.toFile())) {
+            // Git uses forward slashes internally regardless of OS
             git.add().addFilepattern(".brokk/style.md").call();
             git.commit()
                     .setMessage("Add legacy style.md")
@@ -213,12 +214,14 @@ class StyleGuideMigratorTest {
 
             // Check that changes are staged (either as move, or as add+remove)
             // Git move may show as added + removed before commit
+            // Git status always uses forward slashes for paths regardless of OS
             boolean agentsAdded = status.getAdded().contains("AGENTS.md");
             boolean legacyRemoved = status.getRemoved().contains(".brokk/style.md");
 
             assertTrue(
                     agentsAdded || status.getChanged().contains("AGENTS.md"),
-                    "AGENTS.md should be staged (added or changed): " + status.getAdded() + " / " + status.getChanged());
+                    "AGENTS.md should be staged (added or changed): " + status.getAdded() + " / "
+                            + status.getChanged());
             assertTrue(
                     legacyRemoved || status.getChanged().contains(".brokk/style.md"),
                     ".brokk/style.md should be staged for removal: " + status.getRemoved() + " / "
@@ -240,6 +243,7 @@ class StyleGuideMigratorTest {
         try (Git git = Git.open(projectRoot.toFile())) {
             var status = git.status().call();
 
+            // Git status always uses forward slashes for paths regardless of OS
             // AGENTS.md should be staged as added
             assertTrue(
                     status.getAdded().contains("AGENTS.md"),

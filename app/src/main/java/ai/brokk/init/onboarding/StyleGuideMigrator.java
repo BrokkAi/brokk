@@ -85,7 +85,7 @@ public class StyleGuideMigrator {
                     // GitRepo.move already deleted the source file, no need to delete again
                 } catch (Exception moveEx) {
                     logger.debug("GitRepo.move failed ({}), falling back to add/remove", moveEx.getMessage());
-                    
+
                     // Fallback: explicitly stage add and remove
                     try {
                         gitRepo.add(agentsFile);
@@ -100,7 +100,10 @@ public class StyleGuideMigrator {
                         gitRepo.remove(legacyProjectFile);
                         logger.debug("Staged removal of .brokk/style.md at {}", legacyRelPath);
                     } catch (Exception removeEx) {
-                        logger.warn("Failed to stage .brokk/style.md removal at {}: {}", legacyRelPath, removeEx.getMessage());
+                        logger.warn(
+                                "Failed to stage .brokk/style.md removal at {}: {}",
+                                legacyRelPath,
+                                removeEx.getMessage());
                         throw removeEx;
                     }
 
