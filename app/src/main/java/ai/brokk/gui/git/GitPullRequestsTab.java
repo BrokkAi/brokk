@@ -882,12 +882,19 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        prTable.setRowHeight(ERROR_ROW_HEIGHT);
-        setPrTitleRenderer(false);
-        GitTabUiStateManager.showError(prTableModel, new Object[] {"", message, "", "", ""}, () -> {
-            disablePrButtonsAndClearCommitsAndMenus();
-            setReloadUiEnabled(false);
-        });
+        GitTabUiStateManager.setErrorState(
+                prTable,
+                prTableModel,
+                PR_COL_TITLE,
+                prTitleRichRenderer,
+                defaultStringCellRenderer,
+                true,
+                message,
+                new Object[] {"", message, "", "", ""},
+                () -> {
+                    disablePrButtonsAndClearCommitsAndMenus();
+                    setReloadUiEnabled(false);
+                });
     }
 
     /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */

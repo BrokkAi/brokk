@@ -755,13 +755,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     /** Display an error message in the issue table and disable UI controls. */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        issueTable.setRowHeight(ERROR_ROW_HEIGHT);
-        setIssueTitleRenderer(false);
-        GitTabUiStateManager.showError(issueTableModel, new Object[] {"", message, "", ""}, () -> {
-            setReloadUiEnabled(false);
-            disableIssueActionsAndClearDetails();
-            searchBox.setLoading(false, "");
-        });
+        GitTabUiStateManager.setErrorState(
+                issueTable,
+                issueTableModel,
+                1,
+                richIssueTitleRenderer,
+                defaultIssueTitleRenderer,
+                true,
+                message,
+                new Object[] {"", message, "", ""},
+                () -> {
+                    disableIssueActionsAndClearDetails();
+                    setReloadUiEnabled(false);
+                    searchBox.setLoading(false, "");
+                });
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
