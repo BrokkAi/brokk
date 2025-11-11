@@ -2364,7 +2364,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
-    @SuppressWarnings("deprecation")
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
@@ -2374,8 +2373,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // later
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
-        // Initialize empty task list for the new session and persist
-        sessionManager.writeTaskList(newSessionInfo.id(), new TaskList.TaskListData(List.of()));
     }
 
     /**
@@ -2386,7 +2383,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param newSessionName The name for the new session.
      * @return A CompletableFuture representing the completion of the session creation task.
      */
-    @SuppressWarnings("deprecation")
     public CompletableFuture<Void> createSessionFromContextAsync(Context sourceFrozenContext, String newSessionName) {
         return submitExclusiveAction(() -> {
                     logger.debug(
@@ -2413,9 +2409,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 5. Save the new session's history (which now contains one entry).
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
-
-                    // Initialize empty task list for the new session and persist
-                    sessionManager.writeTaskList(this.currentSessionId, new TaskList.TaskListData(List.of()));
 
                     // 6. Notify UI about the context change.
                     notifyContextListeners(topContext());
