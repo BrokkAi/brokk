@@ -1229,15 +1229,8 @@ public interface ContextFragment {
             if (usageResult instanceof FuzzyResult.TooManyCallsites tmc) {
                 var msg = "Too many call sites for symbol: %s (%d > limit %d)"
                         .formatted(targetIdentifier, tmc.totalCallsites(), tmc.limit());
-                try {
-                    var cm = getContextManager();
-                    if (cm != null) {
-                        cm.getIo().toolError(msg, "Usages limit reached");
-                    }
-                } catch (Exception ex) {
-                    // If UI not available here, fall through with msg
-                    log.warn("Error occurred while trying to show usage limit error", ex);
-                }
+                var cm = getContextManager();
+                cm.getIo().toolError(msg, "Usages limit reached");
                 return msg;
             }
 
