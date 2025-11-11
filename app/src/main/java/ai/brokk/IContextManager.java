@@ -196,6 +196,39 @@ public interface IContextManager {
 
     default void reportException(Throwable th) {}
 
+    default StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+        var service = getService();
+        StreamingChatModel model = service.getModel(config);
+        if (model != null) {
+            return model;
+        }
+
+        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT));
+        if (model != null) {
+            getIo().showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            String.format(
+                                    "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                                    config.name(), modelTypeName, Service.GPT_5_MINI));
+            return model;
+        }
+
+        var quickModel = service.quickModel();
+        String quickModelName = service.nameOf(quickModel);
+        getIo().showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
+                                config.name(), modelTypeName, quickModelName));
+        return quickModel;
+    }
+
+    /** Returns the configured Code model, falling back to the system model if unavailable. */
+    default StreamingChatModel getCodeModel() {
+        var config = getProject().getCodeModelConfig();
+        return getModelOrDefault(config, "Code");
+    }
+
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {

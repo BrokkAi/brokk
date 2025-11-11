@@ -1002,7 +1002,7 @@ public class SearchAgent {
 
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
-        var agent = new CodeAgent(cm, model);
+        var agent = new CodeAgent(cm, cm.getCodeModel());
         var opts = new HashSet<CodeAgent.Option>();
 
         var result = agent.runTask(context, List.of(), instructions, opts);
