@@ -785,6 +785,7 @@ public final class MainProject extends AbstractProject {
         boolean hasLegacyContent = false;
         if (Files.exists(legacyStyleGuidePath)) {
             try {
+                // If an exception is thrown we assume the file is empty
                 String legacyContent = Files.readString(legacyStyleGuidePath);
                 hasLegacyContent = !legacyContent.isBlank();
             } catch (IOException e) {
