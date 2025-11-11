@@ -47,14 +47,14 @@ public class GitIgnoreConfigurator {
             var gitTopLevel = project.getMasterRootPathForConfig();
 
             // Update .gitignore
-            var gitignorePath = gitTopLevel.resolve(".gitignore");
+            var gitignorePf = new ProjectFile(gitTopLevel, ".gitignore");
 
             // Check if .gitignore already has comprehensive Brokk patterns
-            if (!GitIgnoreUtils.isBrokkIgnored(gitignorePath)) {
+            if (!GitIgnoreUtils.isBrokkIgnored(gitignorePf)) {
                 // Read existing content (or start fresh)
                 String content = "";
-                if (Files.exists(gitignorePath)) {
-                    content = Files.readString(gitignorePath);
+                if (Files.exists(gitignorePf.absPath())) {
+                    content = Files.readString(gitignorePf.absPath());
                     if (!content.endsWith("\n")) {
                         content += "\n";
                     }
@@ -72,7 +72,7 @@ public class GitIgnoreConfigurator {
                 content += "!.brokk/review.md\n";
                 content += "!.brokk/project.properties\n";
 
-                Files.writeString(gitignorePath, content);
+                Files.writeString(gitignorePf.absPath(), content);
                 gitignoreUpdated = true;
                 if (consoleIO != null) {
                     consoleIO.showNotification(
@@ -81,8 +81,8 @@ public class GitIgnoreConfigurator {
 
                 // Stage .gitignore
                 try {
-                    gitRepo.add(gitignorePath);
-                    stagedFiles.add(new ProjectFile(gitTopLevel, ".gitignore"));
+                    gitRepo.add(List.of(gitignorePf));
+                    stagedFiles.add(gitignorePf);
                     logger.debug("Staged .gitignore to git");
                 } catch (Exception ex) {
                     logger.warn("Error staging .gitignore to git: {}", ex.getMessage());
