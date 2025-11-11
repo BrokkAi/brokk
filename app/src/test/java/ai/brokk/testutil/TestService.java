@@ -1,19 +1,21 @@
 package ai.brokk.testutil;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IProject;
 import ai.brokk.MainProject;
 import ai.brokk.Service;
+import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import java.io.File;
 import java.io.IOException;
-import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
-public final class TestService extends Service {
+public final class TestService extends AbstractService {
 
     private StreamingChatModel customQuickestModel;
 
@@ -26,40 +28,33 @@ public final class TestService extends Service {
     }
 
     @Override
-    protected void fetchAvailableModels(
-            MainProject.DataRetentionPolicy policy,
-            Map<String, String> locationsTarget,
-            Map<String, Map<String, Object>> infoTarget)
-            throws IOException {}
-
-    @Override
-    public String nameOf(@Nullable StreamingChatModel model) {
+    public String nameOf(StreamingChatModel model) {
         return "stub-model";
     }
 
     @Override
-    public boolean isLazy(@Nullable StreamingChatModel model) {
+    public boolean isLazy(StreamingChatModel model) {
         return false;
     }
 
     @Override
-    public boolean isReasoning(@Nullable StreamingChatModel model) {
+    public boolean isReasoning(StreamingChatModel model) {
         return false;
     }
 
     @Override
-    public boolean requiresEmulatedTools(@Nullable StreamingChatModel model) {
+    public boolean requiresEmulatedTools(StreamingChatModel model) {
         return false;
     }
 
     @Override
-    public boolean supportsJsonSchema(@Nullable StreamingChatModel model) {
+    public boolean supportsJsonSchema(StreamingChatModel model) {
         return true;
     }
 
     @Override
     public StreamingChatModel getModel(
-            ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+            AbstractService.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
         return new StreamingChatModel() {
             @Override
             public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
@@ -71,10 +66,43 @@ public final class TestService extends Service {
     }
 
     @Override
+    public JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
+        return objectMapper.createObjectNode();
+    }
+
+    @Override
     public StreamingChatModel quickestModel() {
         if (customQuickestModel != null) {
             return customQuickestModel;
         }
         return super.quickestModel();
+    }
+
+    @Override
+    public float getUserBalance() {
+        return 0;
+    }
+
+    @Override
+    public void sendFeedback(String category, String feedbackText, boolean includeDebugLog, File screenshotFile)
+            throws IOException {
+        // No-op for test service
+    }
+
+    // Backward-compatible provider entry point used by other tests
+    public static Service.Provider provider(MainProject project) {
+        return new Service.Provider() {
+            private TestService svc = new TestService(project);
+
+            @Override
+            public AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(IProject p) {
+                svc = new TestService(p);
+            }
+        };
     }
 }

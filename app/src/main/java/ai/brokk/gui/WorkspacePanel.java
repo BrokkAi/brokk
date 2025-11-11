@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -2092,7 +2093,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
-    private String calculateCostEstimate(int inputTokens, Service service) {
+    private String calculateCostEstimate(int inputTokens, AbstractService service) {
         var instructionsPanel = chrome.getInstructionsPanel();
         Service.ModelConfig config = instructionsPanel.getSelectedConfig();
 

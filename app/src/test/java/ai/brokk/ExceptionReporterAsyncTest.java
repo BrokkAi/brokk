@@ -220,7 +220,7 @@ class ExceptionReporterAsyncTest {
      * Test spy that implements IExceptionReportingService and records all calls to reportClientException.
      * This implementation does not require any global state or Service initialization.
      */
-    private static class TestServiceSpy implements IExceptionReportingService {
+    private static class TestServiceSpy implements ExceptionReporter.ReportingService {
         private final List<ServiceCall> calls = new ArrayList<>();
         private final AtomicInteger callCount = new AtomicInteger(0);
         private boolean shouldFail = false;

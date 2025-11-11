@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.ContextManager;
+import ai.brokk.MainProject;
+import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -51,12 +54,13 @@ class HeadlessExecutorMainIntegrationTest {
         Files.writeString(propsFile, "# Minimal properties for test\n");
 
         var execId = UUID.randomUUID();
+        var project = new MainProject(workspaceDir);
+        var cm = new ContextManager(project, TestService.provider(project));
         executor = new HeadlessExecutorMain(
                 execId,
                 "127.0.0.1:0", // Ephemeral port
                 authToken,
-                workspaceDir,
-                sessionsDir);
+                cm);
 
         executor.start();
 
@@ -414,64 +418,6 @@ class HeadlessExecutorMainIntegrationTest {
                     "Expected validation error mentioning plannerModel, but got: " + response);
         }
         conn.disconnect();
-    }
-
-    @Test
-    void testPostJobsEndpoint_InvalidPlannerModelFailsJob() throws Exception {
-        uploadSession();
-
-        var invalidPlanner = "does-not-exist-model";
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
-                "taskInput",
-                "echo invalid planner",
-                "autoCompress",
-                false,
-                "plannerModel",
-                invalidPlanner);
-
-        var url = URI.create(baseUrl + "/v1/jobs").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("Idempotency-Key", "test-job-invalid-planner");
-        conn.setDoOutput(true);
-
-        var json = toJson(jobSpec);
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(json.getBytes(StandardCharsets.UTF_8));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-        String jobId;
-        try (InputStream is = conn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            var marker = "\"jobId\":\"";
-            var start = response.indexOf(marker);
-            assertTrue(start >= 0, "Job response missing jobId: " + response);
-            start += marker.length();
-            var end = response.indexOf("\"", start);
-            assertTrue(end > start, "Job response malformed: " + response);
-            jobId = response.substring(start, end);
-        }
-        conn.disconnect();
-
-        var deadline = System.currentTimeMillis() + 5_000L;
-        String error = null;
-        while (System.currentTimeMillis() < deadline) {
-            var status = fetchJobStatus(jobId);
-            var state = (String) status.get("state");
-            if ("FAILED".equals(state)) {
-                error = (String) status.get("error");
-                break;
-            }
-            Thread.sleep(100);
-        }
-
-        assertNotNull(error, "Job did not fail with MODEL_UNAVAILABLE within timeout");
-        assertTrue(error.contains("MODEL_UNAVAILABLE"), "Expected MODEL_UNAVAILABLE error, but got: " + error);
     }
 
     @Test

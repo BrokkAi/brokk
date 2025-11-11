@@ -12,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
 public record ToolExecutionResult(
         ToolExecutionRequest request,
         Status status,
-        String resultText // Contains the primary output on SUCCESS, or error message otherwise
+        String resultText // Contains the primary output on SUCCESS, or error message on FAILURE.
         ) {
 
     /** Overall status of the tool execution. */
@@ -22,7 +22,9 @@ public record ToolExecutionResult(
         /** The tool call was flawed */
         REQUEST_ERROR,
         /** internal error that should never happen */
-        INTERNAL_ERROR
+        INTERNAL_ERROR,
+        /** something went so badly wrong that the agent should stop processing. Currently only used for sub-agent failures. */
+        FATAL
     }
 
     // --- Factory Methods ---
@@ -38,6 +40,10 @@ public record ToolExecutionResult(
 
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
         return new ToolExecutionResult(request, Status.INTERNAL_ERROR, errorMessage);
+    }
+
+    public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage) {
+        return new ToolExecutionResult(request, Status.FATAL, errorMessage);
     }
 
     // --- Convenience Accessors ---
@@ -68,6 +74,7 @@ public record ToolExecutionResult(
                     case SUCCESS -> resultText; // Already handled null/blank in factory
                     case REQUEST_ERROR -> "Request error: " + resultText;
                     case INTERNAL_ERROR -> "Internal error: " + resultText;
+                    case FATAL -> "Fatal error: " + resultText;
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
     }
