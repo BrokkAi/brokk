@@ -23,8 +23,7 @@ public class GitRepoWorktreesLfsDetectionTest {
     void testIsLfsMissing_PositiveExamples() {
         // Example 1: POSIX/git common message
         String msg1 = "git: 'lfs' is not a git command. See 'git --help'.";
-        assertTrue(
-                invokeIsLfsMissing(msg1), "Should detect missing git-lfs from 'git: \"lfs\" is not a git command'");
+        assertTrue(invokeIsLfsMissing(msg1), "Should detect missing git-lfs from 'git: \"lfs\" is not a git command'");
 
         // Example 2: Windows CLI style
         String msg2 =

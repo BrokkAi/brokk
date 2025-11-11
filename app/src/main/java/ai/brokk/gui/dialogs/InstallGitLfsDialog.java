@@ -55,9 +55,8 @@ public final class InstallGitLfsDialog {
 
     /** Actual dialog display logic; always invoked on the EDT. */
     private static Result doShow() {
-        String message =
-                "<html>Git LFS appears to be missing or unavailable for this repository.<br>"
-                        + "Would you like to open the Git LFS website to install it?</html>";
+        String message = "<html>Git LFS appears to be missing or unavailable for this repository.<br>"
+                + "Would you like to open the Git LFS website to install it?</html>";
         Object[] options = new Object[] {"Open Website", "Cancel"};
         int choice = JOptionPane.showOptionDialog(
                 null,

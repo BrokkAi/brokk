@@ -6,15 +6,15 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
 import ai.brokk.WorktreeProject;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoWorktrees;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.InstallGitLfsDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.MergeDialogUtil;
-import ai.brokk.gui.dialogs.InstallGitLfsDialog;
 import ai.brokk.util.Environment;
-import ai.brokk.git.GitRepoWorktrees;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -769,8 +769,8 @@ public class GitWorktreeTab extends JPanel {
                 try {
                     // First attempt
                     try {
-                        WorktreeSetupResult setupResult =
-                                setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
+                        WorktreeSetupResult setupResult = setupNewGitWorktree(
+                                project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
                         newWorktreePath = setupResult.worktreePath();
                         createdSuccessfully = true;
                     } catch (Exception creationException) {
@@ -784,91 +784,100 @@ public class GitWorktreeTab extends JPanel {
                             }
                             t = t.getCause();
                         }
-                        String diagnostic = subprocessOutput != null ? subprocessOutput : creationException.getMessage();
+                        String diagnostic =
+                                subprocessOutput != null ? subprocessOutput : creationException.getMessage();
                         logger.debug("Worktree creation failed (first attempt): {}", diagnostic, creationException);
-                        
+
                         // Detect common git-lfs-missing patterns using centralized helper
                         boolean lfsMissing = GitRepoWorktrees.isLfsMissingForTest(diagnostic);
                         if (lfsMissing) {
-                        // Log detailed subprocess output for diagnostics at DEBUG level (do not expose to user)
-                        if (diagnostic != null && !diagnostic.isEmpty()) {
-                        logger.debug("Detected missing git-lfs output: {}", diagnostic);
+                            // Log detailed subprocess output for diagnostics at DEBUG level (do not expose to user)
+                            if (diagnostic != null && !diagnostic.isEmpty()) {
+                                logger.debug("Detected missing git-lfs output: {}", diagnostic);
+                            } else {
+                                logger.debug("Detected missing git-lfs (no subprocess output available).");
+                            }
+                            // Log the user-facing action about prompting/install at INFO level
+                            logger.info("Prompting user to install git-lfs.");
+
+                            // Show install dialog on EDT and wait for result
+                            final var installDialogFuture = new CompletableFuture<InstallGitLfsDialog.Result>();
+                            SwingUtilities.invokeLater(() -> {
+                                try {
+                                    installDialogFuture.complete(InstallGitLfsDialog.showDialog());
+                                } catch (Throwable showEx) {
+                                    logger.error("Failed to display InstallGitLfsDialog", showEx);
+                                    // If dialog fails, treat as cancel
+                                    try {
+                                        installDialogFuture.complete(InstallGitLfsDialog.Result.CANCEL);
+                                    } catch (Throwable ignore) {
+                                    }
+                                }
+                            });
+
+                            InstallGitLfsDialog.Result dlgResult;
+                            try {
+                                dlgResult = installDialogFuture.get();
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                logger.error("InstallGitLfsDialog was interrupted", ie);
+                                dlgResult = InstallGitLfsDialog.Result.CANCEL;
+                            } catch (ExecutionException ee) {
+                                logger.error("InstallGitLfsDialog failed", ee);
+                                dlgResult = InstallGitLfsDialog.Result.CANCEL;
+                            }
+
+                            if (dlgResult != InstallGitLfsDialog.Result.CANCEL) {
+                                // Retry once
+                                try {
+                                    WorktreeSetupResult setupResult = setupNewGitWorktree(
+                                            project,
+                                            gitRepo,
+                                            branchForWorktree,
+                                            isCreatingNewBranch,
+                                            sourceBranchForNew);
+                                    newWorktreePath = setupResult.worktreePath();
+                                    createdSuccessfully = true;
+                                } catch (Exception retryEx) {
+                                    // On retry failure, log detailed diagnostics and inform the user concisely
+                                    String retryOutput = null;
+                                    Throwable t2 = retryEx;
+                                    while (t2 != null) {
+                                        if (t2 instanceof Environment.SubprocessException se2) {
+                                            retryOutput = se2.getOutput();
+                                            break;
+                                        }
+                                        t2 = t2.getCause();
+                                    }
+                                    logger.error(
+                                            "Worktree creation retry failed after git-lfs installation attempt: {}",
+                                            retryOutput != null ? retryOutput : retryEx.getMessage(),
+                                            retryEx);
+                                    // User-facing message should be concise and friendly; do not include raw subprocess
+                                    // output.
+                                    chrome.toolError(
+                                            "Git LFS is required for this repository. Please install Git LFS: https://git-lfs.github.com/ and try again.",
+                                            "Worktree Creation Failed");
+                                }
+                            } else {
+                                // User cancelled install dialog
+                                logger.info("User cancelled git-lfs install dialog; aborting worktree creation.");
+                                // Use the same concise, actionable message as for retry failures
+                                chrome.toolError(
+                                        "Git LFS is required for this repository. Please install Git LFS: https://git-lfs.github.com/ and try again.",
+                                        "Worktree Creation Failed");
+                            }
                         } else {
-                        logger.debug("Detected missing git-lfs (no subprocess output available).");
-                        }
-                        // Log the user-facing action about prompting/install at INFO level
-                        logger.info("Prompting user to install git-lfs.");
-                        
-                        // Show install dialog on EDT and wait for result
-                        final var installDialogFuture = new CompletableFuture<InstallGitLfsDialog.Result>();
-                        SwingUtilities.invokeLater(() -> {
-                        try {
-                        installDialogFuture.complete(InstallGitLfsDialog.showDialog());
-                        } catch (Throwable showEx) {
-                        logger.error("Failed to display InstallGitLfsDialog", showEx);
-                        // If dialog fails, treat as cancel
-                        try {
-                        installDialogFuture.complete(InstallGitLfsDialog.Result.CANCEL);
-                        } catch (Throwable ignore) {
-                        }
-                        }
-                        });
-                        
-                        InstallGitLfsDialog.Result dlgResult;
-                        try {
-                        dlgResult = installDialogFuture.get();
-                        } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        logger.error("InstallGitLfsDialog was interrupted", ie);
-                        dlgResult = InstallGitLfsDialog.Result.CANCEL;
-                        } catch (ExecutionException ee) {
-                        logger.error("InstallGitLfsDialog failed", ee);
-                        dlgResult = InstallGitLfsDialog.Result.CANCEL;
-                        }
-                        
-                        if (dlgResult != InstallGitLfsDialog.Result.CANCEL) {
-                        // Retry once
-                        try {
-                        WorktreeSetupResult setupResult =
-                        setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
-                        newWorktreePath = setupResult.worktreePath();
-                        createdSuccessfully = true;
-                        } catch (Exception retryEx) {
-                        // On retry failure, log detailed diagnostics and inform the user concisely
-                        String retryOutput = null;
-                        Throwable t2 = retryEx;
-                        while (t2 != null) {
-                        if (t2 instanceof Environment.SubprocessException se2) {
-                        retryOutput = se2.getOutput();
-                        break;
-                        }
-                        t2 = t2.getCause();
-                        }
-                        logger.error(
-                        "Worktree creation retry failed after git-lfs installation attempt: {}",
-                        retryOutput != null ? retryOutput : retryEx.getMessage(),
-                        retryEx);
-                        // User-facing message should be concise and friendly; do not include raw subprocess output.
-                        chrome.toolError(
-                        "Git LFS is required for this repository. Please install Git LFS: https://git-lfs.github.com/ and try again.",
-                        "Worktree Creation Failed");
-                        }
-                        } else {
-                        // User cancelled install dialog
-                        logger.info("User cancelled git-lfs install dialog; aborting worktree creation.");
-                        // Use the same concise, actionable message as for retry failures
-                        chrome.toolError(
-                        "Git LFS is required for this repository. Please install Git LFS: https://git-lfs.github.com/ and try again.",
-                        "Worktree Creation Failed");
-                        }
-                        } else {
-                        // Not a git-lfs detection: show concise failure
-                        logger.error("Worktree creation failed: {}", creationException.getMessage(), creationException);
-                        chrome.toolError("Failed to create worktree. See logs for details.", "Worktree Creation Failed");
+                            // Not a git-lfs detection: show concise failure
+                            logger.error(
+                                    "Worktree creation failed: {}", creationException.getMessage(), creationException);
+                            chrome.toolError(
+                                    "Failed to create worktree. See logs for details.", "Worktree Creation Failed");
                         }
                     }
 
-                    // If created, open the worktree project (openProject is async). Show exactly one success notification here.
+                    // If created, open the worktree project (openProject is async). Show exactly one success
+                    // notification here.
                     if (createdSuccessfully && newWorktreePath != null) {
                         Brokk.OpenProjectBuilder openProjectBuilder =
                                 new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
@@ -891,12 +900,13 @@ public class GitWorktreeTab extends JPanel {
                         // Single success notification for creation+open flow
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
-                                "Successfully created worktree for branch '" + branchForWorktree + "' at " + newWorktreePath);
+                                "Successfully created worktree for branch '" + branchForWorktree + "' at "
+                                        + newWorktreePath);
                     }
                 } catch (Exception outerEx) {
-                // Unexpected/unhandled errors: log and present concise message to user
-                logger.error("Unexpected error during worktree creation flow: {}", outerEx.getMessage(), outerEx);
-                chrome.toolError("Failed to create worktree. See logs for details.", "Worktree Creation Error");
+                    // Unexpected/unhandled errors: log and present concise message to user
+                    logger.error("Unexpected error during worktree creation flow: {}", outerEx.getMessage(), outerEx);
+                    chrome.toolError("Failed to create worktree. See logs for details.", "Worktree Creation Error");
                 }
 
             } catch (InterruptedException | ExecutionException e) {
