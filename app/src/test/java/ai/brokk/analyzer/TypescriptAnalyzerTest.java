@@ -756,8 +756,8 @@ public class TypescriptAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
                 .toList();
 
-        // Should find Point interfaces from both Hello.ts and Advanced.ts
-        assertEquals(2, allPointInterfaces.size(), "Should find Point interfaces in both Hello.ts and Advanced.ts");
+        // Should find Point interfaces/classes from Hello.ts, Advanced.ts, and NamespaceMerging.ts
+        assertEquals(3, allPointInterfaces.size(), "Should find Point interfaces in Hello.ts, Advanced.ts, and NamespaceMerging.ts");
 
         CodeUnit helloPoint = allPointInterfaces.stream()
                 .filter(cu -> cu.source().toString().equals("Hello.ts"))
@@ -1538,6 +1538,176 @@ public class TypescriptAnalyzerTest {
         // However, the analyzer may capture both - we just verify the interface exists and has members
         assertTrue(conflictingSkeleton.contains("value"), "Conflicting interface should contain value property");
         assertTrue(conflictingSkeleton.contains("extra"), "Conflicting interface should contain extra property");
+    }
+
+    @Test
+    void testNamespaceClassMerging() {
+        // Test that namespace + class/enum merging is correctly captured
+        // Both the class/enum and the namespace members should be present with correct FQNames
+        
+        ProjectFile mergingFile = new ProjectFile(project.getRoot(), "NamespaceMerging.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(mergingFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(mergingFile);
+        
+        assertFalse(skeletons.isEmpty(), "Skeletons map for NamespaceMerging.ts should not be empty");
+        assertFalse(declarations.isEmpty(), "Declarations set for NamespaceMerging.ts should not be empty");
+        
+        // Test 1: Class + namespace merging - Color
+        // Should have Color class
+        CodeUnit colorClass = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Color") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Color class should be found"));
+        
+        assertTrue(skeletons.containsKey(colorClass), "Color class should have skeleton");
+        String colorSkeleton = skeletons.get(colorClass);
+        assertTrue(colorSkeleton.contains("class Color"), "Color skeleton should contain class definition");
+        assertTrue(colorSkeleton.contains("constructor"), "Color class should have constructor");
+        assertTrue(colorSkeleton.contains("toHex"), "Color class should have toHex method");
+        assertTrue(colorSkeleton.contains("static blend"), "Color class should have static blend method");
+        
+        // Should have Color namespace members
+        // Note: namespace const declarations use _module_ prefix like module-level exports
+        CodeUnit colorWhite = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Color._module_.white") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "Color.white field should be found. Available: " + 
+                        declarations.stream()
+                                .filter(cu -> cu.fqName().startsWith("Color."))
+                                .map(CodeUnit::fqName)
+                                .collect(Collectors.joining(", "))));
+        
+        CodeUnit colorFromHex = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Color.fromHex") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Color.fromHex function should be found"));
+        
+        CodeUnit colorRandom = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Color.random") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Color.random function should be found"));
+        
+        // Verify no FQName conflicts between class methods and namespace functions
+        List<CodeUnit> colorMembers = declarations.stream()
+                .filter(cu -> cu.fqName().startsWith("Color."))
+                .collect(Collectors.toList());
+        
+        // Should have both static class method (blend) and namespace functions (fromHex, random)
+        assertTrue(
+                colorMembers.stream().anyMatch(cu -> cu.fqName().contains("blend")),
+                "Should have Color.blend from class");
+        assertTrue(
+                colorMembers.stream().anyMatch(cu -> cu.fqName().equals("Color.fromHex")),
+                "Should have Color.fromHex from namespace");
+        assertTrue(
+                colorMembers.stream().anyMatch(cu -> cu.fqName().equals("Color.random")),
+                "Should have Color.random from namespace");
+        
+        // Test 2: Enum + namespace merging - Direction
+        CodeUnit directionEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Direction") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Direction enum should be found"));
+        
+        assertTrue(skeletons.containsKey(directionEnum), "Direction enum should have skeleton");
+        String directionSkeleton = skeletons.get(directionEnum);
+        assertTrue(directionSkeleton.contains("enum Direction"), "Direction skeleton should contain enum definition");
+        
+        // Should have Direction namespace members
+        CodeUnit directionOpposite = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Direction.opposite") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Direction.opposite function should be found"));
+        
+        CodeUnit directionIsVertical = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Direction.isVertical") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Direction.isVertical function should be found"));
+        
+        // Note: namespace const declarations use _module_ prefix
+        CodeUnit directionAll = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Direction._module_.all") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Direction.all field should be found"));
+        
+        // Test 3: Exported class + namespace merging - Point
+        CodeUnit pointClass = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Point") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Point class should be found"));
+        
+        String pointSkeleton = skeletons.get(pointClass);
+        assertTrue(pointSkeleton.contains("export class Point"), "Point skeleton should be exported");
+        
+        // Should have Point namespace members
+        // Note: namespace const declarations use _module_ prefix
+        CodeUnit pointOrigin = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Point._module_.origin") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Point.origin field should be found"));
+        
+        CodeUnit pointFromPolar = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Point.fromPolar") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Point.fromPolar function should be found"));
+        
+        // Point.Config interface should be nested within Point namespace
+        CodeUnit pointConfig = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Point.Config") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Point.Config interface should be found"));
+        
+        // Test 4: Exported enum + namespace merging - HttpStatus
+        CodeUnit httpStatusEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("HttpStatus") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("HttpStatus enum should be found"));
+        
+        String httpStatusSkeleton = skeletons.get(httpStatusEnum);
+        assertTrue(httpStatusSkeleton.contains("export enum HttpStatus"), "HttpStatus skeleton should be exported");
+        
+        // Should have HttpStatus namespace members
+        CodeUnit httpStatusIsSuccess = declarations.stream()
+                .filter(cu -> cu.fqName().equals("HttpStatus.isSuccess") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("HttpStatus.isSuccess function should be found"));
+        
+        CodeUnit httpStatusIsError = declarations.stream()
+                .filter(cu -> cu.fqName().equals("HttpStatus.isError") && cu.isFunction())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("HttpStatus.isError function should be found"));
+        
+        // Note: namespace const declarations use _module_ prefix
+        CodeUnit httpStatusMessages = declarations.stream()
+                .filter(cu -> cu.fqName().equals("HttpStatus._module_.messages") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("HttpStatus.messages field should be found"));
+        
+        // Verify no duplicate captures
+        Map<String, Long> fqNameCounts = declarations.stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.groupingBy(fqn -> fqn, Collectors.counting()));
+        
+        List<String> duplicates = fqNameCounts.entrySet().stream()
+                .filter(e -> e.getValue() > 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+        
+        assertTrue(
+                duplicates.isEmpty(),
+                "Should have no duplicate FQNames. Found duplicates: " + String.join(", ", duplicates));
+        
+        // Verify all namespace members are properly scoped
+        List<String> colorNamespaceMembers = declarations.stream()
+                .filter(cu -> cu.fqName().startsWith("Color.") && !cu.fqName().contains("$"))
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toList());
+        
+        assertTrue(
+                colorNamespaceMembers.size() >= 5,
+                "Should have at least 5 Color members (class methods + namespace members). Found: " + 
+                colorNamespaceMembers.size() + " - " + String.join(", ", colorNamespaceMembers));
     }
 
     @Test
