@@ -91,7 +91,8 @@ public class OnboardingOrchestrator {
             // Check .gitignore
             var gitignorePath = configRoot.resolve(".gitignore");
             boolean gitignoreExists = Files.exists(gitignorePath);
-            boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignorePath);
+            var gitignoreFile = new ai.brokk.analyzer.ProjectFile(configRoot, ".gitignore");
+            boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignoreFile);
 
             // Check build details availability
             boolean buildDetailsAvailable = buildDetailsFuture != null
