@@ -1442,24 +1442,7 @@ public final class GitUiUtil {
      * @return true if the commit is resolvable and its object data is parsable, false otherwise.
      */
     public static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
-        ObjectId objectId = null;
-        try {
-            objectId = repo.resolveToCommit(sha);
-            // Try to parse the commit to ensure its data is present
-            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
-                revWalk.parseCommit(objectId);
-                return true; // Resolvable and parsable
-            }
-        } catch (MissingObjectException e) {
-            logger.debug(
-                    "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    repo.shortHash(sha),
-                    objectId.name());
-            return false;
-        } catch (Exception e) {
-            logger.debug("Cannot resolve or parse SHA {}: {}", repo.shortHash(sha), e.getMessage());
-            return false;
-        }
+        return repo.remote().isCommitLocallyAvailable(sha);
     }
 
     /**
@@ -1474,38 +1457,7 @@ public final class GitUiUtil {
      * @return true if the SHA is now locally available and parsable, false otherwise.
      */
     public static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
-        if (isCommitLocallyAvailable(repo, sha)) {
-            return true;
-        }
-
-        // If not available or missing, try to fetch
-        logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
-        try {
-            var fetchCommand = repo.getGit().fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
-            repo.applyGitHubAuthentication(fetchCommand, repo.remote().getUrl(remoteName));
-            fetchCommand.call();
-            // After fetch, verify again
-            if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
-                return true;
-            } else {
-                logger.warn(
-                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        repo.shortHash(sha),
-                        refSpec,
-                        remoteName);
-                return false;
-            }
-        } catch (Exception e) {
-            // Includes GitAPIException, IOException, etc.
-            logger.warn(
-                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    repo.shortHash(sha),
-                    e.getMessage(),
-                    e);
-            return false;
-        }
+        return repo.remote().ensureShaIsLocal(sha, refSpec, remoteName);
     }
 
     /**
