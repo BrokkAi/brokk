@@ -325,6 +325,12 @@ public interface ContextFragment {
     }
 
     /**
+     * Marker for fragments whose identity is dynamic (numeric, session-local).
+     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
+     */
+    interface DynamicIdentity {}
+
+    /**
      * Marker interface for fragments that provide image content.
      * Implementations must provide a stable content hash for equality checks.
      */
@@ -342,7 +348,7 @@ public interface ContextFragment {
      * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
      * ComputedValue exposed by ComputedFragment.
      */
-    abstract class ComputedVirtualFragment extends VirtualFragment implements ComputedFragment {
+    abstract class ComputedVirtualFragment extends VirtualFragment implements ComputedFragment, DynamicIdentity {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
@@ -1032,9 +1038,9 @@ public interface ContextFragment {
                 int numericId = Integer.parseInt(existingId);
                 ContextFragment.setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
-                // Allow non-numeric IDs for non-dynamic, content-hashed fragments (e.g., PasteFragment).
-                // Enforce numeric IDs only for truly dynamic fragments (ComputedVirtualFragment subclasses).
-                if (this instanceof ComputedFragment && !(this instanceof PasteFragment)) {
+                // Allow non-numeric IDs for non-dynamic fragments (content-hashed).
+                // Enforce numeric IDs only for dynamic-identity fragments.
+                if (this instanceof DynamicIdentity) {
                     throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
                 }
             }
@@ -1083,16 +1089,16 @@ public interface ContextFragment {
                 return false;
             }
 
-            var thisIsComputed = this instanceof ComputedFragment;
-            var otherIsComputed = other instanceof ComputedFragment;
+            var thisIsDynamic = this instanceof DynamicIdentity;
+            var otherIsDynamic = other instanceof DynamicIdentity;
 
             // Non-dynamic (content-hashed) fragments: stable identity via ID
-            if (!thisIsComputed && !otherIsComputed) {
+            if (!thisIsDynamic && !otherIsDynamic) {
                 return this.id().equals(other.id());
             }
 
             // Dynamic fragments: use repr() for semantic equivalence
-            if (thisIsComputed && otherIsComputed) {
+            if (thisIsDynamic && otherIsDynamic) {
                 var ra = this.repr();
                 var rb = other.repr();
                 // Empty repr means fragment doesn't support semantic deduplication; fall back to identity
