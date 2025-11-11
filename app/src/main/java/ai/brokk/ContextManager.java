@@ -1564,8 +1564,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .withTaskList(legacy)
                         .withAction(CompletableFuture.completedFuture("Task list initialized from legacy storage")));
 
-                // Update cache and persist JSON for parity
-                project.getSessionManager().writeTaskList(sessionId, legacy);
+                // Migration succeeded: drop legacy tasklist.json and log
+                logger.debug("Migrated task list from legacy storage for session {}", sessionId);
+                project.getSessionManager().deleteTaskList(sessionId);
             } else {
                 // No task list present; leave as-is (no fragment, getTaskList() will return empty)
             }
