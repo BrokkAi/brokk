@@ -182,4 +182,103 @@ class StyleGuideMigratorTest {
         // Verify AGENTS.md still has correct content
         assertEquals("# Content", Files.readString(agentsFile));
     }
+
+    @Test
+    void testGitStagingWithMove() throws Exception {
+        // Create and commit legacy file first
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Legacy Style Guide\nOld content");
+
+        try (Git git = Git.open(projectRoot.toFile())) {
+            git.add().addFilepattern(".brokk/style.md").call();
+            git.commit()
+                    .setMessage("Add legacy style.md")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        assertTrue(result.performed(), "Migration should succeed");
+
+        // Verify files on disk
+        assertTrue(Files.exists(agentsFile), "AGENTS.md should exist");
+        assertFalse(Files.exists(legacyFile), "Legacy file should be deleted");
+        assertEquals("# Legacy Style Guide\nOld content", Files.readString(agentsFile));
+
+        // Verify Git staging
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var status = git.status().call();
+
+            // Check that changes are staged (either as move, or as add+remove)
+            // Git move may show as added + removed before commit
+            boolean agentsAdded = status.getAdded().contains("AGENTS.md");
+            boolean legacyRemoved = status.getRemoved().contains(".brokk/style.md");
+
+            assertTrue(
+                    agentsAdded || status.getChanged().contains("AGENTS.md"),
+                    "AGENTS.md should be staged (added or changed): " + status.getAdded() + " / " + status.getChanged());
+            assertTrue(
+                    legacyRemoved || status.getChanged().contains(".brokk/style.md"),
+                    ".brokk/style.md should be staged for removal: " + status.getRemoved() + " / "
+                            + status.getChanged());
+        }
+    }
+
+    @Test
+    void testGitStagingFreshFile() throws Exception {
+        // Create legacy file but don't commit it (fresh migration scenario)
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Fresh Style Guide");
+
+        // Perform migration
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        assertTrue(result.performed(), "Migration should succeed");
+
+        // Verify Git staging
+        try (Git git = Git.open(projectRoot.toFile())) {
+            var status = git.status().call();
+
+            // AGENTS.md should be staged as added
+            assertTrue(
+                    status.getAdded().contains("AGENTS.md"),
+                    "AGENTS.md should be in added files: " + status.getAdded());
+
+            // Legacy file might be in untracked or removed depending on whether move detected it
+            assertTrue(
+                    status.getRemoved().contains(".brokk/style.md")
+                            || status.getUntracked().contains(".brokk/style.md")
+                            || !Files.exists(legacyFile),
+                    ".brokk/style.md should be removed or untracked");
+        }
+    }
+
+    @Test
+    void testGitStagingFailureDoesNotPreventMigration() throws Exception {
+        // Create a scenario where git staging might fail but file operations should succeed
+        Path legacyFile = brokkDir.resolve("style.md");
+        Files.writeString(legacyFile, "# Content");
+
+        // Use a git repo wrapper that simulates staging failure
+        var failingGitRepo = new GitRepo(projectRoot) {
+            @Override
+            public void move(String from, String to) {
+                throw new RuntimeException("Simulated move failure");
+            }
+
+            @Override
+            public void add(Path path) {
+                throw new RuntimeException("Simulated add failure");
+            }
+        };
+
+        // Migration should fail due to git staging errors
+        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, failingGitRepo);
+
+        assertFalse(result.performed(), "Migration should fail when git operations fail");
+        assertTrue(
+                result.message().contains("Migration failed"),
+                "Error message should indicate failure: " + result.message());
+    }
 }
