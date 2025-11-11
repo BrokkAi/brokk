@@ -894,10 +894,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String skeleton = entry.getValue();
 
             // Fix duplicate interface headers within skeleton
-            if (skeleton.contains("interface ") && skeleton.contains("export interface ")) {
+            // Optimization: early exit if both patterns aren't present
+            int interfacePos = skeleton.indexOf("interface ");
+            int exportInterfacePos = skeleton.indexOf("export interface ");
+            if (interfacePos >= 0 && exportInterfacePos >= 0) {
                 // Remove lines that are just "interface Name {" when we already have "export interface Name {"
-                var lines = List.of(skeleton.split("\n"));
-                var filteredLines = new ArrayList<String>();
+                // Optimized: use split with char instead of regex, avoid List.of wrapper
+                String[] lines = skeleton.split("\n", -1);
+                var filteredLines = new ArrayList<String>(lines.length);
                 boolean foundExportInterface = false;
 
                 for (String line : lines) {
@@ -946,7 +950,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             } else {
                 // For non-class entities (functions, fields), don't deduplicate by FQN
                 // Use a unique key to preserve all of them
-                String uniqueKey = fqn + "#" + cu.kind() + "#" + System.identityHashCode(cu);
+                // Optimized: use StringBuilder to reduce intermediate string allocations
+                String uniqueKey = new StringBuilder(fqn.length() + 20)
+                        .append(fqn)
+                        .append('#')
+                        .append(cu.kind())
+                        .append('#')
+                        .append(System.identityHashCode(cu))
+                        .toString();
                 deduplicatedSkeletons.put(uniqueKey, Map.entry(cu, skeleton));
             }
         }
@@ -961,19 +972,24 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             skeleton = ENUM_COMMA_CLEANUP.matcher(skeleton).replaceAll("\n$1");
 
             // Remove semicolons from type alias lines
-            var lines = Splitter.on('\n').splitToList(skeleton);
-            var skeletonBuilder = new StringBuilder(skeleton.length());
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                if (TYPE_ALIAS_LINE.matcher(line).find()) {
-                    line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
+            // Optimized: only process if skeleton contains "type " to avoid unnecessary work
+            if (skeleton.contains("type ")) {
+                // Use manual split instead of Splitter to reduce overhead
+                String[] lines = skeleton.split("\n", -1);
+                var skeletonBuilder = new StringBuilder(skeleton.length());
+                for (int i = 0; i < lines.length; i++) {
+                    String line = lines[i];
+                    // Use regex to detect type alias lines (handles indentation, export default, etc.)
+                    if (TYPE_ALIAS_LINE.matcher(line).find()) {
+                        line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
+                    }
+                    skeletonBuilder.append(line);
+                    if (i < lines.length - 1) {
+                        skeletonBuilder.append('\n');
+                    }
                 }
-                skeletonBuilder.append(line);
-                if (i < lines.size() - 1) {
-                    skeletonBuilder.append("\n");
-                }
+                skeleton = skeletonBuilder.toString();
             }
-            skeleton = skeletonBuilder.toString();
 
             cleaned.put(cu, skeleton);
         }
