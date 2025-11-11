@@ -11,10 +11,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.SearchTools;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -43,6 +40,51 @@ public final class FuzzyUsageFinder {
         var quickestModel = service.quickestModel();
         var llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false, false, false);
         return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
+    }
+
+    /**
+     * Cheap preflight check to determine if a usage query will exceed the max file threshold and result
+     * in a TooManyCallsites outcome. This avoids the heavier steps in findUsages.
+     *
+     * @param target the code unit to search usages for
+     * @param maxFiles the maximum number of files to consider before short-circuiting
+     * @return Optional containing TooManyCallsites if the threshold would be exceeded; empty otherwise
+     */
+    public Optional<FuzzyResult.TooManyCallsites> preflightTooManyCallsites(CodeUnit target, int maxFiles) {
+        // Build the short identifier mirroring findUsages behavior
+        var shortName = target.identifier().replace("$", ".");
+        if (shortName.contains(".")) {
+            int lastDot = shortName.lastIndexOf('.');
+            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
+        }
+        final String identifier = shortName;
+
+        // matches identifier around word boundaries and around common structures
+        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
+
+        // Count candidate files matching the pattern
+        final var candidateFiles = SearchTools.searchSubstrings(
+                java.util.List.of(searchPattern), analyzer.getProject().getAllFiles());
+
+        if (maxFiles < candidateFiles.size()) {
+            logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
+            return java.util.Optional.of(
+                    new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles));
+        }
+        return java.util.Optional.empty();
+    }
+
+    public Optional<FuzzyResult.TooManyCallsites> preflightTooManyCallsites(String fqName) {
+        if (isEffectivelyEmpty()) {
+            logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
+            return Optional.empty();
+        }
+        var maybeCodeUnit = analyzer.getDefinition(fqName);
+        if (maybeCodeUnit.isEmpty()) {
+            logger.warn("Unable to find code unit for fqName={}", fqName);
+            return Optional.empty();
+        }
+        return preflightTooManyCallsites(maybeCodeUnit.get(), DEFAULT_MAX_FILES);
     }
 
     /**

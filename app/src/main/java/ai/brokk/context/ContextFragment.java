@@ -1224,13 +1224,11 @@ public interface ContextFragment {
             }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
-            // Guardrail: if too many call sites slipped past preflight (fragment added elsewhere), show modal and
-            // return message.
+            // Guardrail: if too many call sites slipped past preflight (fragment added elsewhere), return message.
+            // UI layer (e.g., AttachContextDialog.confirmUsage) is responsible for showing any modal error.
             if (usageResult instanceof FuzzyResult.TooManyCallsites tmc) {
                 var msg = "Too many call sites for symbol: %s (%d > limit %d)"
                         .formatted(targetIdentifier, tmc.totalCallsites(), tmc.limit());
-                var cm = getContextManager();
-                cm.getIo().toolError(msg, "Usages limit reached");
                 return msg;
             }
 

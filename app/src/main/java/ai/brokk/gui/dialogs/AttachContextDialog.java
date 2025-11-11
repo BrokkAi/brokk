@@ -8,6 +8,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.AutoCompleteUtil;
 import ai.brokk.gui.Constants;
@@ -572,6 +573,18 @@ public class AttachContextDialog extends JDialog {
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
+
+        var usageFinder = FuzzyUsageFinder.create(cm);
+        var maybeTooManyCallSites = usageFinder.preflightTooManyCallsites(target);
+        if (maybeTooManyCallSites.isPresent()) {
+            var tmc = maybeTooManyCallSites.get();
+            var msg = "Too many call sites for symbol: %s (%d > limit %d)"
+                    .formatted(target, tmc.totalCallsites(), tmc.limit());
+            cm.getIo().toolError(msg, "Usages limit reached");
+            selection = null;
+            dispose();
+            return;
+        }
         var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();

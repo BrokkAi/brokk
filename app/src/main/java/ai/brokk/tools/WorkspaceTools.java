@@ -20,11 +20,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -308,8 +304,9 @@ public class WorkspaceTools {
         }
 
         // Preflight usages to detect guardrail conditions (e.g., TooManyCallsites) before adding a fragment
-        var result = preflightUsages(symbol);
-        if (result instanceof FuzzyResult.TooManyCallsites tmc) {
+        var maybeTmc = preflightUsages(symbol);
+        if (maybeTmc.isPresent()) {
+            var tmc = maybeTmc.get();
             int total = tmc.totalCallsites();
             int limit = tmc.limit();
             logger.warn("addSymbolUsagesToWorkspace: TooManyCallsites for '{}': {} > limit {}", symbol, total, limit);
@@ -319,7 +316,6 @@ public class WorkspaceTools {
         }
 
         // Proceed to add the dynamic usage fragment; analyzer availability will be checked lazily when rendering.
-
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol);
         context = context.addVirtualFragments(List.of(fragment));
 
@@ -448,8 +444,8 @@ public class WorkspaceTools {
     }
 
     // Seam for tests: allow overriding the usages preflight
-    protected FuzzyResult preflightUsages(String symbol) {
-        return FuzzyUsageFinder.create(context.getContextManager()).findUsages(symbol);
+    protected Optional<FuzzyResult.TooManyCallsites> preflightUsages(String symbol) {
+        return FuzzyUsageFinder.create(context.getContextManager()).preflightTooManyCallsites(symbol);
     }
 
     // --- Helper Methods ---
