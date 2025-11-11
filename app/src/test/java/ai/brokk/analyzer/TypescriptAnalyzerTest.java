@@ -1986,6 +1986,390 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testTemplateLiteralAndUtilityTypes() {
+        ProjectFile templateTypesFile = new ProjectFile(project.getRoot(), "TemplateTypes.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(templateTypesFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(templateTypesFile);
+
+        assertFalse(skeletons.isEmpty(), "Skeletons map for TemplateTypes.ts should not be empty");
+        assertFalse(declarations.isEmpty(), "Declarations set for TemplateTypes.ts should not be empty");
+
+        // ===== Test Basic Template Literal Types =====
+
+        // Simple template literal
+        CodeUnit eventNameType = CodeUnit.field(templateTypesFile, "", "_module_.EventName");
+        assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
+        String eventNameSkeleton = skeletons.get(eventNameType);
+        assertTrue(
+                eventNameSkeleton.contains("`${T}Changed`"),
+                "EventName should contain template literal syntax");
+
+        // Template with Capitalize
+        CodeUnit propEventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.PropEventHandler");
+        assertTrue(
+                skeletons.containsKey(propEventHandlerType),
+                "PropEventHandler template literal type should be captured");
+        String propEventHandlerSkeleton = skeletons.get(propEventHandlerType);
+        assertTrue(
+                propEventHandlerSkeleton.contains("on${Capitalize<T>}"),
+                "PropEventHandler should contain Capitalize in template literal");
+
+        // Template with Uppercase
+        CodeUnit actionTypeType = CodeUnit.field(templateTypesFile, "", "_module_.ActionType");
+        assertTrue(skeletons.containsKey(actionTypeType), "ActionType template literal type should be captured");
+        String actionTypeSkeleton = skeletons.get(actionTypeType);
+        assertTrue(
+                actionTypeSkeleton.contains("ACTION_${Uppercase<T>}"),
+                "ActionType should contain Uppercase in template literal");
+
+        // Template with Lowercase
+        CodeUnit methodNameType = CodeUnit.field(templateTypesFile, "", "_module_.MethodName");
+        assertTrue(skeletons.containsKey(methodNameType), "MethodName template literal type should be captured");
+        String methodNameSkeleton = skeletons.get(methodNameType);
+        assertTrue(
+                methodNameSkeleton.contains("get${Capitalize<T>}"),
+                "MethodName should contain Capitalize in template literal");
+
+        // Template with Uncapitalize
+        CodeUnit privatePropType = CodeUnit.field(templateTypesFile, "", "_module_.PrivateProp");
+        assertTrue(skeletons.containsKey(privatePropType), "PrivateProp template literal type should be captured");
+        String privatePropSkeleton = skeletons.get(privatePropType);
+        assertTrue(
+                privatePropSkeleton.contains("_${Uncapitalize<T>}"),
+                "PrivateProp should contain Uncapitalize in template literal");
+
+        // ===== Test Nested Template Literal Types =====
+
+        // Multiple transformations
+        CodeUnit complexEventType = CodeUnit.field(templateTypesFile, "", "_module_.ComplexEvent");
+        assertTrue(skeletons.containsKey(complexEventType), "ComplexEvent nested template should be captured");
+        String complexEventSkeleton = skeletons.get(complexEventType);
+        assertTrue(
+                complexEventSkeleton.contains("on${Capitalize<T>}Changed"),
+                "ComplexEvent should contain nested template transformations");
+
+        // Chained template literals
+        CodeUnit nestedTemplateType = CodeUnit.field(templateTypesFile, "", "_module_.NestedTemplate");
+        assertTrue(skeletons.containsKey(nestedTemplateType), "NestedTemplate type should be captured");
+        String nestedTemplateSkeleton = skeletons.get(nestedTemplateType);
+        assertTrue(
+                nestedTemplateSkeleton.contains("${T}_${U}_handler"),
+                "NestedTemplate should contain multiple template parameters");
+
+        // Template with union
+        CodeUnit apiEndpointType = CodeUnit.field(templateTypesFile, "", "_module_.ApiEndpoint");
+        assertTrue(skeletons.containsKey(apiEndpointType), "ApiEndpoint template type should be captured");
+        String apiEndpointSkeleton = skeletons.get(apiEndpointType);
+        assertTrue(
+                apiEndpointSkeleton.contains("api/${Lowercase<T>}"),
+                "ApiEndpoint should contain Lowercase in template");
+
+        // ===== Test Basic Utility Types =====
+
+        // Partial
+        CodeUnit partialUserType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUser");
+        assertTrue(skeletons.containsKey(partialUserType), "PartialUser utility type should be captured");
+        assertEquals(
+                normalize.apply("export type PartialUser = Partial<User>"),
+                normalize.apply(skeletons.get(partialUserType)));
+
+        // Required
+        CodeUnit requiredConfigType = CodeUnit.field(templateTypesFile, "", "_module_.RequiredConfig");
+        assertTrue(skeletons.containsKey(requiredConfigType), "RequiredConfig utility type should be captured");
+        assertEquals(
+                normalize.apply("export type RequiredConfig = Required<Config>"),
+                normalize.apply(skeletons.get(requiredConfigType)));
+
+        // Readonly
+        CodeUnit readonlyUserType = CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyUser");
+        assertTrue(skeletons.containsKey(readonlyUserType), "ReadonlyUser utility type should be captured");
+        assertEquals(
+                normalize.apply("export type ReadonlyUser = Readonly<User>"),
+                normalize.apply(skeletons.get(readonlyUserType)));
+
+        // Pick
+        CodeUnit userNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.UserNameEmail");
+        assertTrue(skeletons.containsKey(userNameEmailType), "UserNameEmail Pick type should be captured");
+        assertEquals(
+                normalize.apply("export type UserNameEmail = Pick<User, 'name' | 'email'>"),
+                normalize.apply(skeletons.get(userNameEmailType)));
+
+        // Omit
+        CodeUnit userWithoutIdType = CodeUnit.field(templateTypesFile, "", "_module_.UserWithoutId");
+        assertTrue(skeletons.containsKey(userWithoutIdType), "UserWithoutId Omit type should be captured");
+        assertEquals(
+                normalize.apply("export type UserWithoutId = Omit<User, 'id'>"),
+                normalize.apply(skeletons.get(userWithoutIdType)));
+
+        // Record
+        CodeUnit stringRecordType = CodeUnit.field(templateTypesFile, "", "_module_.StringRecord");
+        assertTrue(skeletons.containsKey(stringRecordType), "StringRecord utility type should be captured");
+        assertEquals(
+                normalize.apply("export type StringRecord = Record<string, string>"),
+                normalize.apply(skeletons.get(stringRecordType)));
+
+        // ===== Test Complex Utility Type Combinations =====
+
+        // Partial + Pick
+        CodeUnit partialUserNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserNameEmail");
+        assertTrue(
+                skeletons.containsKey(partialUserNameEmailType),
+                "PartialUserNameEmail combined utility type should be captured");
+        String partialUserNameEmailSkeleton = skeletons.get(partialUserNameEmailType);
+        assertTrue(
+                partialUserNameEmailSkeleton.contains("Partial<Pick<User, 'name' | 'email'>>"),
+                "PartialUserNameEmail should contain nested utility types");
+
+        // Required + Omit
+        CodeUnit requiredConfigWithoutOptionalType =
+                CodeUnit.field(templateTypesFile, "", "_module_.RequiredConfigWithoutOptional");
+        assertTrue(
+                skeletons.containsKey(requiredConfigWithoutOptionalType),
+                "RequiredConfigWithoutOptional combined utility type should be captured");
+        String requiredConfigSkeleton = skeletons.get(requiredConfigWithoutOptionalType);
+        assertTrue(
+                requiredConfigSkeleton.contains("Required<Omit<Config, 'optional'>>"),
+                "RequiredConfigWithoutOptional should contain nested utility types");
+
+        // Readonly + Partial
+        CodeUnit readonlyPartialUserType = CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyPartialUser");
+        assertTrue(
+                skeletons.containsKey(readonlyPartialUserType),
+                "ReadonlyPartialUser combined utility type should be captured");
+        assertEquals(
+                normalize.apply("export type ReadonlyPartialUser = Readonly<Partial<User>>"),
+                normalize.apply(skeletons.get(readonlyPartialUserType)));
+
+        // Pick + Required
+        CodeUnit requiredUserNameEmailType = CodeUnit.field(templateTypesFile, "", "_module_.RequiredUserNameEmail");
+        assertTrue(
+                skeletons.containsKey(requiredUserNameEmailType),
+                "RequiredUserNameEmail combined utility type should be captured");
+        String requiredUserNameEmailSkeleton = skeletons.get(requiredUserNameEmailType);
+        assertTrue(
+                requiredUserNameEmailSkeleton.contains("Required<Pick<User, 'name' | 'email'>>"),
+                "RequiredUserNameEmail should contain nested utility types");
+
+        // Omit + Partial
+        CodeUnit partialUserWithoutIdType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserWithoutId");
+        assertTrue(
+                skeletons.containsKey(partialUserWithoutIdType),
+                "PartialUserWithoutId combined utility type should be captured");
+        assertEquals(
+                normalize.apply("export type PartialUserWithoutId = Partial<Omit<User, 'id'>>"),
+                normalize.apply(skeletons.get(partialUserWithoutIdType)));
+
+        // ===== Test Triple Utility Type Combinations =====
+
+        // Readonly + Partial + Pick
+        CodeUnit readonlyPartialUserNameEmailType =
+                CodeUnit.field(templateTypesFile, "", "_module_.ReadonlyPartialUserNameEmail");
+        assertTrue(
+                skeletons.containsKey(readonlyPartialUserNameEmailType),
+                "ReadonlyPartialUserNameEmail triple utility type should be captured");
+        String tripleUtilitySkeleton = skeletons.get(readonlyPartialUserNameEmailType);
+        assertTrue(
+                tripleUtilitySkeleton.contains("Readonly<Partial<Pick<User, 'name' | 'email'>>>"),
+                "ReadonlyPartialUserNameEmail should contain three nested utility types");
+
+        // Required + Omit + Readonly
+        CodeUnit requiredReadonlyConfigType =
+                CodeUnit.field(templateTypesFile, "", "_module_.RequiredReadonlyConfigWithoutOptional");
+        assertTrue(
+                skeletons.containsKey(requiredReadonlyConfigType),
+                "RequiredReadonlyConfigWithoutOptional triple utility type should be captured");
+        String requiredReadonlySkeleton = skeletons.get(requiredReadonlyConfigType);
+        assertTrue(
+                requiredReadonlySkeleton.contains("Required<Readonly<Omit<Config, 'optional'>>>"),
+                "RequiredReadonlyConfigWithoutOptional should contain three nested utility types");
+
+        // ===== Test Advanced Utility Type Patterns =====
+
+        // Record with complex value type
+        CodeUnit userRecordType = CodeUnit.field(templateTypesFile, "", "_module_.UserRecord");
+        assertTrue(skeletons.containsKey(userRecordType), "UserRecord type should be captured");
+        assertEquals(
+                normalize.apply("export type UserRecord = Record<string, User>"),
+                normalize.apply(skeletons.get(userRecordType)));
+
+        CodeUnit partialUserRecordType = CodeUnit.field(templateTypesFile, "", "_module_.PartialUserRecord");
+        assertTrue(skeletons.containsKey(partialUserRecordType), "PartialUserRecord type should be captured");
+        String partialUserRecordSkeleton = skeletons.get(partialUserRecordType);
+        assertTrue(
+                partialUserRecordSkeleton.contains("Record<string, Partial<User>>"),
+                "PartialUserRecord should contain nested utility in Record value");
+
+        // Nested utility types
+        CodeUnit nestedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.NestedUtility");
+        assertTrue(skeletons.containsKey(nestedUtilityType), "NestedUtility type should be captured");
+        String nestedUtilitySkeleton = skeletons.get(nestedUtilityType);
+        assertTrue(
+                nestedUtilitySkeleton.contains("Partial<Record<string, Pick<User, 'name' | 'email'>>>"),
+                "NestedUtility should contain deeply nested utility types");
+
+        // Utility with conditional
+        CodeUnit conditionalUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.ConditionalUtility");
+        assertTrue(skeletons.containsKey(conditionalUtilityType), "ConditionalUtility type should be captured");
+        String conditionalUtilitySkeleton = skeletons.get(conditionalUtilityType);
+        assertTrue(
+                conditionalUtilitySkeleton.contains("T extends User ? Partial<T> : Required<T>"),
+                "ConditionalUtility should contain conditional with utility types");
+
+        // ===== Test Template Literals with Utility Types =====
+
+        // Template literal combined with mapped type
+        CodeUnit eventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.EventHandler");
+        assertTrue(
+                skeletons.containsKey(eventHandlerType),
+                "EventHandler template with mapped type should be captured");
+        String eventHandlerSkeleton = skeletons.get(eventHandlerType);
+        assertTrue(
+                eventHandlerSkeleton.contains("on${Capitalize<T>}"),
+                "EventHandler should contain template literal in mapped type");
+
+        // Template literal with Record
+        CodeUnit eventMapType = CodeUnit.field(templateTypesFile, "", "_module_.EventMap");
+        assertTrue(
+                skeletons.containsKey(eventMapType), "EventMap template with Record type should be captured");
+        String eventMapSkeleton = skeletons.get(eventMapType);
+        assertTrue(
+                eventMapSkeleton.contains("Record<`${T}Event`, () => void>"),
+                "EventMap should contain template literal in Record key");
+
+        // ===== Test Mapped Types with Template Literals =====
+
+        // Getters using template literals
+        CodeUnit gettersType = CodeUnit.field(templateTypesFile, "", "_module_.Getters");
+        assertTrue(skeletons.containsKey(gettersType), "Getters mapped type with template should be captured");
+        String gettersSkeleton = skeletons.get(gettersType);
+        assertTrue(
+                gettersSkeleton.contains("get${Capitalize"),
+                "Getters should contain template literal in key remapping");
+
+        // Setters using template literals
+        CodeUnit settersType = CodeUnit.field(templateTypesFile, "", "_module_.Setters");
+        assertTrue(skeletons.containsKey(settersType), "Setters mapped type with template should be captured");
+        String settersSkeleton = skeletons.get(settersType);
+        assertTrue(
+                settersSkeleton.contains("set${Capitalize"),
+                "Setters should contain template literal in key remapping");
+
+        // Event emitters
+        CodeUnit eventEmitterType = CodeUnit.field(templateTypesFile, "", "_module_.EventEmitter");
+        assertTrue(skeletons.containsKey(eventEmitterType), "EventEmitter mapped type should be captured");
+        String eventEmitterSkeleton = skeletons.get(eventEmitterType);
+        assertTrue(
+                eventEmitterSkeleton.contains("on${Capitalize") && eventEmitterSkeleton.contains("Change"),
+                "EventEmitter should contain template literal with suffix");
+
+        // ===== Test Extreme Utility Type Combinations =====
+
+        // Four levels deep
+        CodeUnit deepUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.DeepUtility");
+        assertTrue(skeletons.containsKey(deepUtilityType), "DeepUtility four-level nested type should be captured");
+        String deepUtilitySkeleton = skeletons.get(deepUtilityType);
+        assertTrue(
+                deepUtilitySkeleton.contains("Readonly<Required<Partial<Pick<User, 'name' | 'email'>>>>"),
+                "DeepUtility should contain four nested utility types");
+
+        // Mixed utilities with Record
+        CodeUnit complexMixedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.ComplexMixedUtility");
+        assertTrue(
+                skeletons.containsKey(complexMixedUtilityType),
+                "ComplexMixedUtility type should be captured");
+        String complexMixedSkeleton = skeletons.get(complexMixedUtilityType);
+        assertTrue(
+                complexMixedSkeleton.contains("Partial<Record<string, Required<Pick<User, 'name'>>>>"),
+                "ComplexMixedUtility should contain nested utilities with Record");
+
+        // Utility with multiple type parameters
+        CodeUnit mergedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.MergedUtility");
+        assertTrue(skeletons.containsKey(mergedUtilityType), "MergedUtility generic type should be captured");
+        String mergedUtilitySkeleton = skeletons.get(mergedUtilityType);
+        assertTrue(
+                mergedUtilitySkeleton.contains("Partial<T> & Required<U>"),
+                "MergedUtility should contain utility types with intersection");
+
+        // ===== Test Real-world Use Cases =====
+
+        // API response type
+        CodeUnit apiResponseType = CodeUnit.field(templateTypesFile, "", "_module_.ApiResponse");
+        assertTrue(skeletons.containsKey(apiResponseType), "ApiResponse generic type should be captured");
+        String apiResponseSkeleton = skeletons.get(apiResponseType);
+        assertTrue(
+                apiResponseSkeleton.contains("data: T") && apiResponseSkeleton.contains("status: number"),
+                "ApiResponse should contain complete type definition");
+
+        // Paginated API response
+        CodeUnit paginatedResponseType = CodeUnit.field(templateTypesFile, "", "_module_.PaginatedResponse");
+        assertTrue(skeletons.containsKey(paginatedResponseType), "PaginatedResponse type should be captured");
+        String paginatedResponseSkeleton = skeletons.get(paginatedResponseType);
+        assertTrue(
+                paginatedResponseSkeleton.contains("ApiResponse<T[]>")
+                        && paginatedResponseSkeleton.contains("page: number"),
+                "PaginatedResponse should extend ApiResponse with intersection");
+
+        // User update payload
+        CodeUnit userUpdatePayloadType = CodeUnit.field(templateTypesFile, "", "_module_.UserUpdatePayload");
+        assertTrue(skeletons.containsKey(userUpdatePayloadType), "UserUpdatePayload type should be captured");
+        assertEquals(
+                normalize.apply("export type UserUpdatePayload = Partial<Omit<User, 'id'>>"),
+                normalize.apply(skeletons.get(userUpdatePayloadType)));
+
+        // Partial environment config
+        CodeUnit partialEnvConfigType = CodeUnit.field(templateTypesFile, "", "_module_.PartialEnvironmentConfig");
+        assertTrue(skeletons.containsKey(partialEnvConfigType), "PartialEnvironmentConfig type should be captured");
+        String partialEnvConfigSkeleton = skeletons.get(partialEnvConfigType);
+        assertTrue(
+                partialEnvConfigSkeleton.contains("Partial<EnvironmentConfig>"),
+                "PartialEnvironmentConfig should contain utility type");
+
+        // ===== Verify All Type Aliases Are Captured =====
+
+        List<CodeUnit> typeAliases = declarations.stream()
+                .filter(cu -> cu.isField() && cu.fqName().startsWith("_module_."))
+                .collect(Collectors.toList());
+
+        assertTrue(
+                typeAliases.size() >= 50,
+                "Should capture at least 50 type aliases from TemplateTypes.ts. Found: " + typeAliases.size());
+
+        // Verify all captured type aliases have skeletons
+        for (CodeUnit typeAlias : typeAliases) {
+            assertTrue(
+                    skeletons.containsKey(typeAlias),
+                    "Type alias " + typeAlias.fqName() + " should have skeleton");
+            String skeleton = skeletons.get(typeAlias);
+            assertTrue(
+                    skeleton.contains("type "),
+                    "Type alias " + typeAlias.fqName() + " skeleton should contain 'type' keyword");
+        }
+
+        // ===== Test getSkeleton for Individual Type Aliases =====
+
+        Optional<String> eventNameSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "_module_.EventName");
+        assertTrue(eventNameSkeletonViaGet.isPresent(), "Should retrieve EventName type alias via getSkeleton");
+        assertTrue(
+                eventNameSkeletonViaGet.get().contains("`${T}Changed`"),
+                "EventName skeleton should contain template literal");
+
+        Optional<String> partialUserNameEmailSkeletonViaGet =
+                AnalyzerUtil.getSkeleton(analyzer, "_module_.PartialUserNameEmail");
+        assertTrue(
+                partialUserNameEmailSkeletonViaGet.isPresent(),
+                "Should retrieve PartialUserNameEmail type alias via getSkeleton");
+        assertTrue(
+                partialUserNameEmailSkeletonViaGet.get().contains("Partial<Pick<User, 'name' | 'email'>>"),
+                "PartialUserNameEmail skeleton should contain nested utility types");
+
+        Optional<String> deepUtilitySkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "_module_.DeepUtility");
+        assertTrue(deepUtilitySkeletonViaGet.isPresent(), "Should retrieve DeepUtility type alias via getSkeleton");
+        assertTrue(
+                deepUtilitySkeletonViaGet.get().contains("Readonly<Required<Partial<Pick<User, 'name' | 'email'>>>>"),
+                "DeepUtility skeleton should contain four nested utility types");
+    }
+
+    @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
         List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
