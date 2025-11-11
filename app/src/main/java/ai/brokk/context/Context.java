@@ -1051,7 +1051,7 @@ public class Context {
                 getContextManager(),
                 newFragments,
                 afterClear.taskHistory,
-                afterClear.parsedOutput,
+                null,
                 CompletableFuture.completedFuture("Task list updated"),
                 null,
                 null);
