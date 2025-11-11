@@ -8,12 +8,15 @@ import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.SearchTools;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -75,14 +78,28 @@ public final class FuzzyUsageFinder {
             shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
         }
         final String identifier = shortName;
-        // matches identifier around word boundaries and around common structures
-        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
-        var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
+
+        // Determine language based on the target's source file extension
+        var sourcePath = target.source().absPath();
+        var fname = sourcePath.getFileName().toString();
+        int dot = fname.lastIndexOf('.');
+        String ext = dot >= 0 ? fname.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+        Language lang = Languages.fromExtension(ext);
+
+        // Build a language-aware search pattern for this code unit kind
+        var template = lang.getSearchPattern(target.kind());
+        var searchPattern = template.replace("$ident", Pattern.quote(identifier));
+
+        // Define pattern for matching code unit definitions with exact shortName (used to detect uniqueness)
+        var definitionPattern = "\\b" + Pattern.quote(identifier) + "\\b";
+        var matchingCodeUnits = analyzer.searchDefinitions(definitionPattern).stream()
                 .filter(cu -> cu.shortName().equals(identifier))
                 .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
-        final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
-                List.of(searchPattern), analyzer.getProject().getAllFiles());
+
+        // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
+        final Set<ProjectFile> candidateFiles =
+                SearchTools.searchSubstrings(List.of(identifier), analyzer.getProject().getAllFiles());
 
         if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites

@@ -241,4 +241,96 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(files.contains("XExtendsY.java"), "Expected usage in XExtendsY.java; actual: " + files);
         assertTrue(files.contains("MethodReturner.java"), "Expected usage in MethodReturner.java; actual: " + files);
     }
+
+    @Test
+    public void getUsesFunctionNoPrefixMatchTest() {
+        // Rewritten to use existing resources: ensure that searching for A$AInner does NOT prefix-match AInnerInner.
+        var finder = newFinder(testProject);
+        var symbol = "A$AInner";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        assertFalse(hits.isEmpty(), "Expected at least one usage for " + symbol);
+
+        // Ensure no matched line contains 'AInnerInner' (i.e., no prefix match)
+        for (var hit : hits) {
+            var file = hit.file();
+            var contentOpt = file.read();
+            assertTrue(contentOpt.isPresent(), "Unable to read file content for " + file);
+            var lines = contentOpt.get().split("\\R", -1);
+            int lineNo = hit.line();
+            assertTrue(lineNo >= 1 && lineNo <= lines.length, "Matched line number out of range: " + lineNo);
+            var matchedLine = lines[lineNo - 1];
+
+            assertFalse(
+                    matchedLine.contains("AInnerInner"),
+                    "Should not prefix-match AInnerInner on the matched line; line: " + matchedLine);
+        }
+
+        var files = baseNamesFromHits(hits);
+        assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
+    }
+
+    @Test
+    public void getUsesFunctionVsFieldAmbiguityTest() {
+        // Test that searching for a method foo() does NOT match field assignments to foo.
+        // - method: ServiceImpl.foo()
+        // - field: E.foo
+        // Split into separate call sites: callFoo() invokes s.foo(), assignFoo() assigns e.foo = 1
+        var finder = newFinder(testProject);
+        var symbol = "ServiceImpl.foo";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        // Focus on hits in UseE.java and ensure they are function invocations, not field accesses.
+        var useEHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("UseE.java"))
+                .collect(Collectors.toList());
+
+        assertFalse(useEHits.isEmpty(), "Expected at least one invocation hit in UseE.java");
+
+        // Verify all hits are method calls (line contains foo followed by paren), not field assignments
+        for (var hit : useEHits) {
+            var file = hit.file();
+            var contentOpt = file.read();
+            assertTrue(contentOpt.isPresent(), "Unable to read file content for " + file);
+            var lines = contentOpt.get().split("\\R", -1);
+            int lineNo = hit.line(); // 1-based in UsageHit
+            assertTrue(lineNo >= 1 && lineNo <= lines.length, "Matched line number out of range: " + lineNo);
+            var matchedLine = lines[lineNo - 1];
+
+            assertTrue(
+                    matchedLine.matches(".*\\bfoo\\b\\s*\\(.*"),
+                    "Expected only function-call style match on the matched line; line: " + matchedLine);
+            assertFalse(
+                    matchedLine.matches(".*\\bfoo\\b\\s*=.*"),
+                    "Should not match field assignment on the matched line; line: " + matchedLine);
+        }
+
+        // Verify that assignFoo() method itself is NOT in the hit list
+        var assignFooHits = useEHits.stream()
+                .filter(h -> {
+                    try {
+                        var contentOpt = h.file().read();
+                        if (contentOpt.isEmpty()) return false;
+                        var lines = contentOpt.get().split("\\R", -1);
+                        int lineNo = h.line();
+                        if (lineNo < 1 || lineNo > lines.length) return false;
+                        return lines[lineNo - 1].contains("assignFoo");
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .collect(Collectors.toList());
+
+        assertTrue(assignFooHits.isEmpty(), "Should not have hits in assignFoo() method where foo is a field");
+    }
 }

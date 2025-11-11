@@ -56,6 +56,21 @@ public interface Language {
 
     // --- Unified dependency discovery/import ---
 
+    /**
+     * Returns a language-specific regex template for usage search, parameterized by $ident.
+     * Default:
+     * - FUNCTION: "\\b$ident\\s*\\("
+     * - others:   "\\b$ident\\b"
+     *
+     * Implementations may override to customize per language.
+     */
+    default String getSearchPattern(CodeUnitType type) {
+        return switch (type) {
+            case FUNCTION -> "\\b$ident\\s*\\(";
+            default -> "\\b$ident\\b";
+        };
+    }
+
     enum ImportSupport {
         NONE,
         BASIC,
