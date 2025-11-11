@@ -317,7 +317,10 @@ public class SearchAgent {
         try {
             metrics.recordToolCall(req.name());
             termExec = registry.executeTool(req);
-            context = wst.getContext();
+            // Only copy context back if this was a workspace tool
+            if (isWorkspaceTool(req, registry)) {
+                context = wst.getContext();
+            }
         } catch (Exception e) {
             logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
             termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
