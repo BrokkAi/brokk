@@ -2789,6 +2789,255 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testTypeScriptEdgeCases() {
+        ProjectFile edgeCasesFile = new ProjectFile(project.getRoot(), "EdgeCases.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(edgeCasesFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(edgeCasesFile);
+
+        // The file should not be empty even though it starts with comments
+        assertFalse(skeletons.isEmpty(), "EdgeCases.ts should contain declarations despite initial comments");
+        assertFalse(declarations.isEmpty(), "EdgeCases.ts should have declarations");
+
+        // ===== Test 1: Empty File Section Handling =====
+        // The analyzer should skip over the comment-only section at the top
+        // and successfully parse the actual declarations that follow
+
+        // ===== Test 2: Deeply Nested Namespace Structure (5 levels) =====
+        // Verify the top-level namespace is captured
+        // Note: The analyzer may not fully traverse deeply nested namespace structures (5+ levels)
+        // This is a known limitation when namespaces are nested beyond typical depth
+
+        CodeUnit namespaceA = declarations.stream()
+                .filter(cu -> cu.shortName().equals("A") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "Namespace A should be found. Available declarations: "
+                                + declarations.stream()
+                                        .map(CodeUnit::fqName)
+                                        .collect(Collectors.joining(", "))));
+
+        assertTrue(skeletons.containsKey(namespaceA), "Namespace A should have skeleton");
+        String namespaceSkeleton = skeletons.get(namespaceA);
+        assertTrue(
+                namespaceSkeleton.contains("namespace A"),
+                "Namespace A skeleton should contain namespace definition");
+
+        // Verify the module-level instance of the deeply nested class is captured
+        CodeUnit deepInstance = declarations.stream()
+                .filter(cu -> cu.fqName().equals("_module_.deepInstance") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "_module_.deepInstance should be found as it's a module-level const"));
+
+        // The deeply nested structures (5 levels deep) may not be fully traversable by the analyzer
+        // This is an edge case that reveals limitations with extreme nesting depth
+        // The important behavior is that the analyzer doesn't crash and captures what it can
+
+        // ===== Test 3: String Enums =====
+
+        // Status enum (exported string enum)
+        CodeUnit statusEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Status") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Status enum should be found"));
+
+        assertTrue(skeletons.containsKey(statusEnum), "Status enum should have skeleton");
+        String statusSkeleton = skeletons.get(statusEnum);
+        assertTrue(
+                statusSkeleton.contains("enum Status"),
+                "Status skeleton should contain enum definition. Actual skeleton: " + statusSkeleton);
+        
+        // Verify enum members are present in the skeleton
+        assertTrue(
+                statusSkeleton.contains("Active"),
+                "Status enum skeleton should contain Active member. Actual: " + statusSkeleton);
+        assertTrue(
+                statusSkeleton.contains("Inactive"),
+                "Status enum skeleton should contain Inactive member. Actual: " + statusSkeleton);
+        assertTrue(
+                statusSkeleton.contains("Pending"),
+                "Status enum skeleton should contain Pending member. Actual: " + statusSkeleton);
+        assertTrue(
+                statusSkeleton.contains("Archived"),
+                "Status enum skeleton should contain Archived member. Actual: " + statusSkeleton);
+
+        // Verify enum members are captured
+        CodeUnit statusActive = declarations.stream()
+                .filter(cu -> cu.fqName().equals("Status.Active") && cu.isField())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Status.Active member should be captured"));
+
+        // LogLevel enum (non-exported string enum)
+        CodeUnit logLevelEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("LogLevel") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("LogLevel enum should be found"));
+
+        String logLevelSkeleton = skeletons.get(logLevelEnum);
+        assertTrue(
+                logLevelSkeleton.contains("Debug") && logLevelSkeleton.contains("Info"),
+                "LogLevel enum should contain member names. Actual: " + logLevelSkeleton);
+
+        // ===== Test 4: Heterogeneous Enums (Mixed String/Number Members) =====
+
+        // MixedEnum (exported heterogeneous enum)
+        CodeUnit mixedEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("MixedEnum") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("MixedEnum should be found"));
+
+        assertTrue(skeletons.containsKey(mixedEnum), "MixedEnum should have skeleton");
+        String mixedEnumSkeleton = skeletons.get(mixedEnum);
+        assertTrue(
+                mixedEnumSkeleton.contains("No") && mixedEnumSkeleton.contains("Yes"),
+                "MixedEnum should contain member names. Actual: " + mixedEnumSkeleton);
+        assertTrue(
+                mixedEnumSkeleton.contains("Unknown") && mixedEnumSkeleton.contains("Maybe"),
+                "MixedEnum should contain all member names. Actual: " + mixedEnumSkeleton);
+
+        // ResponseCode enum
+        CodeUnit responseCodeEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("ResponseCode") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("ResponseCode enum should be found"));
+
+        String responseCodeSkeleton = skeletons.get(responseCodeEnum);
+        assertTrue(
+                responseCodeSkeleton.contains("Success") && responseCodeSkeleton.contains("SuccessMessage"),
+                "ResponseCode should contain member names. Actual: " + responseCodeSkeleton);
+
+        // ===== Test 5: Computed Enum Members =====
+
+        // Flags enum (exported with bitwise operations)
+        CodeUnit flagsEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Flags") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Flags enum should be found"));
+
+        assertTrue(skeletons.containsKey(flagsEnum), "Flags enum should have skeleton");
+        String flagsSkeleton = skeletons.get(flagsEnum);
+        assertTrue(
+                flagsSkeleton.contains("None") && flagsSkeleton.contains("Read"),
+                "Flags enum should contain None and Read members. Actual: " + flagsSkeleton);
+        assertTrue(
+                flagsSkeleton.contains("Write") && flagsSkeleton.contains("Execute"),
+                "Flags enum should contain Write and Execute members. Actual: " + flagsSkeleton);
+        assertTrue(
+                flagsSkeleton.contains("Delete") && flagsSkeleton.contains("All"),
+                "Flags enum should contain Delete and All members. Actual: " + flagsSkeleton);
+
+        // Permissions enum (computed with expressions)
+        CodeUnit permissionsEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Permissions") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Permissions enum should be found"));
+
+        String permissionsSkeleton = skeletons.get(permissionsEnum);
+        assertTrue(
+                permissionsSkeleton.contains("ViewOnly") && permissionsSkeleton.contains("Edit"),
+                "Permissions enum should contain member names. Actual: " + permissionsSkeleton);
+
+        // FileSize enum (arithmetic operations)
+        CodeUnit fileSizeEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("FileSize") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("FileSize enum should be found"));
+
+        String fileSizeSkeleton = skeletons.get(fileSizeEnum);
+        assertTrue(
+                fileSizeSkeleton.contains("KB") && fileSizeSkeleton.contains("MB"),
+                "FileSize enum should contain KB and MB members. Actual: " + fileSizeSkeleton);
+        assertTrue(
+                fileSizeSkeleton.contains("GB") && fileSizeSkeleton.contains("TB"),
+                "FileSize enum should contain GB and TB members. Actual: " + fileSizeSkeleton);
+
+        // ===== Test 6: Additional Edge Cases =====
+
+        // Counter enum (mixed explicit and implicit values)
+        CodeUnit counterEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("Counter") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Counter enum should be found"));
+
+        String counterSkeleton = skeletons.get(counterEnum);
+        assertTrue(
+                counterSkeleton.contains("First") && counterSkeleton.contains("Third"),
+                "Counter should contain member names. Actual: " + counterSkeleton);
+
+        // EmptyEnum (edge case: enum with no members)
+        CodeUnit emptyEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("EmptyEnum") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("EmptyEnum should be found"));
+
+        String emptySkeleton = skeletons.get(emptyEnum);
+        assertTrue(
+                emptySkeleton.contains("enum EmptyEnum"),
+                "EmptyEnum should have enum declaration");
+
+        // SingleMember enum
+        CodeUnit singleMemberEnum = declarations.stream()
+                .filter(cu -> cu.shortName().equals("SingleMember") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("SingleMember enum should be found"));
+
+        String singleMemberSkeleton = skeletons.get(singleMemberEnum);
+        assertTrue(
+                singleMemberSkeleton.contains("OnlyOne"),
+                "SingleMember enum should contain OnlyOne member. Actual: " + singleMemberSkeleton);
+
+        // ===== Test 7: Verify Namespace Nesting Doesn't Create Duplicate Top-level =====
+        // The namespace A should be a top-level declaration, but A.B, A.B.C, etc. should not
+        List<CodeUnit> topLevel = analyzer.getTopLevelDeclarations(edgeCasesFile);
+        
+        boolean hasTopLevelA = topLevel.stream()
+                .anyMatch(cu -> cu.shortName().equals("A") && cu.packageName().isEmpty());
+        assertTrue(hasTopLevelA, "Namespace A should be a top-level declaration");
+
+        // Nested namespaces should NOT appear as top-level
+        boolean hasTopLevelB = topLevel.stream()
+                .anyMatch(cu -> cu.shortName().equals("B") && cu.packageName().isEmpty());
+        assertFalse(hasTopLevelB, "Nested namespace B should not be a top-level declaration");
+
+        // ===== Test 8: Verify All Enum Members Are Captured =====
+        List<CodeUnit> statusMembers = declarations.stream()
+                .filter(cu -> cu.fqName().startsWith("Status."))
+                .collect(Collectors.toList());
+
+        assertEquals(
+                4,
+                statusMembers.size(),
+                "Status enum should have 4 members (Active, Inactive, Pending, Archived)");
+
+        List<CodeUnit> flagsMembers = declarations.stream()
+                .filter(cu -> cu.fqName().startsWith("Flags."))
+                .collect(Collectors.toList());
+
+        assertEquals(
+                6,
+                flagsMembers.size(),
+                "Flags enum should have 6 members (None, Read, Write, Execute, Delete, All)");
+
+        // ===== Test 9: Verify getSkeleton Works for Nested Items =====
+        Optional<String> deeplyClassSkeleton = AnalyzerUtil.getSkeleton(analyzer, "A.B.C.D.E.Deeply");
+        assertTrue(
+                deeplyClassSkeleton.isPresent(),
+                "Should retrieve deeply nested class skeleton via getSkeleton");
+
+        Optional<String> statusEnumSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Status");
+        assertTrue(statusEnumSkeleton.isPresent(), "Should retrieve Status enum skeleton via getSkeleton");
+        assertTrue(
+                statusEnumSkeleton.get().contains("Active"),
+                "Status enum skeleton should contain member names");
+
+        Optional<String> flagsEnumSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Flags");
+        assertTrue(flagsEnumSkeleton.isPresent(), "Should retrieve Flags enum skeleton via getSkeleton");
+        assertTrue(
+                flagsEnumSkeleton.get().contains("Read") && flagsEnumSkeleton.get().contains("All"),
+                "Flags enum skeleton should contain member names");
+    }
+
+    @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
         List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
