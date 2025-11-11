@@ -3139,8 +3139,8 @@ public class Chrome
                 var repo = mainProject.getRepo();
                 ai.brokk.git.GitRepo gitRepo = (repo instanceof ai.brokk.git.GitRepo r) ? r : null;
                 var gitTopLevel = mainProject.getMasterRootPathForConfig();
-                var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, data.brokkDir().resolve("style.md"));
-                var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, data.agentsFile());
+                var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, ".brokk/style.md");
+                var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, "AGENTS.md");
                 var result = StyleGuideMigrator.migrate(legacyStyle, agentsFile, gitRepo);
 
                 if (result.performed()) {
