@@ -2308,7 +2308,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory = new ContextHistory(new Context(this, null));
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
-            s
+
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());

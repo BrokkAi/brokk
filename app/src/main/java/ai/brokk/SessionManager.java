@@ -417,10 +417,13 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
-
-                // Snapshot current tasklist.json (if present) before we rewrite the zip
+                
+                // Snapshot current tasklist.json (if present) before we rewrite the zip.
+                // Only needed if migration hasn't run yet (context has no Task List fragment).
+                // The migration is async on session open, so it can happen saveHistory is called earlier
                 String taskListJsonSnapshot = null;
-                if (Files.exists(sessionHistoryPath)) {
+                boolean hasTaskListFragment = contextHistory.topContext().getTaskListFragment().isPresent();
+                if (Files.exists(sessionHistoryPath) && !hasTaskListFragment) {
                     try {
                         taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
                     } catch (IOException ioe) {
