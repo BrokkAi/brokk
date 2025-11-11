@@ -856,9 +856,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Clear immediately when switching sessions to avoid showing stale tasks
         if (!Objects.equals(previous, sid)) {
-            model.clear();
-            clearExpansionOnStructureChange();
-            updateButtonStates();
+            resetEphemeralUiStateForSessionSwitch();
         }
 
         try {
@@ -889,6 +887,41 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Ensure the Tasks tab badge reflects the freshly loaded model.
             updateTasksTabBadge();
         }
+    }
+
+    /**
+     * Reset all ephemeral UI and model state when switching sessions to avoid
+     * stale running/queued flags and fragment tracking leaking into the new session.
+     * Must be called on the EDT.
+     */
+    private void resetEphemeralUiStateForSessionSwitch() {
+        assert SwingUtilities.isEventDispatchThread() : "resetEphemeralUiStateForSessionSwitch must run on EDT";
+        // Stop any running visuals
+        runningFadeTimer.stop();
+        // Clear execution/queue state
+        runningIndex = null;
+        pendingQueue.clear();
+        queueActive = false;
+        currentRunOrder = null;
+
+        // Remove auto-play listener if present to avoid cross-session leaks
+        if (autoPlayListener != null) {
+            try {
+                model.removeListDataListener(autoPlayListener);
+            } catch (Exception ex) {
+                logger.debug("Error removing autoPlayListener during session switch", ex);
+            }
+            autoPlayListener = null;
+        }
+
+        // Clear the model and transient fragment marker until the new session is loaded
+        model.clear();
+        lastTaskListFragmentId = null;
+
+        // Update UI
+        clearExpansionOnStructureChange();
+        updateButtonStates();
+        updateTasksTabBadge();
     }
 
     private void saveTasksForCurrentSession() {

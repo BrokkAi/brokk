@@ -1028,7 +1028,7 @@ public class Context {
     /**
      * Updates the Task List fragment with the provided JSON. Clears previous Task List fragments before adding a new one.
      */
-    public Context withTaskList(String json) {
+    private Context withTaskList(String json) {
         var desc = ContextFragment.TASK_LIST.description();
 
         var idsToDrop = virtualFragments()
