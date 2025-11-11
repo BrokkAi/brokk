@@ -8,6 +8,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
@@ -99,6 +100,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
     private boolean isLoadingTasks = false;
     private @Nullable UUID sessionIdAtLoad = null;
+    // Track the last-seen Task List fragment id so we can detect updates within the same session
+    private @Nullable String lastTaskListFragmentId = null;
     private @Nullable IContextManager registeredContextManager = null;
 
     private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
@@ -876,6 +879,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
         } finally {
             isLoadingTasks = false;
+            // Update the last-seen fragment ID after successful load
+            lastTaskListFragmentId = chrome.getContextManager()
+                    .topContext()
+                    .getTaskListFragment()
+                    .map(ContextFragment::id)
+                    .orElse(null);
             clearExpansionOnStructureChange();
             // Ensure the Tasks tab badge reflects the freshly loaded model.
             updateTasksTabBadge();
@@ -2124,12 +2133,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void contextChanged(Context newCtx) {
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
+
+        // Extract current Task List fragment ID
+        String currentFragmentId = newCtx.getTaskListFragment()
+                .map(ContextFragment::id)
+                .orElse(null);
+
+        boolean sessionChanged = !Objects.equals(current, loaded);
+        boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
+
         logger.debug(
-                "contextChanged: session changed? {} (current={}, loaded={}); scheduling reload if changed",
-                !Objects.equals(current, loaded),
+                "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
+                sessionChanged,
                 current,
-                loaded);
-        if (!Objects.equals(current, loaded)) {
+                loaded,
+                fragmentChanged,
+                currentFragmentId,
+                lastTaskListFragmentId);
+
+        if (sessionChanged || fragmentChanged) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
     }
