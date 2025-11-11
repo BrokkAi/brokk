@@ -286,6 +286,7 @@ public class JavaAnalyzerTest {
                 "EnumClass",
                 "F",
                 "Interface",
+                "MethodReferenceUsage",
                 "MethodReturner",
                 "ServiceImpl",
                 "ServiceInterface",
