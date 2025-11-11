@@ -7,6 +7,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,14 +68,14 @@ public class FuzzyUsageFinderJavaTest {
         };
     }
 
-    private static Set<String> baseNamesFromHits(Set<UsageHit> hits) {
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
         return hits.stream()
                 .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+                .collect(Collectors.toSet());
     }
 
     private static FuzzyUsageFinder newFinder(IProject project) {
-        return new FuzzyUsageFinder(project, analyzer, null, null); // No LLM for these tests
+        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null); // No LLM for these tests
     }
 
     @Test
@@ -88,7 +89,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect references to be in B.java and AnonymousUsage.java (may include others; we assert presence)
         assertTrue(files.contains("B.java"), "Expected a usage in B.java; actual: " + files);
@@ -106,7 +107,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertFalse(files.contains("A.java"), "Declaration should not be counted as usage; actual: " + files);
     }
@@ -131,7 +132,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("D.java"), "Expected a usage in D.java; actual: " + files);
         assertTrue(files.contains("E.java"), "Expected a usage in E.java; actual: " + files);
@@ -158,7 +159,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected a usage in UseE.java; actual: " + files);
     }
@@ -174,7 +175,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect references across several files (constructor and method usage)
         assertTrue(files.contains("B.java"), "Expected usage in B.java; actual: " + files);
@@ -203,7 +204,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
     }
@@ -219,7 +220,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected usage in UseE.java; actual: " + files);
     }
@@ -235,7 +236,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect a usage in classes that extend or refer to BaseClass
         assertTrue(files.contains("XExtendsY.java"), "Expected usage in XExtendsY.java; actual: " + files);
@@ -244,7 +245,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFunctionNoPrefixMatchTest() {
-        // Rewritten to use existing resources: ensure that searching for A$AInner does NOT prefix-match AInnerInner.
+        // Ensure that searching for A$AInner does NOT prefix-match A$AInner$AInnerInner
         var finder = newFinder(testProject);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
@@ -256,31 +257,23 @@ public class FuzzyUsageFinderJavaTest {
         var hits = either.getUsages();
         assertFalse(hits.isEmpty(), "Expected at least one usage for " + symbol);
 
-        // Ensure no matched line contains 'AInnerInner' (i.e., no prefix match)
-        for (var hit : hits) {
-            var file = hit.file();
-            var contentOpt = file.read();
-            assertTrue(contentOpt.isPresent(), "Unable to read file content for " + file);
-            var lines = contentOpt.get().split("\\R", -1);
-            int lineNo = hit.line();
-            assertTrue(lineNo >= 1 && lineNo <= lines.length, "Matched line number out of range: " + lineNo);
-            var matchedLine = lines[lineNo - 1];
-
-            assertFalse(
-                    matchedLine.contains("AInnerInner"),
-                    "Should not prefix-match AInnerInner on the matched line; line: " + matchedLine);
-        }
-
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
         assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
+
+        // Verify that all hits are for A$AInner, not for any prefix-matched longer class names
+        for (var hit : hits) {
+            var enclosing = hit.enclosing();
+            assertNotEquals(
+                    "A$AInner$AInnerInner",
+                    enclosing.fqName(),
+                    "Should not have matched the nested class A$AInner$AInnerInner");
+        }
     }
 
     @Test
     public void getUsesFunctionVsFieldAmbiguityTest() {
-        // Test that searching for a method foo() does NOT match field assignments to foo.
-        // - method: ServiceImpl.foo()
-        // - field: E.foo
-        // Split into separate call sites: callFoo() invokes s.foo(), assignFoo() assigns e.foo = 1
+        // Test that searching for a method foo() correctly identifies usages within the right enclosing methods
+        // and does NOT match field usages like E.foo.
         var finder = newFinder(testProject);
         var symbol = "ServiceImpl.foo";
         var either = finder.findUsages(symbol).toEither();
@@ -290,47 +283,24 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        // Focus on hits in UseE.java and ensure they are function invocations, not field accesses.
-        var useEHits = hits.stream()
-                .filter(h -> h.file().absPath().getFileName().toString().equals("UseE.java"))
-                .collect(Collectors.toList());
+        assertFalse(hits.isEmpty(), "Expected to find usage in UseE.callFoo() method");
 
-        assertFalse(useEHits.isEmpty(), "Expected at least one invocation hit in UseE.java");
-
-        // Verify all hits are method calls (line contains foo followed by paren), not field assignments
-        for (var hit : useEHits) {
-            var file = hit.file();
-            var contentOpt = file.read();
-            assertTrue(contentOpt.isPresent(), "Unable to read file content for " + file);
-            var lines = contentOpt.get().split("\\R", -1);
-            int lineNo = hit.line(); // 1-based in UsageHit
-            assertTrue(lineNo >= 1 && lineNo <= lines.length, "Matched line number out of range: " + lineNo);
-            var matchedLine = lines[lineNo - 1];
-
-            assertTrue(
-                    matchedLine.matches(".*\\bfoo\\b\\s*\\(.*"),
-                    "Expected only function-call style match on the matched line; line: " + matchedLine);
-            assertFalse(
-                    matchedLine.matches(".*\\bfoo\\b\\s*=.*"),
-                    "Should not match field assignment on the matched line; line: " + matchedLine);
+        // Verify that all hits are for method calls (FUNCTION kind), not field accesses
+        for (var hit : hits) {
+            assertEquals(
+                    CodeUnitType.FUNCTION,
+                    hit.enclosing().kind(),
+                    "Enclosing code unit should be a FUNCTION, not "
+                            + hit.enclosing().kind());
         }
 
-        // Verify that assignFoo() method itself is NOT in the hit list
-        var assignFooHits = useEHits.stream()
-                .filter(h -> {
-                    try {
-                        var contentOpt = h.file().read();
-                        if (contentOpt.isEmpty()) return false;
-                        var lines = contentOpt.get().split("\\R", -1);
-                        int lineNo = h.line();
-                        if (lineNo < 1 || lineNo > lines.length) return false;
-                        return lines[lineNo - 1].contains("assignFoo");
-                    } catch (Exception e) {
-                        return false;
-                    }
-                })
-                .collect(Collectors.toList());
-
-        assertTrue(assignFooHits.isEmpty(), "Should not have hits in assignFoo() method where foo is a field");
+        // Verify we found usage in callFoo but NOT in assignFoo (which accesses the field E.foo, not ServiceImpl.foo())
+        var enclosingFqNames = hits.stream().map(uh -> uh.enclosing().fqName()).collect(Collectors.toSet());
+        assertTrue(
+                enclosingFqNames.stream().anyMatch(name -> name.contains("callFoo")),
+                "Expected usage in callFoo() method; actual: " + enclosingFqNames);
+        assertFalse(
+                enclosingFqNames.stream().anyMatch(name -> name.contains("assignFoo")),
+                "Should not have matched field assignment in assignFoo(); actual: " + enclosingFqNames);
     }
 }

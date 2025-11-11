@@ -33,7 +33,7 @@ import org.jetbrains.annotations.Nullable;
 public final class FuzzyUsageFinder {
 
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
-    public static final int DEFAULT_MAX_FILES = 100;
+    public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
 
     private final IProject project;
@@ -98,8 +98,8 @@ public final class FuzzyUsageFinder {
         var isUnique = matchingCodeUnits.size() == 1;
 
         // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
-        final Set<ProjectFile> candidateFiles =
-                SearchTools.searchSubstrings(List.of(identifier), analyzer.getProject().getAllFiles());
+        final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
+                List.of(identifier), analyzer.getProject().getAllFiles());
 
         if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites
@@ -180,7 +180,9 @@ public final class FuzzyUsageFinder {
             combined.addAll(scoredHits);
             combined.addAll(unscoredHits);
             finalHits = combined;
+            logger.debug("Found {} disambiguated hits", finalHits.size());
         }
+
         return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, finalHits);
     }
 
