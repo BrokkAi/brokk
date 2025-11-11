@@ -1016,7 +1016,7 @@ public class Context {
         if (existing.isEmpty()) {
             return new TaskList.TaskListData(List.of());
         }
-        var mapper = ai.brokk.util.Json.getMapper();
+        var mapper = Json.getMapper();
         try {
             return mapper.readValue(existing.get().text(), TaskList.TaskListData.class);
         } catch (Exception e) {
@@ -1062,7 +1062,7 @@ public class Context {
      */
     public Context withTaskList(TaskList.TaskListData data) {
         try {
-            String json = ai.brokk.util.Json.getMapper().writeValueAsString(data);
+            String json = Json.getMapper().writeValueAsString(data);
             return withTaskList(json);
         } catch (Exception e) {
             logger.warn("Failed to serialize Task List to JSON", e);
