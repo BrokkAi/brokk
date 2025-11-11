@@ -638,6 +638,43 @@ public class SessionManager implements AutoCloseable {
         });
     }
 
+    /**
+     * Asynchronously deletes the legacy tasklist.json from the session's zip file.
+     *
+     * This is a cleanup step after migrating to fragment-based storage, where the Task List
+     * is stored as a StringFragment in Context. If the session zip or tasklist.json does not
+     * exist, this operation is a no-op.
+     *
+     * Concurrency: Executed via SerialByKeyExecutor using the session UUID string as the key,
+     * ensuring per-session serialization and alignment with other session I/O.
+     *
+     * @param sessionId the session ID whose legacy task list is to be deleted
+     * @return a CompletableFuture that completes when the deletion attempt has finished
+     */
+    public CompletableFuture<Void> deleteTaskList(UUID sessionId) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            if (!Files.exists(zipPath)) {
+                // No zip to clean; treat as success
+                return null;
+            }
+            try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+                Path taskListPath = fs.getPath("tasklist.json");
+                try {
+                    Files.deleteIfExists(taskListPath);
+                } catch (IOException e) {
+                    logger.warn("Error deleting tasklist.json for session {}: {}", sessionId, e.getMessage());
+                }
+            } catch (IOException e) {
+                logger.warn(
+                        "Error opening session zip {} while deleting tasklist.json: {}",
+                        zipPath.getFileName(),
+                        e.getMessage());
+            }
+            return null;
+        });
+    }
+
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
         var wsPropsPath =
                 worktreeRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.WORKSPACE_PROPERTIES_FILE);
