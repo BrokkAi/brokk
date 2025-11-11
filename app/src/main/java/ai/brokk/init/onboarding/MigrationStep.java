@@ -50,5 +50,6 @@ public class MigrationStep implements OnboardingStep {
      * Data for migration confirmation dialog.
      * Contains ProjectFile instances needed to perform the migration after user confirms.
      */
-    public record MigrationDialogData(ProjectFile legacyStyle, ProjectFile agentsFile) implements OnboardingDialogData {}
+    public record MigrationDialogData(ProjectFile legacyStyle, ProjectFile agentsFile)
+            implements OnboardingDialogData {}
 }
