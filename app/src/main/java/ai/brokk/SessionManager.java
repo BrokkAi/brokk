@@ -607,8 +607,10 @@ public class SessionManager implements AutoCloseable {
     }
 
     /**
-     * Asynchronously read the task list for a session, serialized per session key. Reads tasklist.json from the
-     * session's zip file. Returns an empty list if not present.
+     * Asynchronously read the legacy task list (tasklist.json) from the session's zip.
+     *
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
      *
      * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so reads of the same
      * session are ordered with respect to writes/reads for that session, while reads on different sessions may run in
@@ -622,6 +624,7 @@ public class SessionManager implements AutoCloseable {
      * });
      * }</pre>
      */
+    @Deprecated
     public CompletableFuture<TaskList.TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -645,6 +648,9 @@ public class SessionManager implements AutoCloseable {
     /**
      * Asynchronously deletes the legacy tasklist.json from the session's zip file.
      *
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
+     *
      * This is a cleanup step after migrating to fragment-based storage, where the Task List
      * is stored as a StringFragment in Context. If the session zip or tasklist.json does not
      * exist, this operation is a no-op.
@@ -655,6 +661,7 @@ public class SessionManager implements AutoCloseable {
      * @param sessionId the session ID whose legacy task list is to be deleted
      * @return a CompletableFuture that completes when the deletion attempt has finished
      */
+    @Deprecated
     public CompletableFuture<Void> deleteTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {

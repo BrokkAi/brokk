@@ -299,7 +299,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Load task list for the current session on a background executor
         // This ensures blocking I/O doesn't freeze the UI and waits for analyzer readiness
-        submitBackgroundTask("Load task list for current session", () -> loadTaskListForSession(currentSessionId));
+        submitBackgroundTask("Load task list for current session", () -> migrateLegacyTaskLists(currentSessionId));
 
         // Notify listeners and UI on EDT
         SwingUtilities.invokeLater(() -> {
@@ -1468,7 +1468,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns the current session's domain-model task list. Always non-null. */
     public TaskList.TaskListData getTaskList() {
-        // Prefer reading from the fragment-backed model
         return topContext().getTaskListDataOrEmpty();
     }
 
@@ -1487,16 +1486,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // Load current state from storage to avoid using stale in-memory copy
-        TaskList.TaskListData currentData;
-        try {
-            currentData =
-                    project.getSessionManager().readTaskList(currentSessionId).get();
-        } catch (Exception ex) {
-            logger.debug("Unable to read current task list, using in-memory copy", ex);
-            currentData = getTaskList();
-        }
-        var currentTasks = currentData != null ? currentData.tasks() : List.<TaskList.TaskItem>of();
+        // Use fragment-backed task list as the source of truth
+        var currentTasks = getTaskList().tasks();
 
         // Collect pre-existing incomplete task texts to pass to UI
         var preExistingIncompleteTasks = currentTasks.stream()
@@ -1525,28 +1516,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    @SuppressWarnings("deprecation")
     public void setTaskList(TaskList.TaskListData data) {
         // Track the change in history by pushing a new context with the Task List fragment
         pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
-
-        // Persist legacy JSON for parity with existing storage
-        project.getSessionManager().writeTaskList(currentSessionId, data).exceptionally(ex -> {
-            logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
-            return null;
-        });
+        // Legacy JSON write removed; fragment is now the single source of truth.
     }
 
-    // Load and cache the task list for a specific session ID; on error, set to empty
-    private void loadTaskListForSession(UUID sessionId) {
+    @SuppressWarnings("deprecation")
+    private void migrateLegacyTaskLists(UUID sessionId) {
         try {
             // Prefer fragment-backed Task List if present
             var maybeFragment = topContext().getTaskListFragment();
             if (maybeFragment.isPresent()) {
-                var fromFragment = topContext().getTaskListDataOrEmpty();
                 return;
             }
 
+            // TODO: this is done for each session which has no task list fragment, we should add an migration done indicator
             // Migrate from legacy storage if fragment is absent
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
@@ -1563,13 +1548,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Push a new context with the Task List fragment and a migration action
                 pushContext(currentLiveCtx -> currentLiveCtx
                         .withTaskList(legacy)
-                        .withAction(CompletableFuture.completedFuture("Task list initialized from legacy storage")));
+                        .withAction(CompletableFuture.completedFuture("Task list migrated")));
 
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
-            } else {
-                // No task list present; leave as-is (no fragment, getTaskList() will return empty)
             }
         } catch (Exception e) {
             logger.error("Unable to load task list for session {}", sessionId, e);
@@ -2488,7 +2471,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory = loadedCh;
 
             // Load task list for the switched session
-            loadTaskListForSession(sessionId);
+            migrateLegacyTaskLists(sessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());
