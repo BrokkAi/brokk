@@ -915,7 +915,6 @@ public class Context {
             return this;
         }
 
-        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isComputedFragment);
         var newFragments = new ArrayList<ContextFragment>(fragments.size());
         boolean anyReplaced = false;
 
@@ -937,7 +936,7 @@ public class Context {
         }
 
         // Create a new Context only if any fragment actually changed, or parsed output is present.
-        boolean mustCreateNew = anyReplaced || anyDynamicPresent || parsedOutput != null;
+        boolean mustCreateNew = anyReplaced || parsedOutput != null;
 
         if (!mustCreateNew && newFragments.equals(fragments)) {
             // No content to update; keep original Context
