@@ -311,10 +311,12 @@ public class WorkspaceTools {
         // Preflight usages to detect guardrail conditions (e.g., TooManyCallsites) before adding a fragment
         var result = FuzzyUsageFinder.create(context.getContextManager()).findUsages(symbol);
         if (result instanceof FuzzyResult.TooManyCallsites tmc) {
-            var msg =
-                    "Too many call sites for symbol: " + tmc.totalCallsites() + "(limit " + tmc.limit() + ")";
-            context.getContextManager().getIo().toolError(msg, "Usages");
-            return msg;
+            int total = tmc.totalCallsites();
+            int limit = tmc.limit();
+            var detailed =
+                    "Too many call sites for symbol: %s (%d > limit %d)".formatted(symbol, total, limit);
+            context.getContextManager().getIo().toolError(detailed, "Usages limit reached");
+            return "Aborted adding usages for '%s': too many call sites".formatted(symbol);
         }
 
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol);
