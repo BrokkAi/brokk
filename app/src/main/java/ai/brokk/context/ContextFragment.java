@@ -41,6 +41,8 @@ import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -52,6 +54,9 @@ import org.jetbrains.annotations.Nullable;
  * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+
+    Logger log = LoggerFactory.getLogger(ContextFragment.class);
+
     /**
      * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
      */
@@ -1228,8 +1233,9 @@ public interface ContextFragment {
                     if (cm != null) {
                         cm.getIo().toolError(msg, "Usages limit reached");
                     }
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
                     // If UI not available here, fall through with msg
+                    log.warn("Error occurred while trying to show usage limit error", ex);
                 }
                 return msg;
             }
