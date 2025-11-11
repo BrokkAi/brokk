@@ -1059,8 +1059,28 @@ public class Context {
 
     /**
      * Serializes and updates the Task List fragment using TaskList.TaskListData.
+     * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
     public Context withTaskList(TaskList.TaskListData data) {
+        // If tasks are empty, remove the Task List fragment instead of creating an empty one
+        if (data.tasks().isEmpty()) {
+            var desc = ContextFragment.TASK_LIST.description();
+            var idsToDrop = virtualFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.STRING
+                            && f instanceof ContextFragment.StringFragment sf
+                            && desc.equals(sf.description()))
+                    .map(ContextFragment::id)
+                    .toList();
+
+            if (idsToDrop.isEmpty()) {
+                return this; // No change needed; no fragment to remove
+            }
+
+            return removeFragmentsByIds(idsToDrop)
+                    .withAction(CompletableFuture.completedFuture("Task list cleared"));
+        }
+
+        // Non-empty case: serialize and update normally
         try {
             String json = Json.getMapper().writeValueAsString(data);
             return withTaskList(json);
