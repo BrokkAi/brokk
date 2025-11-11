@@ -147,8 +147,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Current session tracking
     private UUID currentSessionId;
 
-    // Domain model task list for the current session (non-null)
-    private volatile TaskList.TaskListData taskList = new TaskList.TaskListData(List.of());
 
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
@@ -1528,9 +1526,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public void setTaskList(TaskList.TaskListData data) {
-        // Update in-memory cache (compatibility), prefer reading from fragment elsewhere
-        this.taskList = data;
-
         // Track the change in history by pushing a new context with the Task List fragment
         pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
 
@@ -1548,7 +1543,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var maybeFragment = topContext().getTaskListFragment();
             if (maybeFragment.isPresent()) {
                 var fromFragment = topContext().getTaskListDataOrEmpty();
-                this.taskList = fromFragment; // cache for compatibility
                 return;
             }
 
@@ -1561,7 +1555,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     analyzerWrapper.get(); // Blocks until analyzer is ready
                 } catch (InterruptedException e) {
                     logger.warn("Interrupted waiting for analyzer before pushing task list migration");
-                    this.taskList = legacy; // Cache at least, without the context push
+                    // Skip context push; keep legacy JSON on disk for parity
                     return;
                 }
 
@@ -1571,14 +1565,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .withAction(CompletableFuture.completedFuture("Task list initialized from legacy storage")));
 
                 // Update cache and persist JSON for parity
-                this.taskList = legacy;
                 project.getSessionManager().writeTaskList(sessionId, legacy);
             } else {
-                this.taskList = new TaskList.TaskListData(List.of());
+                // No task list present; leave as-is (no fragment, getTaskList() will return empty)
             }
         } catch (Exception e) {
             logger.error("Unable to load task list for session {}", sessionId, e);
-            this.taskList = new TaskList.TaskListData(List.of());
         }
     }
 
@@ -2333,8 +2325,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
             // initialize empty task list and persist
-            this.taskList = new TaskList.TaskListData(List.of());
-            project.getSessionManager().writeTaskList(currentSessionId, this.taskList);
+            project.getSessionManager().writeTaskList(currentSessionId, new TaskList.TaskListData(List.of()));
 
             // notifications
             notifyContextListeners(topContext());
@@ -2380,8 +2371,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
         // Initialize empty task list for the new session and persist
-        this.taskList = new TaskList.TaskListData(List.of());
-        sessionManager.writeTaskList(newSessionInfo.id(), this.taskList);
+        sessionManager.writeTaskList(newSessionInfo.id(), new TaskList.TaskListData(List.of()));
     }
 
     /**
@@ -2420,8 +2410,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
 
                     // Initialize empty task list for the new session and persist
-                    this.taskList = new TaskList.TaskListData(List.of());
-                    sessionManager.writeTaskList(this.currentSessionId, this.taskList);
+                    sessionManager.writeTaskList(this.currentSessionId, new TaskList.TaskListData(List.of()));
 
                     // 6. Notify UI about the context change.
                     notifyContextListeners(topContext());
