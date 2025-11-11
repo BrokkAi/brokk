@@ -282,7 +282,26 @@ public class FuzzyUsageFinderJavaTest {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = either.getUsages().stream().map(uh -> uh.enclosing().identifier()).collect(Collectors.toSet());
+        var hits = either.getUsages().stream()
+                .map(uh -> uh.enclosing().identifier())
+                .collect(Collectors.toSet());
         assertEquals(Set.of("foo", "callFoo"), hits);
+    }
+
+    @Test
+    public void getUsesMethodReferenceTest() {
+        // Test that method references (e.g., this::transform) are correctly identified
+        var finder = newFinder(testProject);
+        var symbol = "MethodReferenceUsage.transform";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages().stream()
+                .map(uh -> uh.enclosing().identifier())
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("demonstrateCall", "demonstrateInstanceReference", "demonstrateReferenceParameter"), hits);
     }
 }
