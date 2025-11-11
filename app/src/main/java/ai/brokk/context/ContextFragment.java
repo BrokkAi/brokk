@@ -1219,6 +1219,21 @@ public interface ContextFragment {
             }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
 
+            // Guardrail: if too many call sites slipped past preflight (fragment added elsewhere), show modal and return message.
+            if (usageResult instanceof FuzzyResult.TooManyCallsites tmc) {
+                var msg = "Too many call sites for symbol: %s (%d > limit %d)"
+                        .formatted(targetIdentifier, tmc.totalCallsites(), tmc.limit());
+                try {
+                    var cm = getContextManager();
+                    if (cm != null) {
+                        cm.getIo().toolError(msg, "Usages limit reached");
+                    }
+                } catch (Exception ignored) {
+                    // If UI not available here, fall through with msg
+                }
+                return msg;
+            }
+
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
                 return either.getErrorMessage();
