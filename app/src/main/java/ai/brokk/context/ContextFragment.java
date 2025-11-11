@@ -205,7 +205,9 @@ public interface ContextFragment {
     }
 
     /** Indicates if the fragment's content can change based on project/file state. */
-    boolean isDynamic();
+    default boolean isDynamic() {
+        return this instanceof ComputedFragment;
+    }
 
     default boolean isText() {
         return true;
@@ -442,11 +444,6 @@ public interface ContextFragment {
         }
 
         @Override
-        default boolean isDynamic() {
-            return true; // File content can change
-        }
-
-        @Override
         default boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -667,11 +664,6 @@ public interface ContextFragment {
                     </file>
                     """
                     .formatted(file().toString(), revision(), text());
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return false; // Content is fixed to a revision
         }
 
         @Override
@@ -935,11 +927,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true; // Image file on disk could change
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return ImageFileFragment.withId(file, id, contextManager);
         }
@@ -1198,11 +1185,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public String description() {
             return description;
         }
@@ -1314,14 +1296,6 @@ public interface ContextFragment {
                         }
                     },
                     getFragmentExecutor());
-        }
-
-        @Override
-        public boolean isDynamic() {
-            // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the
-            // corner case
-            // of the Future timing out in rare error scenarios
-            return false;
         }
 
         @Override
@@ -1643,11 +1617,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public Set<CodeUnit> sources() {
             return sources; // Return pre-computed sources
         }
@@ -1750,11 +1719,6 @@ public interface ContextFragment {
             }
             return AnalyzerUtil.processUsages(
                     analyzer, uses.stream().map(UsageHit::enclosing).toList());
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return true;
         }
 
         @Override
@@ -1923,11 +1887,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
         @Blocking
         public Set<CodeUnit> sources() {
             var unit = getComputedUnit().renderNowOrNull();
@@ -2047,11 +2006,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
         @Blocking
         public Set<CodeUnit> sources() {
             // FIXME this is broken, needs to include the actual call sites as well
@@ -2140,11 +2094,6 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             return SummaryFragment.combinedText(summaries);
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return true;
         }
 
         @Override
@@ -2281,11 +2230,6 @@ public interface ContextFragment {
                 return "No summary found for: " + targetIdentifier;
             }
             return combinedText(List.of(this));
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return true;
         }
 
         @Override
@@ -2435,11 +2379,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public String text() {
             // FIXME the right thing to do here is probably to throw UncheckedIOException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
@@ -2578,11 +2517,6 @@ public interface ContextFragment {
         public FragmentType getType() {
             // SearchFragment overrides this to return FragmentType.SEARCH
             return FragmentType.TASK;
-        }
-
-        @Override
-        public boolean isDynamic() {
-            return false;
         }
 
         @Override
