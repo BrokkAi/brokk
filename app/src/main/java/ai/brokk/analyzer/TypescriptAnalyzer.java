@@ -772,11 +772,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return true;
         }
 
-        // Enum + any other kind (enum + namespace is common)
-        if (existing.kind().toString().equals("enum")
-                || candidate.kind().toString().equals("enum")) {
-            return true;
-        }
+        // Note: TypeScript enums are mapped to CLASS type via classLikeNodeTypes in the syntax profile.
+        // They are already covered by the class/function merging check above.
+        // The enum check that was here was dead code since CodeUnitType enum has no "enum" value.
 
         // Field-like duplicates (const variables, etc.) are NOT benign - they may indicate bugs
         // Don't mask these as benign patterns
