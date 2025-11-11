@@ -2,6 +2,7 @@ package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Tests for GitIgnoreUtils.
  * Validates .gitignore pattern matching for .brokk directory.
+ * Tests both Path-based and ProjectFile-based overloads.
  */
 class GitIgnoreUtilsTest {
 
@@ -180,5 +182,82 @@ class GitIgnoreUtilsTest {
         Path gitignorePath = tempDir.resolve(".gitignore");
         Files.writeString(gitignorePath, "something/.brokk/**\n");
         assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignorePath), "Pattern in middle of path should NOT be recognized");
+    }
+
+    // Tests for ProjectFile overload
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_FileDoesNotExist() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignoreFile), ".gitignore doesn't exist, should return false");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_EmptyFile() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(gitignoreFile.absPath(), "");
+        assertFalse(GitIgnoreUtils.isBrokkIgnored(gitignoreFile), "Empty .gitignore should return false");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_ComprehensivePattern() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(gitignoreFile.absPath(), ".brokk/**\n");
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignoreFile), ".brokk/** pattern should be recognized");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_WithLeadingSlash() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(gitignoreFile.absPath(), "/.brokk/**\n");
+        assertTrue(GitIgnoreUtils.isBrokkIgnored(gitignoreFile), "/.brokk/** pattern should be recognized");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_WithComment() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(gitignoreFile.absPath(), ".brokk/** # Brokk configuration\n");
+        assertTrue(
+                GitIgnoreUtils.isBrokkIgnored(gitignoreFile), ".brokk/** with trailing comment should be recognized");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_PartialPattern_ShouldNotMatch() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(gitignoreFile.absPath(), ".brokk/workspace.properties\n");
+        assertFalse(
+                GitIgnoreUtils.isBrokkIgnored(gitignoreFile),
+                "Partial pattern .brokk/workspace.properties should NOT be recognized");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_MultipleLines_ComprehensivePatternPresent() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(
+                gitignoreFile.absPath(),
+                """
+                node_modules/
+                .brokk/workspace.properties
+                /.brokk/**
+                *.log
+                """);
+        assertTrue(
+                GitIgnoreUtils.isBrokkIgnored(gitignoreFile),
+                "Should find /.brokk/** among multiple patterns including partial ones");
+    }
+
+    @Test
+    void testIsBrokkIgnored_ProjectFile_MultipleLines_OnlyPartialPatterns() throws IOException {
+        ProjectFile gitignoreFile = new ProjectFile(tempDir, ".gitignore");
+        Files.writeString(
+                gitignoreFile.absPath(),
+                """
+                .brokk/workspace.properties
+                .brokk/sessions/
+                .brokk/history.zip
+                """);
+        assertFalse(
+                GitIgnoreUtils.isBrokkIgnored(gitignoreFile),
+                "Should NOT match when only partial .brokk patterns are present");
     }
 }
