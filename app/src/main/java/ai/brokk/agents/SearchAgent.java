@@ -672,7 +672,7 @@ public class SearchAgent {
                 new TerminalObjective(
                         "query_or_instructions",
                         """
-                    Either deliver a written answer, solve the problem by invoking code agent, or decompose the problem into a task list.
+                    Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
                       - Prefer callCodeAgent(String) if the requested change is small.
