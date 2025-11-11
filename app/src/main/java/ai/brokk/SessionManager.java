@@ -587,7 +587,11 @@ public class SessionManager implements AutoCloseable {
      *     return null;
      * });
      * }</pre>
+     *
+     * @deprecated Task lists are now stored as Context fragments. This method exists only for backward compatibility
+     * during migration. Will be removed in a future release.
      */
+    @Deprecated
     public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskList.TaskListData data) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {

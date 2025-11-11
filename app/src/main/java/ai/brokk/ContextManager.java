@@ -1525,6 +1525,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
+    @SuppressWarnings("deprecation")
     public void setTaskList(TaskList.TaskListData data) {
         // Track the change in history by pushing a new context with the Task List fragment
         pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
@@ -2307,6 +2308,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @SuppressWarnings("deprecation")
     private void createOrReuseSession(String name) {
         Optional<SessionInfo> existingSessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
         if (existingSessionInfo.isPresent()) {
@@ -2362,6 +2364,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
+    @SuppressWarnings("deprecation")
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
@@ -2383,6 +2386,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param newSessionName The name for the new session.
      * @return A CompletableFuture representing the completion of the session creation task.
      */
+    @SuppressWarnings("deprecation")
     public CompletableFuture<Void> createSessionFromContextAsync(Context sourceFrozenContext, String newSessionName) {
         return submitExclusiveAction(() -> {
                     logger.debug(
