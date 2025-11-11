@@ -2,11 +2,10 @@ package ai.brokk.prompts;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
-import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -130,7 +129,7 @@ public abstract class CodePrompts {
         return flags;
     }
 
-    public String codeReminder(Service service, StreamingChatModel model) {
+    public String codeReminder(AbstractService service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
         return baseReminder + "\n" + MARKDOWN_REMINDER;
     }

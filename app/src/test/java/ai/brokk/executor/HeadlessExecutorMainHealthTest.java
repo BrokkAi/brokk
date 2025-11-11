@@ -2,6 +2,9 @@ package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ai.brokk.ContextManager;
+import ai.brokk.MainProject;
+import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.InputStream;
@@ -49,12 +52,13 @@ class HeadlessExecutorMainHealthTest {
         var execId = UUID.randomUUID();
         this.authToken = "test-token"; // required for authenticated endpoints
 
+        var project = new MainProject(workspaceDir);
+        var cm = new ContextManager(project, TestService.provider(project));
         executor = new HeadlessExecutorMain(
                 execId,
                 "127.0.0.1:0", // Ephemeral port
                 this.authToken,
-                workspaceDir,
-                sessionsDir);
+                cm);
 
         executor.start();
         port = executor.getPort();

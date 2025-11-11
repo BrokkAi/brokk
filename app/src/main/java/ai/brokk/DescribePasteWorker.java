@@ -72,27 +72,13 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
             int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 var result = llm.sendRequest(messages, toolContext);
-
                 if (result.error() != null) {
                     throw new Exception("LLM error while describing paste", result.error());
                 }
-                if (result.toolRequests().isEmpty()) {
-                    messages.add(result.aiMessage());
-                    messages.add(new UserMessage(
-                            "You did not call the tool. Please call the 'describePasteContents' tool."));
-                    continue;
-                }
 
                 // Execute tool calls, which will populate instance fields
-                try {
-                    for (var request : result.toolRequests()) {
-                        tr.executeTool(request);
-                    }
-                } catch (Exception e) {
-                    messages.add(result.aiMessage());
-                    messages.add(new UserMessage(
-                            "There was an error executing your tool call. Please try again. " + e.getMessage()));
-                    continue; // retry
+                for (var request : result.toolRequests()) {
+                    tr.executeTool(request);
                 }
 
                 // Check results stored in fields
@@ -105,11 +91,10 @@ public class DescribePasteWorker extends SwingWorker<DescribePasteWorker.PasteIn
 
                 // If we are here, the result was not valid. Provide feedback and retry.
                 messages.add(result.aiMessage());
-                if (syntaxStyle != null && !syntaxStyles.contains(syntaxStyle)) {
+                if (syntaxStyle == null || syntaxStyles.contains(syntaxStyle)) {
                     messages.add(new UserMessage(
                             "Invalid syntax style '" + syntaxStyle + "'. Please choose from the provided list."));
                 } else {
-                    // This case handles nulls or other unexpected issues
                     messages.add(new UserMessage(
                             "Tool call did not provide valid summary and syntaxStyle. Please try again."));
                 }

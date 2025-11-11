@@ -60,9 +60,17 @@
                 {/if}
             </div>
             <div class="spacer"></div>
-            <Icon icon={showDetails ? 'mdi:chevron-up' : 'mdi:chevron-down'} class="toggle-icon"/>
-        </header>
 
+            {#if showDetails}
+                <Icon icon="mdi:chevron-up" class="toggle-icon" />
+            {/if}
+            {#if !showDetails}
+                <Icon icon="mdi:chevron-down" class="toggle-icon" />
+            {/if}
+        </header>
+        <!-- Use two icons instead of toggling a single Iconify prop to avoid an intermittent @iconify/svelte update crash (“null attributes”) during rapid subtree updates when edit-blocks auto-expand.
+        This forces a clean unmount/mount and prevents the render flush from aborting (which made the next bubble look empty).
+        Do not refactor unless Iconify fixes this or you switch to a single static icon with CSS rotation. -->
         {#if showDetails}
             <div class="edit-block-body">
                 <slot></slot>
@@ -136,17 +144,11 @@
         font-size: 0.85em;
     }
 
-    .edit-block-body :global(.custom-code-block) {
-        margin-left: 10px;
-        margin-right: 10px;
-    }
-
     .edit-block-body :global(pre) {
         margin: 0;
         /* Shiki adds a background color, which is fine. */
         /* It also adds horizontal padding, which we override on lines. */
-        padding-top: 0.8em;
-        padding-bottom: 0.8em;
+        padding: 0;
         white-space: inherit;
         font-size: 0;
     }

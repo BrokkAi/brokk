@@ -1021,6 +1021,9 @@ public class Chrome
         // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         while (true) {
             try {
+                // flush all EDT tasks that were posted before this point (e.g., pending llmOutput appends)
+                SwingUtilities.invokeAndWait(() -> {});
+
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
                 SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages()));
                 return future.get();
@@ -1524,7 +1527,12 @@ public class Chrome
 
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+        if (SwingUtilities.isEventDispatchThread()) {
+            historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning);
+        } else {
+            SwingUtilities.invokeLater(
+                    () -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+        }
     }
 
     /**
@@ -1541,7 +1549,18 @@ public class Chrome
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.prepareOutputForNextStream(history));
+        if (SwingUtilities.isEventDispatchThread()) {
+            historyOutputPanel.prepareOutputForNextStream(history);
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(() -> historyOutputPanel.prepareOutputForNextStream(history));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while preparing output for next stream", e);
+            } catch (InvocationTargetException e) {
+                logger.error("Error preparing output for next stream", e);
+            }
+        }
     }
 
     @Override

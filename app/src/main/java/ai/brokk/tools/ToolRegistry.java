@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
@@ -78,41 +79,13 @@ public class ToolRegistry {
             Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
-            Map.entry("createTaskList", "Creating task list"));
+            Map.entry("createTaskList", "Creating task list"),
+            Map.entry("callCodeAgent", "Calling code agent"),
+            Map.entry("performedInitialReview", "Performed initial review"));
 
     /** Returns a human-readable headline for the given tool. Falls back to the tool name if there is no mapping. */
     private static String headlineFor(String toolName) {
         return HEADLINES.getOrDefault(toolName, toolName);
-    }
-
-    /** Helper to render a simple YAML block from a validated invocation. */
-    private static String toYaml(ValidatedInvocation vi) {
-        var named = new LinkedHashMap<String, Object>();
-        var params = vi.method().getParameters();
-        var values = vi.parameters();
-        assert params.length == values.size();
-        for (int i = 0; i < params.length; i++) {
-            named.put(params[i].getName(), values.get(i));
-        }
-        var args = (Map<String, Object>) named;
-
-        var sb = new StringBuilder();
-        for (var entry : args.entrySet()) {
-            var key = entry.getKey();
-            var value = entry.getValue();
-            if (value instanceof Collection<?> list) {
-                sb.append(key).append(":\n");
-                for (var item : list) {
-                    sb.append("  - ").append(item).append("\n");
-                }
-            } else if (value instanceof String s && s.contains("\n")) {
-                sb.append(key).append(": |\n");
-                s.lines().forEach(line -> sb.append("  ").append(line).append("\n"));
-            } else {
-                sb.append(key).append(": ").append(value).append("\n");
-            }
-        }
-        return sb.toString();
     }
 
     /** Creates a new root ToolRegistry and self-registers internal tools. */
@@ -210,11 +183,24 @@ public class ToolRegistry {
 
     /** Executes a tool exclusively from the registry (no instance tools). */
     public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
+        try {
+            return executeToolInternal(request);
+        } catch (InterruptedException ie) {
+            throw ie;
+        } catch (Exception e) {
+            GlobalExceptionHandler.handle(e, st -> {});
+            return ToolExecutionResult.internalError(
+                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+        }
+    }
+
+    private ToolExecutionResult executeToolInternal(ToolExecutionRequest request) throws InterruptedException {
         ValidatedInvocation validated;
         try {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
-            return ToolExecutionResult.failure(request, e.getMessage());
+            var msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.requestError(request, msg);
         }
 
         try {
@@ -228,6 +214,18 @@ public class ToolRegistry {
             for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
                 if (e2 instanceof InterruptedException ie) {
                     throw ie;
+                }
+                if (e2 instanceof ToolCallException tce) {
+                    var msg = tce.getMessage() == null ? "[no message]" : tce.getMessage();
+                    return switch (tce.status()) {
+                        case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg);
+                        case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg);
+                        case FATAL -> ToolExecutionResult.fatal(request, msg);
+                        default -> {
+                            throw new AssertionError(
+                                    "Status %s should not be used in ToolCallException".formatted(tce.status()));
+                        }
+                    };
                 }
             }
             throw new RuntimeException(e);
@@ -298,10 +296,19 @@ public class ToolRegistry {
     }
 
     private static List<Object> parseArguments(ToolExecutionRequest request, Method method) {
+        Parameter[] jsonParams = method.getParameters();
+
+        if (request.arguments().isBlank()) {
+            if (jsonParams.length == 0) {
+                return List.of();
+            }
+            throw new ToolValidationException("Tool '%s' requires %d parameter(s) but received empty arguments"
+                    .formatted(method.getName(), jsonParams.length));
+        }
+
         try {
             Map<String, Object> argumentsMap =
                     OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {});
-            Parameter[] jsonParams = method.getParameters();
             var parameters = new ArrayList<Object>(jsonParams.length);
             var typeFactory = OBJECT_MAPPER.getTypeFactory();
 
@@ -376,21 +383,23 @@ public class ToolRegistry {
         try {
             var vi = validateTool(request);
             var headline = headlineFor(request.name());
-
-            // Omit args block entirely for zero-parameter tools
-            var noArgs = vi.method().getParameterCount() == 0;
-            var argsYaml = noArgs ? "" : toYaml(vi);
-            return """
-                   `%s`
-                   ````yaml
-                   %s
-                   ````
-                   """
-                    .formatted(headline, argsYaml);
+            return ExplanationRenderer.renderExplanation(headline, buildArgsMap(vi));
         } catch (ToolValidationException e) {
             logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
             return "Skip invalid tool request.";
         }
+    }
+
+    /** Helper to build a map of parameter names to values from a ValidatedInvocation. */
+    private static Map<String, Object> buildArgsMap(ValidatedInvocation vi) {
+        var named = new LinkedHashMap<String, Object>();
+        var params = vi.method().getParameters();
+        var values = vi.parameters();
+        assert params.length == values.size();
+        for (int i = 0; i < params.length; i++) {
+            named.put(params[i].getName(), values.get(i));
+        }
+        return named;
     }
 
     /** Deduplication helper producing one signature unit per element of the single list param. */
@@ -464,5 +473,24 @@ public class ToolRegistry {
     private static boolean isSimpleScalar(@Nullable Object v) {
         if (v == null) return true;
         return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
+    }
+
+    public static class ToolCallException extends RuntimeException {
+        private final ToolExecutionResult.Status status;
+
+        public ToolCallException(ToolExecutionResult.Status status, String message) {
+            super(message);
+            this.status = status;
+        }
+
+        public ToolExecutionResult.Status status() {
+            return status;
+        }
+    }
+
+    public static class FatalLlmException extends ToolCallException {
+        public FatalLlmException(String message) {
+            super(ToolExecutionResult.Status.FATAL, message);
+        }
     }
 }

@@ -111,7 +111,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return new LoggingExecutorService(
                 toWrap,
                 th -> GlobalExceptionHandler.handle(
-                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
+                        th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
     }
 
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
@@ -135,7 +135,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
             ExecutorServiceUtil.createNamedThreadFactory("BackgroundTask")));
 
-    private final ServiceWrapper service;
+    private final Service.Provider serviceProvider;
 
     private final IProject project;
 
@@ -218,16 +218,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
         fileSystemEventListeners.remove(listener);
     }
 
-    /** Minimal constructor called from Brokk */
     public ContextManager(IProject project) {
+        this(project, new ServiceWrapper());
+    }
+
+    public ContextManager(IProject project, Service.Provider serviceProvider) {
         this.project = project;
 
         this.contextHistory = new ContextHistory(new Context(this, null));
-        this.service = new ServiceWrapper();
-        this.service.reinit(project);
+        this.serviceProvider = serviceProvider;
+        this.serviceProvider.reinit(project);
 
         // Initialize exception reporter with lazy service access
-        this.exceptionReporter = new ExceptionReporter(this.service::get);
+        this.exceptionReporter = new ExceptionReporter(this.serviceProvider::get);
 
         // set up global tools
         this.toolRegistry = ToolRegistry.empty()
@@ -753,8 +756,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns the Models instance associated with this context manager. */
     @Override
-    public Service getService() {
-        return service.get();
+    public AbstractService getService() {
+        return serviceProvider.get();
     }
 
     @Override
@@ -762,38 +765,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         CompletableFuture.runAsync(() -> {
             exceptionReporter.reportException(th);
         });
-    }
-
-    /** Returns the configured Code model, falling back to the system model if unavailable. */
-    public StreamingChatModel getCodeModel() {
-        var config = project.getCodeModelConfig();
-        return getModelOrDefault(config, "Code");
-    }
-
-    public StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
-        StreamingChatModel model = service.getModel(config);
-        if (model != null) {
-            return model;
-        }
-
-        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT));
-        if (model != null) {
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    String.format(
-                            "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                            config.name(), modelTypeName, Service.GPT_5_MINI));
-            return model;
-        }
-
-        var quickModel = service.get().quickModel();
-        String quickModelName = service.get().nameOf(quickModel);
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                String.format(
-                        "Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
-                        config.name(), modelTypeName, quickModelName));
-        return quickModel;
     }
 
     /**
@@ -1763,7 +1734,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     List<ChatMessage> messages = List.of(userMessage);
                     Llm.StreamingResult result;
                     try {
-                        result = getLlm(service.quickModel(), "Summarize pasted image")
+                        result = getLlm(serviceProvider.get().quickModel(), "Summarize pasted image")
                                 .sendRequest(messages);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -1863,8 +1834,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return BuildDetails.EMPTY;
             }
 
-            BuildAgent agent =
-                    new BuildAgent(project, getLlm(service.get().getScanModel(), "Infer build details"), toolRegistry);
+            BuildAgent agent = new BuildAgent(
+                    project, getLlm(serviceProvider.get().getScanModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
@@ -1906,7 +1877,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
             submitBackgroundTask("Reloading service", () -> {
                 try {
-                    service.reinit(project);
+                    serviceProvider.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
                         for (var l : serviceReloadListeners) {
@@ -2041,7 +2012,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         """
                                         .formatted(codeForLLM)));
 
-                var result = getLlm(service.get().getScanModel(), "Generate style guide")
+                var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
                         .sendRequest(messages);
                 if (result.error() != null) {
                     String message =
@@ -2101,7 +2072,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
         Llm.StreamingResult result;
         try {
-            result = getLlm(service.quickModel(), "Compress history entry").sendRequest(msgs);
+            result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
+                    .sendRequest(msgs);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -2661,7 +2633,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         submitBackgroundTask("Balance Check", () -> {
             try {
-                float balance = service.get().getUserBalance();
+                float balance = serviceProvider.get().getUserBalance();
                 logger.debug("Checked balance: ${}", String.format("%.2f", balance));
 
                 if (balance < Service.MINIMUM_PAID_BALANCE) {

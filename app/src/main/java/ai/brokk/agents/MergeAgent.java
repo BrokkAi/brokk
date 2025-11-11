@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -232,7 +233,11 @@ public class MergeAgent {
 
             var blitzResult = blitz.executeParallel(acByFile.keySet(), file -> {
                 var ac = requireNonNull(acByFile.get(file));
-                return executeMergeForFile(file, ac, bfListener.getConsoleIO(file));
+                try {
+                    return executeMergeForFile(file, ac, bfListener.getConsoleIO(file));
+                } catch (InterruptedException e) {
+                    throw new CancellationException(e.getMessage());
+                }
             });
             logger.debug(
                     "BlitzForge parallel merge completed with stop reason: {}",
@@ -619,7 +624,8 @@ public class MergeAgent {
      * planner invocation, repo add, and failure capture.
      */
     private BlitzForge.FileResult executeMergeForFile(
-            ProjectFile file, ConflictAnnotator.ConflictFileCommits ac, IConsoleIO console) {
+            ProjectFile file, ConflictAnnotator.ConflictFileCommits ac, IConsoleIO console)
+            throws InterruptedException {
         logger.debug("Executing merge for file: {}", file.getRelPath());
 
         var mof = new MergeOneFile(cm, planningModel, codeModel, mode, baseCommitId, otherCommitId, ac, console);
