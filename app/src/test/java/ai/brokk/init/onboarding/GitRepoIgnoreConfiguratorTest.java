@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -308,13 +309,13 @@ class GitRepoIgnoreConfiguratorTest {
         var nonGitProject =
                 new TestProject(projectRoot, new GitRepo(projectRoot) {
                     @Override
-                    public synchronized void add(Path path) {}
+                    public synchronized void add(ProjectFile file) throws GitAPIException {}
 
                     @Override
-                    public synchronized void add(java.util.Collection<ProjectFile> files) {}
+                    public synchronized void add(java.util.Collection<ProjectFile> files) throws GitAPIException {}
 
                     @Override
-                    public synchronized void remove(ProjectFile file) {}
+                    public synchronized void remove(ProjectFile file) throws GitAPIException {}
                 }) {
                     @Override
                     public GitRepo getRepo() {
