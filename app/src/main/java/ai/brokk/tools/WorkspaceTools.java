@@ -7,6 +7,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.util.Json;
@@ -306,7 +308,16 @@ public class WorkspaceTools {
             return "Cannot add usages: symbol cannot be empty";
         }
 
-        var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
+        // Preflight usages to detect guardrail conditions (e.g., TooManyCallsites) before adding a fragment
+        var result = FuzzyUsageFinder.create(context.getContextManager()).findUsages(symbol);
+        if (result instanceof FuzzyResult.TooManyCallsites tmc) {
+            var msg =
+                    "Too many call sites for symbol: " + tmc.totalCallsites() + "(limit " + tmc.limit() + ")";
+            context.getContextManager().getIo().toolError(msg, "Usages");
+            return msg;
+        }
+
+        var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol);
         context = context.addVirtualFragments(List.of(fragment));
 
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
