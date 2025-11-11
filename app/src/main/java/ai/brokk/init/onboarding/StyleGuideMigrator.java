@@ -82,6 +82,7 @@ public class StyleGuideMigrator {
                 try {
                     gitRepo.move(legacyRelPath, agentsRelPath);
                     logger.debug("Staged rename using GitRepo.move: {} -> {}", legacyRelPath, agentsRelPath);
+                    // GitRepo.move already deleted the source file, no need to delete again
                 } catch (Exception moveEx) {
                     logger.debug("GitRepo.move failed ({}), falling back to add/remove", moveEx.getMessage());
                     
@@ -102,12 +103,16 @@ public class StyleGuideMigrator {
                         logger.warn("Failed to stage .brokk/style.md removal at {}: {}", legacyRelPath, removeEx.getMessage());
                         throw removeEx;
                     }
-                }
-            }
 
-            // Delete legacy file from filesystem
-            Files.delete(legacyStylePath);
-            logger.debug("Deleted legacy .brokk/style.md from filesystem");
+                    // Delete legacy file from filesystem (only in fallback path)
+                    Files.delete(legacyStylePath);
+                    logger.debug("Deleted legacy .brokk/style.md from filesystem");
+                }
+            } else {
+                // No git repo, just delete the file
+                Files.delete(legacyStylePath);
+                logger.debug("Deleted legacy .brokk/style.md from filesystem (no git)");
+            }
 
             logger.info("Successfully migrated style guide from .brokk/style.md to AGENTS.md");
             return new MigrationResult(true, "Migrated style.md to AGENTS.md");

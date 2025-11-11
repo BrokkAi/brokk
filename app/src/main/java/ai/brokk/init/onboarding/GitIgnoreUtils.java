@@ -21,7 +21,7 @@ public class GitIgnoreUtils {
 
     /**
      * Checks if .brokk directory is properly ignored in .gitignore.
-     * Requires exact match of .brokk/** or .brokk/ patterns.
+     * Requires exact match of .brokk/** or .brokk/ patterns, with optional leading / or ./
      */
     public static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
         if (!Files.exists(gitignorePath)) {
@@ -42,9 +42,16 @@ public class GitIgnoreUtils {
                 trimmed = trimmed.substring(0, commentIndex).trim();
             }
 
+            // Strip optional leading ./ or / prefix
+            if (trimmed.startsWith("./")) {
+                trimmed = trimmed.substring(2);
+            } else if (trimmed.startsWith("/")) {
+                trimmed = trimmed.substring(1);
+            }
+
             // Match .brokk/** (comprehensive) or .brokk/ (directory)
             if (trimmed.equals(".brokk/**") || trimmed.equals(".brokk/")) {
-                logger.debug("Found comprehensive .brokk ignore pattern: {}", trimmed);
+                logger.debug("Found comprehensive .brokk ignore pattern: {}", line.trim());
                 return true;
             }
         }
