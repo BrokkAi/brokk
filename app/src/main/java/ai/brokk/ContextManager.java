@@ -631,7 +631,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             // Update workspace only if context files were affected
-            if (contextFilesChanged && processExternalFileChangesIfNeeded()) {
+            if (contextFilesChanged && processExternalFileChangesIfNeeded(changedFiles)) {
                 // analyzer refresh will call this too, but it will be delayed
                 io.updateWorkspace();
                 logger.debug("Workspace updated due to context file changes");
@@ -1604,18 +1604,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Processes external file changes by checking for workspace content changes and then deciding whether to replace
-     * the top context or push a new one.
-     *
-     * @return true if context has changed, false otherwise
+     * Processes external file changes by refreshing fragments that reference the given files.
+     * Returns true if a new context was pushed or replaced.
      */
-    private boolean processExternalFileChangesIfNeeded() {
-        var ctx = contextHistory.processExternalFileChangesIfNeeded(Set.of());
+    private boolean processExternalFileChangesIfNeeded(Set<ProjectFile> changedFiles) {
+        var ctx = contextHistory.processExternalFileChangesIfNeeded(changedFiles);
         if (ctx != null) {
             contextPushed(ctx);
             return true;
         }
         return false;
+    }
+
+    /**
+     * Convenience overload used when we don't have an explicit changed-files set (e.g., after analyzer rebuilds).
+     * Refreshes any fragment that references any file in the current context.
+     */
+    private void processExternalFileChangesIfNeeded() {
+        var allReferenced =
+                liveContext().allFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet());
+        processExternalFileChangesIfNeeded(allReferenced);
     }
 
     /**

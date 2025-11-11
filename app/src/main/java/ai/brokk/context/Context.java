@@ -906,10 +906,7 @@ public class Context {
     /**
      * Create a new Context reflecting external file changes.
      * - Unchanged fragments are reused.
-     * - For DynamicFragments whose files() intersect 'changed', call refreshCopy() to get a new instance
-     * with cleared ComputedValues (id is preserved).
-     * - Paste fragments (text/image) are always refreshed when 'changed' is non-empty, to clear/re-kick their
-     * ComputedValues even though they may not reference files directly.
+     * - For ComputedFragments whose files() intersect 'changed', a refreshed copy is created to clear cached values.
      * - Preserves taskHistory and parsedOutput; sets action to "Load external changes".
      * - If 'changed' is empty, returns this.
      */
@@ -918,13 +915,12 @@ public class Context {
             return this;
         }
 
-        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isDynamic);
         var newFragments = new ArrayList<ContextFragment>(fragments.size());
         boolean anyReplaced = false;
 
         for (var f : fragments) {
             if (f instanceof ContextFragment.ComputedFragment df) {
-                // Refresh dynamic fragments whose referenced files intersect the changed set
+                // Refresh computed fragments whose referenced files intersect the changed set
                 if (!Collections.disjoint(f.files(), changed)) {
                     var refreshed = df.refreshCopy();
                     newFragments.add(refreshed);
@@ -939,12 +935,11 @@ public class Context {
             newFragments.add(f);
         }
 
-        // Create a new Context if any fragment changed, or if we contain dynamic fragments, or parsed output is
-        // present.
-        boolean mustCreateNew = anyReplaced || anyDynamicPresent || parsedOutput != null;
+        // Create a new Context only if any fragment actually changed, or parsed output is present.
+        boolean mustCreateNew = anyReplaced || parsedOutput != null;
 
         if (!mustCreateNew && newFragments.equals(fragments)) {
-            // No dynamic content to update; keep original Context
+            // No content to update; keep original Context
             return this;
         }
 
