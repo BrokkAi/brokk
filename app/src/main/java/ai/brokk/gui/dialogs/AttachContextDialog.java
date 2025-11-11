@@ -578,9 +578,7 @@ public class AttachContextDialog extends JDialog {
         var maybeTooManyCallSites = usageFinder.preflightTooManyCallsites(target);
         if (maybeTooManyCallSites.isPresent()) {
             var tmc = maybeTooManyCallSites.get();
-            var msg = "Too many call sites for symbol: %s (%d > limit %d)"
-                    .formatted(target, tmc.totalCallsites(), tmc.limit());
-            cm.getIo().toolError(msg, "Usages limit reached");
+            cm.getIo().toolError(tmc.toStringHumanReadable(), "Usages limit reached");
             selection = null;
             dispose();
             return;

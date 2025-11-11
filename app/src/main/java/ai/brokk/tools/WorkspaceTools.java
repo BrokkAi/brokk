@@ -307,11 +307,9 @@ public class WorkspaceTools {
         var maybeTmc = preflightUsages(symbol);
         if (maybeTmc.isPresent()) {
             var tmc = maybeTmc.get();
-            int total = tmc.totalCallsites();
-            int limit = tmc.limit();
-            logger.warn("addSymbolUsagesToWorkspace: TooManyCallsites for '{}': {} > limit {}", symbol, total, limit);
-            var detailed = "Too many call sites for symbol: %s (%d > limit %d)".formatted(symbol, total, limit);
-            context.getContextManager().getIo().toolError(detailed, "Usages limit reached");
+            var msg = tmc.toStringHumanReadable();
+            logger.warn("addSymbolUsagesToWorkspace: {}", msg);
+            context.getContextManager().getIo().toolError(msg, "Usages limit reached");
             return "Aborted adding usages for '%s': too many call sites".formatted(symbol);
         }
 

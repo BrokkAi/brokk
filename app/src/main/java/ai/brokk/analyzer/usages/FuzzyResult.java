@@ -116,6 +116,10 @@ public sealed interface FuzzyResult
             this.limit = limit;
         }
 
+        public String toStringHumanReadable() {
+            return "Too many call sites for symbol: %s (%d > limit %d)".formatted(shortName, totalCallsites(), limit());
+        }
+
         @Override
         public String toString() {
             return "TooManyCallsites{shortName="
