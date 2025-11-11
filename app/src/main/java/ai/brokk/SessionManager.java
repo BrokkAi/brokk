@@ -417,22 +417,6 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
-                
-                // Snapshot current tasklist.json (if present) before we rewrite the zip.
-                // Only needed if migration hasn't run yet (context has no Task List fragment).
-                // The migration is async on session open, so it can happen saveHistory is called earlier
-                String taskListJsonSnapshot = null;
-                boolean hasTaskListFragment = contextHistory.topContext().getTaskListFragment().isPresent();
-                if (Files.exists(sessionHistoryPath) && !hasTaskListFragment) {
-                    try {
-                        taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
-                    } catch (IOException ioe) {
-                        logger.warn(
-                                "Could not snapshot existing tasklist.json for session {}: {}",
-                                sessionId,
-                                ioe.getMessage());
-                    }
-                }
 
                 // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
@@ -440,18 +424,6 @@ public class SessionManager implements AutoCloseable {
                 // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
-                }
-
-                // Restore tasklist.json if we had one
-                if (taskListJsonSnapshot != null) {
-                    try {
-                        writeTaskListJson(sessionHistoryPath, taskListJsonSnapshot);
-                    } catch (IOException ioe) {
-                        logger.warn(
-                                "Failed restoring tasklist.json for session {} after history save: {}",
-                                sessionId,
-                                ioe.getMessage());
-                    }
                 }
             } catch (IOException e) {
                 logger.error(
@@ -587,7 +559,7 @@ public class SessionManager implements AutoCloseable {
      * });
      * }</pre>
      */
-    @Deprecated
+    @Deprecated()
     public CompletableFuture<TaskList.TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {

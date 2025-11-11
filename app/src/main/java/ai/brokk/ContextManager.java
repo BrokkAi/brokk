@@ -297,19 +297,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // make it official
         updateActiveSession(currentSessionId);
 
-        // Load task list for the current session on a background executor
-        // This ensures blocking I/O doesn't freeze the UI and waits for analyzer readiness
-        submitBackgroundTask("Load task list for current session", () -> migrateLegacyTaskLists(currentSessionId));
-
-        // Notify listeners and UI on EDT
-        SwingUtilities.invokeLater(() -> {
-            var tc = topContext();
-            notifyContextListeners(tc);
-            if (io instanceof Chrome) { // Check if UI is ready
-                io.enableActionButtons();
-            }
-        });
-
+        // Activate session: migrate legacy tasks then notify UI on EDT
+        finalizeSessionActivation(currentSessionId);
         migrateToSessionsV3IfNeeded();
     }
 
@@ -1519,7 +1508,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void setTaskList(TaskList.TaskListData data) {
         // Track the change in history by pushing a new context with the Task List fragment
         pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
-        // Legacy JSON write removed; fragment is now the single source of truth.
+    }
+
+    private void finalizeSessionActivation(UUID sessionId) {
+        // Always migrate legacy Task List for the active session first, then notify UI.
+        migrateLegacyTaskLists(sessionId);
+
+        // Notify listeners and UI on the EDT
+        SwingUtilities.invokeLater(() -> {
+            notifyContextListeners(topContext());
+            io.updateContextHistoryTable(topContext());
+            if (io instanceof Chrome) {
+                io.enableActionButtons();
+            }
+        });
     }
 
     @SuppressWarnings("deprecation")
@@ -1531,29 +1533,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
 
-            // TODO: this is done for each session which has no task list fragment, we should add an migration done indicator
-            // Migrate from legacy storage if fragment is absent
+            // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
-                // Before pushing a migration context, ensure the analyzer is ready
-                // to avoid deadlocks if fragments need to be frozen during the push
-                try {
-                    analyzerWrapper.get(); // Blocks until analyzer is ready
-                    analyzerWrapper.pause();
-                    // Push a new context with the Task List fragment and a migration action
                     pushContext(currentLiveCtx -> currentLiveCtx
                             .withTaskList(legacy)
                             .withAction(CompletableFuture.completedFuture("Task list migrated")));
-                } catch (InterruptedException e) {
-                    logger.warn("Interrupted waiting for analyzer before pushing task list migration");
-                    // Skip context push; keep legacy JSON on disk for parity
-                    return;
-                } finally {
-                    analyzerWrapper.resume();
-                }
-
-
-
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
@@ -2467,14 +2452,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
-            updateActiveSession(sessionId); // Mark as active
-            contextHistory = loadedCh;
-
-            // Load task list for the switched session
-            migrateLegacyTaskLists(sessionId);
+        updateActiveSession(sessionId); // Mark as active
+        contextHistory = loadedCh;
+        
+        // Activate session: migrate legacy tasks then notify UI on EDT
+        finalizeSessionActivation(sessionId);
         }
-        notifyContextListeners(topContext());
-        io.updateContextHistoryTable(topContext());
     }
 
     /**
@@ -2565,8 +2548,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     this.contextHistory = nnLoadedCh;
                     updateActiveSession(copiedSessionInfo.id());
 
-                    notifyContextListeners(topContext());
-                    io.updateContextHistoryTable(topContext());
+                    // Activate session: migrate legacy tasks then notify UI on EDT
+                    finalizeSessionActivation(copiedSessionInfo.id());
                 })
                 .exceptionally(e -> {
                     logger.error("Failed to copy session {}", originalSessionId, e);
