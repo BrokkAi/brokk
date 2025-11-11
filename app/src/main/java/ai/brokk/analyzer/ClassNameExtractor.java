@@ -57,7 +57,9 @@ public final class ClassNameExtractor {
         var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
         if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
 
-        return Optional.of(beforeLast);
+        // Return only the simple class name (final segment) to be used as the UI-friendly short name.
+        // The fully-qualified name remains available via CodeUnit.fqName() and tooltips.
+        return Optional.of(lastSegment);
     }
 
     /* JS/TS heuristics ---------------------------------------------------- */
