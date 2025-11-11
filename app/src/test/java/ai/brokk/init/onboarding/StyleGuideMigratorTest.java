@@ -267,12 +267,12 @@ class StyleGuideMigratorTest {
         // Use a git repo wrapper that simulates staging failure
         var failingGitRepo = new GitRepo(projectRoot) {
             @Override
-            public void move(String from, String to) {
+            public synchronized void move(String from, String to) {
                 throw new RuntimeException("Simulated move failure");
             }
 
             @Override
-            public void add(Path path) {
+            public synchronized void add(Path path) {
                 throw new RuntimeException("Simulated add failure");
             }
         };

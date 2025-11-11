@@ -308,13 +308,13 @@ class GitRepoIgnoreConfiguratorTest {
         var nonGitProject =
                 new TestProject(projectRoot, new GitRepo(projectRoot) {
                     @Override
-                    public void add(Path path) {}
+                    public synchronized void add(Path path) {}
 
                     @Override
-                    public void add(java.util.Collection<ProjectFile> files) {}
+                    public synchronized void add(java.util.Collection<ProjectFile> files) {}
 
                     @Override
-                    public void remove(ProjectFile file) {}
+                    public synchronized void remove(ProjectFile file) {}
                 }) {
                     @Override
                     public GitRepo getRepo() {
