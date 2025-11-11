@@ -1555,10 +1555,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
 
-            // pauses also the file change listener
-            // this way the migration is not mixed up with "load external changes" context changes
-            analyzerWrapper.pause();
-
             // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
@@ -1571,9 +1567,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         } catch (Exception e) {
             logger.error("Unable to load task list for session {}", sessionId, e);
-        } finally {
-            // we can also resume when not paused
-            analyzerWrapper.resume();
         }
     }
 
