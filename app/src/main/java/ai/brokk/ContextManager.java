@@ -1610,7 +1610,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return true if context has changed, false otherwise
      */
     private boolean processExternalFileChangesIfNeeded() {
-        return contextHistory.processExternalFileChangesIfNeeded(Set.of()) != null;
+        var ctx = contextHistory.processExternalFileChangesIfNeeded(Set.of());
+        if (ctx != null) {
+            contextPushed(ctx);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1655,13 +1660,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return newLiveContext;
     }
 
-    private void contextPushed(Context frozen) {
-        captureGitState(frozen);
+    private void contextPushed(Context context) {
+        captureGitState(context);
         // Ensure listeners are notified on the EDT
-        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+        SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
         project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of frozen contexts
+                .saveHistory(contextHistory, currentSessionId); // Persist the history of the contexts
     }
 
     /**
