@@ -10,7 +10,7 @@
     "jdeploy": {
         "jdk": false,
         "jdkProvider": "jbr",
-        "args": [],
+        "args": ["-Dwatch.service.polling=true"],
         "fallbackToUniversal": false,
         "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
         "configFileWin": "{{ path(env.APPDATA ?? path(user.home, \"AppData\", \"Roaming\"), \"Brokk\", \"jdeploy.json\") }}",
