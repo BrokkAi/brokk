@@ -428,12 +428,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
                 return Optional.empty();
             }
-            // Only validate owner field individually - check basic format
-            if (ownerText.length() > 39
-                    || !ownerText.matches("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")) {
-                return Optional.of("Owner must be 1-39 characters (alphanumeric and hyphens only)");
-            }
-            return Optional.empty();
+            return GitUiUtil.validateOwnerFormat(ownerText);
         };
 
         // Individual validation for repo field
@@ -441,12 +436,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
                 return Optional.empty();
             }
-            // Only validate repo field individually - check basic format
-            if (repoText.length() > 100
-                    || !repoText.matches("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$")) {
-                return Optional.of("Repository must be 1-100 characters (alphanumeric, underscore, dot, hyphen)");
-            }
-            return Optional.empty();
+            return GitUiUtil.validateRepoFormat(repoText);
         };
 
         githubOwnerField

@@ -513,7 +513,7 @@ public final class GitUiUtil {
      * 1-100 characters, no leading/trailing dot.
      */
     private static final Pattern GITHUB_REPO_PATTERN =
-            Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_.-]$");
+            Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_]$");
 
     /**
      * Pattern for valid hostname labels: alphanumeric and hyphens, no leading/trailing hyphen.
@@ -525,6 +525,58 @@ public final class GitUiUtil {
      * Holds a parsed "owner" and "repo" from a Git remote URL.
      */
     public record OwnerRepo(String owner, String repo) {}
+
+    /**
+     * Validates a GitHub owner name format.
+     *
+     * @param owner The owner name to validate (will be trimmed)
+     * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     */
+    public static Optional<String> validateOwnerFormat(@Nullable String owner) {
+        String trimmedOwner = (owner == null) ? "" : owner.trim();
+
+        if (trimmedOwner.isEmpty()) {
+            return Optional.of("Owner name cannot be empty.");
+        }
+
+        if (trimmedOwner.length() > 39) {
+            return Optional.of("Owner name is too long (max 39 characters).");
+        }
+
+        if (!GITHUB_OWNER_PATTERN.matcher(trimmedOwner).matches()) {
+            return Optional.of("Owner name must be alphanumeric and hyphens only, with no leading/trailing hyphens or consecutive hyphens.");
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Validates a GitHub repository name format.
+     *
+     * @param repo The repository name to validate (will be trimmed)
+     * @return Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     */
+    public static Optional<String> validateRepoFormat(@Nullable String repo) {
+        String trimmedRepo = (repo == null) ? "" : repo.trim();
+
+        if (trimmedRepo.isEmpty()) {
+            return Optional.of("Repository name cannot be empty.");
+        }
+
+        if (trimmedRepo.length() > 100) {
+            return Optional.of("Repository name is too long (max 100 characters).");
+        }
+
+        if (trimmedRepo.equals(".") || trimmedRepo.equals("..")) {
+            return Optional.of("Repository name cannot be '.' or '..'.");
+        }
+
+        if (!GITHUB_REPO_PATTERN.matcher(trimmedRepo).matches()) {
+            return Optional.of("Repository name must be alphanumeric, underscores, dots, and hyphens only, with no leading/trailing dots.");
+        }
+
+        return Optional.empty();
+    }
 
     /**
      * Validates a separate owner and repo string pair using stricter GitHub-like constraints.
