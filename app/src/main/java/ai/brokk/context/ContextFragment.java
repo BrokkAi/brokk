@@ -203,10 +203,6 @@ public interface ContextFragment {
                 """
                 .formatted(description(), id());
     }
-    /** Indicates if the fragment's content can change based on project/file state. */
-    default boolean isComputedFragment() {
-        return this instanceof ComputedFragment;
-    }
 
     default boolean isText() {
         return true;

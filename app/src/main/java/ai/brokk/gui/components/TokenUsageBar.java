@@ -124,13 +124,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                                 .append(cf.computedText().renderNowOr("(Loading summary...)"))
                                                 .append("\n\n");
                                     } else {
-                                        if (!f.isComputedFragment()) {
-                                            combinedText.append(f.text()).append("\n\n");
-                                        } else {
-                                            combinedText
-                                                    .append("(Loading summary...)")
-                                                    .append("\n\n");
-                                        }
+                                        combinedText.append(f.text()).append("\n\n");
                                     }
                                 } catch (Exception ex) {
                                     logger.debug("Failed reading summary text for preview", ex);
@@ -683,7 +677,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return WordUtils.abbreviate(text, maxChars, maxChars, ellipsis);
     }
 
-    /** Pick a readable text color (white or dark) against the given background color. */
+    /**
+     * Pick a readable text color (white or dark) against the given background color.
+     */
     private static Color readableTextForBackground(Color background) {
         double r = background.getRed() / 255.0;
         double g = background.getGreen() / 255.0;
