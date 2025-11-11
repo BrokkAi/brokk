@@ -128,6 +128,7 @@ public class GitRepoWorktrees {
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
+            logger.debug("git worktree add failed output: {}", e.getOutput());
             throw new GitRepo.GitRepoException(
                     "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
         } catch (InterruptedException e) {
