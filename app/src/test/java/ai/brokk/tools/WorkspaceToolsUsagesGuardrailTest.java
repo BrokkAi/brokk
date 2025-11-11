@@ -83,6 +83,9 @@ public class WorkspaceToolsUsagesGuardrailTest {
         assertNotNull(io.msg);
         assertTrue(io.msg.contains("Too many call sites"), "Unexpected error message: " + io.msg);
         assertEquals("Usages limit reached", io.title);
+        // Stronger style checks: include symbol and comparative counts
+        assertTrue(io.msg.contains("com.example.Foo"), "Expected symbol in error message: " + io.msg);
+        assertTrue(io.msg.contains("(150 > limit 100)"), "Expected comparative counts in error message: " + io.msg);
 
         // Verify no UsageFragment was added
         var ctx = tools.getContext();
