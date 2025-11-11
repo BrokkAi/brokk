@@ -1711,6 +1711,281 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testAdvancedTypeConstructs() {
+        ProjectFile advancedTypesFile = new ProjectFile(project.getRoot(), "AdvancedTypes.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(advancedTypesFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(advancedTypesFile);
+
+        assertFalse(skeletons.isEmpty(), "Skeletons map for AdvancedTypes.ts should not be empty");
+        assertFalse(declarations.isEmpty(), "Declarations set for AdvancedTypes.ts should not be empty");
+
+        // ===== Test Tuple Types =====
+
+        // Basic tuple type
+        CodeUnit coordType = CodeUnit.field(advancedTypesFile, "", "_module_.Coord");
+        assertTrue(
+                skeletons.containsKey(coordType),
+                "Coord tuple type should be captured. Found: "
+                        + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertEquals(
+                normalize.apply("export type Coord = [number, number]"), normalize.apply(skeletons.get(coordType)));
+
+        // Tuple with optional elements
+        CodeUnit point3DType = CodeUnit.field(advancedTypesFile, "", "_module_.Point3D");
+        assertTrue(skeletons.containsKey(point3DType), "Point3D tuple type should be captured");
+        assertEquals(
+                normalize.apply("export type Point3D = [number, number, number?]"),
+                normalize.apply(skeletons.get(point3DType)));
+
+        // Tuple with rest elements
+        CodeUnit restTupleType = CodeUnit.field(advancedTypesFile, "", "_module_.RestTuple");
+        assertTrue(skeletons.containsKey(restTupleType), "RestTuple type should be captured");
+        assertEquals(
+                normalize.apply("export type RestTuple = [string, ...number[]]"),
+                normalize.apply(skeletons.get(restTupleType)));
+
+        // Named tuple elements
+        CodeUnit rangeType = CodeUnit.field(advancedTypesFile, "", "_module_.Range");
+        assertTrue(skeletons.containsKey(rangeType), "Range named tuple type should be captured");
+        assertEquals(
+                normalize.apply("export type Range = [start: number, end: number]"),
+                normalize.apply(skeletons.get(rangeType)));
+
+        // Readonly tuple
+        CodeUnit readonlyCoordType = CodeUnit.field(advancedTypesFile, "", "_module_.ReadonlyCoord");
+        assertTrue(skeletons.containsKey(readonlyCoordType), "ReadonlyCoord tuple type should be captured");
+        assertEquals(
+                normalize.apply("export type ReadonlyCoord = readonly [number, number]"),
+                normalize.apply(skeletons.get(readonlyCoordType)));
+
+        // ===== Test Mapped Types =====
+
+        // Basic mapped type - Readonly
+        CodeUnit readonlyType = CodeUnit.field(advancedTypesFile, "", "_module_.Readonly");
+        assertTrue(skeletons.containsKey(readonlyType), "Readonly mapped type should be captured");
+        String readonlySkeleton = skeletons.get(readonlyType);
+        assertTrue(
+                readonlySkeleton.contains("readonly [P in keyof T]"),
+                "Readonly mapped type should contain mapped type syntax");
+
+        // Partial mapped type
+        CodeUnit partialType = CodeUnit.field(advancedTypesFile, "", "_module_.Partial");
+        assertTrue(skeletons.containsKey(partialType), "Partial mapped type should be captured");
+        String partialSkeleton = skeletons.get(partialType);
+        assertTrue(
+                partialSkeleton.contains("[P in keyof T]?"), "Partial mapped type should contain optional modifier");
+
+        // Mapped type with key remapping
+        CodeUnit gettersType = CodeUnit.field(advancedTypesFile, "", "_module_.Getters");
+        assertTrue(skeletons.containsKey(gettersType), "Getters mapped type with key remapping should be captured");
+        String gettersSkeleton = skeletons.get(gettersType);
+        assertTrue(
+                gettersSkeleton.contains("as `get${Capitalize"),
+                "Getters mapped type should contain key remapping syntax");
+
+        // Mapped type with filtering
+        CodeUnit onlyStringsType = CodeUnit.field(advancedTypesFile, "", "_module_.OnlyStrings");
+        assertTrue(skeletons.containsKey(onlyStringsType), "OnlyStrings filtered mapped type should be captured");
+        String onlyStringsSkeleton = skeletons.get(onlyStringsType);
+        assertTrue(
+                onlyStringsSkeleton.contains("as T[P] extends string ? P : never"),
+                "OnlyStrings mapped type should contain filtering logic");
+
+        // ===== Test Conditional Types =====
+
+        // Basic conditional type - Extract
+        CodeUnit extractType = CodeUnit.field(advancedTypesFile, "", "_module_.Extract");
+        assertTrue(skeletons.containsKey(extractType), "Extract conditional type should be captured");
+        assertEquals(
+                normalize.apply("export type Extract<T, U> = T extends U ? T : never"),
+                normalize.apply(skeletons.get(extractType)));
+
+        // Conditional type with infer
+        CodeUnit returnTypeType = CodeUnit.field(advancedTypesFile, "", "_module_.ReturnType");
+        assertTrue(skeletons.containsKey(returnTypeType), "ReturnType conditional type with infer should be captured");
+        String returnTypeSkeleton = skeletons.get(returnTypeType);
+        assertTrue(
+                returnTypeSkeleton.contains("infer R"), "ReturnType should contain infer keyword for type inference");
+
+        // Nested conditional type
+        CodeUnit flattenType = CodeUnit.field(advancedTypesFile, "", "_module_.Flatten");
+        assertTrue(skeletons.containsKey(flattenType), "Flatten nested conditional type should be captured");
+        String flattenSkeleton = skeletons.get(flattenType);
+        assertTrue(
+                flattenSkeleton.contains("Array<infer U>"),
+                "Flatten should contain nested conditional with infer");
+
+        // Multi-branch conditional type
+        CodeUnit typeNameType = CodeUnit.field(advancedTypesFile, "", "_module_.TypeName");
+        assertTrue(skeletons.containsKey(typeNameType), "TypeName multi-conditional type should be captured");
+        String typeNameSkeleton = skeletons.get(typeNameType);
+        assertTrue(
+                typeNameSkeleton.contains("extends string")
+                        && typeNameSkeleton.contains("extends number")
+                        && typeNameSkeleton.contains("extends boolean"),
+                "TypeName should contain multiple conditional branches");
+
+        // Distributive conditional type
+        CodeUnit toArrayType = CodeUnit.field(advancedTypesFile, "", "_module_.ToArray");
+        assertTrue(skeletons.containsKey(toArrayType), "ToArray distributive conditional type should be captured");
+        assertEquals(
+                normalize.apply("export type ToArray<T> = T extends any ? T[] : never"),
+                normalize.apply(skeletons.get(toArrayType)));
+
+        // ===== Test Intersection Types =====
+
+        // Basic intersection
+        CodeUnit combinedType = CodeUnit.field(advancedTypesFile, "", "_module_.Combined");
+        assertTrue(skeletons.containsKey(combinedType), "Combined intersection type should be captured");
+        assertEquals(
+                normalize.apply("export type Combined = TypeA & TypeB & TypeC"),
+                normalize.apply(skeletons.get(combinedType)));
+
+        // Intersection with primitives (never type)
+        CodeUnit stringAndNumberType = CodeUnit.field(advancedTypesFile, "", "_module_.StringAndNumber");
+        assertTrue(
+                skeletons.containsKey(stringAndNumberType),
+                "StringAndNumber intersection type should be captured");
+        assertEquals(
+                normalize.apply("export type StringAndNumber = string & number"),
+                normalize.apply(skeletons.get(stringAndNumberType)));
+
+        // Complex intersection with generics
+        CodeUnit mergeableType = CodeUnit.field(advancedTypesFile, "", "_module_.Mergeable");
+        assertTrue(skeletons.containsKey(mergeableType), "Mergeable generic intersection type should be captured");
+        String mergeableSkeleton = skeletons.get(mergeableType);
+        assertTrue(
+                mergeableSkeleton.contains("T & U & { merged: true }"),
+                "Mergeable should contain complex intersection syntax");
+
+        // Intersection with function types
+        CodeUnit universalLoggerType = CodeUnit.field(advancedTypesFile, "", "_module_.UniversalLogger");
+        assertTrue(
+                skeletons.containsKey(universalLoggerType),
+                "UniversalLogger function intersection type should be captured");
+        String universalLoggerSkeleton = skeletons.get(universalLoggerType);
+        assertTrue(
+                universalLoggerSkeleton.contains("Logger & ErrorLogger"),
+                "UniversalLogger should contain function type intersection");
+
+        // ===== Test Template Literal Types =====
+
+        CodeUnit eventNameType = CodeUnit.field(advancedTypesFile, "", "_module_.EventName");
+        assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
+        String eventNameSkeleton = skeletons.get(eventNameType);
+        assertTrue(
+                eventNameSkeleton.contains("`${T}Changed`"),
+                "EventName should contain template literal type syntax");
+
+        CodeUnit propEventNameType = CodeUnit.field(advancedTypesFile, "", "_module_.PropEventName");
+        assertTrue(skeletons.containsKey(propEventNameType), "PropEventName template literal type should be captured");
+        String propEventNameSkeleton = skeletons.get(propEventNameType);
+        assertTrue(
+                propEventNameSkeleton.contains("on${Capitalize<T>}"),
+                "PropEventName should contain capitalized template literal");
+
+        // ===== Test Complex Combined Types =====
+
+        // Mapped + conditional combination
+        CodeUnit pickByTypeType = CodeUnit.field(advancedTypesFile, "", "_module_.PickByType");
+        assertTrue(
+                skeletons.containsKey(pickByTypeType),
+                "PickByType combined mapped/conditional type should be captured");
+        String pickByTypeSkeleton = skeletons.get(pickByTypeType);
+        assertTrue(
+                pickByTypeSkeleton.contains("as T[P] extends U ? P : never"),
+                "PickByType should combine mapped type with conditional filtering");
+
+        // Tuple to union
+        CodeUnit tupleToUnionType = CodeUnit.field(advancedTypesFile, "", "_module_.TupleToUnion");
+        assertTrue(skeletons.containsKey(tupleToUnionType), "TupleToUnion type should be captured");
+        String tupleToUnionSkeleton = skeletons.get(tupleToUnionType);
+        assertTrue(
+                tupleToUnionSkeleton.contains("T[number]"),
+                "TupleToUnion should contain indexed access type syntax");
+
+        // Union to intersection (advanced type manipulation)
+        CodeUnit unionToIntersectionType = CodeUnit.field(advancedTypesFile, "", "_module_.UnionToIntersection");
+        assertTrue(
+                skeletons.containsKey(unionToIntersectionType), "UnionToIntersection type should be captured");
+        String unionToIntersectionSkeleton = skeletons.get(unionToIntersectionType);
+        assertTrue(
+                unionToIntersectionSkeleton.contains("infer I"),
+                "UnionToIntersection should contain advanced type inference");
+
+        // Recursive conditional type
+        CodeUnit deepReadonlyType = CodeUnit.field(advancedTypesFile, "", "_module_.DeepReadonly");
+        assertTrue(skeletons.containsKey(deepReadonlyType), "DeepReadonly recursive type should be captured");
+        String deepReadonlySkeleton = skeletons.get(deepReadonlyType);
+        assertTrue(
+                deepReadonlySkeleton.contains("DeepReadonly<T[P]>"),
+                "DeepReadonly should contain recursive type reference");
+
+        // ===== Test Utility Type Aliases =====
+
+        CodeUnit nonNullableType = CodeUnit.field(advancedTypesFile, "", "_module_.NonNullable");
+        assertTrue(skeletons.containsKey(nonNullableType), "NonNullable utility type should be captured");
+        String nonNullableSkeleton = skeletons.get(nonNullableType);
+        assertTrue(
+                nonNullableSkeleton.contains("null | undefined"),
+                "NonNullable should filter null and undefined");
+
+        CodeUnit parametersType = CodeUnit.field(advancedTypesFile, "", "_module_.Parameters");
+        assertTrue(skeletons.containsKey(parametersType), "Parameters utility type should be captured");
+        String parametersSkeleton = skeletons.get(parametersType);
+        assertTrue(
+                parametersSkeleton.contains("infer P"), "Parameters should extract function parameter types");
+
+        CodeUnit constructorParametersType = CodeUnit.field(advancedTypesFile, "", "_module_.ConstructorParameters");
+        assertTrue(
+                skeletons.containsKey(constructorParametersType),
+                "ConstructorParameters utility type should be captured");
+        String constructorParametersSkeleton = skeletons.get(constructorParametersType);
+        assertTrue(
+                constructorParametersSkeleton.contains("new (...args: infer P)"),
+                "ConstructorParameters should extract constructor parameter types");
+
+        // ===== Verify all types are captured as FIELD_LIKE CodeUnits =====
+
+        List<CodeUnit> typeAliases = declarations.stream()
+                .filter(cu -> cu.isField() && cu.fqName().startsWith("_module_."))
+                .collect(Collectors.toList());
+
+        assertTrue(
+                typeAliases.size() >= 30,
+                "Should capture at least 30 type aliases. Found: " + typeAliases.size());
+
+        // Verify all captured types have skeletons
+        for (CodeUnit typeAlias : typeAliases) {
+            assertTrue(
+                    skeletons.containsKey(typeAlias),
+                    "Type alias " + typeAlias.fqName() + " should have skeleton");
+            String skeleton = skeletons.get(typeAlias);
+            assertTrue(
+                    skeleton.contains("type "),
+                    "Type alias " + typeAlias.fqName() + " skeleton should contain 'type' keyword");
+        }
+
+        // Verify getSkeleton works for individual type aliases
+        Optional<String> coordSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Coord");
+        assertTrue(coordSkeleton.isPresent(), "Should retrieve Coord type alias via getSkeleton");
+        assertEquals(
+                normalize.apply("export type Coord = [number, number]"), normalize.apply(coordSkeleton.get()));
+
+        Optional<String> extractSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Extract");
+        assertTrue(extractSkeleton.isPresent(), "Should retrieve Extract type alias via getSkeleton");
+        assertEquals(
+                normalize.apply("export type Extract<T, U> = T extends U ? T : never"),
+                normalize.apply(extractSkeleton.get()));
+
+        Optional<String> combinedSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Combined");
+        assertTrue(combinedSkeleton.isPresent(), "Should retrieve Combined type alias via getSkeleton");
+        assertEquals(
+                normalize.apply("export type Combined = TypeA & TypeB & TypeC"),
+                normalize.apply(combinedSkeleton.get()));
+    }
+
+    @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
         List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
