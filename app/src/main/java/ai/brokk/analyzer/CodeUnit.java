@@ -105,6 +105,20 @@ public class CodeUnit implements Comparable<CodeUnit> {
         return shortName;
     }
 
+    /**
+     * UI-friendly label for this CodeUnit.
+     *
+     * For CLASS and MODULE kinds this returns the simple short name (e.g., "Chrome").
+     * For FUNCTION and FIELD it returns the trailing identifier (e.g., method or field name).
+     * This isolates presentation logic so UI code can call uiLabel() when rendering chips.
+     */
+    public String uiLabel() {
+        if (isClass() || isModule()) {
+            return shortName();
+        }
+        return identifier();
+    }
+
     public boolean isClass() {
         return kind == CodeUnitType.CLASS;
     }
