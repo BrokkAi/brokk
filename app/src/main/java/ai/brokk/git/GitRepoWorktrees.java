@@ -374,9 +374,9 @@ public class GitRepoWorktrees {
         }
     }
 
-    // Visible for tests to avoid reflection.
+    // Visible for tests and runtime detection.
     @TestOnly
-    static boolean isLfsMissingForTest(String output) {
+    public static boolean isLfsMissingForTest(String output) {
         return isLfsMissing(output);
     }
 
