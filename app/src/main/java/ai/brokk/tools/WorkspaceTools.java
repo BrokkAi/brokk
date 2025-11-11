@@ -2,7 +2,6 @@ package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
@@ -307,7 +306,7 @@ public class WorkspaceTools {
         var maybeTmc = preflightUsages(symbol);
         if (maybeTmc.isPresent()) {
             var tmc = maybeTmc.get();
-            var msg = tmc.toStringHumanReadable();
+            var msg = tmc.explanation();
             logger.warn("addSymbolUsagesToWorkspace: {}", msg);
             context.getContextManager().getIo().toolError(msg, "Usages limit reached");
             return "Aborted adding usages for '%s': too many call sites".formatted(symbol);

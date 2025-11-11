@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -578,7 +577,7 @@ public class AttachContextDialog extends JDialog {
         var maybeTooManyCallSites = usageFinder.preflightTooManyCallsites(target);
         if (maybeTooManyCallSites.isPresent()) {
             var tmc = maybeTooManyCallSites.get();
-            cm.getIo().toolError(tmc.toStringHumanReadable(), "Usages limit reached");
+            cm.getIo().toolError(tmc.explanation(), "Usages limit reached");
             selection = null;
             dispose();
             return;
