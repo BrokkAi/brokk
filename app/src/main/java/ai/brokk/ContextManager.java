@@ -491,7 +491,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 "Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
                     }
 
-                    // re-freeze context w/ new analyzer
+                    // Update context w/ new analyzer
                     // ignore "load external changes" done by the build agent itself
                     // the build agent pauses the analyzer, which is our indicator
                     if (!analyzerWrapper.isPause()) {
