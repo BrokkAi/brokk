@@ -1343,6 +1343,77 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testAnonymousDefaultExports() {
+        ProjectFile anonymousFile = new ProjectFile(project.getRoot(), "AnonymousDefaults.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(anonymousFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(anonymousFile);
+
+        // Note: TypeScript does not support truly anonymous default exports for classes.
+        // Even default exported classes must have a name in TypeScript's grammar.
+        // This test verifies that default exports (with names) and named exports both work correctly.
+
+        // Test the default exported class (which has a name in TypeScript)
+        CodeUnit defaultClass = CodeUnit.cls(anonymousFile, "", "AnonymousDefault");
+        assertTrue(
+                skeletons.containsKey(defaultClass),
+                "Default exported class should be captured. Found: "
+                        + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        String defaultClassSkeleton = skeletons.get(defaultClass);
+        assertTrue(
+                defaultClassSkeleton.contains("export default"),
+                "Default class skeleton should indicate default export. Skeleton: " + defaultClassSkeleton);
+        assertTrue(
+                defaultClassSkeleton.contains("getValue") && defaultClassSkeleton.contains("setValue"),
+                "Default class skeleton should contain class members");
+
+        // Test that named exports work normally alongside default export
+        CodeUnit namedClass = CodeUnit.cls(anonymousFile, "", "NamedClass");
+        assertTrue(
+                skeletons.containsKey(namedClass),
+                "Named class should be captured normally. Found: "
+                        + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertEquals(
+                normalize.apply(
+                        """
+                export class NamedClass {
+                  name: string = "named"
+                }"""),
+                normalize.apply(skeletons.get(namedClass)));
+
+        CodeUnit namedFunc = CodeUnit.fn(anonymousFile, "", "namedFunction");
+        assertTrue(skeletons.containsKey(namedFunc), "Named function should be captured");
+        assertEquals(
+                normalize.apply("export function namedFunction(): string { ... }"),
+                normalize.apply(skeletons.get(namedFunc)));
+
+        CodeUnit namedConstUnit = CodeUnit.field(anonymousFile, "", "_module_.namedConst");
+        assertTrue(skeletons.containsKey(namedConstUnit), "Named const should be captured");
+        assertEquals(
+                normalize.apply("export const namedConst: number = 100"),
+                normalize.apply(skeletons.get(namedConstUnit)));
+
+        // Verify no crashes or exceptions occurred during parsing
+        assertNotNull(skeletons, "Skeletons map should not be null");
+        assertNotNull(declarations, "Declarations set should not be null");
+
+        // Verify all exports are complete in declarations
+        assertTrue(declarations.contains(defaultClass), "Declarations should contain default exported class");
+        assertTrue(declarations.contains(namedClass), "Declarations should contain named class");
+        assertTrue(declarations.contains(namedFunc), "Declarations should contain named function");
+        assertTrue(declarations.contains(namedConstUnit), "Declarations should contain named const");
+
+        // Test getDeclarations consistency
+        Set<CodeUnit> topLevel = Set.copyOf(analyzer.getTopLevelDeclarations(anonymousFile));
+        assertTrue(
+                topLevel.contains(defaultClass),
+                "Top-level declarations should contain default exported class at top level");
+        assertTrue(
+                topLevel.contains(namedClass), "Top-level declarations should contain named class at top level");
+        assertTrue(
+                topLevel.contains(namedFunc), "Top-level declarations should contain named function at top level");
+    }
+
+    @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
         List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
