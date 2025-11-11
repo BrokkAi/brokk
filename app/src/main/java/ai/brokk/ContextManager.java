@@ -101,6 +101,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
+    // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
+    private static final long TASKLIST_MIGRATION_CUTOFF_MS =
+            Instant.parse("2025-11-24T00:00:00Z").toEpochMilli();
 
     public static boolean isTestFile(ProjectFile file) {
 
@@ -1533,12 +1536,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
 
+            // Gate migration by session modified time against a fixed release cutoff
+            var infoOpt = project.getSessionManager().listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst();
+            if (infoOpt.isEmpty()) {
+                logger.debug(
+                        "Skipping task list migration: no SessionInfo found for session {}", sessionId);
+                return;
+            }
+            long modified = infoOpt.get().modified();
+            if (modified >= TASKLIST_MIGRATION_CUTOFF_MS) {
+                logger.debug(
+                        "Skipping task list migration for session {} (modified {} >= cutoff {})",
+                        sessionId,
+                        modified,
+                        TASKLIST_MIGRATION_CUTOFF_MS);
+                return;
+            }
+
             // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
-                    pushContext(currentLiveCtx -> currentLiveCtx
-                            .withTaskList(legacy)
-                            .withAction(CompletableFuture.completedFuture("Task list migrated")));
+                pushContext(currentLiveCtx -> currentLiveCtx
+                        .withTaskList(legacy)
+                        .withAction(CompletableFuture.completedFuture("Task list migrated")));
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
