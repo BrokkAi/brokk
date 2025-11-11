@@ -915,7 +915,7 @@ public class Context {
             return this;
         }
 
-        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isDynamic);
+        boolean anyDynamicPresent = fragments.stream().anyMatch(ContextFragment::isComputedFragment);
         var newFragments = new ArrayList<ContextFragment>(fragments.size());
         boolean anyReplaced = false;
 

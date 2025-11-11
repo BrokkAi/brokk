@@ -694,9 +694,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             if (f instanceof ContextFragment.ComputedFragment) {
                 return true;
             }
-            if (f.isDynamic()) {
-                return true;
-            }
 
             // Always keep output fragments visible
             if (f.getType().isOutput()) {

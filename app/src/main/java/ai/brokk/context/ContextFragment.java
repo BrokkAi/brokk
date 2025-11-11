@@ -203,9 +203,8 @@ public interface ContextFragment {
                 """
                 .formatted(description(), id());
     }
-
     /** Indicates if the fragment's content can change based on project/file state. */
-    default boolean isDynamic() {
+    default boolean isComputedFragment() {
         return this instanceof ComputedFragment;
     }
 
@@ -1039,7 +1038,7 @@ public interface ContextFragment {
             } catch (NumberFormatException e) {
                 // Allow non-numeric IDs for non-dynamic, content-hashed fragments (e.g., PasteFragment).
                 // Enforce numeric IDs only for truly dynamic fragments (ComputedVirtualFragment subclasses).
-                if (isDynamic() && !(this instanceof PasteFragment)) {
+                if (this instanceof ComputedFragment && !(this instanceof PasteFragment)) {
                     throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
                 }
             }
@@ -1088,13 +1087,16 @@ public interface ContextFragment {
                 return false;
             }
 
+            var thisIsComputed = this instanceof ComputedFragment;
+            var otherIsComputed = other instanceof ComputedFragment;
+
             // Non-dynamic (content-hashed) fragments: stable identity via ID
-            if (!this.isDynamic() && !other.isDynamic()) {
+            if (!thisIsComputed && !otherIsComputed) {
                 return this.id().equals(other.id());
             }
 
             // Dynamic fragments: use repr() for semantic equivalence
-            if (this.isDynamic() && other.isDynamic()) {
+            if (thisIsComputed && otherIsComputed) {
                 var ra = this.repr();
                 var rb = other.repr();
                 // Empty repr means fragment doesn't support semantic deduplication; fall back to identity

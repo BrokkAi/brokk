@@ -109,10 +109,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                             var files = cf.computedFiles().renderNowOr(Set.of());
                                             return files.stream();
                                         }
-                                        if (!f.isDynamic()) {
-                                            return f.files().stream();
-                                        }
-                                        return Set.<ProjectFile>of().stream();
+                                        return f.files().stream();
                                     })
                                     .map(ProjectFile::toString)
                                     .distinct()
@@ -127,7 +124,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                                 .append(cf.computedText().renderNowOr("(Loading summary...)"))
                                                 .append("\n\n");
                                     } else {
-                                        if (!f.isDynamic()) {
+                                        if (!f.isComputedFragment()) {
                                             combinedText.append(f.text()).append("\n\n");
                                         } else {
                                             combinedText
@@ -944,10 +941,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return tokenCache.computeIfAbsent(f.id(), id -> {
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        String text = "";
+                        String text;
                         if (f instanceof ContextFragment.ComputedFragment cf) {
-                            text = cf.computedText().renderNowOr("");
-                        } else if (!f.isDynamic()) {
+                            text = cf.computedText().renderNowOr("(Loading)");
+                        } else {
                             text = f.text();
                         }
                         return Messages.getApproximateTokens(text);
@@ -1011,7 +1008,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 String text = "";
                 if (fragment instanceof ContextFragment.ComputedFragment cf) {
                     text = cf.computedText().renderNowOr("");
-                } else if (!fragment.isDynamic()) {
+                } else {
                     text = fragment.text();
                 }
                 if (text.isEmpty()) {
@@ -1031,10 +1028,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         Set<ProjectFile> fileSet;
         if (fragment instanceof ContextFragment.ComputedFragment cf) {
             fileSet = cf.computedFiles().renderNowOr(Set.of());
-        } else if (!fragment.isDynamic()) {
+        }
+        {
             fileSet = fragment.files();
-        } else {
-            fileSet = Set.of();
         }
 
         var files =
@@ -1158,10 +1154,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     if (f instanceof ContextFragment.ComputedFragment cf) {
                         return cf.computedFiles().renderNowOr(Set.of()).stream();
                     }
-                    if (!f.isDynamic()) {
-                        return f.files().stream();
-                    }
-                    return Set.<ProjectFile>of().stream();
+                    return f.files().stream();
                 })
                 .map(ProjectFile::toString)
                 .distinct()
@@ -1178,7 +1171,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 String text = "";
                 if (summary instanceof ContextFragment.ComputedFragment cf) {
                     text = cf.computedText().renderNowOr("");
-                } else if (!summary.isDynamic()) {
+                } else {
                     text = summary.text();
                 }
                 if (!text.isEmpty()) {
