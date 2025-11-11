@@ -42,6 +42,45 @@ public final class FuzzyUsageFinder {
         return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
     }
 
+    // Helper to compute the identifier used for search/disambiguation
+    private static String shortIdentifier(CodeUnit target) {
+        var shortName = target.identifier().replace("$", ".");
+        if (shortName.contains(".")) {
+            int lastDot = shortName.lastIndexOf('.');
+            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
+        }
+        return shortName;
+    }
+
+    // Helper to compute the regex pattern used to find candidate usages
+    private static String buildSearchPattern(String identifier) {
+        return "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
+    }
+
+    /**
+     * Static, cheap preflight check to determine if a usage query will exceed the max file threshold and result
+     * in a TooManyCallsites outcome. This avoids the heavier steps in findUsages.
+     *
+     * @param analyzer analyzer for accessing project files
+     * @param target the code unit to search usages for
+     * @param maxFiles the maximum number of files to consider before short-circuiting
+     * @return Optional containing TooManyCallsites if the threshold would be exceeded; empty otherwise
+     */
+    public static Optional<FuzzyResult.TooManyCallsites> preflightTooManyCallsites(
+            IAnalyzer analyzer, CodeUnit target, int maxFiles) {
+        final String identifier = shortIdentifier(target);
+        final String searchPattern = buildSearchPattern(identifier);
+
+        final var candidateFiles = SearchTools.searchSubstrings(
+                java.util.List.of(searchPattern), analyzer.getProject().getAllFiles());
+
+        if (maxFiles < candidateFiles.size()) {
+            logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
+            return Optional.of(new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles));
+        }
+        return Optional.empty();
+    }
+
     /**
      * Cheap preflight check to determine if a usage query will exceed the max file threshold and result
      * in a TooManyCallsites outcome. This avoids the heavier steps in findUsages.
@@ -51,27 +90,7 @@ public final class FuzzyUsageFinder {
      * @return Optional containing TooManyCallsites if the threshold would be exceeded; empty otherwise
      */
     public Optional<FuzzyResult.TooManyCallsites> preflightTooManyCallsites(CodeUnit target, int maxFiles) {
-        // Build the short identifier mirroring findUsages behavior
-        var shortName = target.identifier().replace("$", ".");
-        if (shortName.contains(".")) {
-            int lastDot = shortName.lastIndexOf('.');
-            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
-        }
-        final String identifier = shortName;
-
-        // matches identifier around word boundaries and around common structures
-        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
-
-        // Count candidate files matching the pattern
-        final var candidateFiles = SearchTools.searchSubstrings(
-                java.util.List.of(searchPattern), analyzer.getProject().getAllFiles());
-
-        if (maxFiles < candidateFiles.size()) {
-            logger.debug("Too many call sites found for {}: {} files matched", target, candidateFiles.size());
-            return java.util.Optional.of(
-                    new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles));
-        }
-        return java.util.Optional.empty();
+        return preflightTooManyCallsites(analyzer, target, maxFiles);
     }
 
     public Optional<FuzzyResult.TooManyCallsites> preflightTooManyCallsites(String fqName) {
@@ -84,7 +103,7 @@ public final class FuzzyUsageFinder {
             logger.warn("Unable to find code unit for fqName={}", fqName);
             return Optional.empty();
         }
-        return preflightTooManyCallsites(maybeCodeUnit.get(), DEFAULT_MAX_FILES);
+        return preflightTooManyCallsites(analyzer, maybeCodeUnit.get(), DEFAULT_MAX_FILES);
     }
 
     /**
@@ -109,16 +128,14 @@ public final class FuzzyUsageFinder {
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
      */
     private FuzzyResult findUsages(CodeUnit target, int maxFiles, int maxUsages) {
-        // non-nested identifier
-        var shortName = target.identifier().replace("$", ".");
-        if (shortName.contains(".")) {
-            // shortName format is "Class.member" or "simpleFunction"
-            int lastDot = shortName.lastIndexOf('.');
-            shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
+        // Fast preflight to short-circuit on TooManyCallsites
+        var maybeTmc = preflightTooManyCallsites(analyzer, target, maxFiles);
+        if (maybeTmc.isPresent()) {
+            return maybeTmc.get();
         }
-        final String identifier = shortName;
+        final String identifier = shortIdentifier(target);
         // matches identifier around word boundaries and around common structures
-        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
+        var searchPattern = buildSearchPattern(identifier);
         var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
                 .filter(cu -> cu.shortName().equals(identifier))
                 .collect(Collectors.toSet());
