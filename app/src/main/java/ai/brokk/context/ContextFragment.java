@@ -41,8 +41,6 @@ import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -54,9 +52,6 @@ import org.slf4j.LoggerFactory;
  * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
-
-    Logger log = LoggerFactory.getLogger(ContextFragment.class);
-
     /**
      * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
      */
@@ -1223,14 +1218,6 @@ public interface ContextFragment {
                 return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
             }
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
-
-            // Guardrail: if too many call sites slipped past preflight (fragment added elsewhere), return message.
-            // UI layer (e.g., AttachContextDialog.confirmUsage) is responsible for showing any modal error.
-            if (usageResult instanceof FuzzyResult.TooManyCallsites tmc) {
-                var msg = "Too many call sites for symbol: %s (%d > limit %d)"
-                        .formatted(targetIdentifier, tmc.totalCallsites(), tmc.limit());
-                return msg;
-            }
 
             var either = usageResult.toEither();
             if (either.hasErrorMessage()) {
