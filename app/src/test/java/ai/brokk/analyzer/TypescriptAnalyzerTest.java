@@ -2370,6 +2370,425 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testModernTypeScriptFeatures() {
+        ProjectFile modernFeaturesFile = new ProjectFile(project.getRoot(), "ModernFeatures.ts");
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(modernFeaturesFile);
+        Set<CodeUnit> declarations = analyzer.getDeclarations(modernFeaturesFile);
+
+        assertFalse(skeletons.isEmpty(), "Skeletons map for ModernFeatures.ts should not be empty");
+        assertFalse(declarations.isEmpty(), "Declarations set for ModernFeatures.ts should not be empty");
+
+        // ===== Test Satisfies Operator =====
+        // Note: The satisfies operator appears in initializer expressions, not in type signatures,
+        // so it cannot be tested via skeletons. We only verify the const declarations are captured.
+
+        // Basic satisfies usage - verify const declaration is captured
+        CodeUnit configConst = CodeUnit.field(modernFeaturesFile, "", "_module_.config");
+        assertTrue(
+                skeletons.containsKey(configConst),
+                "config const should be captured as a CodeUnit");
+
+        // Satisfies with type narrowing - verify const declaration is captured
+        CodeUnit strictConfigConst = CodeUnit.field(modernFeaturesFile, "", "_module_.strictConfig");
+        assertTrue(skeletons.containsKey(strictConfigConst), "strictConfig const should be captured as a CodeUnit");
+
+        // Satisfies with complex types - verify const declaration is captured
+        CodeUnit themeConfigConst = CodeUnit.field(modernFeaturesFile, "", "_module_.themeConfig");
+        assertTrue(skeletons.containsKey(themeConfigConst), "themeConfig const should be captured as a CodeUnit");
+
+        // ===== Test Type Predicate Functions =====
+
+        // Basic type predicate
+        CodeUnit isStringFunc = CodeUnit.fn(modernFeaturesFile, "", "isString");
+        assertTrue(skeletons.containsKey(isStringFunc), "isString type predicate function should be captured");
+        String isStringSkeleton = skeletons.get(isStringFunc);
+        assertTrue(
+                isStringSkeleton.contains(": x is string"),
+                "isString should show type predicate return type 'x is string'. Skeleton: " + isStringSkeleton);
+
+        // Type predicate with complex type
+        CodeUnit isNumberFunc = CodeUnit.fn(modernFeaturesFile, "", "isNumber");
+        assertTrue(skeletons.containsKey(isNumberFunc), "isNumber type predicate function should be captured");
+        String isNumberSkeleton = skeletons.get(isNumberFunc);
+        assertTrue(
+                isNumberSkeleton.contains(": value is number"),
+                "isNumber should show type predicate return type 'value is number'");
+
+        // Type predicate with generic
+        CodeUnit isArrayFunc = CodeUnit.fn(modernFeaturesFile, "", "isArray");
+        assertTrue(skeletons.containsKey(isArrayFunc), "isArray generic type predicate should be captured");
+        String isArraySkeleton = skeletons.get(isArrayFunc);
+        assertTrue(
+                isArraySkeleton.contains(": value is Array<T>"),
+                "isArray should show generic type predicate 'value is Array<T>'");
+
+        // Type predicate for object type
+        CodeUnit isUserFunc = CodeUnit.fn(modernFeaturesFile, "", "isUser");
+        assertTrue(skeletons.containsKey(isUserFunc), "isUser type predicate function should be captured");
+        String isUserSkeleton = skeletons.get(isUserFunc);
+        assertTrue(
+                isUserSkeleton.contains(": obj is User"),
+                "isUser should show type predicate return type 'obj is User'");
+
+        // Type predicate with null check
+        CodeUnit isNonNullFunc = CodeUnit.fn(modernFeaturesFile, "", "isNonNull");
+        assertTrue(skeletons.containsKey(isNonNullFunc), "isNonNull type predicate function should be captured");
+        String isNonNullSkeleton = skeletons.get(isNonNullFunc);
+        assertTrue(
+                isNonNullSkeleton.contains(": value is T"),
+                "isNonNull should show type predicate return type 'value is T'");
+
+        // Class method with type predicate
+        CodeUnit typeCheckerClass = CodeUnit.cls(modernFeaturesFile, "", "TypeChecker");
+        assertTrue(skeletons.containsKey(typeCheckerClass), "TypeChecker class should be captured");
+        String typeCheckerSkeleton = skeletons.get(typeCheckerClass);
+        assertTrue(
+                typeCheckerSkeleton.contains(": x is string"),
+                "TypeChecker.isStringValue should show type predicate in class");
+        assertTrue(
+                typeCheckerSkeleton.contains("static isNumberValue"),
+                "TypeChecker should have static type predicate method");
+
+        // ===== Test Assertion Signatures =====
+
+        // Basic assertion signature
+        CodeUnit assertFunc = CodeUnit.fn(modernFeaturesFile, "", "assert");
+        assertTrue(skeletons.containsKey(assertFunc), "assert function with assertion signature should be captured");
+        String assertSkeleton = skeletons.get(assertFunc);
+        assertTrue(
+                assertSkeleton.contains(": asserts condition"),
+                "assert should show assertion signature 'asserts condition'. Skeleton: " + assertSkeleton);
+
+        // Assertion signature with message
+        CodeUnit assertWithMessageFunc = CodeUnit.fn(modernFeaturesFile, "", "assertWithMessage");
+        assertTrue(
+                skeletons.containsKey(assertWithMessageFunc),
+                "assertWithMessage function should be captured");
+        String assertWithMessageSkeleton = skeletons.get(assertWithMessageFunc);
+        assertTrue(
+                assertWithMessageSkeleton.contains(": asserts condition"),
+                "assertWithMessage should show assertion signature");
+
+        // Assertion signature with type predicate
+        CodeUnit assertIsStringFunc = CodeUnit.fn(modernFeaturesFile, "", "assertIsString");
+        assertTrue(
+                skeletons.containsKey(assertIsStringFunc),
+                "assertIsString function should be captured");
+        String assertIsStringSkeleton = skeletons.get(assertIsStringFunc);
+        assertTrue(
+                assertIsStringSkeleton.contains(": asserts value is string"),
+                "assertIsString should show assertion with type predicate 'asserts value is string'");
+
+        // Assertion signature with generic
+        CodeUnit assertIsArrayFunc = CodeUnit.fn(modernFeaturesFile, "", "assertIsArray");
+        assertTrue(
+                skeletons.containsKey(assertIsArrayFunc),
+                "assertIsArray generic assertion function should be captured");
+        String assertIsArraySkeleton = skeletons.get(assertIsArrayFunc);
+        assertTrue(
+                assertIsArraySkeleton.contains(": asserts value is Array<T>"),
+                "assertIsArray should show generic assertion 'asserts value is Array<T>'");
+
+        // Assertion signature for non-null
+        CodeUnit assertNonNullFunc = CodeUnit.fn(modernFeaturesFile, "", "assertNonNull");
+        assertTrue(
+                skeletons.containsKey(assertNonNullFunc),
+                "assertNonNull assertion function should be captured");
+        String assertNonNullSkeleton = skeletons.get(assertNonNullFunc);
+        assertTrue(
+                assertNonNullSkeleton.contains(": asserts value is T"),
+                "assertNonNull should show assertion 'asserts value is T'");
+
+        // Class method with assertion signature
+        CodeUnit validatorClass = CodeUnit.cls(modernFeaturesFile, "", "Validator");
+        assertTrue(skeletons.containsKey(validatorClass), "Validator class should be captured");
+        String validatorSkeleton = skeletons.get(validatorClass);
+        assertTrue(
+                validatorSkeleton.contains(": asserts value is number"),
+                "Validator.assertPositive should show assertion signature in class");
+        assertTrue(
+                validatorSkeleton.contains("static assertNotEmpty"),
+                "Validator should have static assertion method");
+
+        // ===== Test This Parameters =====
+
+        // Basic this parameter
+        CodeUnit greetFunc = CodeUnit.fn(modernFeaturesFile, "", "greet");
+        assertTrue(skeletons.containsKey(greetFunc), "greet function with this parameter should be captured");
+        String greetSkeleton = skeletons.get(greetFunc);
+        assertTrue(
+                greetSkeleton.contains("this: User"),
+                "greet should show this parameter 'this: User' in signature. Skeleton: " + greetSkeleton);
+
+        // This parameter with return type
+        CodeUnit getUserAgeFunc = CodeUnit.fn(modernFeaturesFile, "", "getUserAge");
+        assertTrue(
+                skeletons.containsKey(getUserAgeFunc),
+                "getUserAge function with this parameter should be captured");
+        String getUserAgeSkeleton = skeletons.get(getUserAgeFunc);
+        assertTrue(
+                getUserAgeSkeleton.contains("this: User"),
+                "getUserAge should show this parameter");
+        assertTrue(
+                getUserAgeSkeleton.contains(": number"),
+                "getUserAge should show return type");
+
+        // This parameter with generics
+        CodeUnit getValueFunc = CodeUnit.fn(modernFeaturesFile, "", "getValue");
+        assertTrue(
+                skeletons.containsKey(getValueFunc),
+                "getValue generic function with this parameter should be captured");
+        String getValueSkeleton = skeletons.get(getValueFunc);
+        assertTrue(
+                getValueSkeleton.contains("this: { value: T }"),
+                "getValue should show generic this parameter");
+
+        // This parameter with void return
+        CodeUnit logUserFunc = CodeUnit.fn(modernFeaturesFile, "", "logUser");
+        assertTrue(
+                skeletons.containsKey(logUserFunc),
+                "logUser function with this parameter should be captured");
+        String logUserSkeleton = skeletons.get(logUserFunc);
+        assertTrue(
+                logUserSkeleton.contains("this: User"),
+                "logUser should show this parameter");
+
+        // Multiple parameters with this
+        CodeUnit updateUserFunc = CodeUnit.fn(modernFeaturesFile, "", "updateUser");
+        assertTrue(
+                skeletons.containsKey(updateUserFunc),
+                "updateUser function with this parameter should be captured");
+        String updateUserSkeleton = skeletons.get(updateUserFunc);
+        assertTrue(
+                updateUserSkeleton.contains("this: User"),
+                "updateUser should show this parameter");
+        assertTrue(
+                updateUserSkeleton.contains("name: string") && updateUserSkeleton.contains("age: number"),
+                "updateUser should show additional parameters after this");
+
+        // Class with methods using this parameter explicitly
+        CodeUnit calculatorClass = CodeUnit.cls(modernFeaturesFile, "", "Calculator");
+        assertTrue(skeletons.containsKey(calculatorClass), "Calculator class should be captured");
+        String calculatorSkeleton = skeletons.get(calculatorClass);
+        assertTrue(
+                calculatorSkeleton.contains("add(this: Calculator"),
+                "Calculator.add should show explicit this parameter");
+        assertTrue(
+                calculatorSkeleton.contains("static create(this: typeof Calculator"),
+                "Calculator.create should show static this parameter");
+
+        // ===== Test Const Type Parameters =====
+
+        // Basic const type parameter
+        CodeUnit identityFunc = CodeUnit.fn(modernFeaturesFile, "", "identity");
+        assertTrue(skeletons.containsKey(identityFunc), "identity function with const type parameter should be captured");
+        String identitySkeleton = skeletons.get(identityFunc);
+        assertTrue(
+                identitySkeleton.contains("<const T>"),
+                "identity should show const type parameter '<const T>'. Skeleton: " + identitySkeleton);
+
+        // Const type parameter with array
+        CodeUnit tupleFunc = CodeUnit.fn(modernFeaturesFile, "", "tuple");
+        assertTrue(
+                skeletons.containsKey(tupleFunc),
+                "tuple function with const type parameter should be captured");
+        String tupleSkeleton = skeletons.get(tupleFunc);
+        assertTrue(
+                tupleSkeleton.contains("<const T extends readonly any[]>"),
+                "tuple should show const type parameter with constraint");
+
+        // Const type parameter preserving literal types
+        CodeUnit asConstFunc = CodeUnit.fn(modernFeaturesFile, "", "asConst");
+        assertTrue(
+                skeletons.containsKey(asConstFunc),
+                "asConst function with const type parameter should be captured");
+        String asConstSkeleton = skeletons.get(asConstFunc);
+        assertTrue(
+                asConstSkeleton.contains("<const T>"),
+                "asConst should show const type parameter");
+
+        // Const type parameter with object
+        CodeUnit freezeFunc = CodeUnit.fn(modernFeaturesFile, "", "freeze");
+        assertTrue(
+                skeletons.containsKey(freezeFunc),
+                "freeze function with const type parameter should be captured");
+        String freezeSkeleton = skeletons.get(freezeFunc);
+        assertTrue(
+                freezeSkeleton.contains("<const T extends Record<string, any>>"),
+                "freeze should show const type parameter with object constraint");
+
+        // Const type parameter with multiple parameters
+        CodeUnit pairFunc = CodeUnit.fn(modernFeaturesFile, "", "pair");
+        assertTrue(
+                skeletons.containsKey(pairFunc),
+                "pair function with multiple const type parameters should be captured");
+        String pairSkeleton = skeletons.get(pairFunc);
+        assertTrue(
+                pairSkeleton.contains("<const T, const U>"),
+                "pair should show multiple const type parameters");
+
+        // Class with const type parameter
+        CodeUnit containerClass = CodeUnit.cls(modernFeaturesFile, "", "Container");
+        assertTrue(skeletons.containsKey(containerClass), "Container class with const type parameter should be captured");
+        String containerSkeleton = skeletons.get(containerClass);
+        assertTrue(
+                containerSkeleton.contains("<const T>"),
+                "Container class should show const type parameter");
+
+        // Function with const type parameter and constraint
+        CodeUnit createRecordFunc = CodeUnit.fn(modernFeaturesFile, "", "createRecord");
+        assertTrue(
+                skeletons.containsKey(createRecordFunc),
+                "createRecord function with const type parameter should be captured");
+        String createRecordSkeleton = skeletons.get(createRecordFunc);
+        assertTrue(
+                createRecordSkeleton.contains("<const K extends string"),
+                "createRecord should show const type parameter with constraint");
+
+        // ===== Test Combined Modern Features =====
+
+        // Type predicate with const type parameter
+        CodeUnit isLiteralArrayFunc = CodeUnit.fn(modernFeaturesFile, "", "isLiteralArray");
+        assertTrue(
+                skeletons.containsKey(isLiteralArrayFunc),
+                "isLiteralArray combining const and type predicate should be captured");
+        String isLiteralArraySkeleton = skeletons.get(isLiteralArrayFunc);
+        assertTrue(
+                isLiteralArraySkeleton.contains("<const T extends readonly any[]>"),
+                "isLiteralArray should show const type parameter");
+        assertTrue(
+                isLiteralArraySkeleton.contains(": value is T"),
+                "isLiteralArray should show type predicate");
+
+        // Assertion with const type parameter
+        CodeUnit assertLiteralFunc = CodeUnit.fn(modernFeaturesFile, "", "assertLiteral");
+        assertTrue(
+                skeletons.containsKey(assertLiteralFunc),
+                "assertLiteral combining const and assertion should be captured");
+        String assertLiteralSkeleton = skeletons.get(assertLiteralFunc);
+        assertTrue(
+                assertLiteralSkeleton.contains("<const T>"),
+                "assertLiteral should show const type parameter");
+        assertTrue(
+                assertLiteralSkeleton.contains(": asserts value is T"),
+                "assertLiteral should show assertion signature");
+
+        // This parameter with const type parameter
+        CodeUnit bindMethodFunc = CodeUnit.fn(modernFeaturesFile, "", "bindMethod");
+        assertTrue(
+                skeletons.containsKey(bindMethodFunc),
+                "bindMethod combining this and const should be captured");
+        String bindMethodSkeleton = skeletons.get(bindMethodFunc);
+        assertTrue(
+                bindMethodSkeleton.contains("this: any"),
+                "bindMethod should show this parameter");
+        assertTrue(
+                bindMethodSkeleton.contains("<const T extends"),
+                "bindMethod should show const type parameter");
+
+        // Const with type predicate - verify const declaration is captured
+        CodeUnit validatorConst = CodeUnit.field(modernFeaturesFile, "", "_module_.validator");
+        assertTrue(
+                skeletons.containsKey(validatorConst),
+                "validator const should be captured as a CodeUnit");
+
+        // Complex combination: const type parameter + type predicate + this
+        CodeUnit typeSafeBuilderClass = CodeUnit.cls(modernFeaturesFile, "", "TypeSafeBuilder");
+        assertTrue(
+                skeletons.containsKey(typeSafeBuilderClass),
+                "TypeSafeBuilder combining all modern features should be captured");
+        String typeSafeBuilderSkeleton = skeletons.get(typeSafeBuilderClass);
+        assertTrue(
+                typeSafeBuilderSkeleton.contains("<const T extends Record<string, any>>"),
+                "TypeSafeBuilder should show const type parameter");
+        assertTrue(
+                typeSafeBuilderSkeleton.contains("this: TypeSafeBuilder<T>"),
+                "TypeSafeBuilder methods should show this parameter");
+        assertTrue(
+                typeSafeBuilderSkeleton.contains("isComplete(this: TypeSafeBuilder<T>): this is TypeSafeBuilder<T>"),
+                "TypeSafeBuilder.isComplete should show type predicate with this");
+
+        // ===== Verify All Modern Features Are Captured =====
+
+        // Count functions with modern features
+        List<CodeUnit> functionsWithTypePredicates = declarations.stream()
+                .filter(cu -> cu.isFunction())
+                .filter(cu -> {
+                    String skeleton = skeletons.get(cu);
+                    return skeleton != null && skeleton.contains(" is ");
+                })
+                .collect(Collectors.toList());
+
+        assertTrue(
+                functionsWithTypePredicates.size() >= 8,
+                "Should capture at least 8 functions with type predicates. Found: " + functionsWithTypePredicates.size());
+
+        List<CodeUnit> functionsWithAssertions = declarations.stream()
+                .filter(cu -> cu.isFunction())
+                .filter(cu -> {
+                    String skeleton = skeletons.get(cu);
+                    return skeleton != null && skeleton.contains("asserts");
+                })
+                .collect(Collectors.toList());
+
+        assertTrue(
+                functionsWithAssertions.size() >= 5,
+                "Should capture at least 5 functions with assertion signatures. Found: " + functionsWithAssertions.size());
+
+        List<CodeUnit> functionsWithThisParam = declarations.stream()
+                .filter(cu -> cu.isFunction())
+                .filter(cu -> {
+                    String skeleton = skeletons.get(cu);
+                    return skeleton != null && skeleton.contains("this:");
+                })
+                .collect(Collectors.toList());
+
+        assertTrue(
+                functionsWithThisParam.size() >= 5,
+                "Should capture at least 5 functions with this parameter. Found: " + functionsWithThisParam.size());
+
+        List<CodeUnit> functionsWithConstTypeParam = declarations.stream()
+                .filter(cu -> cu.isFunction())
+                .filter(cu -> {
+                    String skeleton = skeletons.get(cu);
+                    return skeleton != null && skeleton.contains("<const ");
+                })
+                .collect(Collectors.toList());
+
+        assertTrue(
+                functionsWithConstTypeParam.size() >= 7,
+                "Should capture at least 7 functions with const type parameters. Found: "
+                        + functionsWithConstTypeParam.size());
+
+        // ===== Test getSkeleton for Individual Modern Features =====
+
+        Optional<String> isStringSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "isString");
+        assertTrue(isStringSkeletonViaGet.isPresent(), "Should retrieve isString via getSkeleton");
+        assertTrue(
+                isStringSkeletonViaGet.get().contains(": x is string"),
+                "isString skeleton should contain type predicate");
+
+        Optional<String> assertSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "assert");
+        assertTrue(assertSkeletonViaGet.isPresent(), "Should retrieve assert via getSkeleton");
+        assertTrue(
+                assertSkeletonViaGet.get().contains(": asserts condition"),
+                "assert skeleton should contain assertion signature");
+
+        Optional<String> greetSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "greet");
+        assertTrue(greetSkeletonViaGet.isPresent(), "Should retrieve greet via getSkeleton");
+        assertTrue(
+                greetSkeletonViaGet.get().contains("this: User"),
+                "greet skeleton should contain this parameter");
+
+        Optional<String> identitySkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "identity");
+        assertTrue(identitySkeletonViaGet.isPresent(), "Should retrieve identity via getSkeleton");
+        assertTrue(
+                identitySkeletonViaGet.get().contains("<const T>"),
+                "identity skeleton should contain const type parameter");
+
+    }
+
+    @Test
     void testTopLevelCodeUnitsOfNonExistentFile() {
         ProjectFile nonExistentFile = new ProjectFile(project.getRoot(), "NonExistent.ts");
         List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
