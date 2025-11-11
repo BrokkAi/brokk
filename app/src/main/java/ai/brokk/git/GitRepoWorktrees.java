@@ -396,14 +396,30 @@ public class GitRepoWorktrees {
                 || o.contains("this repository is configured for git lfs")
                 || o.contains("smudge filter lfs failed")
                 || o.contains("filter-process: git-lfs")
+                || o.contains("git-lfs filter-process") // matches "git-lfs filter-process"
                 || o.contains("git-lfs: not found")
-                || o.contains("git lfs: command not found")) {
+                || o.contains("git lfs: command not found")
+                // Windows-specific pattern: "'git-lfs' is not recognized as an internal or external command"
+                || (o.contains("git-lfs") && o.contains("is not recognized"))) {
             return true;
         }
 
-        // More generic fallback: mention of git-lfs along with "not found"/"no such file"/"can't find"
+        // Detect cases where git-lfs and filter-process are both mentioned in the output
+        if (o.contains("git-lfs") && o.contains("filter-process")) {
+            return true;
+        }
+
+        // Detect generic filter-process failures (e.g. "filter-process ... failed") which often indicate LFS issues
+        if (o.contains("filter-process") && o.contains("failed")) {
+            return true;
+        }
+
+        // More generic fallback: mention of git-lfs along with "not found"/"no such file"/"can't find"/"not recognized"
         if (o.contains("git-lfs")
-                && (o.contains("not found") || o.contains("no such file") || o.contains("can't find"))) {
+                && (o.contains("not found")
+                        || o.contains("no such file")
+                        || o.contains("can't find")
+                        || o.contains("not recognized"))) {
             return true;
         }
 
