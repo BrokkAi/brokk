@@ -1539,16 +1539,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // to avoid deadlocks if fragments need to be frozen during the push
                 try {
                     analyzerWrapper.get(); // Blocks until analyzer is ready
+                    analyzerWrapper.pause();
+                    // Push a new context with the Task List fragment and a migration action
+                    pushContext(currentLiveCtx -> currentLiveCtx
+                            .withTaskList(legacy)
+                            .withAction(CompletableFuture.completedFuture("Task list migrated")));
                 } catch (InterruptedException e) {
                     logger.warn("Interrupted waiting for analyzer before pushing task list migration");
                     // Skip context push; keep legacy JSON on disk for parity
                     return;
+                } finally {
+                    analyzerWrapper.resume();
                 }
 
-                // Push a new context with the Task List fragment and a migration action
-                pushContext(currentLiveCtx -> currentLiveCtx
-                        .withTaskList(legacy)
-                        .withAction(CompletableFuture.completedFuture("Task list migrated")));
+
 
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
