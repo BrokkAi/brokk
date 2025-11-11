@@ -282,25 +282,7 @@ public class FuzzyUsageFinderJavaTest {
             fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
         }
 
-        var hits = either.getUsages();
-        assertFalse(hits.isEmpty(), "Expected to find usage in UseE.callFoo() method");
-
-        // Verify that all hits are for method calls (FUNCTION kind), not field accesses
-        for (var hit : hits) {
-            assertEquals(
-                    CodeUnitType.FUNCTION,
-                    hit.enclosing().kind(),
-                    "Enclosing code unit should be a FUNCTION, not "
-                            + hit.enclosing().kind());
-        }
-
-        // Verify we found usage in callFoo but NOT in assignFoo (which accesses the field E.foo, not ServiceImpl.foo())
-        var enclosingFqNames = hits.stream().map(uh -> uh.enclosing().fqName()).collect(Collectors.toSet());
-        assertTrue(
-                enclosingFqNames.stream().anyMatch(name -> name.contains("callFoo")),
-                "Expected usage in callFoo() method; actual: " + enclosingFqNames);
-        assertFalse(
-                enclosingFqNames.stream().anyMatch(name -> name.contains("assignFoo")),
-                "Should not have matched field assignment in assignFoo(); actual: " + enclosingFqNames);
+        var hits = either.getUsages().stream().map(uh -> uh.enclosing().identifier()).collect(Collectors.toSet());
+        assertEquals(Set.of("foo", "callFoo"), hits);
     }
 }
