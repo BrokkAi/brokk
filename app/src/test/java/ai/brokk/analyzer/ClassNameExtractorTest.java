@@ -1,10 +1,9 @@
 package ai.brokk.analyzer;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for ClassNameExtractor.extractForJava to confirm it produces the simple class name segment.

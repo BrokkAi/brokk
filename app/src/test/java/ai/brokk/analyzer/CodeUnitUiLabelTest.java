@@ -1,8 +1,8 @@
 package ai.brokk.analyzer;
 
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for CodeUnit.uiLabel() to ensure chips show concise symbol names.
