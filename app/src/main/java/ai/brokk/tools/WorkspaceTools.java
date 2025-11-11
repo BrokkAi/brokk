@@ -303,13 +303,12 @@ public class WorkspaceTools {
             @P(
                             "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
                     String symbol) {
-        assert !getAnalyzer().isEmpty() : "Cannot add usages: Code Intelligence is not available.";
         if (symbol.isBlank()) {
             return "Cannot add usages: symbol cannot be empty";
         }
 
         // Preflight usages to detect guardrail conditions (e.g., TooManyCallsites) before adding a fragment
-        var result = FuzzyUsageFinder.create(context.getContextManager()).findUsages(symbol);
+        var result = preflightUsages(symbol);
         if (result instanceof FuzzyResult.TooManyCallsites tmc) {
             int total = tmc.totalCallsites();
             int limit = tmc.limit();
@@ -318,6 +317,8 @@ public class WorkspaceTools {
             context.getContextManager().getIo().toolError(detailed, "Usages limit reached");
             return "Aborted adding usages for '%s': too many call sites".formatted(symbol);
         }
+
+        // Proceed to add the dynamic usage fragment; analyzer availability will be checked lazily when rendering.
 
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol);
         context = context.addVirtualFragments(List.of(fragment));
@@ -444,6 +445,11 @@ public class WorkspaceTools {
             context = context.addVirtualFragment(newFrag);
             return "Created Task Notes and added the note.";
         }
+    }
+
+    // Seam for tests: allow overriding the usages preflight
+    protected FuzzyResult preflightUsages(String symbol) {
+        return FuzzyUsageFinder.create(context.getContextManager()).findUsages(symbol);
     }
 
     // --- Helper Methods ---
