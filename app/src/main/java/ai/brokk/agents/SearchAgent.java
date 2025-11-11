@@ -292,12 +292,10 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult toolResult;
-                    try {
-                        toolResult = executeTool(req, tr, wst);
-                    } catch (FatalLlmException e) {
-                        var details = new TaskResult.StopDetails(
-                                TaskResult.StopReason.LLM_ERROR, Objects.toString(e.getMessage(), "Fatal LLM error"));
+                    ToolExecutionResult toolResult = executeTool(req, tr, wst);
+                    if (toolResult.status() == ToolExecutionResult.Status.FATAL_RESOURCE) {
+                        var details =
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
                         return errorResult(details, taskMeta());
                     }
 
@@ -306,19 +304,19 @@ public class SearchAgent {
                     boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
                             && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
                             && shouldSummarize(req.name());
+                    ToolExecutionResult finalResult;
                     if (summarize) {
                         var reasoning = getArgumentsMap(req)
                                 .getOrDefault("reasoning", "")
                                 .toString();
                         display = summarizeResult(goal, req, display, reasoning);
+                        finalResult = new ToolExecutionResult(req, toolResult.status(), display);
+                    } else {
+                        finalResult = toolResult;
                     }
 
                     // Write to visible transcript and to Context history
-                    var messageResult = exec;
-                    if (summarize) {
-                        messageResult = ToolExecutionResult.success(req, display);
-                    }
-                    sessionMessages.add(messageResult.toExecutionResultMessage());
+                    sessionMessages.add(finalResult.toExecutionResultMessage());
 
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
@@ -998,7 +996,7 @@ public class SearchAgent {
     public String callCodeAgent(
             @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                     String instructions)
-            throws InterruptedException, FatalLlmException {
+            throws InterruptedException, ToolRegistry.FatalLlmException {
         // append first the SearchAgent's result so far, CodeAgent appends its own result
         context = scope.append(createResult("Search: " + goal, goal));
 
@@ -1030,7 +1028,7 @@ public class SearchAgent {
             // we need an output to be appended by the search agent caller (code agent appended its own result)
             io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
-            throw new FatalLlmException(stopDetails.explanation());
+            throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
         // Non-success outcomes: continue planning on next loop

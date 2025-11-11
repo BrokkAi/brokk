@@ -214,6 +214,18 @@ public class ToolRegistry {
                 if (e2 instanceof InterruptedException ie) {
                     throw ie;
                 }
+                if (e2 instanceof ToolCallException tce) {
+                    var msg = tce.getMessage() == null ? "[no message]" : tce.getMessage();
+                    return switch (tce.status()) {
+                        case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg);
+                        case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg);
+                        case FATAL_RESOURCE -> ToolExecutionResult.fatal(request, msg);
+                        default -> {
+                            throw new AssertionError(
+                                    "Status %s should not be used in ToolCallException".formatted(tce.status()));
+                        }
+                    };
+                }
             }
             throw new RuntimeException(e);
         } catch (IllegalAccessException e) {
@@ -460,5 +472,24 @@ public class ToolRegistry {
     private static boolean isSimpleScalar(@Nullable Object v) {
         if (v == null) return true;
         return v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Character;
+    }
+
+    public static class ToolCallException extends RuntimeException {
+        private final ToolExecutionResult.Status status;
+
+        public ToolCallException(ToolExecutionResult.Status status, String message) {
+            super(message);
+            this.status = status;
+        }
+
+        public ToolExecutionResult.Status status() {
+            return status;
+        }
+    }
+
+    public static class FatalLlmException extends ToolCallException {
+        public FatalLlmException(String message) {
+            super(ToolExecutionResult.Status.FATAL_RESOURCE, message);
+        }
     }
 }

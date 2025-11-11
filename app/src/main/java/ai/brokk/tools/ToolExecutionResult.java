@@ -22,7 +22,9 @@ public record ToolExecutionResult(
         /** The tool call was flawed */
         REQUEST_ERROR,
         /** internal error that should never happen */
-        INTERNAL_ERROR
+        INTERNAL_ERROR,
+        /** an external resource is unavailable, requiring immediate termination of the agent */
+        FATAL_RESOURCE
     }
 
     // --- Factory Methods ---
@@ -56,6 +58,17 @@ public record ToolExecutionResult(
         return new ToolExecutionResult(request, Status.INTERNAL_ERROR, errorMessage);
     }
 
+    /**
+     * Creates a fatal error result.
+     *
+     * @param request The original request.
+     * @param errorMessage The error message describing the fatal error.
+     * @return A new ToolExecutionResult instance.
+     */
+    public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage) {
+        return new ToolExecutionResult(request, Status.FATAL_RESOURCE, errorMessage);
+    }
+
     // --- Convenience Accessors ---
 
     public String toolName() {
@@ -84,6 +97,7 @@ public record ToolExecutionResult(
                     case SUCCESS -> resultText; // Already handled null/blank in factory
                     case REQUEST_ERROR -> "Error: " + resultText;
                     case INTERNAL_ERROR -> "Internal error: " + resultText;
+                    case FATAL_RESOURCE -> "Fatal error: " + resultText;
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
     }

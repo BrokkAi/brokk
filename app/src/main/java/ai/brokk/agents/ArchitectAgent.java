@@ -130,7 +130,7 @@ public class ArchitectAgent {
             @P(
                             "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
                     boolean deferBuild)
-            throws FatalLlmException, InterruptedException {
+            throws ToolRegistry.FatalLlmException, InterruptedException {
         addPlanningToHistory();
 
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
@@ -165,7 +165,7 @@ public class ArchitectAgent {
         }
         if (reason == StopReason.LLM_ERROR) {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
-            throw new FatalLlmException(stopDetails.explanation());
+            throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
         // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.), explain how to recover
@@ -218,7 +218,7 @@ public class ArchitectAgent {
             "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
     public String callSearchAgent(
             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
-            throws FatalLlmException, InterruptedException {
+            throws ToolRegistry.FatalLlmException, InterruptedException {
         addPlanningToHistory();
         logger.debug("callSearchAgent invoked with query: {}", query);
 
@@ -231,7 +231,7 @@ public class ArchitectAgent {
         threadlocalSearchResult.set(result);
 
         if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
-            throw new FatalLlmException(result.stopDetails().explanation());
+            throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
         }
 
         if (result.stopDetails().reason() != StopReason.SUCCESS) {
@@ -294,7 +294,7 @@ public class ArchitectAgent {
         try {
             var initialSummary = callCodeAgent(goal, false);
             architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
-        } catch (FatalLlmException e) {
+        } catch (ToolRegistry.FatalLlmException e) {
             var errorMessage = "Fatal LLM error executing initial Code Agent: %s".formatted(e.getMessage());
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(StopReason.LLM_ERROR);
@@ -561,10 +561,8 @@ public class ArchitectAgent {
 
             // code agent calls are done serially
             for (var req : codeAgentReqs) {
-                ToolExecutionResult toolResult;
-                try {
-                    toolResult = tr.executeTool(req);
-                } catch (FatalLlmException e) {
+                ToolExecutionResult toolResult = tr.executeTool(req);
+                if (toolResult.status() == ToolExecutionResult.Status.FATAL_RESOURCE) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
 
