@@ -313,8 +313,8 @@ public class WorkspaceTools {
         if (result instanceof FuzzyResult.TooManyCallsites tmc) {
             int total = tmc.totalCallsites();
             int limit = tmc.limit();
-            var detailed =
-                    "Too many call sites for symbol: %s (%d > limit %d)".formatted(symbol, total, limit);
+            logger.warn("addSymbolUsagesToWorkspace: TooManyCallsites for '{}': {} > limit {}", symbol, total, limit);
+            var detailed = "Too many call sites for symbol: %d(limit %d)".formatted(total, limit);
             context.getContextManager().getIo().toolError(detailed, "Usages limit reached");
             return "Aborted adding usages for '%s': too many call sites".formatted(symbol);
         }
