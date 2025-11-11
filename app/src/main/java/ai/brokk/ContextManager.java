@@ -2291,7 +2291,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    @SuppressWarnings("deprecation")
     private void createOrReuseSession(String name) {
         Optional<SessionInfo> existingSessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
         if (existingSessionInfo.isPresent()) {
@@ -2309,10 +2308,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory = new ContextHistory(new Context(this, null));
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
-
-            // initialize empty task list and persist
-            project.getSessionManager().writeTaskList(currentSessionId, new TaskList.TaskListData(List.of()));
-
+            s
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());

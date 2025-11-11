@@ -567,46 +567,6 @@ public class SessionManager implements AutoCloseable {
     }
 
     /**
-     * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
-     * session's zip file.
-     *
-     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key: calls for the same
-     * session are executed in submission order, while calls for different sessions run in parallel. This mirrors how
-     * manifest/history writes are handled elsewhere in this class.
-     *
-     * <pre>{@code
-     * // All I/O for a given sessionId runs serially with respect to that same sessionId:
-     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
-     *     // ... open the session zip and write tasklist.json ...
-     *     return null;
-     * });
-     *
-     * // A different sessionId can proceed concurrently on the same underlying ExecutorService:
-     * sessionExecutorByKey.submit(otherSessionId.toString(), () -> {
-     *     // ... independent I/O for another session ...
-     *     return null;
-     * });
-     * }</pre>
-     *
-     * @deprecated Task lists are now stored as Context fragments. This method exists only for backward compatibility
-     * during migration. Will be removed in a future release.
-     */
-    @Deprecated
-    public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskList.TaskListData data) {
-        Path zipPath = getSessionHistoryPath(sessionId);
-        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                var normalized = new TaskList.TaskListData(List.copyOf(data.tasks()));
-                String json = AbstractProject.objectMapper.writeValueAsString(normalized);
-                writeTaskListJson(zipPath, json);
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
-            }
-            return null;
-        });
-    }
-
-    /**
      * Asynchronously read the legacy task list (tasklist.json) from the session's zip.
      *
      * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
