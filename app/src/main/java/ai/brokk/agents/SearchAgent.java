@@ -780,7 +780,7 @@ public class SearchAgent {
         messages.add(sys);
 
         // Current Workspace contents
-        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
 
         // Goal and project context
         messages.add(new UserMessage(
