@@ -27,12 +27,10 @@ public abstract class ExceptionAwareSwingWorker<T, V> extends SwingWorker<T, V> 
             get();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            GlobalExceptionHandler.handle(
-                    Thread.currentThread(), ie, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+            GlobalExceptionHandler.handle(ie, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
         } catch (ExecutionException ee) {
             Throwable cause = (ee.getCause() != null) ? ee.getCause() : ee;
-            GlobalExceptionHandler.handle(
-                    Thread.currentThread(), cause, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+            GlobalExceptionHandler.handle(cause, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
         }
     }
 }

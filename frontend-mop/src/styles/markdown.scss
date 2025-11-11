@@ -306,6 +306,23 @@ html.code-wrap-mode .edit-block-body .custom-code-block pre {
   overflow: visible;
 }
 
+/* Remove border and header from code blocks inside edit blocks to avoid double borders */
+.edit-block-wrapper {
+  .edit-block-body .custom-code-block {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .edit-block-body .custom-code-header {
+    display: none;
+  }
+
+  .edit-block-body .custom-code-block pre {
+    border-radius: 0;
+  }
+}
+
 /* Fix diff line backgrounds to extend full width in scroll mode */
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
   /* Make code container expand to full content width */
@@ -316,14 +333,7 @@ html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
   /* Reset diff line styling */
   display: block;
-  padding-left: 0.8em;
-  padding-right: 0.8em;
   position: relative;
-  /* Extend background to full width using negative margins */
-  margin-left: -0.8em;
-  margin-right: -0.8em;
-  padding-left: 1.6em;
-  padding-right: 1.6em;
   /* Force all lines to be same width as code container */
   width: 100%;
   box-sizing: border-box;

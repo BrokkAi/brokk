@@ -391,13 +391,13 @@ public class LlmTest {
     @Test
     void testEmulateToolExecutionResults() {
         var user1 = new UserMessage("Initial request");
-        var term1 = ToolExecutionResultMessage.toolExecutionResultMessage("t1", "toolA", "Result A");
-        var term2 = ToolExecutionResultMessage.toolExecutionResultMessage("t2", "toolB", "Result B");
+        var term1 = new ToolExecutionResultMessage("t1", "toolA", "Result A");
+        var term2 = new ToolExecutionResultMessage("t2", "toolB", "Result B");
         var user2 = new UserMessage("Follow-up based on results");
         var ai1 = new AiMessage("AI response");
-        var term3 = ToolExecutionResultMessage.toolExecutionResultMessage("t3", "toolC", "Result C");
+        var term3 = new ToolExecutionResultMessage("t3", "toolC", "Result C");
         var user3 = new UserMessage("Another follow-up");
-        var term4 = ToolExecutionResultMessage.toolExecutionResultMessage("t4", "toolD", "Result D"); // Trailing
+        var term4 = new ToolExecutionResultMessage("t4", "toolD", "Result D"); // Trailing
 
         // Case 1: Single TERM followed by UserMessage
         var messages1 = List.of(user1, term1, user2);

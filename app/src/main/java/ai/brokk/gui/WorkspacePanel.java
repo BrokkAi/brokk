@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -2092,7 +2093,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Calculate cost estimate for only the model currently selected in InstructionsPanel. */
-    private String calculateCostEstimate(int inputTokens, Service service) {
+    private String calculateCostEstimate(int inputTokens, AbstractService service) {
         var instructionsPanel = chrome.getInstructionsPanel();
         Service.ModelConfig config = instructionsPanel.getSelectedConfig();
 
@@ -2253,32 +2254,6 @@ public class WorkspacePanel extends JPanel {
 
             refreshMenuState();
             updateDropSelectedButtonEnabled();
-        });
-    }
-
-    /**
-     * DEPRECATED: Use Chrome.showAnalyzerRebuildStatus() instead.
-     * This remains as an EDT-safe forwarder for backward compatibility.
-     */
-    @Deprecated(forRemoval = false, since = "2025-10")
-    public void showAnalyzerRebuildSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            chrome.showAnalyzerRebuildStatus();
-            // Preserve existing behavior of notifying listeners
-            fireBottomControlsHeightChanged();
-        });
-    }
-
-    /**
-     * DEPRECATED: Use Chrome.hideAnalyzerRebuildStatus() instead.
-     * This remains as an EDT-safe forwarder for backward compatibility.
-     */
-    @Deprecated(forRemoval = false, since = "2025-10")
-    public void hideAnalyzerRebuildSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            chrome.hideAnalyzerRebuildStatus();
-            // Preserve existing behavior of notifying listeners
-            fireBottomControlsHeightChanged();
         });
     }
 

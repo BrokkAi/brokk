@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.AbstractService;
 import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
@@ -1014,9 +1015,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        var models = chrome.getContextManager().getService();
+        var service = chrome.getContextManager().getService();
         var availableModelNames =
-                models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
+                service.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
         var reasoningLevels = Service.ReasoningLevel.values();
 
         quickModelsTableModel =
@@ -1046,16 +1047,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         TableColumn reasoningColumn = quickModelsTable.getColumnModel().getColumn(2);
         var reasoningComboBoxEditor = new JComboBox<>(reasoningLevels);
-        reasoningColumn.setCellEditor(new ReasoningCellEditor(reasoningComboBoxEditor, models, quickModelsTable));
-        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(models));
+        reasoningColumn.setCellEditor(new ReasoningCellEditor(reasoningComboBoxEditor, service, quickModelsTable));
+        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(service));
         reasoningColumn.setPreferredWidth(100);
 
         if (showServiceTiers) {
             TableColumn processingColumn = quickModelsTable.getColumnModel().getColumn(3);
             var processingComboBoxEditor = new JComboBox<>(Service.ProcessingTier.values());
             processingColumn.setCellEditor(
-                    new ProcessingTierCellEditor(processingComboBoxEditor, models, quickModelsTable));
-            processingColumn.setCellRenderer(new ProcessingTierCellRenderer(models));
+                    new ProcessingTierCellEditor(processingComboBoxEditor, service, quickModelsTable));
+            processingColumn.setCellRenderer(new ProcessingTierCellRenderer(service));
             processingColumn.setPreferredWidth(120);
         } else {
             // Remove the Processing Tier column from the view when service tiers are disabled
@@ -3038,10 +3039,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private static class ReasoningCellRenderer extends DefaultTableCellRenderer {
-        private final Service models;
+        private final AbstractService service;
 
-        public ReasoningCellRenderer(Service service) {
-            this.models = service;
+        public ReasoningCellRenderer(AbstractService service) {
+            this.service = service;
         }
 
         @Override
@@ -3051,7 +3052,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            if (modelName != null && !models.supportsReasoningEffort(modelName)) {
+            if (modelName != null && !service.supportsReasoningEffort(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
                 label.setToolTipText("Reasoning effort not supported by " + modelName);
@@ -3080,14 +3081,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private static class ReasoningCellEditor extends DefaultCellEditor {
-        private final Service models;
+        private final AbstractService service;
         private final JTable table;
         private final JComboBox<Service.ReasoningLevel> comboBox;
 
-        public ReasoningCellEditor(JComboBox<Service.ReasoningLevel> comboBox, Service service, JTable table) {
+        public ReasoningCellEditor(JComboBox<Service.ReasoningLevel> comboBox, AbstractService service, JTable table) {
             super(comboBox);
             this.comboBox = comboBox;
-            this.models = service;
+            this.service = service;
             this.table = table;
             setClickCountToStart(1);
         }
@@ -3097,7 +3098,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            boolean supportsReasoning = modelName != null && models.supportsReasoningEffort(modelName);
+            boolean supportsReasoning = modelName != null && service.supportsReasoningEffort(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
             editorComponent.setEnabled(supportsReasoning);
             comboBox.setEnabled(supportsReasoning);
@@ -3131,7 +3132,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && models.supportsReasoningEffort(modelName);
+                return modelName != null && service.supportsReasoningEffort(modelName);
             }
             return super.isCellEditable(anEvent);
         }
@@ -3143,10 +3144,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private static class ProcessingTierCellRenderer extends DefaultTableCellRenderer {
-        private final Service models;
+        private final AbstractService service;
 
-        public ProcessingTierCellRenderer(Service service) {
-            this.models = service;
+        public ProcessingTierCellRenderer(AbstractService service) {
+            this.service = service;
         }
 
         @Override
@@ -3156,7 +3157,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            if (modelName != null && !models.supportsProcessingTier(modelName)) {
+            if (modelName != null && !service.supportsProcessingTier(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
                 label.setToolTipText("Processing tiers not supported by " + modelName);
@@ -3185,14 +3186,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private static class ProcessingTierCellEditor extends DefaultCellEditor {
-        private final Service models;
+        private final AbstractService service;
         private final JTable table;
         private final JComboBox<Service.ProcessingTier> comboBox;
 
-        public ProcessingTierCellEditor(JComboBox<Service.ProcessingTier> comboBox, Service service, JTable table) {
+        public ProcessingTierCellEditor(
+                JComboBox<Service.ProcessingTier> comboBox, AbstractService service, JTable table) {
             super(comboBox);
             this.comboBox = comboBox;
-            this.models = service;
+            this.service = service;
             this.table = table;
             setClickCountToStart(1);
         }
@@ -3202,7 +3204,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            boolean supports = modelName != null && models.supportsProcessingTier(modelName);
+            boolean supports = modelName != null && service.supportsProcessingTier(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
             editorComponent.setEnabled(supports);
             comboBox.setEnabled(supports);
@@ -3236,7 +3238,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && models.supportsProcessingTier(modelName);
+                return modelName != null && service.supportsProcessingTier(modelName);
             }
             return super.isCellEditable(anEvent);
         }

@@ -1,9 +1,9 @@
 package ai.brokk.analyzer.usages;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.Llm;
-import ai.brokk.Service;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;
 import ai.brokk.analyzer.CodeUnit;
@@ -35,7 +35,7 @@ public final class FuzzyUsageFinder {
 
     private final IProject project;
     private final IAnalyzer analyzer;
-    private final @Nullable Service service;
+    private final AbstractService service;
     private final @Nullable Llm llm;
 
     public static FuzzyUsageFinder create(IContextManager ctx) {
@@ -53,7 +53,7 @@ public final class FuzzyUsageFinder {
      * @param service the LLM service.
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Service service, @Nullable Llm llm) {
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
@@ -115,7 +115,7 @@ public final class FuzzyUsageFinder {
         }
 
         Set<UsageHit> finalHits = hits;
-        if (llm != null && service != null && !hits.isEmpty()) {
+        if (llm != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
             var unscoredHits = new HashSet<>(hits);

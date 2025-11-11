@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
@@ -79,11 +80,11 @@ public final class BlitzForge {
     public record FileResult(ProjectFile file, boolean edited, @Nullable String errorMessage, String llmOutput) {}
 
     private final IContextManager cm;
-    private final Service service;
+    private final AbstractService service;
     private final RunConfig config;
     private final Listener listener;
 
-    public BlitzForge(IContextManager cm, Service service, RunConfig config, Listener listener) {
+    public BlitzForge(IContextManager cm, AbstractService service, RunConfig config, Listener listener) {
         this.cm = cm;
         this.service = service;
         this.config = config;
