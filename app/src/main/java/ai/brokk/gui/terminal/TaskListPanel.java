@@ -616,8 +616,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             String plural = deletableCount == 1 ? "task" : "tasks";
             String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
-                    + "Tasks that are running or queued will not be removed.\n"
-                    + "This action cannot be undone.";
+                    + "Tasks that are running or queued will not be removed.";
             int result = chrome.showConfirmDialog(
                     message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
@@ -1978,8 +1977,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         String plural = completedCount == 1 ? "task" : "tasks";
-        String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
-                + "This action cannot be undone.";
+        String message = "This will remove " + completedCount + " completed " + plural + " from this session.";
         int result = chrome.showConfirmDialog(
                 message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
