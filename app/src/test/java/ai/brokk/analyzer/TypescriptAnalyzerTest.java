@@ -757,7 +757,10 @@ public class TypescriptAnalyzerTest {
                 .toList();
 
         // Should find Point interfaces/classes from Hello.ts, Advanced.ts, and NamespaceMerging.ts
-        assertEquals(3, allPointInterfaces.size(), "Should find Point interfaces in Hello.ts, Advanced.ts, and NamespaceMerging.ts");
+        assertEquals(
+                3,
+                allPointInterfaces.size(),
+                "Should find Point interfaces in Hello.ts, Advanced.ts, and NamespaceMerging.ts");
 
         CodeUnit helloPoint = allPointInterfaces.stream()
                 .filter(cu -> cu.source().toString().equals("Hello.ts"))
@@ -1329,7 +1332,6 @@ public class TypescriptAnalyzerTest {
                             || normalizedRole.contains("Standard user access"),
                     "Enum source should include enum and member annotations");
         }
-
     }
 
     @Test
@@ -1397,10 +1399,8 @@ public class TypescriptAnalyzerTest {
         assertTrue(
                 topLevel.contains(defaultClass),
                 "Top-level declarations should contain default exported class at top level");
-        assertTrue(
-                topLevel.contains(namedClass), "Top-level declarations should contain named class at top level");
-        assertTrue(
-                topLevel.contains(namedFunc), "Top-level declarations should contain named function at top level");
+        assertTrue(topLevel.contains(namedClass), "Top-level declarations should contain named class at top level");
+        assertTrue(topLevel.contains(namedFunc), "Top-level declarations should contain named function at top level");
     }
 
     @Test
@@ -1429,7 +1429,9 @@ public class TypescriptAnalyzerTest {
         assertTrue(userSkeleton.contains("id: number"), "Merged User should contain id from first declaration");
         assertTrue(userSkeleton.contains("name: string"), "Merged User should contain name from second declaration");
         assertTrue(userSkeleton.contains("email?: string"), "Merged User should contain optional email");
-        assertTrue(userSkeleton.contains("createdAt: Date"), "Merged User should contain createdAt from third declaration");
+        assertTrue(
+                userSkeleton.contains("createdAt: Date"),
+                "Merged User should contain createdAt from third declaration");
         assertTrue(
                 userSkeleton.contains("updateProfile"),
                 "Merged User should contain updateProfile method from third declaration");
@@ -1456,20 +1458,25 @@ public class TypescriptAnalyzerTest {
 
         // Status namespace members should be captured
         boolean hasIsActiveMethod = declarations.stream()
-                .anyMatch(cu -> cu.fqName().contains("Status") && cu.identifier().equals("isActive"));
+                .anyMatch(
+                        cu -> cu.fqName().contains("Status") && cu.identifier().equals("isActive"));
         assertTrue(hasIsActiveMethod, "Status.isActive method should be found in namespace");
 
         // Test 4: Class + namespace merging - Config
         CodeUnit configClass = declarations.stream()
-                .filter(cu -> cu.shortName().equals("Config") && cu.isClass() && !cu.fqName().contains("."))
+                .filter(cu -> cu.shortName().equals("Config")
+                        && cu.isClass()
+                        && !cu.fqName().contains("."))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Config class should be found"));
 
         // Config namespace members should be captured
         boolean hasDefaultConfig = declarations.stream()
-                .anyMatch(cu -> cu.fqName().contains("Config") && cu.identifier().equals("DEFAULT_CONFIG"));
+                .anyMatch(
+                        cu -> cu.fqName().contains("Config") && cu.identifier().equals("DEFAULT_CONFIG"));
         boolean hasCreateMethod = declarations.stream()
-                .anyMatch(cu -> cu.fqName().contains("Config") && cu.identifier().equals("create"));
+                .anyMatch(
+                        cu -> cu.fqName().contains("Config") && cu.identifier().equals("create"));
         assertTrue(hasDefaultConfig, "Config.DEFAULT_CONFIG should be found in namespace");
         assertTrue(hasCreateMethod, "Config.create method should be found in namespace");
 
@@ -1494,14 +1501,14 @@ public class TypescriptAnalyzerTest {
         assertTrue(calculatorSkeleton.contains("divide"), "Calculator should contain divide method");
 
         // Check method signatures are properly merged (overloads)
-        List<String> addSignatures = analyzer.signaturesOf(
-                declarations.stream()
-                        .filter(cu -> cu.fqName().equals("Calculator.add"))
-                        .findFirst()
-                        .orElseThrow());
+        List<String> addSignatures = analyzer.signaturesOf(declarations.stream()
+                .filter(cu -> cu.fqName().equals("Calculator.add"))
+                .findFirst()
+                .orElseThrow());
         assertTrue(
                 addSignatures.size() >= 2,
-                "Calculator.add should have multiple signatures from merged declarations. Found: " + addSignatures.size());
+                "Calculator.add should have multiple signatures from merged declarations. Found: "
+                        + addSignatures.size());
 
         // Test 6: Exported merged interface - ApiResponse
         List<CodeUnit> apiResponseInterfaces = declarations.stream()
@@ -1509,9 +1516,7 @@ public class TypescriptAnalyzerTest {
                 .collect(Collectors.toList());
 
         assertEquals(
-                1,
-                apiResponseInterfaces.size(),
-                "Should have exactly one ApiResponse interface CodeUnit (merged)");
+                1, apiResponseInterfaces.size(), "Should have exactly one ApiResponse interface CodeUnit (merged)");
 
         CodeUnit apiResponseInterface = apiResponseInterfaces.get(0);
         String apiResponseSkeleton = skeletons.get(apiResponseInterface);
@@ -1544,55 +1549,54 @@ public class TypescriptAnalyzerTest {
     void testNamespaceClassMerging() {
         // Test that namespace + class/enum merging is correctly captured
         // Both the class/enum and the namespace members should be present with correct FQNames
-        
+
         ProjectFile mergingFile = new ProjectFile(project.getRoot(), "NamespaceMerging.ts");
         Map<CodeUnit, String> skeletons = analyzer.getSkeletons(mergingFile);
         Set<CodeUnit> declarations = analyzer.getDeclarations(mergingFile);
-        
+
         assertFalse(skeletons.isEmpty(), "Skeletons map for NamespaceMerging.ts should not be empty");
         assertFalse(declarations.isEmpty(), "Declarations set for NamespaceMerging.ts should not be empty");
-        
+
         // Test 1: Class + namespace merging - Color
         // Should have Color class
         CodeUnit colorClass = declarations.stream()
                 .filter(cu -> cu.shortName().equals("Color") && cu.isClass())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Color class should be found"));
-        
+
         assertTrue(skeletons.containsKey(colorClass), "Color class should have skeleton");
         String colorSkeleton = skeletons.get(colorClass);
         assertTrue(colorSkeleton.contains("class Color"), "Color skeleton should contain class definition");
         assertTrue(colorSkeleton.contains("constructor"), "Color class should have constructor");
         assertTrue(colorSkeleton.contains("toHex"), "Color class should have toHex method");
         assertTrue(colorSkeleton.contains("static blend"), "Color class should have static blend method");
-        
+
         // Should have Color namespace members
         // Note: namespace const declarations use _module_ prefix like module-level exports
         CodeUnit colorWhite = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Color._module_.white") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "Color.white field should be found. Available: " + 
-                        declarations.stream()
+                .orElseThrow(() -> new AssertionError("Color.white field should be found. Available: "
+                        + declarations.stream()
                                 .filter(cu -> cu.fqName().startsWith("Color."))
                                 .map(CodeUnit::fqName)
                                 .collect(Collectors.joining(", "))));
-        
+
         CodeUnit colorFromHex = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Color.fromHex") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Color.fromHex function should be found"));
-        
+
         CodeUnit colorRandom = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Color.random") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Color.random function should be found"));
-        
+
         // Verify no FQName conflicts between class methods and namespace functions
         List<CodeUnit> colorMembers = declarations.stream()
                 .filter(cu -> cu.fqName().startsWith("Color."))
                 .collect(Collectors.toList());
-        
+
         // Should have both static class method (blend) and namespace functions (fromHex, random)
         assertTrue(
                 colorMembers.stream().anyMatch(cu -> cu.fqName().contains("blend")),
@@ -1603,111 +1607,111 @@ public class TypescriptAnalyzerTest {
         assertTrue(
                 colorMembers.stream().anyMatch(cu -> cu.fqName().equals("Color.random")),
                 "Should have Color.random from namespace");
-        
+
         // Test 2: Enum + namespace merging - Direction
         CodeUnit directionEnum = declarations.stream()
                 .filter(cu -> cu.shortName().equals("Direction") && cu.isClass())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Direction enum should be found"));
-        
+
         assertTrue(skeletons.containsKey(directionEnum), "Direction enum should have skeleton");
         String directionSkeleton = skeletons.get(directionEnum);
         assertTrue(directionSkeleton.contains("enum Direction"), "Direction skeleton should contain enum definition");
-        
+
         // Should have Direction namespace members
         CodeUnit directionOpposite = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Direction.opposite") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Direction.opposite function should be found"));
-        
+
         CodeUnit directionIsVertical = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Direction.isVertical") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Direction.isVertical function should be found"));
-        
+
         // Note: namespace const declarations use _module_ prefix
         CodeUnit directionAll = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Direction._module_.all") && cu.isField())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Direction.all field should be found"));
-        
+
         // Test 3: Exported class + namespace merging - Point
         CodeUnit pointClass = declarations.stream()
                 .filter(cu -> cu.shortName().equals("Point") && cu.isClass())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Point class should be found"));
-        
+
         String pointSkeleton = skeletons.get(pointClass);
         assertTrue(pointSkeleton.contains("export class Point"), "Point skeleton should be exported");
-        
+
         // Should have Point namespace members
         // Note: namespace const declarations use _module_ prefix
         CodeUnit pointOrigin = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Point._module_.origin") && cu.isField())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Point.origin field should be found"));
-        
+
         CodeUnit pointFromPolar = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Point.fromPolar") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Point.fromPolar function should be found"));
-        
+
         // Point.Config interface should be nested within Point namespace
         CodeUnit pointConfig = declarations.stream()
                 .filter(cu -> cu.fqName().equals("Point.Config") && cu.isClass())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Point.Config interface should be found"));
-        
+
         // Test 4: Exported enum + namespace merging - HttpStatus
         CodeUnit httpStatusEnum = declarations.stream()
                 .filter(cu -> cu.shortName().equals("HttpStatus") && cu.isClass())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("HttpStatus enum should be found"));
-        
+
         String httpStatusSkeleton = skeletons.get(httpStatusEnum);
         assertTrue(httpStatusSkeleton.contains("export enum HttpStatus"), "HttpStatus skeleton should be exported");
-        
+
         // Should have HttpStatus namespace members
         CodeUnit httpStatusIsSuccess = declarations.stream()
                 .filter(cu -> cu.fqName().equals("HttpStatus.isSuccess") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("HttpStatus.isSuccess function should be found"));
-        
+
         CodeUnit httpStatusIsError = declarations.stream()
                 .filter(cu -> cu.fqName().equals("HttpStatus.isError") && cu.isFunction())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("HttpStatus.isError function should be found"));
-        
+
         // Note: namespace const declarations use _module_ prefix
         CodeUnit httpStatusMessages = declarations.stream()
                 .filter(cu -> cu.fqName().equals("HttpStatus._module_.messages") && cu.isField())
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("HttpStatus.messages field should be found"));
-        
+
         // Verify no duplicate captures
         Map<String, Long> fqNameCounts = declarations.stream()
                 .map(CodeUnit::fqName)
                 .collect(Collectors.groupingBy(fqn -> fqn, Collectors.counting()));
-        
+
         List<String> duplicates = fqNameCounts.entrySet().stream()
                 .filter(e -> e.getValue() > 1)
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
-        
+
         assertTrue(
                 duplicates.isEmpty(),
                 "Should have no duplicate FQNames. Found duplicates: " + String.join(", ", duplicates));
-        
+
         // Verify all namespace members are properly scoped
         List<String> colorNamespaceMembers = declarations.stream()
                 .filter(cu -> cu.fqName().startsWith("Color.") && !cu.fqName().contains("$"))
                 .map(CodeUnit::fqName)
                 .collect(Collectors.toList());
-        
+
         assertTrue(
                 colorNamespaceMembers.size() >= 5,
-                "Should have at least 5 Color members (class methods + namespace members). Found: " + 
-                colorNamespaceMembers.size() + " - " + String.join(", ", colorNamespaceMembers));
+                "Should have at least 5 Color members (class methods + namespace members). Found: "
+                        + colorNamespaceMembers.size() + " - " + String.join(", ", colorNamespaceMembers));
     }
 
     @Test
@@ -1772,8 +1776,7 @@ public class TypescriptAnalyzerTest {
         CodeUnit partialType = CodeUnit.field(advancedTypesFile, "", "_module_.Partial");
         assertTrue(skeletons.containsKey(partialType), "Partial mapped type should be captured");
         String partialSkeleton = skeletons.get(partialType);
-        assertTrue(
-                partialSkeleton.contains("[P in keyof T]?"), "Partial mapped type should contain optional modifier");
+        assertTrue(partialSkeleton.contains("[P in keyof T]?"), "Partial mapped type should contain optional modifier");
 
         // Mapped type with key remapping
         CodeUnit gettersType = CodeUnit.field(advancedTypesFile, "", "_module_.Getters");
@@ -1811,9 +1814,7 @@ public class TypescriptAnalyzerTest {
         CodeUnit flattenType = CodeUnit.field(advancedTypesFile, "", "_module_.Flatten");
         assertTrue(skeletons.containsKey(flattenType), "Flatten nested conditional type should be captured");
         String flattenSkeleton = skeletons.get(flattenType);
-        assertTrue(
-                flattenSkeleton.contains("Array<infer U>"),
-                "Flatten should contain nested conditional with infer");
+        assertTrue(flattenSkeleton.contains("Array<infer U>"), "Flatten should contain nested conditional with infer");
 
         // Multi-branch conditional type
         CodeUnit typeNameType = CodeUnit.field(advancedTypesFile, "", "_module_.TypeName");
@@ -1843,9 +1844,7 @@ public class TypescriptAnalyzerTest {
 
         // Intersection with primitives (never type)
         CodeUnit stringAndNumberType = CodeUnit.field(advancedTypesFile, "", "_module_.StringAndNumber");
-        assertTrue(
-                skeletons.containsKey(stringAndNumberType),
-                "StringAndNumber intersection type should be captured");
+        assertTrue(skeletons.containsKey(stringAndNumberType), "StringAndNumber intersection type should be captured");
         assertEquals(
                 normalize.apply("export type StringAndNumber = string & number"),
                 normalize.apply(skeletons.get(stringAndNumberType)));
@@ -1874,8 +1873,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
         String eventNameSkeleton = skeletons.get(eventNameType);
         assertTrue(
-                eventNameSkeleton.contains("`${T}Changed`"),
-                "EventName should contain template literal type syntax");
+                eventNameSkeleton.contains("`${T}Changed`"), "EventName should contain template literal type syntax");
 
         CodeUnit propEventNameType = CodeUnit.field(advancedTypesFile, "", "_module_.PropEventName");
         assertTrue(skeletons.containsKey(propEventNameType), "PropEventName template literal type should be captured");
@@ -1901,13 +1899,11 @@ public class TypescriptAnalyzerTest {
         assertTrue(skeletons.containsKey(tupleToUnionType), "TupleToUnion type should be captured");
         String tupleToUnionSkeleton = skeletons.get(tupleToUnionType);
         assertTrue(
-                tupleToUnionSkeleton.contains("T[number]"),
-                "TupleToUnion should contain indexed access type syntax");
+                tupleToUnionSkeleton.contains("T[number]"), "TupleToUnion should contain indexed access type syntax");
 
         // Union to intersection (advanced type manipulation)
         CodeUnit unionToIntersectionType = CodeUnit.field(advancedTypesFile, "", "_module_.UnionToIntersection");
-        assertTrue(
-                skeletons.containsKey(unionToIntersectionType), "UnionToIntersection type should be captured");
+        assertTrue(skeletons.containsKey(unionToIntersectionType), "UnionToIntersection type should be captured");
         String unionToIntersectionSkeleton = skeletons.get(unionToIntersectionType);
         assertTrue(
                 unionToIntersectionSkeleton.contains("infer I"),
@@ -1926,15 +1922,12 @@ public class TypescriptAnalyzerTest {
         CodeUnit nonNullableType = CodeUnit.field(advancedTypesFile, "", "_module_.NonNullable");
         assertTrue(skeletons.containsKey(nonNullableType), "NonNullable utility type should be captured");
         String nonNullableSkeleton = skeletons.get(nonNullableType);
-        assertTrue(
-                nonNullableSkeleton.contains("null | undefined"),
-                "NonNullable should filter null and undefined");
+        assertTrue(nonNullableSkeleton.contains("null | undefined"), "NonNullable should filter null and undefined");
 
         CodeUnit parametersType = CodeUnit.field(advancedTypesFile, "", "_module_.Parameters");
         assertTrue(skeletons.containsKey(parametersType), "Parameters utility type should be captured");
         String parametersSkeleton = skeletons.get(parametersType);
-        assertTrue(
-                parametersSkeleton.contains("infer P"), "Parameters should extract function parameter types");
+        assertTrue(parametersSkeleton.contains("infer P"), "Parameters should extract function parameter types");
 
         CodeUnit constructorParametersType = CodeUnit.field(advancedTypesFile, "", "_module_.ConstructorParameters");
         assertTrue(
@@ -1951,15 +1944,11 @@ public class TypescriptAnalyzerTest {
                 .filter(cu -> cu.isField() && cu.fqName().startsWith("_module_."))
                 .collect(Collectors.toList());
 
-        assertTrue(
-                typeAliases.size() >= 30,
-                "Should capture at least 30 type aliases. Found: " + typeAliases.size());
+        assertTrue(typeAliases.size() >= 30, "Should capture at least 30 type aliases. Found: " + typeAliases.size());
 
         // Verify all captured types have skeletons
         for (CodeUnit typeAlias : typeAliases) {
-            assertTrue(
-                    skeletons.containsKey(typeAlias),
-                    "Type alias " + typeAlias.fqName() + " should have skeleton");
+            assertTrue(skeletons.containsKey(typeAlias), "Type alias " + typeAlias.fqName() + " should have skeleton");
             String skeleton = skeletons.get(typeAlias);
             assertTrue(
                     skeleton.contains("type "),
@@ -1969,8 +1958,7 @@ public class TypescriptAnalyzerTest {
         // Verify getSkeleton works for individual type aliases
         Optional<String> coordSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Coord");
         assertTrue(coordSkeleton.isPresent(), "Should retrieve Coord type alias via getSkeleton");
-        assertEquals(
-                normalize.apply("export type Coord = [number, number]"), normalize.apply(coordSkeleton.get()));
+        assertEquals(normalize.apply("export type Coord = [number, number]"), normalize.apply(coordSkeleton.get()));
 
         Optional<String> extractSkeleton = AnalyzerUtil.getSkeleton(analyzer, "_module_.Extract");
         assertTrue(extractSkeleton.isPresent(), "Should retrieve Extract type alias via getSkeleton");
@@ -2000,9 +1988,7 @@ public class TypescriptAnalyzerTest {
         CodeUnit eventNameType = CodeUnit.field(templateTypesFile, "", "_module_.EventName");
         assertTrue(skeletons.containsKey(eventNameType), "EventName template literal type should be captured");
         String eventNameSkeleton = skeletons.get(eventNameType);
-        assertTrue(
-                eventNameSkeleton.contains("`${T}Changed`"),
-                "EventName should contain template literal syntax");
+        assertTrue(eventNameSkeleton.contains("`${T}Changed`"), "EventName should contain template literal syntax");
 
         // Template with Capitalize
         CodeUnit propEventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.PropEventHandler");
@@ -2220,8 +2206,7 @@ public class TypescriptAnalyzerTest {
         // Template literal combined with mapped type
         CodeUnit eventHandlerType = CodeUnit.field(templateTypesFile, "", "_module_.EventHandler");
         assertTrue(
-                skeletons.containsKey(eventHandlerType),
-                "EventHandler template with mapped type should be captured");
+                skeletons.containsKey(eventHandlerType), "EventHandler template with mapped type should be captured");
         String eventHandlerSkeleton = skeletons.get(eventHandlerType);
         assertTrue(
                 eventHandlerSkeleton.contains("on${Capitalize<T>}"),
@@ -2229,8 +2214,7 @@ public class TypescriptAnalyzerTest {
 
         // Template literal with Record
         CodeUnit eventMapType = CodeUnit.field(templateTypesFile, "", "_module_.EventMap");
-        assertTrue(
-                skeletons.containsKey(eventMapType), "EventMap template with Record type should be captured");
+        assertTrue(skeletons.containsKey(eventMapType), "EventMap template with Record type should be captured");
         String eventMapSkeleton = skeletons.get(eventMapType);
         assertTrue(
                 eventMapSkeleton.contains("Record<`${T}Event`, () => void>"),
@@ -2274,9 +2258,7 @@ public class TypescriptAnalyzerTest {
 
         // Mixed utilities with Record
         CodeUnit complexMixedUtilityType = CodeUnit.field(templateTypesFile, "", "_module_.ComplexMixedUtility");
-        assertTrue(
-                skeletons.containsKey(complexMixedUtilityType),
-                "ComplexMixedUtility type should be captured");
+        assertTrue(skeletons.containsKey(complexMixedUtilityType), "ComplexMixedUtility type should be captured");
         String complexMixedSkeleton = skeletons.get(complexMixedUtilityType);
         assertTrue(
                 complexMixedSkeleton.contains("Partial<Record<string, Required<Pick<User, 'name'>>>>"),
@@ -2336,9 +2318,7 @@ public class TypescriptAnalyzerTest {
 
         // Verify all captured type aliases have skeletons
         for (CodeUnit typeAlias : typeAliases) {
-            assertTrue(
-                    skeletons.containsKey(typeAlias),
-                    "Type alias " + typeAlias.fqName() + " should have skeleton");
+            assertTrue(skeletons.containsKey(typeAlias), "Type alias " + typeAlias.fqName() + " should have skeleton");
             String skeleton = skeletons.get(typeAlias);
             assertTrue(
                     skeleton.contains("type "),
@@ -2384,9 +2364,7 @@ public class TypescriptAnalyzerTest {
 
         // Basic satisfies usage - verify const declaration is captured
         CodeUnit configConst = CodeUnit.field(modernFeaturesFile, "", "_module_.config");
-        assertTrue(
-                skeletons.containsKey(configConst),
-                "config const should be captured as a CodeUnit");
+        assertTrue(skeletons.containsKey(configConst), "config const should be captured as a CodeUnit");
 
         // Satisfies with type narrowing - verify const declaration is captured
         CodeUnit strictConfigConst = CodeUnit.field(modernFeaturesFile, "", "_module_.strictConfig");
@@ -2461,9 +2439,7 @@ public class TypescriptAnalyzerTest {
 
         // Assertion signature with message
         CodeUnit assertWithMessageFunc = CodeUnit.fn(modernFeaturesFile, "", "assertWithMessage");
-        assertTrue(
-                skeletons.containsKey(assertWithMessageFunc),
-                "assertWithMessage function should be captured");
+        assertTrue(skeletons.containsKey(assertWithMessageFunc), "assertWithMessage function should be captured");
         String assertWithMessageSkeleton = skeletons.get(assertWithMessageFunc);
         assertTrue(
                 assertWithMessageSkeleton.contains(": asserts condition"),
@@ -2471,9 +2447,7 @@ public class TypescriptAnalyzerTest {
 
         // Assertion signature with type predicate
         CodeUnit assertIsStringFunc = CodeUnit.fn(modernFeaturesFile, "", "assertIsString");
-        assertTrue(
-                skeletons.containsKey(assertIsStringFunc),
-                "assertIsString function should be captured");
+        assertTrue(skeletons.containsKey(assertIsStringFunc), "assertIsString function should be captured");
         String assertIsStringSkeleton = skeletons.get(assertIsStringFunc);
         assertTrue(
                 assertIsStringSkeleton.contains(": asserts value is string"),
@@ -2491,9 +2465,7 @@ public class TypescriptAnalyzerTest {
 
         // Assertion signature for non-null
         CodeUnit assertNonNullFunc = CodeUnit.fn(modernFeaturesFile, "", "assertNonNull");
-        assertTrue(
-                skeletons.containsKey(assertNonNullFunc),
-                "assertNonNull assertion function should be captured");
+        assertTrue(skeletons.containsKey(assertNonNullFunc), "assertNonNull assertion function should be captured");
         String assertNonNullSkeleton = skeletons.get(assertNonNullFunc);
         assertTrue(
                 assertNonNullSkeleton.contains(": asserts value is T"),
@@ -2507,8 +2479,7 @@ public class TypescriptAnalyzerTest {
                 validatorSkeleton.contains(": asserts value is number"),
                 "Validator.assertPositive should show assertion signature in class");
         assertTrue(
-                validatorSkeleton.contains("static assertNotEmpty"),
-                "Validator should have static assertion method");
+                validatorSkeleton.contains("static assertNotEmpty"), "Validator should have static assertion method");
 
         // ===== Test This Parameters =====
 
@@ -2522,16 +2493,10 @@ public class TypescriptAnalyzerTest {
 
         // This parameter with return type
         CodeUnit getUserAgeFunc = CodeUnit.fn(modernFeaturesFile, "", "getUserAge");
-        assertTrue(
-                skeletons.containsKey(getUserAgeFunc),
-                "getUserAge function with this parameter should be captured");
+        assertTrue(skeletons.containsKey(getUserAgeFunc), "getUserAge function with this parameter should be captured");
         String getUserAgeSkeleton = skeletons.get(getUserAgeFunc);
-        assertTrue(
-                getUserAgeSkeleton.contains("this: User"),
-                "getUserAge should show this parameter");
-        assertTrue(
-                getUserAgeSkeleton.contains(": number"),
-                "getUserAge should show return type");
+        assertTrue(getUserAgeSkeleton.contains("this: User"), "getUserAge should show this parameter");
+        assertTrue(getUserAgeSkeleton.contains(": number"), "getUserAge should show return type");
 
         // This parameter with generics
         CodeUnit getValueFunc = CodeUnit.fn(modernFeaturesFile, "", "getValue");
@@ -2539,29 +2504,19 @@ public class TypescriptAnalyzerTest {
                 skeletons.containsKey(getValueFunc),
                 "getValue generic function with this parameter should be captured");
         String getValueSkeleton = skeletons.get(getValueFunc);
-        assertTrue(
-                getValueSkeleton.contains("this: { value: T }"),
-                "getValue should show generic this parameter");
+        assertTrue(getValueSkeleton.contains("this: { value: T }"), "getValue should show generic this parameter");
 
         // This parameter with void return
         CodeUnit logUserFunc = CodeUnit.fn(modernFeaturesFile, "", "logUser");
-        assertTrue(
-                skeletons.containsKey(logUserFunc),
-                "logUser function with this parameter should be captured");
+        assertTrue(skeletons.containsKey(logUserFunc), "logUser function with this parameter should be captured");
         String logUserSkeleton = skeletons.get(logUserFunc);
-        assertTrue(
-                logUserSkeleton.contains("this: User"),
-                "logUser should show this parameter");
+        assertTrue(logUserSkeleton.contains("this: User"), "logUser should show this parameter");
 
         // Multiple parameters with this
         CodeUnit updateUserFunc = CodeUnit.fn(modernFeaturesFile, "", "updateUser");
-        assertTrue(
-                skeletons.containsKey(updateUserFunc),
-                "updateUser function with this parameter should be captured");
+        assertTrue(skeletons.containsKey(updateUserFunc), "updateUser function with this parameter should be captured");
         String updateUserSkeleton = skeletons.get(updateUserFunc);
-        assertTrue(
-                updateUserSkeleton.contains("this: User"),
-                "updateUser should show this parameter");
+        assertTrue(updateUserSkeleton.contains("this: User"), "updateUser should show this parameter");
         assertTrue(
                 updateUserSkeleton.contains("name: string") && updateUserSkeleton.contains("age: number"),
                 "updateUser should show additional parameters after this");
@@ -2581,7 +2536,8 @@ public class TypescriptAnalyzerTest {
 
         // Basic const type parameter
         CodeUnit identityFunc = CodeUnit.fn(modernFeaturesFile, "", "identity");
-        assertTrue(skeletons.containsKey(identityFunc), "identity function with const type parameter should be captured");
+        assertTrue(
+                skeletons.containsKey(identityFunc), "identity function with const type parameter should be captured");
         String identitySkeleton = skeletons.get(identityFunc);
         assertTrue(
                 identitySkeleton.contains("<const T>"),
@@ -2589,9 +2545,7 @@ public class TypescriptAnalyzerTest {
 
         // Const type parameter with array
         CodeUnit tupleFunc = CodeUnit.fn(modernFeaturesFile, "", "tuple");
-        assertTrue(
-                skeletons.containsKey(tupleFunc),
-                "tuple function with const type parameter should be captured");
+        assertTrue(skeletons.containsKey(tupleFunc), "tuple function with const type parameter should be captured");
         String tupleSkeleton = skeletons.get(tupleFunc);
         assertTrue(
                 tupleSkeleton.contains("<const T extends readonly any[]>"),
@@ -2599,19 +2553,13 @@ public class TypescriptAnalyzerTest {
 
         // Const type parameter preserving literal types
         CodeUnit asConstFunc = CodeUnit.fn(modernFeaturesFile, "", "asConst");
-        assertTrue(
-                skeletons.containsKey(asConstFunc),
-                "asConst function with const type parameter should be captured");
+        assertTrue(skeletons.containsKey(asConstFunc), "asConst function with const type parameter should be captured");
         String asConstSkeleton = skeletons.get(asConstFunc);
-        assertTrue(
-                asConstSkeleton.contains("<const T>"),
-                "asConst should show const type parameter");
+        assertTrue(asConstSkeleton.contains("<const T>"), "asConst should show const type parameter");
 
         // Const type parameter with object
         CodeUnit freezeFunc = CodeUnit.fn(modernFeaturesFile, "", "freeze");
-        assertTrue(
-                skeletons.containsKey(freezeFunc),
-                "freeze function with const type parameter should be captured");
+        assertTrue(skeletons.containsKey(freezeFunc), "freeze function with const type parameter should be captured");
         String freezeSkeleton = skeletons.get(freezeFunc);
         assertTrue(
                 freezeSkeleton.contains("<const T extends Record<string, any>>"),
@@ -2623,17 +2571,14 @@ public class TypescriptAnalyzerTest {
                 skeletons.containsKey(pairFunc),
                 "pair function with multiple const type parameters should be captured");
         String pairSkeleton = skeletons.get(pairFunc);
-        assertTrue(
-                pairSkeleton.contains("<const T, const U>"),
-                "pair should show multiple const type parameters");
+        assertTrue(pairSkeleton.contains("<const T, const U>"), "pair should show multiple const type parameters");
 
         // Class with const type parameter
         CodeUnit containerClass = CodeUnit.cls(modernFeaturesFile, "", "Container");
-        assertTrue(skeletons.containsKey(containerClass), "Container class with const type parameter should be captured");
-        String containerSkeleton = skeletons.get(containerClass);
         assertTrue(
-                containerSkeleton.contains("<const T>"),
-                "Container class should show const type parameter");
+                skeletons.containsKey(containerClass), "Container class with const type parameter should be captured");
+        String containerSkeleton = skeletons.get(containerClass);
+        assertTrue(containerSkeleton.contains("<const T>"), "Container class should show const type parameter");
 
         // Function with const type parameter and constraint
         CodeUnit createRecordFunc = CodeUnit.fn(modernFeaturesFile, "", "createRecord");
@@ -2656,9 +2601,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(
                 isLiteralArraySkeleton.contains("<const T extends readonly any[]>"),
                 "isLiteralArray should show const type parameter");
-        assertTrue(
-                isLiteralArraySkeleton.contains(": value is T"),
-                "isLiteralArray should show type predicate");
+        assertTrue(isLiteralArraySkeleton.contains(": value is T"), "isLiteralArray should show type predicate");
 
         // Assertion with const type parameter
         CodeUnit assertLiteralFunc = CodeUnit.fn(modernFeaturesFile, "", "assertLiteral");
@@ -2666,31 +2609,21 @@ public class TypescriptAnalyzerTest {
                 skeletons.containsKey(assertLiteralFunc),
                 "assertLiteral combining const and assertion should be captured");
         String assertLiteralSkeleton = skeletons.get(assertLiteralFunc);
-        assertTrue(
-                assertLiteralSkeleton.contains("<const T>"),
-                "assertLiteral should show const type parameter");
+        assertTrue(assertLiteralSkeleton.contains("<const T>"), "assertLiteral should show const type parameter");
         assertTrue(
                 assertLiteralSkeleton.contains(": asserts value is T"),
                 "assertLiteral should show assertion signature");
 
         // This parameter with const type parameter
         CodeUnit bindMethodFunc = CodeUnit.fn(modernFeaturesFile, "", "bindMethod");
-        assertTrue(
-                skeletons.containsKey(bindMethodFunc),
-                "bindMethod combining this and const should be captured");
+        assertTrue(skeletons.containsKey(bindMethodFunc), "bindMethod combining this and const should be captured");
         String bindMethodSkeleton = skeletons.get(bindMethodFunc);
-        assertTrue(
-                bindMethodSkeleton.contains("this: any"),
-                "bindMethod should show this parameter");
-        assertTrue(
-                bindMethodSkeleton.contains("<const T extends"),
-                "bindMethod should show const type parameter");
+        assertTrue(bindMethodSkeleton.contains("this: any"), "bindMethod should show this parameter");
+        assertTrue(bindMethodSkeleton.contains("<const T extends"), "bindMethod should show const type parameter");
 
         // Const with type predicate - verify const declaration is captured
         CodeUnit validatorConst = CodeUnit.field(modernFeaturesFile, "", "_module_.validator");
-        assertTrue(
-                skeletons.containsKey(validatorConst),
-                "validator const should be captured as a CodeUnit");
+        assertTrue(skeletons.containsKey(validatorConst), "validator const should be captured as a CodeUnit");
 
         // Complex combination: const type parameter + type predicate + this
         CodeUnit typeSafeBuilderClass = CodeUnit.cls(modernFeaturesFile, "", "TypeSafeBuilder");
@@ -2721,7 +2654,8 @@ public class TypescriptAnalyzerTest {
 
         assertTrue(
                 functionsWithTypePredicates.size() >= 8,
-                "Should capture at least 8 functions with type predicates. Found: " + functionsWithTypePredicates.size());
+                "Should capture at least 8 functions with type predicates. Found: "
+                        + functionsWithTypePredicates.size());
 
         List<CodeUnit> functionsWithAssertions = declarations.stream()
                 .filter(cu -> cu.isFunction())
@@ -2733,7 +2667,8 @@ public class TypescriptAnalyzerTest {
 
         assertTrue(
                 functionsWithAssertions.size() >= 5,
-                "Should capture at least 5 functions with assertion signatures. Found: " + functionsWithAssertions.size());
+                "Should capture at least 5 functions with assertion signatures. Found: "
+                        + functionsWithAssertions.size());
 
         List<CodeUnit> functionsWithThisParam = declarations.stream()
                 .filter(cu -> cu.isFunction())
@@ -2776,16 +2711,13 @@ public class TypescriptAnalyzerTest {
 
         Optional<String> greetSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "greet");
         assertTrue(greetSkeletonViaGet.isPresent(), "Should retrieve greet via getSkeleton");
-        assertTrue(
-                greetSkeletonViaGet.get().contains("this: User"),
-                "greet skeleton should contain this parameter");
+        assertTrue(greetSkeletonViaGet.get().contains("this: User"), "greet skeleton should contain this parameter");
 
         Optional<String> identitySkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "identity");
         assertTrue(identitySkeletonViaGet.isPresent(), "Should retrieve identity via getSkeleton");
         assertTrue(
                 identitySkeletonViaGet.get().contains("<const T>"),
                 "identity skeleton should contain const type parameter");
-
     }
 
     @Test
@@ -2810,24 +2742,20 @@ public class TypescriptAnalyzerTest {
         CodeUnit namespaceA = declarations.stream()
                 .filter(cu -> cu.shortName().equals("A") && cu.isClass())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "Namespace A should be found. Available declarations: "
-                                + declarations.stream()
-                                        .map(CodeUnit::fqName)
-                                        .collect(Collectors.joining(", "))));
+                .orElseThrow(() -> new AssertionError("Namespace A should be found. Available declarations: "
+                        + declarations.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
 
         assertTrue(skeletons.containsKey(namespaceA), "Namespace A should have skeleton");
         String namespaceSkeleton = skeletons.get(namespaceA);
         assertTrue(
-                namespaceSkeleton.contains("namespace A"),
-                "Namespace A skeleton should contain namespace definition");
+                namespaceSkeleton.contains("namespace A"), "Namespace A skeleton should contain namespace definition");
 
         // Verify the module-level instance of the deeply nested class is captured
         CodeUnit deepInstance = declarations.stream()
                 .filter(cu -> cu.fqName().equals("_module_.deepInstance") && cu.isField())
                 .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "_module_.deepInstance should be found as it's a module-level const"));
+                .orElseThrow(
+                        () -> new AssertionError("_module_.deepInstance should be found as it's a module-level const"));
 
         // The deeply nested structures (5 levels deep) may not be fully traversable by the analyzer
         // This is an edge case that reveals limitations with extreme nesting depth
@@ -2846,7 +2774,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(
                 statusSkeleton.contains("enum Status"),
                 "Status skeleton should contain enum definition. Actual skeleton: " + statusSkeleton);
-        
+
         // Verify enum members are present in the skeleton
         assertTrue(
                 statusSkeleton.contains("Active"),
@@ -2971,9 +2899,7 @@ public class TypescriptAnalyzerTest {
                 .orElseThrow(() -> new AssertionError("EmptyEnum should be found"));
 
         String emptySkeleton = skeletons.get(emptyEnum);
-        assertTrue(
-                emptySkeleton.contains("enum EmptyEnum"),
-                "EmptyEnum should have enum declaration");
+        assertTrue(emptySkeleton.contains("enum EmptyEnum"), "EmptyEnum should have enum declaration");
 
         // SingleMember enum
         CodeUnit singleMemberEnum = declarations.stream()
@@ -2989,7 +2915,7 @@ public class TypescriptAnalyzerTest {
         // ===== Test 7: Verify Namespace Nesting Doesn't Create Duplicate Top-level =====
         // The namespace A should be a top-level declaration, but A.B, A.B.C, etc. should not
         List<CodeUnit> topLevel = analyzer.getTopLevelDeclarations(edgeCasesFile);
-        
+
         boolean hasTopLevelA = topLevel.stream()
                 .anyMatch(cu -> cu.shortName().equals("A") && cu.packageName().isEmpty());
         assertTrue(hasTopLevelA, "Namespace A should be a top-level declaration");
@@ -3005,36 +2931,160 @@ public class TypescriptAnalyzerTest {
                 .collect(Collectors.toList());
 
         assertEquals(
-                4,
-                statusMembers.size(),
-                "Status enum should have 4 members (Active, Inactive, Pending, Archived)");
+                4, statusMembers.size(), "Status enum should have 4 members (Active, Inactive, Pending, Archived)");
 
         List<CodeUnit> flagsMembers = declarations.stream()
                 .filter(cu -> cu.fqName().startsWith("Flags."))
                 .collect(Collectors.toList());
 
         assertEquals(
-                6,
-                flagsMembers.size(),
-                "Flags enum should have 6 members (None, Read, Write, Execute, Delete, All)");
+                6, flagsMembers.size(), "Flags enum should have 6 members (None, Read, Write, Execute, Delete, All)");
 
         // ===== Test 9: Verify getSkeleton Works for Nested Items =====
         Optional<String> deeplyClassSkeleton = AnalyzerUtil.getSkeleton(analyzer, "A.B.C.D.E.Deeply");
-        assertTrue(
-                deeplyClassSkeleton.isPresent(),
-                "Should retrieve deeply nested class skeleton via getSkeleton");
+        assertTrue(deeplyClassSkeleton.isPresent(), "Should retrieve deeply nested class skeleton via getSkeleton");
 
         Optional<String> statusEnumSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Status");
         assertTrue(statusEnumSkeleton.isPresent(), "Should retrieve Status enum skeleton via getSkeleton");
-        assertTrue(
-                statusEnumSkeleton.get().contains("Active"),
-                "Status enum skeleton should contain member names");
+        assertTrue(statusEnumSkeleton.get().contains("Active"), "Status enum skeleton should contain member names");
 
         Optional<String> flagsEnumSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Flags");
         assertTrue(flagsEnumSkeleton.isPresent(), "Should retrieve Flags enum skeleton via getSkeleton");
         assertTrue(
-                flagsEnumSkeleton.get().contains("Read") && flagsEnumSkeleton.get().contains("All"),
+                flagsEnumSkeleton.get().contains("Read")
+                        && flagsEnumSkeleton.get().contains("All"),
                 "Flags enum skeleton should contain member names");
+    }
+
+    @Test
+    void testImportExportEdgeCases() {
+        ProjectFile importExportFile = new ProjectFile(project.getRoot(), "ImportExportEdgeCases.ts");
+
+        // The main goal is to ensure the analyzer handles imports/exports without errors
+        // and that getTopLevelDeclarations() doesn't fail or produce duplicates
+
+        // Test 1: Verify analyzer can process the file without exceptions
+        Map<CodeUnit, String> skeletons = analyzer.getSkeletons(importExportFile);
+        assertNotNull(skeletons, "Skeletons map should not be null even with complex imports");
+
+        Set<CodeUnit> declarations = analyzer.getDeclarations(importExportFile);
+        assertNotNull(declarations, "Declarations set should not be null");
+
+        // Test 2: Verify getTopLevelDeclarations works without errors
+        List<CodeUnit> topLevelUnits = analyzer.getTopLevelDeclarations(importExportFile);
+        assertNotNull(topLevelUnits, "Top-level declarations should not be null");
+
+        // Test 3: Verify local declarations are captured (not import statements themselves)
+        // The analyzer should capture the LOCAL declarations, not the imported symbols
+
+        CodeUnit localClass = declarations.stream()
+                .filter(cu -> cu.shortName().equals("LocalClass") && cu.isClass())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(localClass, "LocalClass should be captured as a declaration");
+        assertTrue(skeletons.containsKey(localClass), "LocalClass should have a skeleton");
+
+        CodeUnit localInterface = declarations.stream()
+                .filter(cu -> cu.shortName().equals("LocalInterface") && cu.isClass())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(localInterface, "LocalInterface should be captured");
+
+        CodeUnit localFunction = declarations.stream()
+                .filter(cu -> cu.shortName().equals("localFunction") && cu.isFunction())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(localFunction, "localFunction should be captured");
+
+        CodeUnit localConst = declarations.stream()
+                .filter(cu -> cu.fqName().equals("_module_.localConst") && cu.isField())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(localConst, "localConst should be captured");
+
+        CodeUnit useNamespaceFunc = declarations.stream()
+                .filter(cu -> cu.shortName().equals("useNamespace") && cu.isFunction())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(useNamespaceFunc, "useNamespace function should be captured");
+
+        CodeUnit dynamicImportFunc = declarations.stream()
+                .filter(cu -> cu.shortName().equals("dynamicImport") && cu.isFunction())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(dynamicImportFunc, "dynamicImport function should be captured");
+
+        CodeUnit circularBClass = declarations.stream()
+                .filter(cu -> cu.shortName().equals("CircularB") && cu.isClass())
+                .findFirst()
+                .orElse(null);
+        assertNotNull(circularBClass, "CircularB class should be captured");
+
+        // Test 4: Verify no duplicate FQNames in declarations
+        Map<String, Long> fqNameCounts = declarations.stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.groupingBy(fqn -> fqn, Collectors.counting()));
+
+        List<String> duplicates = fqNameCounts.entrySet().stream()
+                .filter(e -> e.getValue() > 1)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        assertTrue(
+                duplicates.isEmpty(),
+                "Should have no duplicate FQNames. Found duplicates: " + String.join(", ", duplicates));
+
+        // Test 5: Verify skeletons are properly formed for local declarations
+        String localClassSkeleton = skeletons.get(localClass);
+        assertTrue(
+                localClassSkeleton.contains("export class LocalClass"),
+                "LocalClass skeleton should contain class definition");
+        assertTrue(localClassSkeleton.contains("method"), "LocalClass skeleton should contain method");
+
+        String localInterfaceSkeleton = skeletons.get(localInterface);
+        assertTrue(
+                localInterfaceSkeleton.contains("export interface LocalInterface"),
+                "LocalInterface skeleton should contain interface definition");
+        assertTrue(
+                localInterfaceSkeleton.contains("id: number") && localInterfaceSkeleton.contains("name: string"),
+                "LocalInterface skeleton should contain properties");
+
+        // Test 6: Verify top-level declarations include local declarations but not imports
+        boolean hasLocalClassTopLevel =
+                topLevelUnits.stream().anyMatch(cu -> cu.shortName().equals("LocalClass"));
+        assertTrue(hasLocalClassTopLevel, "LocalClass should be in top-level declarations");
+
+        boolean hasLocalFunctionTopLevel =
+                topLevelUnits.stream().anyMatch(cu -> cu.shortName().equals("localFunction"));
+        assertTrue(hasLocalFunctionTopLevel, "localFunction should be in top-level declarations");
+
+        // Test 7: Verify imported symbols are NOT added as local declarations
+        // The analyzer should not create CodeUnits for imported symbols (they're from other files)
+        boolean hasImportedReact = declarations.stream()
+                .anyMatch(cu -> cu.identifier().equals("React") && cu.source().equals(importExportFile));
+        assertFalse(hasImportedReact, "Imported 'React' should not appear as a local declaration in this file");
+
+        boolean hasImportedNS = declarations.stream()
+                .anyMatch(cu -> cu.identifier().equals("NS") && cu.source().equals(importExportFile));
+        assertFalse(hasImportedNS, "Imported namespace 'NS' should not appear as a local declaration");
+
+        // Test 8: Verify re-exports don't create duplicate local declarations
+        // Re-exports like `export * from './module'` should not create local CodeUnits
+        // (they're re-exporting from other files)
+
+        // Test 9: Verify getSkeleton works for individual items
+        Optional<String> localClassSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "LocalClass");
+        assertTrue(localClassSkeletonViaGet.isPresent(), "Should retrieve LocalClass via getSkeleton");
+
+        Optional<String> localFunctionSkeletonViaGet = AnalyzerUtil.getSkeleton(analyzer, "localFunction");
+        assertTrue(localFunctionSkeletonViaGet.isPresent(), "Should retrieve localFunction via getSkeleton");
+
+        // Test 10: Verify the analyzer processed the file successfully despite complex import patterns
+        assertFalse(declarations.isEmpty(), "Should have captured local declarations from the file");
+        assertFalse(skeletons.isEmpty(), "Should have generated skeletons for local declarations");
+
+        // The key insight: imports are metadata/references, not declarations
+        // The analyzer should capture LOCAL declarations and not confuse them with imports
     }
 
     @Test
