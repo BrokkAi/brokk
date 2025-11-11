@@ -431,10 +431,9 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void add(Path path) throws GitAPIException {
+    public synchronized void add(ProjectFile file) throws GitAPIException {
         var addCommand = git.add();
-        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
-        addCommand.addFilepattern(repoRelativePath);
+        addCommand.addFilepattern(toRepoRelativePath(file));
         addCommand.call();
     }
 
