@@ -439,8 +439,8 @@ public class GuiTheme {
                 float fontSize = fsAware.getExplicitFontSize();
                 fontMap.put(comp, fontSize);
             }
-            if (comp instanceof Container) {
-                collectExplicitFonts((Container) comp, fontMap);
+            if (comp instanceof Container c) {
+                collectExplicitFonts(c, fontMap);
             }
         }
     }

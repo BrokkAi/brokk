@@ -241,13 +241,13 @@ public class ContextAgent {
                 io.llmOutput(
                         "\nProcessing " + (analyzedFiles.isEmpty() ? "**unanalyzed**" : "**analyzed**") + " files…\n\n",
                         ChatMessageType.AI,
-                        true,
+                        false,
                         true);
             case 2 ->
                 io.llmOutput(
                         "\nProcessing **analyzed** and **unanalyzed** files in parallel\nAnalyzed files reasoning:\n\n",
                         ChatMessageType.AI,
-                        true,
+                        false,
                         true);
         }
 
@@ -326,7 +326,7 @@ public class ContextAgent {
     }
 
     private int estimateAnalyzedTokens(Collection<ProjectFile> files) {
-        var summariesByFile = getCachedSummaries(files);
+        var summariesByFile = getCachedIdentifiers(files);
         return Messages.getApproximateTokens(summariesByFile.values());
     }
 
@@ -422,11 +422,11 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<CodeUnit, String> summaries = type == GroupType.ANALYZED ? getCachedSummaries(current) : Map.of();
-            Map<ProjectFile, String> contents = (type == GroupType.UNANALYZED) ? readFileContents(current) : Map.of();
+            Map<ProjectFile, String> fileText;
+            fileText = type == GroupType.ANALYZED ? getCachedIdentifiers(current) : readFileContents(current);
 
             try {
-                return askLlmDeepRecommendContext(summaries, contents, workspaceRepresentation, llm);
+                return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm);
             } catch (ContextTooLargeException e) {
                 if (current.size() <= 1) {
                     logger.debug("{} group still too large with a single file; returning empty.", type);
@@ -441,13 +441,18 @@ public class ContextAgent {
         }
     }
 
-    private final ConcurrentMap<ProjectFile, Map<CodeUnit, String>> identifiersByFile = new ConcurrentHashMap<>();
+    private final ConcurrentMap<ProjectFile, String> identifiersByFile = new ConcurrentHashMap<>();
 
-    private Map<CodeUnit, String> getCachedSummaries(Collection<ProjectFile> candidates) {
+    /**
+     * Returns a map of ProjectFile -> identifiers text (summaries of classes in the file).
+     */
+    private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
-                .map(c -> identifiersByFile.computeIfAbsent(c, c_ -> Context.buildRelatedIdentifiers(analyzer, c_)))
-                .flatMap(m -> m.entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+                .distinct()
+                .collect(Collectors.toMap(
+                        f -> f,
+                        f -> identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf)),
+                        (v1, v2) -> v1));
     }
 
     // --- Result assembly ---
@@ -559,12 +564,18 @@ public class ContextAgent {
                 You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
                 A second pass will be made using your recommended files, so the top priority is to make sure you
                 identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
+                You MUST ONLY select files from the provided <filenames> list. Do NOT invent or include any file that is not exactly present in <filenames>.
                 """;
         var filenamePrompt =
                 """
                 <instructions>
                 Given the above goal and Workspace contents (if any), evaluate the following list of filenames
                 while thinking carefully about how they may be relevant to the goal.
+
+                Constraints:
+                 - You MUST select zero or more files EXCLUSIVELY from the provided <filenames> list.
+                 - Do NOT include any filename that is not exactly present in <filenames>.
+                 - If no files apply, return an empty selection (i.e., no lines).
 
                 Reason step-by-step:
                  - Identify all files corresponding to class names explicitly mentioned in the <goal>.
@@ -576,7 +587,10 @@ public class ContextAgent {
                  - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                    do not recommend files that are listed in the <discarded_context> section.
 
-                Then, list the full path of each relevant filename, one per line.
+                Output format (strict):
+                 - Return ONLY the selected filenames, EXACTLY as they appear in <filenames>, one per line.
+                 - No quotes, no bullets, no markdown, and no extra commentary outside of the filenames list.
+
                 </instructions>
                 <filenames>
                 %s
@@ -676,15 +690,15 @@ public class ContextAgent {
         if (showBatch1Reasoning) {
             cm.getIo()
                     .llmOutput(
-                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…",
+                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            false,
+                            true);
         }
 
-        Llm filesLlmNoEcho = showBatch1Reasoning
+        Llm filesLlmWithEcho = showBatch1Reasoning
                 ? cm.getLlm(new Llm.Options(
-                                cm.getService().quickestModel(), "ContextAgent Files (batch 2+): %s".formatted(goal))
+                                cm.getService().quickestModel(), "ContextAgent Files Unanalyzed %s".formatted(goal))
                         .withForceReasoningEcho())
                 : filesLlm;
 
@@ -693,7 +707,7 @@ public class ContextAgent {
             List<Callable<LlmRecommendation>> tasks = new ArrayList<>(chunks.size());
             for (int i = 0; i < chunks.size(); i++) {
                 int batchIndex = i;
-                Llm llmForBatch = (showBatch1Reasoning && batchIndex == 0) ? filesLlm : filesLlmNoEcho;
+                Llm llmForBatch = (showBatch1Reasoning && batchIndex == 0) ? filesLlm : filesLlmWithEcho;
                 tasks.add(() -> {
                     try {
                         return askLlmDeepPruneFilenames(chunks.get(batchIndex), workspaceRepresentation, llmForBatch);
@@ -728,10 +742,10 @@ public class ContextAgent {
         if (showBatch1Reasoning) {
             cm.getIo()
                     .llmOutput(
-                            "All batches complete. " + combinedFiles.size() + " files selected.",
-                            ChatMessageType.CUSTOM,
-                            true,
-                            false);
+                            "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
+                            ChatMessageType.AI,
+                            false,
+                            true);
         }
 
         return new LlmRecommendation(
@@ -741,10 +755,7 @@ public class ContextAgent {
     // --- Evaluate-for-relevance (single-group context window) ---
 
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<CodeUnit, String> summaries,
-            Map<ProjectFile, String> contentsMap,
-            Collection<ChatMessage> workspaceRepresentation,
-            Llm llm)
+            Map<ProjectFile, String> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
@@ -755,45 +766,20 @@ public class ContextAgent {
         var deepPromptTemplate =
                 """
                 You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
-                You are given a goal, the current workspace contents (if any), and ONE of the following optional sections:
-                - <available_summaries>: a list of class summaries (analyzed group)
-                - <available_files_content>: a list of files and their contents (un-analyzed group)
+                You are given a goal, the current workspace contents (if any), and a list of files, each with either a summary of its classes or its full content.
 
-                IMPORTANT: The provided section contains only one of those categories; do not assume the other category is present.
                 Analyze the provided information and determine which items are most relevant to achieving the goal.
                 """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
         var userMessageText = new StringBuilder();
 
-        if (!summaries.isEmpty()) {
-            var summariesByFile = summaries.entrySet().stream()
-                    .collect(Collectors.groupingBy(e -> e.getKey().source(), Collectors.toList()));
-            var summariesText = summariesByFile.entrySet().stream()
-                    .map(fileEntry -> {
-                        var file = fileEntry.getKey();
-                        var classes = fileEntry.getValue().stream()
-                                .map(entry -> "<class fqcn='%s'>\n%s\n</class>"
-                                        .formatted(entry.getKey().fqName(), entry.getValue()))
-                                .collect(Collectors.joining("\n\n"));
-                        return "<file path='%s'>\n%s\n</file>".formatted(file, classes);
-                    })
-                    .collect(Collectors.joining("\n\n"));
-            userMessageText
-                    .append("<available_summaries>\n")
-                    .append(summariesText)
-                    .append("\n</available_summaries>\n\n");
-        }
-
-        if (!contentsMap.isEmpty()) {
-            var filesText = contentsMap.entrySet().stream()
+        if (!filesMap.isEmpty()) {
+            var filesText = filesMap.entrySet().stream()
                     .map(entry -> "<file path='%s'>\n%s\n</file>"
                             .formatted(entry.getKey().toString(), entry.getValue()))
                     .collect(Collectors.joining("\n\n"));
-            userMessageText
-                    .append("<available_files_content>\n")
-                    .append(filesText)
-                    .append("\n</available_files_content>\n\n");
+            userMessageText.append("<available_files>\n").append(filesText).append("\n</available_files>\n\n");
         }
 
         var discardedNote = getDiscardedContextNote();
@@ -843,8 +829,8 @@ public class ContextAgent {
         if (result.error() != null) {
             var error = result.error();
             // Special case: propagate ContextTooLargeException so caller can retry with halving
-            if (error instanceof ContextTooLargeException) {
-                throw (ContextTooLargeException) error;
+            if (error instanceof ContextTooLargeException ctlException) {
+                throw ctlException;
             }
             logger.warn("Error from LLM during context recommendation: {}. Returning empty", error.getMessage());
             return LlmRecommendation.EMPTY;

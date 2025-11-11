@@ -1,0 +1,15 @@
+
+```json
+{
+  "tool_calls": [
+    {
+      "name": "dropWorkspaceFragments",
+      "arguments": {
+        "idToExplanation": {
+          "df62147bfe540a6c04ac1767ae2c5292de7dfd3205fbb293180d048ceda3e1b7": "Developer 'Code Notes' fragment contains detailed implementation guidance and background for fixing bmo_spin_exec. It is not directly needed to add the requested regression test and is distracting; remove to keep the workspace focused on the editable source file and the test to be added."
+        }
+      }
+    }
+  ]
+}
+```

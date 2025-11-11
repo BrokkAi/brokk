@@ -168,7 +168,7 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletonHeader(unknownClass));
         assertDoesNotThrow(() -> multiAnalyzer.getMethodSources(unknownMethod, false));
         assertDoesNotThrow(() -> multiAnalyzer.getClassSource(unknownClass, false));
-        assertDoesNotThrow(() -> multiAnalyzer.getSubDeclarations(unknownClass));
+        assertDoesNotThrow(() -> multiAnalyzer.getDirectChildren(unknownClass));
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
     }

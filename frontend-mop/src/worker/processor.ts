@@ -16,6 +16,7 @@ import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
 import { createWorkerLogger } from '../lib/logging';
+import { VFile } from 'vfile';
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
@@ -80,21 +81,23 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     });
 
     const diffLangs = (tree as any).data?.detectedDiffLangs as Set<string> | undefined;
-    const detectedArr = Array.from(detectedLangs);
-    const diffArr = diffLangs ? Array.from(diffLangs) : undefined;
-    workerLog.debug('detected langs', detectedArr, diffArr);
     diffLangs?.forEach(l => detectedLangs.add(l));
     return detectedLangs;
 }
 export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
-    const timeLabel = fast ? 'parse (fast)' : 'parse';
-    console.time(timeLabel);
+    // const timeLabel = fast ? 'parse (fast)' : 'parse';
+    // console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;
     let tree: HastRoot = null;
     try {
         // Reset the edit block ID counter before parsing
         resetForBubble(seq);
-        tree = proc.runSync(proc.parse(src)) as HastRoot;
+
+        // Carry the parse sequence on a per-run VFile and mirror it onto tree.data in rehype
+        const file = new VFile();
+        (file.data as any).parseSeq = seq;
+
+        tree = proc.runSync(proc.parse(src), file) as HastRoot;
     } catch (e) {
         workerLog.error('parse failed', e);
         throw e;
@@ -106,7 +109,7 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
             handlePendingLanguages(detectedLangs);
         }
     }
-    console.timeEnd(timeLabel);
+    // console.timeEnd(timeLabel);
     return tree;
 }
 

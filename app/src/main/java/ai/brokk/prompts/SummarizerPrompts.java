@@ -13,12 +13,15 @@ public class SummarizerPrompts {
     public static final int WORD_BUDGET_3 = 3;
     public static final int WORD_BUDGET_5 = 5;
     public static final int WORD_BUDGET_12 = 12;
+    public static final int WORD_BUDGET_100 = 100;
 
     private SummarizerPrompts() {}
 
     public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
         assert !actionTxt.isBlank();
-        assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12).contains(wordBudget) : wordBudget;
+        assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12, WORD_BUDGET_100)
+                        .contains(wordBudget)
+                : wordBudget;
 
         var example =
                 """
@@ -35,6 +38,9 @@ public class SummarizerPrompts {
         1. Add source for all the usages of a class, field, or method to your context
         1. Parse "anonymous" context pieces from external commands
         1. Build/lint your project and ask the LLM to fix errors autonomously
+        1. Break down large tasks into smaller ones
+
+        ... All while leaving you, the human supervisor, in full control.
 
         These allow some simple but powerful patterns:
         - "Here is the diff for commit X, which introduced a regression.  Here is the stacktrace
@@ -48,7 +54,17 @@ public class SummarizerPrompts {
                     case WORD_BUDGET_5 -> "Brokk: context management, agentic search";
                     case WORD_BUDGET_12 ->
                         "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
-                    default -> throw new AssertionError(wordBudget);
+                    default ->
+                        """
+                            Brokk is an agentic code assistant with best-in-class search and retrieval.
+                            Starting cold in large repos, it answers novel questions (e.g., BM25 in DataStax Cassandra)
+                            and consistently beats Claude Code, Sourcegraph, and Augment Code. It automatically surfaces
+                            relevant classes to your working context; parses stacktraces and pulls method sources;
+                            and retrieves all usages of a class, field, or method. Brokk can ingest anonymous snippets
+                            from external commands, build/lint your project, and autonomously ask the LLM to fix errors.
+                            These enable workflows like: given a regression diff, stacktrace, and implicated code,
+                            find the bug—or audit whether Foo.bar’s zep is always cached.
+                            """;
                 };
 
         var request = getRequest(actionTxt, wordBudget);

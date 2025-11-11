@@ -1,0 +1,24 @@
+--- old
++++ new
+@@ -558,1 +558,1 @@
+- * - Place new vertices directly using: P_i = cent + R_i * (P0 - cent) + (i + 1) * (R_i * dvec_space),
++ * - Place new vertices directly using: P_i = cent + R_i * (P0 - cent) + sum_{k=1..i} (R_k * dvec_space) (accumulated in double precision),
+@@ -627,0 +627,2 @@
++  /* Accumulate screw translation in double precision across steps. */
++  double t_accum[3] = {0.0, 0.0, 0.0};
+@@ -634,1 +636,1 @@
+-    /* Closed-form screw translation: (i + 1) * (R_i * dvec_space). */
++    /* Accumulate screw translation precisely as sum_{k=1..step_index} (R_k * dvec_space) using double precision. */
+@@ -637,3 +639,9 @@
+-      copy_v3_v3(t_space, dvec_space);
+-      mul_m3_v3(rmat_i, t_space);
+-      mul_v3_fl(t_space, float(step_index));
++      float delta_space[3];
++      copy_v3_v3(delta_space, dvec_space);
++      mul_m3_v3(rmat_i, delta_space);
++      t_accum[0] += (double)delta_space[0];
++      t_accum[1] += (double)delta_space[1];
++      t_accum[2] += (double)delta_space[2];
++      t_space[0] = (float)t_accum[0];
++      t_space[1] = (float)t_accum[1];
++      t_space[2] = (float)t_accum[2];

@@ -1,0 +1,61 @@
+The request is clear: fix the screw translation accumulation to sum rotated translations in double precision and update the precision note comment accordingly. No external files are needed; all changes are within the visible `bmo_dupe.cc`.
+
+Summary of changes:
+- Update the precision note to describe translation as a sum over steps accumulated in double.
+- Add a `double t_accum[3]` before the steps loop.
+- Replace the simplified per-step translation `(i+1) * (R_i * dvec_space)` with a precise per-step accumulation into `t_accum` and convert to float when applying.
+
+Here are the edits:
+
+```
+source/blender/bmesh/operators/bmo_dupe.cc
+<<<<<<< SEARCH
+ * - For step i, compute the absolute rotation R_i for angle * (i + 1) / steps.
+ * - Place new vertices directly using: P_i = cent + R_i * (P0 - cent) + (i + 1) * (R_i * dvec_space),
+ *   transforming positions into and out of the provided 'space' matrix.
+=======
+ * - For step i, compute the absolute rotation R_i for angle * (i + 1) / steps.
+ * - Place new vertices directly using: P_i = cent + R_i * (P0 - cent) + sum_{k=1..i} (R_k * dvec_space) (accumulated in double precision),
+ *   transforming positions into and out of the provided 'space' matrix.
+>>>>>>> REPLACE
+```
+
+```
+source/blender/bmesh/operators/bmo_dupe.cc
+<<<<<<< SEARCH
+  BMO_slot_copy(op, slots_in, "geom", op, slots_out, "geom_last.out");
+  for (a = 0; a < steps; a++) {
+=======
+  BMO_slot_copy(op, slots_in, "geom", op, slots_out, "geom_last.out");
+  /* Accumulate screw translation in double precision across steps. */
+  double t_accum[3] = {0.0, 0.0, 0.0};
+  for (a = 0; a < steps; a++) {
+>>>>>>> REPLACE
+```
+
+```
+source/blender/bmesh/operators/bmo_dupe.cc
+<<<<<<< SEARCH
+    /* Closed-form screw translation: (i + 1) * (R_i * dvec_space). */
+    float t_space[3] = {0.0f, 0.0f, 0.0f};
+    if (use_dvec) {
+      copy_v3_v3(t_space, dvec_space);
+      mul_m3_v3(rmat_i, t_space);
+      mul_v3_fl(t_space, float(step_index));
+    }
+=======
+    /* Accumulate screw translation precisely as sum_{k=1..step_index} (R_k * dvec_space) using double precision. */
+    float t_space[3] = {0.0f, 0.0f, 0.0f};
+    if (use_dvec) {
+      float delta_space[3];
+      copy_v3_v3(delta_space, dvec_space);
+      mul_m3_v3(rmat_i, delta_space);
+      t_accum[0] += (double)delta_space[0];
+      t_accum[1] += (double)delta_space[1];
+      t_accum[2] += (double)delta_space[2];
+      t_space[0] = (float)t_accum[0];
+      t_space[1] = (float)t_accum[1];
+      t_space[2] = (float)t_accum[2];
+    }
+>>>>>>> REPLACE
+```

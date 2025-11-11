@@ -430,9 +430,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private final MaterialButton captureDiffButton = new MaterialButton();
 
     // Font size adjustment buttons
-    private MaterialButton btnDecreaseFont;
-    private MaterialButton btnResetFont;
-    private MaterialButton btnIncreaseFont;
+    private @Nullable MaterialButton btnDecreaseFont;
+    private @Nullable MaterialButton btnResetFont;
+    private @Nullable MaterialButton btnIncreaseFont;
 
     // Font size state - implements EditorFontSizeControl
     private int currentFontIndex = -1; // -1 = uninitialized
@@ -1395,7 +1395,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         ensureFontIndexInitialized();
         // Apply current editor font size to the panel so theme application doesn't override it
         if (getCurrentFontIndex() >= 0) {
-            applySizeToSinglePanel(cachedPanel, FONT_SIZES[getCurrentFontIndex()]);
+            applySizeToSinglePanel(cachedPanel, FONT_SIZES.get(getCurrentFontIndex()));
         }
 
         // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
@@ -1757,7 +1757,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         panel.resetAutoScrollFlag();
         // Ensure newly-created panel respects the current editor font size (if we've initialized it)
         if (currentFontIndex >= 0) {
-            applySizeToSinglePanel(panel, FONT_SIZES[currentFontIndex]);
+            applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
         }
 
         // Ensure creation context is set for debugging (only for BufferDiffPanel)
@@ -1917,9 +1917,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         if (panel instanceof UnifiedDiffPanel up) {
             try {
                 // Apply theme preserving font before setting size
-                if (theme != null) {
-                    theme.applyThemePreservingFont(up.getTextArea());
-                }
+                theme.applyThemePreservingFont(up.getTextArea());
                 setEditorFont(up.getTextArea(), size);
             } catch (Exception e) {
                 logger.debug("Unified text area update failed", e);
@@ -1965,7 +1963,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private void applyAllEditorFontSizes() {
         if (getCurrentFontIndex() < 0) return;
 
-        float fontSize = FONT_SIZES[getCurrentFontIndex()];
+        float fontSize = FONT_SIZES.get(getCurrentFontIndex());
         GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to cached panels
@@ -1993,18 +1991,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /** Increase font size using interface method, then apply to all panels. */
+    @Override
     public void increaseEditorFont() {
         EditorFontSizeControl.super.increaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Decrease font size using interface method, then apply to all panels. */
+    @Override
     public void decreaseEditorFont() {
         EditorFontSizeControl.super.decreaseEditorFont();
         applyAllEditorFontSizes();
     }
 
     /** Reset font size using interface method, then apply to all panels. */
+    @Override
     public void resetEditorFont() {
         EditorFontSizeControl.super.resetEditorFont();
         applyAllEditorFontSizes();

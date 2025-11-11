@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -258,7 +259,7 @@ public interface SearchMetrics {
             this.finalWorkspaceSize = workspaceSize;
             this.failureType = switch (reason) {
                 case SUCCESS -> null;
-                default -> reason.toString().toLowerCase();
+                default -> reason.toString().toLowerCase(Locale.ROOT);
             };
         }
 

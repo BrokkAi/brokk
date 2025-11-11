@@ -2256,32 +2256,6 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    /**
-     * DEPRECATED: Use Chrome.showAnalyzerRebuildStatus() instead.
-     * This remains as an EDT-safe forwarder for backward compatibility.
-     */
-    @Deprecated(forRemoval = false, since = "2025-10")
-    public void showAnalyzerRebuildSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            chrome.showAnalyzerRebuildStatus();
-            // Preserve existing behavior of notifying listeners
-            fireBottomControlsHeightChanged();
-        });
-    }
-
-    /**
-     * DEPRECATED: Use Chrome.hideAnalyzerRebuildStatus() instead.
-     * This remains as an EDT-safe forwarder for backward compatibility.
-     */
-    @Deprecated(forRemoval = false, since = "2025-10")
-    public void hideAnalyzerRebuildSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            chrome.hideAnalyzerRebuildStatus();
-            // Preserve existing behavior of notifying listeners
-            fireBottomControlsHeightChanged();
-        });
-    }
-
     /** Sets the drop all menu item reference for dynamic state updates. */
     public void setDropAllMenuItem(JMenuItem dropAllMenuItem) {
         this.dropAllMenuItem = dropAllMenuItem;

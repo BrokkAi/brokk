@@ -443,6 +443,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param src the source code
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
@@ -530,6 +531,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param node the root node to search within
      * @return the function_declarator node, or null if not found
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
         if (node == null || node.isNull()) {
             return null;
@@ -636,23 +638,23 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         // C++ allows blank names for complex declaration structures where the parser
         // produces empty identifier nodes (common in flexed/generated C code, function pointers,
         // template specializations, macro expansions)
-        return simpleName != null && simpleName.isBlank() && isComplexDeclarationStructure(captureName, nodeType);
+        return simpleName.isBlank() && isComplexDeclarationStructure(nodeType);
     }
 
     @Override
     protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
         // C++ allows NULL names for complex declaration structures like function pointers,
         // template specializations, and macro declarations
-        return isComplexDeclarationStructure(identifierFieldName, nodeType);
+        return isComplexDeclarationStructure(nodeType);
     }
 
     @Override
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         // Suppress logging for common C++ patterns where null names are expected
-        return isComplexDeclarationStructure(null, nodeType);
+        return isComplexDeclarationStructure(nodeType);
     }
 
-    private boolean isComplexDeclarationStructure(String identifierFieldName, String nodeType) {
+    private boolean isComplexDeclarationStructure(String nodeType) {
         // Common C++ complex declaration patterns that may not have simple name fields
         return "declaration".equals(nodeType)
                 || "function_definition".equals(nodeType)
@@ -689,7 +691,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @param src The source code string
      * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
      */
-    protected String extractSignature(String captureName, TSNode definitionNode, String src) {
+    @Override
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // Only extract signature for function-like entities
@@ -719,6 +722,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - reference qualifiers (&& has precedence over &)
      * - complete noexcept clause (including optional parenthesized condition)
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
@@ -904,6 +908,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Scans immediate named children of the given parent node within the [tailStart, tailEnd) byte range
      * for TYPE_QUALIFIER nodes containing the specified qualifier token.
      */
+    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private boolean scanForQualifier(TSNode parent, int tailStart, int tailEnd, String src, String qualifier) {
         if (parent == null || parent.isNull()) return false;
         int count = parent.getNamedChildCount();
@@ -970,6 +975,52 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         return Optional.empty();
+    }
+
+    @Override
+    protected Comparator<CodeUnit> prioritizingComparator() {
+        // Prefer implementations over declarations for C/C++ functions.
+        // Short rationale: returning implementation first lets clients reliably "pick first" and get the .c/.cpp body.
+        // Priority ordering (lower is better):
+        // -2: function with body in .c/.cc/.cpp/.cxx
+        // -1: function with body in header (inline/template)
+        //  0: everything else (declarations)
+        return (cu1, cu2) -> {
+            // Non-functions have no preference
+            if (!cu1.isFunction() || !cu2.isFunction()) {
+                return 0;
+            }
+
+            boolean cu1HasBody = withCodeUnitProperties(props -> {
+                var p = props.get(cu1);
+                return p != null && p.hasBody();
+            });
+
+            boolean cu2HasBody = withCodeUnitProperties(props -> {
+                var p = props.get(cu2);
+                return p != null && p.hasBody();
+            });
+
+            // Declarations have no priority advantage
+            if (!cu1HasBody && !cu2HasBody) {
+                return 0;
+            }
+
+            // Prefer definitions (with body) over declarations
+            if (cu1HasBody && !cu2HasBody) return -1;
+            if (!cu1HasBody && cu2HasBody) return 1;
+
+            // Both have body: prefer source files (.c/.cc/.cpp/.cxx) over headers
+            String ext1 = cu1.source().extension().toLowerCase(Locale.ROOT);
+            String ext2 = cu2.source().extension().toLowerCase(Locale.ROOT);
+            boolean cu1IsSource = ext1.equals(".c") || ext1.equals(".cc") || ext1.equals(".cpp") || ext1.equals(".cxx");
+            boolean cu2IsSource = ext2.equals(".c") || ext2.equals(".cc") || ext2.equals(".cpp") || ext2.equals(".cxx");
+
+            if (cu1IsSource && !cu2IsSource) return -1;
+            if (!cu1IsSource && cu2IsSource) return 1;
+
+            return 0;
+        };
     }
 
     public String getCacheStatistics() {

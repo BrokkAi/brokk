@@ -143,8 +143,8 @@ The build uses ErrorProne for compile-time bug detection with conditional NullAw
 
 #### ErrorProne & NullAway
 
-- **Regular builds** (`./gradlew build`, `test`): Fast - basic ErrorProne checks only (~10-30% overhead)
-- **Full analysis** (`./gradlew check`): Slow - includes NullAway dataflow analysis (~20-50% overhead)
+- **Regular builds** (`./gradlew build`, `test`): Fast - ErrorProne completely disabled (0% overhead)
+- **Full analysis** (`./gradlew check`): Slow - includes ErrorProne + NullAway dataflow analysis (~20-50% overhead)
 
 #### Running Static Analysis Locally
 
@@ -177,11 +177,11 @@ The pre-push hook will block the push if any errors are found, ensuring code qua
 
 #### Usage Summary
 
-- `./gradlew build` → Fast compilation, basic ErrorProne only
-- `./gradlew test` → Fast tests without expensive null analysis
-- `./gradlew analyze` → Static analysis only (NullAway + spotless, no tests)
-- `./gradlew check` → Full verification (tests + NullAway + spotless)
-- CI automatically runs `check` for complete validation
+- `./gradlew build` → Fast compilation, no static analysis overhead
+- `./gradlew test` → Fast tests, no static analysis overhead
+- `./gradlew analyze` → Static analysis only (ErrorProne + NullAway + spotless, no tests)
+- `./gradlew check` → Full verification (tests + ErrorProne + NullAway + spotless)
+- CI should run `check` for complete validation
 
 The build system uses aggressive multi-level caching for optimal performance:
 
@@ -470,3 +470,14 @@ export BRK_USAGE_BOOL=false
 export BRK_USAGE_BOOL=""        # treated as true
 export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```
+
+## Style Guide Aggregation (AGENTS.md)
+
+Brokk aggregates nested AGENTS.md files to build the style guide used in prompts.
+
+- Precedence: nearest-first per context file (walk up to the project master root). Across multiple files, sections are interleaved by depth and de-duplicated (a given AGENTS.md appears once).
+- Fallback: if no AGENTS.md is found near context files, Brokk falls back to the root AGENTS.md or the legacy project style guide.
+- Where to place guides: put an AGENTS.md in each subproject root you want to influence (e.g., `apps/web/AGENTS.md`, `services/api/AGENTS.md`, `packages/foo/AGENTS.md`). The resolver will pick these up automatically.
+- Limits: to protect prompt budget, aggregation caps at 8 sections and ~20k characters by default. Override via system properties:
+  - -Dbrokk.style.guide.maxSections=NN
+  - -Dbrokk.style.guide.maxChars=NNNNN

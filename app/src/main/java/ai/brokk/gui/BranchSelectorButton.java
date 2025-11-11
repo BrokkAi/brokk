@@ -6,7 +6,6 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -325,7 +324,7 @@ public class BranchSelectorButton extends SplitButton {
                 return;
             }
             setText(branchName);
-            updateProjectFilesDrawerTitle(branchName);
+            chrome.getProjectFilesPanel().updateBorderTitle();
 
             chrome.updateLogTab();
             chrome.selectCurrentBranchInLogTab();
@@ -334,15 +333,6 @@ public class BranchSelectorButton extends SplitButton {
             task.run();
         } else {
             SwingUtilities.invokeLater(task);
-        }
-    }
-
-    private void updateProjectFilesDrawerTitle(String branchName) {
-        var panel = chrome.getProjectFilesPanel();
-        if (SwingUtilities.isEventDispatchThread()) {
-            GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName);
-        } else {
-            SwingUtilities.invokeLater(() -> GitUiUtil.updatePanelBorderWithBranch(panel, "Project Files", branchName));
         }
     }
 

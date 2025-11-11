@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.SessionManager;
+import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -834,7 +835,7 @@ public final class ContextExplorer extends JFrame {
     // Provides a stub analyzer and a simple project root based on the current working directory.
     private static final class MinimalContextManager implements IContextManager {
         private final IProject project;
-        private final IAnalyzer analyzer = new IAnalyzer() {};
+        private final IAnalyzer analyzer = new DisabledAnalyzer() {};
 
         MinimalContextManager() {
             Path root = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();

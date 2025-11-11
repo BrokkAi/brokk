@@ -1,0 +1,30 @@
+
+```json
+{
+  "tool_calls": [
+    {
+      "name": "searchFilenames",
+      "arguments": {
+        "patterns": [
+          "source/blender/bmesh/tests/.*\\.c",
+          "source/blender/bmesh/tests/.*",
+          "source/blender/bmesh/.*test.*\\.c",
+          "source/blender/bmesh/.*tests.*"
+        ],
+        "reasoning": "Locate existing BMesh unit tests to mirror test harness, naming conventions, includes and helper functions for adding a new test file in source/blender/bmesh/tests/."
+      }
+    },
+    {
+      "name": "searchFilenames",
+      "arguments": {
+        "patterns": [
+          "source/blender/bmesh/tests/.*",
+          "source/blender/bmesh/.*\\.c",
+          "source/blender/bmesh/.*\\.h"
+        ],
+        "reasoning": "Broaden search in case tests are named unconventionally; find any files in the bmesh/tests directory or neighboring directories to copy style and include patterns."
+      }
+    }
+  ]
+}
+```

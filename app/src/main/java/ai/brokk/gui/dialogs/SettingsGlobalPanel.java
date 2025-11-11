@@ -78,6 +78,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
+    private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
+    private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
@@ -849,6 +851,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         appearancePanel.add(wordWrapCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
+
+        // Diff View
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Diff View:"), gbc);
+
+        var diffViewGroup = new ButtonGroup();
+        diffViewGroup.add(diffSideBySideRadio);
+        diffViewGroup.add(diffUnifiedRadio);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(diffSideBySideRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(diffUnifiedRadio, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
         //
         // Detect JetBrains Runtime (JBR) and defer to its HiDPI handling if present
         var vmVendor = System.getProperty("java.vm.vendor", "");
@@ -1402,6 +1427,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
 
+        // Diff View preference
+        boolean unified = GlobalUiSettings.isDiffUnifiedView();
+        diffUnifiedRadio.setSelected(unified);
+        diffSideBySideRadio.setSelected(!unified);
+
         // Startup behavior
         var startupMode = MainProject.getStartupOpenMode();
         if (startupMode == MainProject.StartupOpenMode.ALL) {
@@ -1624,6 +1654,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.updateTerminalFontSize();
             logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
         }
+
+        // Diff View preference
+        boolean useUnified = diffUnifiedRadio.isSelected();
+        GlobalUiSettings.saveDiffUnifiedView(useUnified);
+        logger.debug("Applied Diff View: {}", useUnified ? "Unified" : "Side-by-Side");
+
+        // TODO: Immediate application to existing diff panels
+        // Currently, newly opened diff panels will use the selected style immediately
+        // (BrokkDiffPanel reads GlobalUiSettings.isDiffUnifiedView() on initialization).
+        // Existing open diff panels can be toggled via their toolbar "Unified View" button.
+        // In the future, if a central registry of open diff panels becomes available
+        // (e.g., via Chrome or ContextManager), we can enumerate and call
+        // switchViewMode(useUnified) on each BrokkDiffPanel for immediate effect.
 
         // Startup behavior
         var currentStartupMode = MainProject.getStartupOpenMode();

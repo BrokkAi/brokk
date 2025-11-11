@@ -18,6 +18,10 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
         handle(thread, throwable, st -> {});
     }
 
+    public static void handle(Throwable th, Consumer<String> notifier) {
+        handle(Thread.currentThread(), th, notifier);
+    }
+
     /**
      * 1. Log exception
      * 2. Upload it

@@ -26,7 +26,6 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -41,7 +40,6 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -235,8 +233,7 @@ public class ArchitectAgent {
         io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
         var searchAgent =
                 new SearchAgent(context, query, planningModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), scope);
-        var tr = searchAgent.scanInitialContext();
-        context = scope.append(tr);
+        searchAgent.scanInitialContext();
         var result = searchAgent.execute();
         // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
         threadlocalSearchResult.set(result);
@@ -284,8 +281,7 @@ public class ArchitectAgent {
         var scanModel = cm.getService().getScanModel();
         var searchAgent =
                 new SearchAgent(context, goal, scanModel, EnumSet.of(SearchAgent.Terminal.WORKSPACE), this.scope);
-        var scanResult = searchAgent.scanInitialContext();
-        context = scope.append(scanResult);
+        searchAgent.scanInitialContext();
 
         // Run Architect proper
         var archResult = this.execute();
@@ -448,12 +444,6 @@ public class ArchitectAgent {
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
-            io.llmOutput(
-                    "\nTool call(s): %s"
-                            .formatted(deduplicatedRequests.stream()
-                                    .map(req -> "`" + req.name() + "`")
-                                    .collect(Collectors.joining(", "))),
-                    ChatMessageType.AI);
 
             // execute tool calls in the following order:
             // 1. projectFinished
@@ -484,9 +474,9 @@ public class ArchitectAgent {
                 if (multipleRequests) {
                     var ignoredMsg =
                             "Ignored 'projectFinished' because other tool calls were present in the same turn.";
-                    var toolResult = ToolExecutionResult.failure(answerReq, ignoredMsg);
+                    var toolResult = ToolExecutionResult.requestError(answerReq, ignoredMsg);
                     // Record the ignored result in the architect message history so planning history reflects this.
-                    architectMessages.add(ToolExecutionResultMessage.from(answerReq, toolResult.resultText()));
+                    architectMessages.add(toolResult.toExecutionResultMessage());
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
@@ -499,8 +489,8 @@ public class ArchitectAgent {
             if (abortReq != null) {
                 if (multipleRequests) {
                     var ignoredMsg = "Ignored 'abortProject' because other tool calls were present in the same turn.";
-                    var toolResult = ToolExecutionResult.failure(abortReq, ignoredMsg);
-                    architectMessages.add(ToolExecutionResultMessage.from(abortReq, toolResult.resultText()));
+                    var toolResult = ToolExecutionResult.requestError(abortReq, ignoredMsg);
+                    architectMessages.add(toolResult.toExecutionResultMessage());
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
@@ -516,7 +506,7 @@ public class ArchitectAgent {
                 wst.setContext(context);
                 ToolExecutionResult toolResult = tr.executeTool(req);
                 context = wst.getContext();
-                architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
+                architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 
@@ -551,8 +541,7 @@ public class ArchitectAgent {
                     }
                     var outcome = future.get();
                     context = context.union(outcome.context());
-                    architectMessages.add(ToolExecutionResultMessage.from(
-                            request, outcome.toolResult().resultText()));
+                    architectMessages.add(outcome.toolResult().toExecutionResultMessage());
                     logger.debug(
                             "Collected result for tool '{}' => result: {}",
                             request.name(),
@@ -571,8 +560,8 @@ public class ArchitectAgent {
                             .formatted(Objects.toString(
                                     e.getCause() != null ? e.getCause().getMessage() : "Unknown error",
                                     "Unknown execution error"));
-                    var failure = ToolExecutionResult.failure(request, errorMessage);
-                    architectMessages.add(ToolExecutionResultMessage.from(request, failure.resultText()));
+                    var failure = ToolExecutionResult.requestError(request, errorMessage);
+                    architectMessages.add(failure.toExecutionResultMessage());
                 }
             }
             if (interrupted) {
@@ -588,7 +577,7 @@ public class ArchitectAgent {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
 
-                architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
+                architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 
@@ -686,27 +675,19 @@ public class ArchitectAgent {
         // Add related identifiers as a separate message/ack pair
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
-            var topClassesRaw = related.entrySet().stream()
-                    .sorted(Comparator.comparing(e -> e.getKey().fqName()))
-                    .map(e -> {
-                        var cu = e.getKey();
-                        var subs = e.getValue();
-                        return "- " + cu.fqName() + (subs.isBlank() ? "" : " (members: " + subs + ")");
-                    })
-                    .collect(Collectors.joining("\n"));
-            var topClassesText =
+            var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
+            var topFilesText =
                     """
-                            <related_classes>
-                            Here are some classes that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
-                            If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                            visible to Code Agent. If they are not relevant, just ignore them.
+                    <related_files>
+                    Here are some files that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
+                    If relevant, explicitly add them (e.g., summaries or sources) so they become visible to Code Agent. If they are not relevant, ignore them.
 
-                            %s
-                            </related_classes>
-                            """
-                            .formatted(topClassesRaw);
-            messages.add(new UserMessage(topClassesText));
-            messages.add(new AiMessage("Okay, I will consider these related classes."));
+                    %s
+                    </related_files>
+                    """
+                            .formatted(relatedBlock);
+            messages.add(new UserMessage(topFilesText));
+            messages.add(new AiMessage("Okay, I will consider these related files."));
         }
 
         // History from previous tasks/sessions

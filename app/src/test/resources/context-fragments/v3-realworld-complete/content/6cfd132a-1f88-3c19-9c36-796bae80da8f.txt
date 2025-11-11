@@ -1,0 +1,2 @@
+In Blender, the Spin tool becomes inaccurate at high step counts: when I paste or reuse the result/parameters of a Spin operation, the geometry shows small but noticeable deviations that appear to be rounding errors. The final vertices are not where they should be for an exact angular distribution.
+How can I fix this in code?

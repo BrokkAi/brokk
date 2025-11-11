@@ -130,7 +130,8 @@ public class Llm {
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
-    private final int MAX_ATTEMPTS = 8;
+    private static final int DEFAULT_MAX_ATTEMPTS = 8;
+    private final int MAX_ATTEMPTS;
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
@@ -157,6 +158,8 @@ public class Llm {
         this.forceReasoningEcho = forceReasoningEcho;
         this.tagRetain = tagRetain;
         this.echo = echo;
+        this.MAX_ATTEMPTS = determineMaxAttempts();
+        logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
@@ -197,6 +200,35 @@ public class Llm {
 
     private static String logFileTimestamp() {
         return LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH-mm.ss"));
+    }
+
+    /**
+     * Determine MAX_ATTEMPTS, overridable by environment variable BRK_LLM_ATTEMPTS.
+     * If the env var is not present or not a positive integer, DEFAULT_MAX_ATTEMPTS is used.
+     */
+    private int determineMaxAttempts() {
+        var env = System.getenv("BRK_LLM_ATTEMPTS");
+        if (env == null || env.isBlank()) {
+            return DEFAULT_MAX_ATTEMPTS;
+        }
+        try {
+            int parsed = Integer.parseInt(env.trim());
+            if (parsed <= 0) {
+                logger.warn(
+                        "BRK_LLM_ATTEMPTS value '{}' is not a positive integer; falling back to default {}",
+                        env,
+                        DEFAULT_MAX_ATTEMPTS);
+                return DEFAULT_MAX_ATTEMPTS;
+            }
+            logger.debug("Overriding MAX_ATTEMPTS with BRK_LLM_ATTEMPTS={}", parsed);
+            return parsed;
+        } catch (NumberFormatException e) {
+            logger.warn(
+                    "Could not parse BRK_LLM_ATTEMPTS='{}' as integer; falling back to default {}",
+                    env,
+                    DEFAULT_MAX_ATTEMPTS);
+            return DEFAULT_MAX_ATTEMPTS;
+        }
     }
 
     /**
@@ -257,7 +289,7 @@ public class Llm {
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
         var fenceOpen = new AtomicBoolean(false);
-        var elapsedMs = new AtomicReference<Long>(0L);
+        long elapsedMs;
 
         Consumer<Runnable> ifNotCancelled = r -> {
             lock.lock();
@@ -412,7 +444,7 @@ public class Llm {
 
         // Record elapsed time
         long endTime = System.currentTimeMillis();
-        elapsedMs.set(endTime - startTime);
+        elapsedMs = endTime - startTime;
 
         // Ensure any open JSON fence is closed (e.g., timeout paths that didn't trigger callbacks)
         if (echo && addJsonFence && fenceOpen.get()) {
@@ -428,7 +460,7 @@ public class Llm {
             var partialText = accumulatedTextBuilder.toString();
             var partialReasoning = accumulatedReasoningBuilder.toString();
             if (partialText.isEmpty() && partialReasoning.isEmpty()) {
-                return new StreamingResult(null, error, 0, elapsedMs.get());
+                return new StreamingResult(null, error, 0, elapsedMs);
             }
 
             // Construct a ChatResponse from accumulated partial text
@@ -437,7 +469,7 @@ public class Llm {
                     "LLM call resulted in error: {}. Partial text captured: {} chars",
                     error.getMessage(),
                     partialText.length());
-            return new StreamingResult(partialResponse, error, 0, elapsedMs.get());
+            return new StreamingResult(partialResponse, error, 0, elapsedMs);
         }
 
         // Happy path: successful completion, no errors
@@ -446,7 +478,7 @@ public class Llm {
         if (echo) {
             io.llmOutput("\n", ChatMessageType.AI, false, forceReasoningEcho);
         }
-        return StreamingResult.fromResponse(response, null, elapsedMs.get());
+        return StreamingResult.fromResponse(response, null, elapsedMs);
     }
 
     private long getLlmResponseTimeoutSeconds(boolean firstToken) {

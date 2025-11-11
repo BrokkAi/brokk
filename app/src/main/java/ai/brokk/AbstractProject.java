@@ -47,7 +47,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public static final String CACHE_DIR = "cache";
     public static final String PROJECT_PROPERTIES_FILE = "project.properties";
     public static final String WORKSPACE_PROPERTIES_FILE = "workspace.properties";
-    public static final String STYLE_GUIDE_FILE = "style.md";
+    public static final String STYLE_GUIDE_FILE = "AGENTS.md";
+    public static final String LEGACY_STYLE_GUIDE_FILE = "style.md";
     public static final String REVIEW_GUIDE_FILE = "review.md";
     public static final String DEBUG_LOG_FILE = "debug.log";
     protected static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
@@ -1023,6 +1024,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * @param directoryRelPath Path relative to project root
      * @return true if the directory is ignored by gitignore rules, false otherwise
      */
+    @Override
     public boolean isDirectoryIgnored(Path directoryRelPath) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return false; // No git repo = nothing is ignored

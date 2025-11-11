@@ -3,8 +3,6 @@ package ai.brokk.util;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.exception.GlobalExceptionHandler;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -131,18 +129,10 @@ public class UserActionManager {
                     logger.warn("Failed to upload exception report", reportingError);
                 }
             } else {
-                GlobalExceptionHandler.handle(
-                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+                GlobalExceptionHandler.handle(th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
             }
         };
         return new LoggingExecutorService(delegate, onError);
-    }
-
-    private String getStackTraceAsString(Throwable throwable) {
-        var sw = new StringWriter();
-        var pw = new PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
     }
 
     @FunctionalInterface

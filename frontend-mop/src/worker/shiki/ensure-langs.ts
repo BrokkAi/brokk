@@ -45,7 +45,7 @@ export async function ensureLang(langId: string): Promise<boolean> {
             const mod: any = await loader();
             await highlighter.loadLanguage(mod.default ?? mod);
             loadedLangs.add(langId);
-            console.log('[Shiki] Language loaded:', langId);
+            console.debug('[Shiki] Language loaded:', langId);
             return true;
         } catch (e) {
             permanentlyFailed.add(langId);

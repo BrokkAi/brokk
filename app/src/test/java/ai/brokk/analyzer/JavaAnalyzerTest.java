@@ -393,7 +393,7 @@ public class JavaAnalyzerTest {
         assertTrue(maybeFile.isPresent());
 
         final var children =
-                analyzer.directChildren(maybeClassD.get()).stream().sorted().toList();
+                analyzer.getDirectChildren(maybeClassD.get()).stream().sorted().toList();
         final var file = maybeFile.get();
 
         final var expected = Stream.of(

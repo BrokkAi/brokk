@@ -166,6 +166,7 @@ public class ModelSelector {
             String[] availableModelNames =
                     service.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
             if (availableModelNames.length == 0) {
+                dialogOpen = false;
                 JOptionPane.showMessageDialog(
                         chrome.getFrame(),
                         "No models available to configure",
@@ -187,6 +188,9 @@ public class ModelSelector {
                     .filter(a -> before.stream().noneMatch(b -> b.equals(a)))
                     .findFirst();
 
+            // Reset dialogOpen BEFORE notifying listeners or reverting selection
+            dialogOpen = false;
+
             if (maybeNew.isPresent()) {
                 lastSelected = maybeNew.get();
                 splitButton.setText(lastSelected.alias());
@@ -198,8 +202,9 @@ public class ModelSelector {
                 // No new favorite created: restore prior selection (or default)
                 revertSelection(priorSelection);
             }
-        } finally {
+        } catch (Exception e) {
             dialogOpen = false;
+            throw e;
         }
     }
 

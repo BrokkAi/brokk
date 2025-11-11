@@ -49,8 +49,6 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
 import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -113,7 +111,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return new LoggingExecutorService(
                 toWrap,
                 th -> GlobalExceptionHandler.handle(
-                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
+                        th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st)));
     }
 
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
@@ -139,7 +137,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ServiceWrapper service;
 
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final IProject project;
 
     // Cached exception reporter for this context
@@ -1492,15 +1489,33 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        var current = getTaskList();
-        var combined = new ArrayList<TaskList.TaskItem>(current.tasks());
+        // Load current state from storage to avoid using stale in-memory copy
+        TaskList.TaskListData currentData;
+        try {
+            currentData =
+                    project.getSessionManager().readTaskList(currentSessionId).get();
+        } catch (Exception ex) {
+            logger.debug("Unable to read current task list, using in-memory copy", ex);
+            currentData = getTaskList();
+        }
+        var currentTasks = currentData != null ? currentData.tasks() : List.<TaskList.TaskItem>of();
+
+        // Collect pre-existing incomplete task texts to pass to UI
+        var preExistingIncompleteTasks = currentTasks.stream()
+                .filter(t -> !t.done())
+                .map(t -> t.text().strip())
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toSet());
+
+        var combined = new ArrayList<TaskList.TaskItem>(currentTasks);
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
         setTaskList(newData);
 
         if (io instanceof Chrome chrome) {
-            chrome.refreshTaskListUI();
+            // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
+            chrome.refreshTaskListUI(true, preExistingIncompleteTasks);
         }
 
         io.showNotification(
@@ -1751,7 +1766,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
         var future = new CompletableFuture<String>();
 
-        var worker = new SummarizeWorker(this, input, 5) {
+        var worker = new SummarizeWorker(this, input, SummarizerPrompts.WORD_BUDGET_5) {
             @Override
             protected void done() {
                 try {
@@ -2083,8 +2098,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return null;
                 }
                 project.saveStyleGuide(styleGuide);
+
+                String savedFileName;
+                Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
+                if (Files.exists(agentsPath)) {
+                    savedFileName = "AGENTS.md";
+                } else {
+                    savedFileName = ".brokk/style.md";
+                }
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to .brokk/style.md");
+                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
             }
@@ -2184,10 +2207,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private boolean closed = false;
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
-
-        private TaskScope(boolean compressResults) {
-            this(compressResults, null);
-        }
 
         private TaskScope(boolean compressResults, @Nullable String groupLabel) {
             this.compressResults = compressResults;
@@ -2606,12 +2625,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         restorer.restore(gitState);
     }
 
-    // Convert a throwable to a string with full stack trace
-    private String getStackTraceAsString(Throwable throwable) {
-        var sw = new StringWriter();
-        var pw = new PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
+    /**
+     * Override the active {@link IConsoleIO}. Intended for headless execution: callers should install
+     * their console implementation before starting a job and restore the previous console around the job run.
+     *
+     * <p>The provided console must be non-null; it will be wired into {@link UserActionManager} so that
+     * user-action callbacks and background tasks emit events through the replacement console.
+     */
+    public void setIo(IConsoleIO io) {
+        this.io = io;
+        this.userActions.setIo(this.io);
     }
 
     @Override

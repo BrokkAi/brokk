@@ -68,7 +68,6 @@ import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
@@ -115,9 +114,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JPanel changesTabPlaceholder;
-
-    @Nullable
-    private JPanel outputTabContent;
 
     @Nullable
     private JComponent aggregatedChangesPanel;
@@ -274,7 +270,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .switchSessionAsync(sel.id())
                                 .thenRun(() -> updateSessionComboBox())
                                 .exceptionally(ex -> {
-                                    chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                    logger.debug("Session switch rejected", ex);
+                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                     return null;
                                 });
                     }
@@ -301,7 +298,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     .switchSessionAsync(sel.id())
                                     .thenRun(() -> updateSessionComboBox())
                                     .exceptionally(ex -> {
-                                        chrome.toolError("Failed to switch sessions: " + ex.getMessage());
+                                        logger.debug("Session switch rejected", ex);
+                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
                                         return null;
                                     });
                         }
@@ -346,7 +344,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         };
         this.historyTable = new JTable(this.historyModel);
-        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
+        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable);
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
 
@@ -443,9 +441,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Save as the output tab content wrapper
-        this.outputTabContent = outputPanel;
-
         // Placeholder for the Changes tab
         var placeholder = new JPanel(new BorderLayout());
         var placeholderLabel = new JLabel("Changes will appear here", SwingConstants.CENTER);
@@ -465,78 +460,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
 
         return centerContainer;
-    }
-
-    /**
-     * Builds the Sessions panel container (temporary until removal).
-     * <p>
-     * Note: The "New Session" control has been relocated to the Output panel bar (east side).
-     * The session name label is shown under the Output section title.
-     * This panel currently does not render the new session control to avoid duplication.
-     */
-    private JPanel buildSessionControlsPanel(JLabel sessionNameLabel, SplitButton newSessionButton) {
-        var panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Sessions",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
-
-        // Top row: compact layout with button on the left and the session name on the right.
-        var topRow = new JPanel(new BorderLayout(6, 0));
-        topRow.setOpaque(false);
-
-        // Ensure new session button has its tooltip and primary action defined by caller.
-        // (Action listener that creates a session is attached where the button is created.)
-
-        // New session button intentionally not added here; it lives in the Output panel bar.
-
-        // Session name label moved under the Output panel title; not added here.
-
-        panel.add(topRow, BorderLayout.NORTH);
-
-        // Populate the label and session list data
-        updateSessionComboBox();
-
-        return panel;
-    }
-
-    private JList<SessionInfo> buildSessionsList() {
-        var model = new DefaultListModel<SessionInfo>();
-        var list = new JList<SessionInfo>(model);
-        list.setVisibleRowCount(8);
-        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setCellRenderer(new SessionInfoRenderer());
-
-        // Mouse handling: clicking a session switches to it and closes the popup if present.
-        list.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                var sel = list.getSelectedValue();
-                if (sel == null) return;
-                UUID current = contextManager.getCurrentSessionId();
-                if (!sel.id().equals(current)) {
-                    contextManager
-                            .switchSessionAsync(sel.id())
-                            .thenRun(() -> updateSessionComboBox())
-                            .exceptionally(ex -> {
-                                chrome.toolError("Failed to switch sessions: " + ex.getMessage());
-                                return null;
-                            });
-                }
-                // Try to close enclosing JPopupMenu if any
-                Component c = list;
-                while (c != null && !(c instanceof JPopupMenu)) {
-                    c = c.getParent();
-                }
-                if (c instanceof JPopupMenu popup) {
-                    popup.setVisible(false);
-                }
-            }
-        });
-
-        return list;
     }
 
     // Integrator note: When sessions are created/deleted/renamed externally, call
@@ -1813,7 +1736,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    private static String toHex(Color c) {
+    private static String toHex(@Nullable Color c) {
         if (c == null) return "#000000";
         return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
     }
@@ -1893,6 +1816,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Returns true if the MarkdownOutputPanel has displayable content.
+     *
+     * <p>This method checks if there is rendered output visible in the panel, even if
+     * {@link #getLlmRawMessages()} returns an empty list due to staged {@code pendingHistory}.
+     * It is suitable for determining UI state (e.g., enabling/disabling buttons) based on
+     * whether there is actual content to display.
+     *
+     * @return true if the panel has displayable output, false otherwise
+     */
+    public boolean hasDisplayableOutput() {
+        // First check if there is rendered/displayed text in the panel
+        String displayedText = llmStreamArea.getDisplayedText();
+        if (!displayedText.isEmpty()) {
+            return true;
+        }
+
+        // Fall back to checking raw messages (in case displayed text is not yet available)
+        return !llmStreamArea.getRawMessages().isEmpty();
+    }
+
+    /**
      * Displays a full conversation, splitting it between the history area (for all but the last task) and the main area
      * (for the last task).
      *
@@ -1910,22 +1854,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Preset the next history to show on the Output panel without immediately updating the UI;
      * the preset will apply automatically on the first token of the next new message, the main area will be cleared.
+     * Must be called on EDT (Chrome ensures this).
      */
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        Runnable r = () -> pendingHistory = history;
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
+        assert SwingUtilities.isEventDispatchThread() : "prepareOutputForNextStream must be called on EDT";
+        pendingHistory = history;
     }
 
     /**
      * If a preset history is staged and this is the start of a new message, apply the preset before any text append.
      * Must be called on the EDT.
      */
-    private void applyPresetIfNeeded(boolean isNewMessage) {
-        if (!isNewMessage || pendingHistory == null) {
+    private void applyPresetIfNeeded() {
+        if (pendingHistory == null) {
             return;
         }
 
@@ -1943,7 +1884,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /** Appends text to the LLM output area */
     public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         // Apply any staged preset exactly once before the first token of the next stream
-        applyPresetIfNeeded(isNewMessage);
+        applyPresetIfNeeded();
 
         llmStreamArea.append(text, type, isNewMessage, isReasoning);
         activeStreamingWindows.forEach(
@@ -2247,7 +2188,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             continue;
                         }
                         var ter = tr.executeTool(req);
-                        if (ter.status() == ToolExecutionResult.Status.FAILURE) {
+                        if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                         }
                     }
@@ -2832,14 +2773,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Use the typed API matching buildAggregatedChangesPanel: BufferSource.StringSource +
             // addComparison(BufferSource, BufferSource)
-            String leftContent = de.oldContent() == null ? "" : de.oldContent();
+            String leftContent = de.oldContent();
             String rightContent = safeFragmentText(de);
             BufferSource left = new BufferSource.StringSource(leftContent, "Previous", pathDisplay, null);
             BufferSource right = new BufferSource.StringSource(rightContent, "Current", pathDisplay, null);
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
+        // user's choice when they toggle view (Fixes #1679)
         var panel = builder.build();
         panel.showInFrame("Diff: " + ctx.getAction());
     }
@@ -2916,7 +2858,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        if (earliestContent != null) {
+                        if (earliestContent != null && latestContent != null) {
                             // Compute net diff for this fragment
                             int[] netCounts = computeNetLineCounts(earliestContent, latestContent);
                             totalAdded += netCounts[0];
@@ -3042,7 +2984,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             builder.addComparison(left, right);
         }
 
-        if (!GlobalUiSettings.isDiffUnifiedView()) GlobalUiSettings.saveDiffUnifiedView(true);
+        // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice
+        // when they toggle view (Fixes #1679)
         var diffPanel = builder.build();
         aggregatedChangesPanel = diffPanel;
         // Ensure the embedded diff reflects the current theme immediately
@@ -3075,14 +3018,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /** A LayerUI that paints reset-from-history arrows over the history table. */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         private final JTable table;
-        private final DefaultTableModel model;
         private List<ContextHistory.ResetEdge> resetEdges = List.of();
         private final Map<ContextHistory.ResetEdge, Integer> edgePaletteIndices = new HashMap<>();
         private int nextPaletteIndex = 0;
 
-        public ResetArrowLayerUI(JTable table, DefaultTableModel model) {
+        public ResetArrowLayerUI(JTable table) {
             this.table = table;
-            this.model = model;
         }
 
         public void setResetEdges(List<ContextHistory.ResetEdge> edges) {
