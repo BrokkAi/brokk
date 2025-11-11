@@ -73,13 +73,10 @@ public class StyleGuideMigrator {
     
     // If git repo provided, stage the rename operation
     if (gitRepo != null) {
-    String legacyRelPath = legacyStyle.getRelPath().toString();
-    String agentsRelPath = agentsFile.getRelPath().toString();
-    
     // Try using GitRepo.move for proper rename staging
     try {
-    gitRepo.move(legacyRelPath, agentsRelPath);
-    logger.debug("Staged rename using GitRepo.move: {} -> {}", legacyRelPath, agentsRelPath);
+    gitRepo.move(legacyStyle.getRelPath().toString(), agentsFile.getRelPath().toString());
+    logger.debug("Staged rename using GitRepo.move: {} -> {}", legacyStyle.getRelPath(), agentsFile.getRelPath());
     // GitRepo.move already deleted the source file, no need to delete again
     } catch (Exception moveEx) {
     logger.debug("GitRepo.move failed ({}), falling back to add/remove", moveEx.getMessage());
@@ -87,19 +84,19 @@ public class StyleGuideMigrator {
     // Fallback: explicitly stage add and remove
     try {
     gitRepo.add(List.of(agentsFile));
-    logger.debug("Staged addition of AGENTS.md at {}", agentsRelPath);
+    logger.debug("Staged addition of AGENTS.md at {}", agentsFile.getRelPath());
     } catch (Exception addEx) {
-    logger.warn("Failed to stage AGENTS.md addition at {}: {}", agentsRelPath, addEx.getMessage());
+    logger.warn("Failed to stage AGENTS.md addition at {}: {}", agentsFile.getRelPath(), addEx.getMessage());
     throw addEx;
     }
     
     try {
     gitRepo.remove(legacyStyle);
-    logger.debug("Staged removal of .brokk/style.md at {}", legacyRelPath);
+    logger.debug("Staged removal of .brokk/style.md at {}", legacyStyle.getRelPath());
     } catch (Exception removeEx) {
     logger.warn(
     "Failed to stage .brokk/style.md removal at {}: {}",
-    legacyRelPath,
+    legacyStyle.getRelPath(),
     removeEx.getMessage());
     throw removeEx;
     }

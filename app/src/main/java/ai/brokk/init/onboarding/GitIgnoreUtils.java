@@ -40,8 +40,8 @@ public class GitIgnoreUtils {
     var trimmed = line.trim();
     
     // Remove trailing comments
-    var commentIndex = trimmed.indexOf('#');
-    if (commentIndex > 0) {
+    int commentIndex = trimmed.indexOf('#');
+    if (commentIndex >= 0) {
     trimmed = trimmed.substring(0, commentIndex).trim();
     }
     
