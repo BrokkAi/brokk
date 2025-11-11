@@ -1,17 +1,17 @@
 package ai.brokk.tools;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.Context;
-import java.util.Set;
 import ai.brokk.context.ContextFragment;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 public class WorkspaceToolsUsagesGuardrailTest {
 
@@ -89,7 +89,8 @@ public class WorkspaceToolsUsagesGuardrailTest {
 
         // Verify no UsageFragment was added
         var ctx = tools.getContext();
-        boolean hasUsageFragment = ctx.virtualFragments().anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
+        boolean hasUsageFragment =
+                ctx.virtualFragments().anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
         assertFalse(hasUsageFragment, "UsageFragment should not be added when TooManyCallsites");
 
         // Verify return string indicates abort
@@ -111,8 +112,8 @@ public class WorkspaceToolsUsagesGuardrailTest {
 
         // Verify a UsageFragment was added
         var ctx = tools.getContext();
-        boolean hasUsageFragment = ctx.virtualFragments()
-                .anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
+        boolean hasUsageFragment =
+                ctx.virtualFragments().anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
         assertTrue(hasUsageFragment, "Expected UsageFragment to be added on Success");
 
         // Verify return string indicates addition
@@ -134,8 +135,8 @@ public class WorkspaceToolsUsagesGuardrailTest {
 
         // Verify a UsageFragment was added
         var ctx = tools.getContext();
-        boolean hasUsageFragment = ctx.virtualFragments()
-                .anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
+        boolean hasUsageFragment =
+                ctx.virtualFragments().anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
         assertTrue(hasUsageFragment, "Expected UsageFragment to be added on Ambiguous");
 
         // Verify return string indicates addition
@@ -157,8 +158,8 @@ public class WorkspaceToolsUsagesGuardrailTest {
 
         // Verify a UsageFragment was added (it will render the failure message when evaluated)
         var ctx = tools.getContext();
-        boolean hasUsageFragment = ctx.virtualFragments()
-                .anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
+        boolean hasUsageFragment =
+                ctx.virtualFragments().anyMatch(vf -> vf.getType() == ContextFragment.FragmentType.USAGE);
         assertTrue(hasUsageFragment, "Expected UsageFragment to be added on Failure");
 
         // Verify return string indicates addition

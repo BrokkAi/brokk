@@ -52,14 +52,13 @@ public sealed interface FuzzyResult
         if (this instanceof FuzzyResult.Failure failure) {
             return EitherUsagesOrError.from("No relevant usages found for symbol: " + failure.reason());
         } else if (this instanceof FuzzyResult.TooManyCallsites tooManyCallsites) {
-            return EitherUsagesOrError.from(
-                    "Too many call sites for symbol: "
-                            + tooManyCallsites.shortName()
-                            + " ("
-                            + tooManyCallsites.totalCallsites()
-                            + " > limit "
-                            + tooManyCallsites.limit()
-                            + ")");
+            return EitherUsagesOrError.from("Too many call sites for symbol: "
+                    + tooManyCallsites.shortName()
+                    + " ("
+                    + tooManyCallsites.totalCallsites()
+                    + " > limit "
+                    + tooManyCallsites.limit()
+                    + ")");
         }
 
         Set<UsageHit> uses = new HashSet<>();
