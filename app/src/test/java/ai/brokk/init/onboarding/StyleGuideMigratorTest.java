@@ -2,6 +2,7 @@ package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.init.onboarding.StyleGuideMigrator.MigrationResult;
@@ -65,7 +66,9 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "# Legacy Style Guide\nOld content here");
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
 
         // Verify migration performed
         assertTrue(result.performed(), "Migration should be performed");
@@ -89,7 +92,9 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "# Style Content");
 
         // Perform migration without git
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, null);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, null);
 
         // Verify migration performed
         assertTrue(result.performed(), "Migration should be performed");
@@ -108,7 +113,9 @@ class StyleGuideMigratorTest {
         Files.writeString(agentsFile, "# Current Content");
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
 
         // Verify NO migration performed
         assertFalse(result.performed(), "Should not migrate when target exists with content");
@@ -129,7 +136,9 @@ class StyleGuideMigratorTest {
         Files.writeString(agentsFile, "");
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
 
         // Verify migration performed
         assertTrue(result.performed(), "Migration should proceed for empty target");
@@ -144,7 +153,9 @@ class StyleGuideMigratorTest {
         // Don't create legacy file
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
 
         // Verify NO migration performed
         assertFalse(result.performed(), "Should not migrate when legacy file missing");
@@ -158,7 +169,9 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "");
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
 
         // Verify NO migration performed
         assertFalse(result.performed(), "Should not migrate empty legacy file");
@@ -172,11 +185,13 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "# Content");
 
         // Perform migration first time
-        MigrationResult result1 = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result1 = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
         assertTrue(result1.performed(), "First migration should succeed");
 
         // Perform migration second time
-        MigrationResult result2 = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        MigrationResult result2 = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
         assertFalse(result2.performed(), "Second migration should be no-op");
 
         // Verify AGENTS.md still has correct content
@@ -200,7 +215,9 @@ class StyleGuideMigratorTest {
         }
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
         assertTrue(result.performed(), "Migration should succeed");
 
         // Verify files on disk
@@ -236,7 +253,9 @@ class StyleGuideMigratorTest {
         Files.writeString(legacyFile, "# Fresh Style Guide");
 
         // Perform migration
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, gitRepo);
         assertTrue(result.performed(), "Migration should succeed");
 
         // Verify Git staging
@@ -272,13 +291,20 @@ class StyleGuideMigratorTest {
             }
 
             @Override
-            public synchronized void add(Path path) {
+            public synchronized void add(java.util.Collection<ProjectFile> files) {
                 throw new RuntimeException("Simulated add failure");
+            }
+
+            @Override
+            public synchronized void remove(ProjectFile file) {
+                throw new RuntimeException("Simulated remove failure");
             }
         };
 
         // Migration should fail due to git staging errors
-        MigrationResult result = StyleGuideMigrator.migrate(brokkDir, agentsFile, failingGitRepo);
+        var legacyStyle = new ProjectFile(projectRoot, ".brokk/style.md");
+        var agentsFilePf = new ProjectFile(projectRoot, "AGENTS.md");
+        MigrationResult result = StyleGuideMigrator.migrate(legacyStyle, agentsFilePf, failingGitRepo);
 
         assertFalse(result.performed(), "Migration should fail when git operations fail");
         assertTrue(

@@ -1104,15 +1104,16 @@ public final class MainProject extends AbstractProject {
      */
     public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
         try {
-            var brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
-            var agentsFile = getMasterRootPathForConfig().resolve(STYLE_GUIDE_FILE);
+            var gitTopLevel = getMasterRootPathForConfig();
+            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
             var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
 
             logger.info(
                     "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",
                     getRoot().getFileName());
 
-            var result = StyleGuideMigrator.migrate(brokkDir, agentsFile, gitRepo);
+            var result = StyleGuideMigrator.migrate(legacyStyle, agentsFile, gitRepo);
 
             if (result.performed()) {
                 logger.info("Migration successful: {}", result.message());
