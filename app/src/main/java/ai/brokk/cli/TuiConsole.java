@@ -115,9 +115,11 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
         Objects.requireNonNull(history, "history");
-        synchronized (renderLock) {
+        updateStateAndRender(() -> {
             stagedHistory = List.copyOf(history);
-        }
+            outputBuffer.setLength(0);
+            resetTranscript();
+        });
     }
 
     @Override
@@ -152,18 +154,14 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
 
     @Override
     public void showOutputSpinner(String message) {
-        updateStateAndRender(() -> {
-            spinnerVisible = true;
-            spinnerMessage = message == null ? "" : message;
-        });
+        spinnerMessage = message == null ? "" : message;
+        updateHeader(lastTokenUsageBar, balanceOverrideOrNull(), true);
     }
 
     @Override
     public void hideOutputSpinner() {
-        updateStateAndRender(() -> {
-            spinnerVisible = false;
-            spinnerMessage = "";
-        });
+        spinnerMessage = "";
+        updateHeader(lastTokenUsageBar, balanceOverrideOrNull(), false);
     }
 
     @Override
@@ -202,7 +200,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     }
 
     public void updateTokenUsageSummary(String summary) {
-        updateStateAndRender(() -> lastTokenUsageBar = summary == null ? "" : summary);
+        updateHeader(summary, balanceOverrideOrNull(), spinnerVisible);
     }
 
     public void clearTokenUsage() {
@@ -433,6 +431,11 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         }
         outputBuffer.append('\n');
         stagedHistory = List.of();
+    }
+
+    @Nullable
+    private String balanceOverrideOrNull() {
+        return hasBalanceOverride ? balanceText : null;
     }
 
     private void updateStateAndRender(Runnable update) {
