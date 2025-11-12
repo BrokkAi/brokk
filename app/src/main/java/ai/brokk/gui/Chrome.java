@@ -187,6 +187,8 @@ public class Chrome
     // Pin exact Instructions height (in px) during collapse so only Output resizes
     private int pinnedInstructionsHeightPx = -1;
 
+    private final boolean experimentalSplitLayout;
+
     // Guard to prevent recursion when clamping the Output↔Bottom divider
     private boolean adjustingMainDivider = false;
 
@@ -195,9 +197,9 @@ public class Chrome
     private JLabel backgroundStatusLabel;
     private final JPanel bottomPanel;
 
-    private final JSplitPane topSplitPane; // Activity | (Workspace+Instructions)
+    private final JSplitPane topSplitPane; // Activity | (Workspace+Instructions) when experimental layout is enabled
     private final JSplitPane mainVerticalSplitPane; // Workspace (top) | Instructions (bottom)
-    private final JSplitPane mainHorizontalSplitPane; // Activity+Instructions | Output+Changes
+    private final @Nullable JSplitPane mainHorizontalSplitPane; // Activity+Instructions | Output+Changes (null when experimental layout is disabled)
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
@@ -640,34 +642,61 @@ public class Chrome
         // No right-side drawer; the rightTabbedContainer occupies full right side
         rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
 
-        // Attach the combined components as the bottom component
+        boolean useNewLayout = GlobalUiSettings.isExperimentalSplitLayout();
+        this.experimentalSplitLayout = useNewLayout;
+
         workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        // Use the container (with header) as the bottom component so the header sits just north of the tabs.
         workspaceInstructionsSplit.setBottomComponent(rightTabbedContainer);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
-        // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
 
-        // NEW LAYOUT:
-        // New vertical split for Activity over (Workspace + Instructions)
-        var activityInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        activityInstructionsSplit.setTopComponent(historyOutputPanel.getActivityContainer());
-        activityInstructionsSplit.setBottomComponent(workspaceInstructionsSplit);
-        activityInstructionsSplit.setResizeWeight(0.4); // Activity gets 40%
-        activityInstructionsSplit.setMinimumSize(new Dimension(250, 0));
+        JSplitPane configuredTopSplit;
+        JSplitPane configuredMainVerticalSplit = workspaceInstructionsSplit;
+        @Nullable JSplitPane configuredMainHorizontalSplit;
 
-        // Assign to fields for persistence.
-        // `topSplitPane` now controls Activity vs (Workspace+Instructions).
-        // `mainVerticalSplitPane` now controls Workspace vs Instructions.
-        topSplitPane = activityInstructionsSplit;
-        mainVerticalSplitPane = workspaceInstructionsSplit;
+        if (useNewLayout) {
+            var activityInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+            activityInstructionsSplit.setTopComponent(historyOutputPanel.getActivityContainer());
+            activityInstructionsSplit.setBottomComponent(workspaceInstructionsSplit);
+            activityInstructionsSplit.setResizeWeight(0.4); // Activity gets 40%
+            activityInstructionsSplit.setMinimumSize(new Dimension(250, 0));
 
-        // New horizontal split for the whole east side
-        var eastSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        eastSplit.setLeftComponent(activityInstructionsSplit);
-        eastSplit.setRightComponent(historyOutputPanel.getOutputChangesContainer());
-        eastSplit.setResizeWeight(0.35); // Left side (activity/instructions) gets 35%
-        this.mainHorizontalSplitPane = eastSplit;
+            var eastSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+            eastSplit.setLeftComponent(activityInstructionsSplit);
+            eastSplit.setRightComponent(historyOutputPanel.getOutputChangesContainer());
+            eastSplit.setResizeWeight(0.35); // Left side (activity/instructions) gets 35%
+            eastSplit.setMinimumSize(new Dimension(200, 0));
+
+            configuredTopSplit = activityInstructionsSplit;
+            configuredMainHorizontalSplit = eastSplit;
+        } else {
+            var outputStack = new JPanel(new BorderLayout());
+            outputStack.add(historyOutputPanel.getActivityContainer(), BorderLayout.NORTH);
+            outputStack.add(historyOutputPanel.getOutputChangesContainer(), BorderLayout.CENTER);
+            rightTabbedPanel.addTab("Output", null, outputStack);
+            int outputTabIndex = rightTabbedPanel.indexOfComponent(outputStack);
+            if (outputTabIndex != -1) {
+                rightTabbedPanel.setToolTipTextAt(outputTabIndex, "View activity and output history");
+            }
+
+            var legacyTopSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+            var placeholder = new JPanel();
+            placeholder.setMinimumSize(new Dimension(0, 0));
+            placeholder.setPreferredSize(new Dimension(0, 0));
+            legacyTopSplit.setTopComponent(placeholder);
+            legacyTopSplit.setBottomComponent(workspaceInstructionsSplit);
+            legacyTopSplit.setResizeWeight(0.0);
+            legacyTopSplit.setDividerLocation(0);
+            legacyTopSplit.setDividerSize(0);
+            legacyTopSplit.setMinimumSize(new Dimension(200, 325));
+
+            configuredTopSplit = legacyTopSplit;
+            configuredMainHorizontalSplit = null;
+        }
+
+        topSplitPane = configuredTopSplit;
+        mainVerticalSplitPane = configuredMainVerticalSplit;
+        mainHorizontalSplitPane = configuredMainHorizontalSplit;
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -685,9 +714,15 @@ public class Chrome
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
         bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
-        bottomSplitPane.setRightComponent(eastSplit);
+        if (mainHorizontalSplitPane != null) {
+            bottomSplitPane.setRightComponent(mainHorizontalSplitPane);
+        } else {
+            bottomSplitPane.setRightComponent(mainVerticalSplitPane);
+        }
         // Ensure the right stack can shrink enough so the sidebar can grow
-        eastSplit.setMinimumSize(new Dimension(200, 0));
+        if (mainHorizontalSplitPane != null) {
+            mainHorizontalSplitPane.setMinimumSize(new Dimension(200, 0));
+        }
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
         int tempDividerLocation = 300; // Reasonable default that will be recalculated
@@ -2384,14 +2419,15 @@ public class Chrome
         }
 
         // Set initial divider for eastSplit (left stack vs Output+Changes) using repurposed right vertical position
-        int eastSplitPos = GlobalUiSettings.getRightVerticalSplitPosition();
-        if (eastSplitPos > 0) {
-            mainHorizontalSplitPane.setDividerLocation(eastSplitPos);
-        } else {
-            // Calculate absolute position: left side gets 35%
-            int eastSplitWidth = mainHorizontalSplitPane.getWidth();
-            int defaultEastSplitPos = (int) (eastSplitWidth * 0.35);
-            mainHorizontalSplitPane.setDividerLocation(defaultEastSplitPos);
+        if (mainHorizontalSplitPane != null) {
+            int eastSplitPos = GlobalUiSettings.getRightVerticalSplitPosition();
+            if (eastSplitPos > 0) {
+                mainHorizontalSplitPane.setDividerLocation(eastSplitPos);
+            } else {
+                int eastSplitWidth = Math.max(0, mainHorizontalSplitPane.getWidth());
+                int defaultEastSplitPos = (int) (eastSplitWidth * 0.35);
+                mainHorizontalSplitPane.setDividerLocation(defaultEastSplitPos);
+            }
         }
 
         // Apply title bar now that layout is complete
@@ -2514,16 +2550,17 @@ public class Chrome
             }
         });
 
-        mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (mainHorizontalSplitPane.isShowing()) {
-                var newPos = mainHorizontalSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Repurpose "right vertical split" key for horizontal position (eastSplit)
-                    project.saveRightVerticalSplitPosition(newPos);
-                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+        if (mainHorizontalSplitPane != null) {
+            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (mainHorizontalSplitPane.isShowing()) {
+                    var newPos = mainHorizontalSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveRightVerticalSplitPosition(newPos);
+                        GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+                    }
                 }
-            }
-        });
+            });
+        }
 
         bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
             if (bottomSplitPane.isShowing()) {
@@ -3716,6 +3753,11 @@ public class Chrome
      */
     public void setWorkspaceCollapsed(boolean collapsed) {
         Runnable r = () -> {
+            if (!experimentalSplitLayout) {
+                workspaceCollapsed = false;
+                pinnedInstructionsHeightPx = -1;
+                return;
+            }
             if (this.workspaceCollapsed == collapsed) {
                 return;
             }
