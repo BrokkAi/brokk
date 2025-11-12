@@ -3024,6 +3024,15 @@ public class Chrome
         }
     }
 
+    public void applyVerticalActivityLayout() {
+        SwingUtil.runOnEdt(() -> {
+            boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
+            logger.debug("Vertical activity layout is currently {}", enabled ? "enabled" : "disabled");
+            frame.revalidate();
+            frame.repaint();
+        });
+    }
+
     /**
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
