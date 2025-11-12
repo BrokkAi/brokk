@@ -20,7 +20,6 @@ export function buildUnifiedDiff(search: string, replace: string): UnifiedDiff {
 
   for (const part of diff) {
     const partLines = part.value.split('\n');
-    const prefix = part.added ? '+' : part.removed ? '-' : ' ';
     const bucket = part.added ? result.added : part.removed ? result.removed : null;
 
     for (let i = 0; i < partLines.length; i++) {
@@ -30,7 +29,7 @@ export function buildUnifiedDiff(search: string, replace: string): UnifiedDiff {
       if (line === '' && i === partLines.length - 1 && partLines.length > 1) continue;
 
       currentLine++;
-      lines.push(prefix + line);
+      lines.push(line);
       if (bucket) {
         bucket.push(currentLine);
       }

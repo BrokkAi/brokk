@@ -12,6 +12,14 @@ export function unregister(seq: number): void {
     handlers.delete(seq);
 }
 
+export function isRegistered(seq: number): boolean {
+    return handlers.has(seq);
+}
+
+export function getRegisteredSeqs(): number[] {
+    return Array.from(handlers.keys());
+}
+
 /**
  * Routes a worker result to the appropriate registered handler.
  * This is the single entry point for all worker results.

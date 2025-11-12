@@ -825,6 +825,10 @@ public class Finder {
                     apiString = "oracle_open_jdk";
                 }
 
+                // Fix for issue #1714: Handle paths without file separator
+                int lastSeparatorIndex = parentPath.lastIndexOf(File.separator);
+                String location = lastSeparatorIndex >= 0 ? parentPath.substring(0, lastSeparatorIndex) : "";
+
                 Distro distributionFound = new Distro(
                         name,
                         apiString,
@@ -837,7 +841,7 @@ public class Finder {
                         feature,
                         buildScope,
                         handledBySdkman,
-                        parentPath.substring(0, parentPath.lastIndexOf(File.separator)));
+                        location);
                 distributionFound.setModules(modules);
                 if (inUse.get()) {
                     distributionFound.setInUse(true);

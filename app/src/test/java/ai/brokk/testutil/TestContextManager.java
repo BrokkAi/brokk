@@ -1,16 +1,14 @@
 package ai.brokk.testutil;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.Service;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.git.TestRepo;
-import ai.brokk.prompts.EditBlockParser;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
@@ -149,12 +147,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Service getService() {
+    public AbstractService getService() {
         return stubService;
     }
 
-    public EditBlockParser getParserForWorkspace() {
-        return EditBlockParser.instance;
+    @Override
+    public StreamingChatModel getCodeModel() {
+        return null;
     }
 
     /**

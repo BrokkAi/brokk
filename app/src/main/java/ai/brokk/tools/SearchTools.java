@@ -104,7 +104,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Retrieves summaries (fields and method signatures) for all classes defined within specified project files.
+                    Retrieves summaries (class fields and method/function signatures) for all classes and top-level functions defined within specified project files.
                     Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
                     This is a fast and efficient way to read multiple related files at once.
                     (But if you don't know where what you want is located, you should use searchSymbols instead.)
@@ -161,8 +161,21 @@ public class SearchTools {
 
     @Tool(
             """
-                    Search for symbols (class/method/field definitions) using static analysis.
-                    This should usually be the first step in a search.
+                    Search for symbols (class/function/field/module definitions) using static analysis.
+                    Output is grouped by file, then by symbol kind within each file.
+
+                    - kinds: CLASS, FUNCTION, FIELD, MODULE
+                    - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
+                    - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
+                    - empty kind sections are omitted
+
+                    Examples:
+                    <file path="src/main/java/com/example/Foo.java">
+                    [CLASS]
+                    - com.example.Foo
+                    [FUNCTION]
+                    - com.example.Foo.bar
+                    </file>
                     """)
     public String searchSymbols(
             @P(
@@ -192,13 +205,41 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        var references = allDefinitions.stream()
-                .map(CodeUnit::fqName)
-                .distinct() // Ensure uniqueness
-                .sorted() // Consistent order
-                .toList();
+        // Group by file, then by kind within each file
+        var fileGroups = allDefinitions.stream()
+                .collect(Collectors.groupingBy(
+                        cu -> cu.source().toString().replace('\\', '/'),
+                        Collectors.groupingBy(cu -> cu.kind().name())));
 
-        return String.join(", ", references);
+        // Build output: sorted files, sorted kinds per file, sorted symbols per kind
+        var result = new StringBuilder();
+        fileGroups.entrySet().stream()
+                .sorted((a, b) -> a.getKey().compareTo(b.getKey()))
+                .forEach(fileEntry -> {
+                    var filePath = fileEntry.getKey();
+                    var kindGroups = fileEntry.getValue();
+
+                    result.append("<file path=\"").append(filePath).append("\">\n");
+
+                    // Emit kind sections in a stable order based on analyzer's CodeUnitType
+                    var kindOrder = List.of("CLASS", "FUNCTION", "FIELD", "MODULE");
+                    kindOrder.forEach(kind -> {
+                        var symbols = kindGroups.get(kind);
+                        if (symbols != null && !symbols.isEmpty()) {
+                            result.append("[").append(kind).append("]\n");
+                            symbols.stream()
+                                    .map(CodeUnit::fqName)
+                                    .distinct()
+                                    .sorted()
+                                    .forEach(fqn ->
+                                            result.append("- ").append(fqn).append("\n"));
+                        }
+                    });
+
+                    result.append("</file>\n");
+                });
+
+        return result.toString();
     }
 
     @Tool(
@@ -298,10 +339,7 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        for (String className : classNames.stream().distinct().toList()) {
-            if (className.isBlank()) {
-                continue;
-            }
+        classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
             var cuOpt = analyzer.getDefinition(className);
             if (cuOpt.isPresent() && cuOpt.get().isClass()) {
                 var cu = cuOpt.get();
@@ -316,7 +354,7 @@ public class SearchTools {
                     }
                 }
             }
-        }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for classes: " + String.join(", ", classNames);
@@ -327,7 +365,48 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full source code of specific methods. Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    Returns the file paths (relative to the project root) where the specified symbols are defined.
+                    Use this to locate where interesting symbols live,
+                    then use getFileSummaries to get an overview of those files.
+                    Accepts all symbol types: classes, methods, fields, and modules.
+                    """)
+    public String getSymbolLocations(
+            @P("Fully qualified symbol names to locate (classes, methods, fields, or modules)") List<String> symbols) {
+        // Sanitize symbols: remove potential `(params)` suffix from LLM.
+        symbols = stripParams(symbols);
+        if (symbols.isEmpty()) {
+            throw new IllegalArgumentException("Cannot get symbol locations: symbols list is empty");
+        }
+
+        var analyzer = getAnalyzer();
+        List<String> locationMappings = new ArrayList<>();
+        List<String> notFound = new ArrayList<>();
+
+        symbols.stream().distinct().filter(s -> !s.isBlank()).forEach(symbol -> {
+            var cuOpt = analyzer.getDefinition(symbol);
+            if (cuOpt.isPresent()) {
+                var cu = cuOpt.get();
+                var filepath = cu.source().toString();
+                locationMappings.add(symbol + " -> " + filepath);
+            } else {
+                notFound.add(symbol);
+            }
+        });
+
+        StringBuilder result = new StringBuilder();
+        result.append(String.join("\n", locationMappings));
+
+        if (!notFound.isEmpty()) {
+            result.append("\n\nNot found: ").append(String.join(", ", notFound));
+        }
+
+        return result.toString();
+    }
+
+    @Tool(
+            """
+                    Returns the full source code of specific methods or functions. Use this to examine the implementation of particular methods without retrieving the entire classes.
+                    Note: Depending on the language/analyzer, "function" may represent either a member method or a free/top-level function.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
@@ -344,10 +423,7 @@ public class SearchTools {
         Set<String> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
-        for (String methodName : methodNames.stream().distinct().toList()) {
-            if (methodName.isBlank()) {
-                continue;
-            }
+        methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
             var cuOpt = analyzer.getDefinition(methodName);
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
                 var cu = cuOpt.get();
@@ -362,7 +438,7 @@ public class SearchTools {
                     }
                 }
             }
-        }
+        });
 
         if (result.isEmpty()) {
             return "No sources found for methods: " + String.join(", ", methodNames);
@@ -447,7 +523,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns file names whose text contents match Java regular expression patterns.
+                    Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
                     This is slower than searchSymbols but can find references to external dependencies and comment strings.
                     """)
     public String searchSubstrings(
@@ -560,7 +636,7 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full contents of the specified files. Use this after searchFilenames or searchSubstrings, or when you need the content of a non-code file.
+                    Returns the full contents of the specified files. Use this after searchFilenames, searchSubstrings or searchSymbols or when you need the content of a non-code file.
                     This can be expensive for large files.
                     """)
     public String getFileContents(

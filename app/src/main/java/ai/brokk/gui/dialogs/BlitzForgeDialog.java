@@ -1309,12 +1309,20 @@ public class BlitzForgeDialog extends JDialog {
         final @Nullable String fPerFileCmd = perFileCommandTemplate;
         final String fContextFilter = contextFilter;
 
-        // Prepare listener dialog + cancel wiring
-        var progressDialog = new BlitzForgeProgressDialog(chrome, cm::interruptLlmAction);
+        // Prepare listener dialog + cancel wiring with logging
+        var progressDialog = new BlitzForgeProgressDialog(chrome, () -> {
+            logger.debug(
+                    "BlitzForge cancel requested (Tools path) on thread {}",
+                    Thread.currentThread().getName());
+            cm.interruptLlmAction();
+        });
 
         // Kick off background execution
         var analyzerWrapper = cm.getAnalyzerWrapper();
         cm.submitLlmAction(() -> {
+            logger.debug(
+                    "BlitzForge parallel processing started (Tools path) on thread {}",
+                    Thread.currentThread().getName());
             analyzerWrapper.pause();
             try (var scope = cm.beginTask(instructions, false)) {
                 var parallelResult = runParallel(

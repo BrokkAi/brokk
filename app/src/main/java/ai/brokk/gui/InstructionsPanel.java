@@ -4,6 +4,7 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -54,7 +55,6 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1015,7 +1015,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int successRate,
             boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
-    private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
+    private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());
         if (pricing.bands().isEmpty()) {
             return "";
@@ -1516,15 +1516,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             assert !query.isBlank();
 
             var cm = chrome.getContextManager();
-            SearchAgent agent = new SearchAgent(
-                    cm.liveContext(),
-                    query,
-                    modelToUse,
-                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    scope);
+            var context = cm.liveContext();
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
             try {
-                var tr = agent.scanInitialContext();
-                scope.append(tr);
+                agent.scanInitialContext();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return new TaskResult(

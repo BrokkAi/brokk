@@ -1,6 +1,6 @@
 import {initProcessor, parseMarkdown} from './processor';
 import type {ErrorMsg, InboundToWorker, OutboundFromWorker, ResultMsg} from './shared';
-import {currentExpandIds} from './expand-state';
+import {currentExpandIds, userCollapsedIds} from './expand-state';
 import {createWorkerLogger} from '../lib/logging';
 
 const workerLogger = createWorkerLogger('markdown-worker');
@@ -40,7 +40,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
     const m: InboundToWorker = ev.data;
     switch (m.type) {
         case 'parse':
-            workerLogger.debug('parse', m.seq, m.updateBuffer, m.text);
+            // workerLogger.debug('parse', m.seq, m.updateBuffer, m.text);
             if (m.updateBuffer) {
                 buffer = m.text;
                 seq = m.seq;
@@ -52,7 +52,17 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
             break;
 
         case 'chunk':
-            workerLogger.debug('chunk', m.seq, m.text);
+            // workerLogger.debug('chunk', m.seq, m.text);
+            // Assert invariant: chunks for a different seq must not arrive while streaming another seq
+            // (a clear-state should separate streams). Log if this happens to catch integration issues.
+            if (busy && seq !== 0 && m.seq !== seq) {
+                workerLogger.error(
+                    'Interleaved chunk seq without clear-state: current seq=' +
+                    String(seq) + ', incoming seq=' + String(m.seq) +
+                    ', runEpoch=' + String(runEpoch)
+                );
+            }
+
             buffer += m.text;
             seq = m.seq;
             if (!busy) {
@@ -62,10 +72,14 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
             break;
 
         case 'clear-state':
-            workerLogger.debug('clear-state', seq, m.flushBeforeClear);
+            // m.flushBeforeClear => true means new message in the current session; false means clear
             if (m.flushBeforeClear && buffer.length > 0) {
                 // Intentionally flush before bumping the epoch to honor explicit flush requests
                 safeParseAndPost(seq, buffer);
+            } else {
+                // only clear edit block expansion state when clearing/ new session
+                currentExpandIds.clear();
+                userCollapsedIds.clear();
             }
             // Invalidate any queued parse requests after the clear
             runEpoch++;
@@ -73,11 +87,18 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
             dirty = false;
             busy = false;
             seq = 0;
-            currentExpandIds.clear();
             break;
 
         case 'expand-diff':
+            // User or auto wants this block expanded: clear any remembered collapse and mark expanded
+            userCollapsedIds.delete(m.blockId);
             currentExpandIds.add(m.blockId);
+            break;
+
+        case 'collapse-diff':
+            // User explicitly collapsed this block: remember it and ensure it won't be auto-expanded
+            currentExpandIds.delete(m.blockId);
+            userCollapsedIds.add(m.blockId);
             break;
     }
 };
@@ -93,7 +114,9 @@ async function parseAndPost(): Promise<void> {
     await new Promise(r => setTimeout(r, 5));
 
     if (seqForThisRun !== seq) {
-    workerLogger.debug('cancel guard: seqForThisRun !== seq', seqForThisRun, seq);
+        // this happens when clean-state is processed when draining events
+        // clean-state flushes the buffer for this seq and reset dirty/busy
+        workerLogger.debug('cancel guard: seqForThisRun !== seq', seqForThisRun, seq);
         return;
     }
 

@@ -17,7 +17,6 @@ import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
-import ai.brokk.agents.SearchAgent.Terminal;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -33,7 +32,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -379,10 +377,9 @@ public final class BrokkCli implements Callable<Integer> {
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 var agent = new SearchAgent(
-                        cm.liveContext(), searchWorkspace, searchModel, EnumSet.of(Terminal.WORKSPACE), scope);
+                        cm.liveContext(), searchWorkspace, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
                 if (!disableContextScan) {
-                    var scanResult = agent.scanInitialContext(searchModel);
-                    scope.append(scanResult);
+                    agent.scanInitialContext(searchModel);
                 }
                 searchResult = agent.execute();
                 scope.append(searchResult);
@@ -588,10 +585,9 @@ public final class BrokkCli implements Callable<Integer> {
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
-                            EnumSet.of(Terminal.ANSWER),
+                            SearchAgent.Objective.ANSWER_ONLY,
                             scope);
-                    var tr = agent.scanInitialContext();
-                    context = scope.append(tr);
+                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
                 } else if (build) {
@@ -640,10 +636,9 @@ public final class BrokkCli implements Callable<Integer> {
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,
-                            EnumSet.of(Terminal.TASK_LIST),
+                            SearchAgent.Objective.TASKS_ONLY,
                             scope);
-                    var tr = agent.scanInitialContext();
-                    context = scope.append(tr);
+                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
 

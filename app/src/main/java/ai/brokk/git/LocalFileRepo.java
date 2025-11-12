@@ -12,6 +12,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -20,6 +21,9 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 public class LocalFileRepo implements IGitRepo {
     private static final Logger logger = LogManager.getLogger(LocalFileRepo.class);
     private final Path root;
+
+    @Nullable
+    private Set<ProjectFile> trackedFilesCache;
 
     public LocalFileRepo(Path root) {
         if (!Files.exists(root) || !Files.isDirectory(root)) {
@@ -44,7 +48,15 @@ public class LocalFileRepo implements IGitRepo {
     }
 
     @Override
-    public Set<ProjectFile> getTrackedFiles() {
+    public synchronized void invalidateCaches() {
+        trackedFilesCache = null;
+    }
+
+    @Override
+    public synchronized Set<ProjectFile> getTrackedFiles() {
+        if (trackedFilesCache != null) {
+            return trackedFilesCache;
+        }
         var trackedFiles = new HashSet<ProjectFile>();
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
@@ -85,6 +97,7 @@ public class LocalFileRepo implements IGitRepo {
             ExceptionReporter.tryReportException(e);
             return Set.of();
         }
-        return trackedFiles;
+        trackedFilesCache = trackedFiles;
+        return trackedFilesCache;
     }
 }

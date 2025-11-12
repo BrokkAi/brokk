@@ -38,7 +38,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         RED
     }
 
-    private WarningLevel warningLevel = WarningLevel.NONE;
+    private final WarningLevel warningLevel = WarningLevel.NONE;
 
     @Nullable
     private Service.ModelConfig modelConfig = null;
@@ -334,7 +334,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
 
         // Second priority: show performance-based warning if tested and issue detected
-        if (warningLevel != WarningLevel.NONE && modelConfig != null && rateIsTested) {
+        if (warningLevel != WarningLevel.NONE && modelConfig != null) {
             String modelName = modelConfig.name();
             if (modelName.contains("-nothink")) {
                 modelName = modelName.replace("-nothink", "");
@@ -360,6 +360,24 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public String getToolTipText(MouseEvent event) {
+        // Expand the effective "over segment" area by a small horizontal margin so
+        // thin gaps or near-edge positions do not show the model-level tooltip.
+        int mouseX = event.getX();
+        int width = getWidth();
+        final int proximity = 4; // pixels to the left/right to treat as part of a segment
+        var segs = computeSegments(width);
+        for (var s : segs) {
+            if (s.widthPx <= 0) continue;
+            int left = Math.max(0, s.startX - proximity);
+            int right = Math.min(width, s.startX + s.widthPx + proximity);
+            if (mouseX >= left && mouseX < right) {
+                // Suppress any tooltip when mouse is over or very near a filled segment.
+                return "";
+            }
+        }
+
+        // Not near any segment, so we're over the unfilled area.
+        // Show the primary/warning tooltip (unchanged behavior).
         String primaryTooltip = computeWarningTooltip(
                 rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
 
@@ -367,20 +385,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return primaryTooltip;
         }
 
-        // Fallback: segment-based tooltips
-        try {
-            int width = getWidth();
-            // Ensure segments correspond to current size
-            var segs = computeSegments(width);
-            int x = Math.max(0, Math.min(event.getX(), width));
-            for (var s : segs) {
-                if (x >= s.startX && x < s.startX + s.widthPx) {
-                    return s.tooltipHtml;
-                }
-            }
-        } catch (Exception e) {
-            logger.trace("Failed to compute tooltip for token bar position", e);
-        }
+        // No segment and no primary tooltip. Fallback to default.
         return super.getToolTipText(event);
     }
 
@@ -520,8 +525,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             // Draw text on top: current tokens in white, aligned to the fill's east edge
             g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
 
-            int fillPixelEnd =
-                    segs.isEmpty() ? 0 : segs.get(segs.size() - 1).startX + segs.get(segs.size() - 1).widthPx;
+            int fillPixelEnd = segs.isEmpty() ? 0 : segs.getLast().startX + segs.getLast().widthPx;
             int usedTokens = computeUsedTokens();
             drawText(g2d, width, height, fillPixelEnd, usedTokens);
 
@@ -640,7 +644,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
-            var s = new Segment(0, Math.max(0, fillWidth), fillColor, "", Set.of(), false);
+            var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
             this.segments = List.of(s);
             return this.segments;
         }
@@ -712,7 +716,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         List<AllocItem> items = new ArrayList<>();
         if (smallCount == 1) {
             // Exactly one "small" fragment: place it normally with a min width and normal label
-            ContextFragment onlySmall = small.get(0);
+            ContextFragment onlySmall = small.getFirst();
             for (var f : nonSummaries) {
                 int t = tokensForFragment(f);
                 double rw = (t * 1.0 / totalTokens) * effectiveFill;
@@ -811,21 +815,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
             if (w.item.isSummaryGroup) {
                 Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
-                String tip = buildAggregateSummaryTooltip(summaries);
                 Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
-                out.add(new Segment(x, w.width, bg, tip, segmentFrags, true));
+                out.add(new Segment(x, w.width, bg, segmentFrags, true));
             } else if (w.item.isOther) {
                 Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
-                String tip = buildOtherTooltip(small);
                 Set<ContextFragment> segmentFrags = Set.copyOf(small);
-                out.add(new Segment(x, w.width, bg, tip, segmentFrags, false));
+                out.add(new Segment(x, w.width, bg, segmentFrags, false));
             } else {
                 ContextFragment frag = Objects.requireNonNull(w.item.frag);
                 FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
                 Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
-                String tip = buildFragmentTooltip(frag);
                 Set<ContextFragment> segmentFrags = Set.of(frag);
-                out.add(new Segment(x, w.width, bg, tip, segmentFrags, false));
+                out.add(new Segment(x, w.width, bg, segmentFrags, false));
             }
 
             x += w.width + SEGMENT_GAP;
@@ -890,21 +891,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         final int startX;
         final int widthPx;
         final Color bg;
-        final String tooltipHtml;
         final Set<ContextFragment> fragments;
         final boolean isSummaryGroup;
 
-        Segment(
-                int startX,
-                int widthPx,
-                Color bg,
-                String tooltipHtml,
-                Set<ContextFragment> fragments,
-                boolean isSummaryGroup) {
+        Segment(int startX, int widthPx, Color bg, Set<ContextFragment> fragments, boolean isSummaryGroup) {
             this.startX = startX;
             this.widthPx = widthPx;
             this.bg = bg;
-            this.tooltipHtml = tooltipHtml;
             this.fragments = fragments;
             this.isSummaryGroup = isSummaryGroup;
         }
@@ -916,182 +909,11 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     // Tooltip helpers (mirroring WorkspaceItemsChipPanel behavior)
 
-    private static String wrapTooltipHtml(String innerHtml, int maxWidthPx) {
-        return "<html><body style='width: " + maxWidthPx + "px'>" + innerHtml + "</body></html>";
-    }
-
-    private static String formatCount(int count) {
-        if (count < 1000) {
-            return String.format("%,d", count);
-        }
-        return String.format("%.1fk", count / 1000.0);
-    }
-
-    private static String buildMetricsHtml(ContextFragment fragment) {
-        try {
-            if (fragment.isText() || fragment.getType().isOutput()) {
-                String text = fragment.text();
-                int loc = text.split("\\r?\\n", -1).length;
-                int tokens = Messages.getApproximateTokens(text);
-                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
-            }
-        } catch (Exception e) {
-            logger.trace("Failed to compute metrics for tooltip", e);
-        }
-        return "";
-    }
-
-    private static String buildSummaryTooltip(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
-
-        StringBuilder body = new StringBuilder();
-
-        String metrics = buildMetricsHtml(fragment);
-        if (!metrics.isEmpty()) {
-            body.append(metrics);
-        }
-
-        body.append("<div><b>Summaries</b></div>");
-        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-
-        if (files.isEmpty()) {
-            String d = fragment.description();
-            body.append(StringEscapeUtils.escapeHtml4(d));
-        } else {
-            body.append("<ul style='margin:0;padding-left:16px'>");
-            for (var f : files) {
-                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
-            }
-            body.append("</ul>");
-        }
-
-        body.append("<br/><i>Click to preview contents</i>");
-        return wrapTooltipHtml(body.toString(), 420);
-    }
-
-    private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.description();
-        String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
-                .replace("\r\n", "\n")
-                .replace("\r", "\n")
-                .replace("\n", "<br/>");
-
-        StringBuilder body = new StringBuilder();
-
-        String metrics = buildMetricsHtml(fragment);
-        if (!metrics.isEmpty()) {
-            body.append(metrics);
-        }
-
-        body.append(descriptionHtml);
-        body.append("<br/><br/><i>Click to preview contents</i>");
-
-        return wrapTooltipHtml(body.toString(), 420);
-    }
-
-    private static String buildFragmentTooltip(ContextFragment fragment) {
-        if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return buildSummaryTooltip(fragment);
-        }
-        return buildDefaultTooltip(fragment);
-    }
-
-    private String buildOtherTooltip(List<ContextFragment> smallFragments) {
-        int totalTokens = 0;
-        int totalLoc = 0;
-        for (var f : smallFragments) {
-            if (f.isText() || f.getType().isOutput()) {
-                try {
-                    String text = f.text();
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
-                } catch (Exception e) {
-                    logger.trace("Failed to compute metrics for tooltip", e);
-                }
-            }
-        }
-        StringBuilder body = new StringBuilder();
-        body.append(String.format(
-                "<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(totalLoc), formatCount(totalTokens)));
-        body.append("<div><b>Other</b></div>");
-        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-
-        if (!smallFragments.isEmpty()) {
-            body.append("<ul style='margin:0;padding-left:16px'>");
-            // List up to 12 items by shortDescription
-            int listed = 0;
-            for (var f : smallFragments) {
-                if (listed >= 12) break;
-                String name = f.shortDescription();
-                body.append("<li>").append(StringEscapeUtils.escapeHtml4(name)).append("</li>");
-                listed++;
-            }
-            if (smallFragments.size() > listed) {
-                body.append("<li>... and ")
-                        .append(smallFragments.size() - listed)
-                        .append(" more</li>");
-            }
-            body.append("</ul>");
-        }
-
-        return wrapTooltipHtml(body.toString(), 420);
-    }
-
-    private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
-        var allFiles = summaries.stream()
-                .flatMap(f -> f.files().stream())
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
-
-        StringBuilder body = new StringBuilder();
-
-        // Aggregate metrics (LOC + tokens) across all summaries
-        int totalLoc = 0;
-        int totalTokens = 0;
-        try {
-            for (var summary : summaries) {
-                String text = summary.text();
-                totalLoc += text.split("\\r?\\n", -1).length;
-                totalTokens += Messages.getApproximateTokens(text);
-            }
-            body.append("<div>")
-                    .append(formatCount(totalLoc))
-                    .append(" LOC \u2022 ~")
-                    .append(formatCount(totalTokens))
-                    .append(" tokens</div><br/>");
-        } catch (Exception e) {
-            logger.trace("Failed to compute aggregate summary metrics", e);
-        }
-
-        // Header and divider
-        body.append("<div><b>Summaries</b></div>");
-        body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-
-        if (allFiles.isEmpty()) {
-            body.append("Multiple summaries");
-        } else {
-            body.append("<ul style='margin:0;padding-left:16px'>");
-            for (var f : allFiles) {
-                body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
-            }
-            body.append("</ul>");
-        }
-
-        body.append("<br/><i>Click to preview all contents</i>");
-        return wrapTooltipHtml(body.toString(), 420);
-    }
-
     private Color getTrackColor() {
         Color panel = UIManager.getColor("Panel.background");
         boolean dark = isDarkTheme();
         if (panel != null) {
-            return dark ? lighten(panel, 0.08f) : darken(panel, 0.18f);
+            return dark ? lighten(panel) : darken(panel);
         }
         Color pb = UIManager.getColor("ProgressBar.background");
         if (pb != null) return pb;
@@ -1102,16 +924,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return UIManager.getBoolean("laf.dark");
     }
 
-    private static Color lighten(Color base, float amount) {
-        amount = Math.max(0f, Math.min(1f, amount));
+    private static Color lighten(Color base) {
+        float amount = 0.08f;
         int r = Math.min(255, Math.round(base.getRed() + (255 - base.getRed()) * amount));
         int g = Math.min(255, Math.round(base.getGreen() + (255 - base.getGreen()) * amount));
         int b = Math.min(255, Math.round(base.getBlue() + (255 - base.getBlue()) * amount));
         return new Color(r, g, b);
     }
 
-    private static Color darken(Color base, float amount) {
-        amount = Math.max(0f, Math.min(1f, amount));
+    private static Color darken(Color base) {
+        float amount = 0.18f;
         int r = Math.max(0, Math.round(base.getRed() * (1f - amount)));
         int g = Math.max(0, Math.round(base.getGreen() * (1f - amount)));
         int b = Math.max(0, Math.round(base.getBlue() * (1f - amount)));

@@ -694,6 +694,10 @@ public class SessionManager implements AutoCloseable {
         return Optional.empty();
     }
 
+    public Path getSessionsDir() {
+        return sessionsDir;
+    }
+
     @Override
     public void close() {
         sessionExecutor.shutdown();
