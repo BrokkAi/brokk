@@ -17,6 +17,8 @@ import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.cli.TuiConsole;
+import ai.brokk.cli.TuiController;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -58,6 +60,11 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--project", description = "Path to the project root.")
     @Nullable
     private Path projectPath;
+
+    @CommandLine.Option(
+            names = "--tui",
+            description = "Launch the interactive Text UI (TUI) instead of one-shot CLI.")
+    private boolean tui = false;
 
     @CommandLine.Option(
             names = {"--edit", "--read"},
@@ -221,14 +228,15 @@ public final class BrokkCli implements Callable<Integer> {
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
+        if (tui) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --tui) can be specified.");
             return 1;
         }
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) or --worktree is required.");
+                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --tui) or --worktree is required.");
             return 1;
         }
 
@@ -446,6 +454,15 @@ public final class BrokkCli implements Callable<Integer> {
         // Push accumulated context changes back to ContextManager
         var finalContext = context;
         cm.pushContext(ctx -> finalContext);
+
+        if (tui) {
+            var console = new TuiConsole(cm);
+            cm.setIo(console);
+            System.out.println("Starting Brokk TUI...");
+            var controller = new TuiController(cm, console);
+            controller.run();
+            return 0;
+        }
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
