@@ -2,12 +2,12 @@ package ai.brokk.cli;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.cli.BalanceFormatter;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.awt.Component;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,32 +18,33 @@ import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Simple text UI console for headless/terminal usage.
- * - Always-visible header with balance and token usage summary
- * - Streams LLM output line-oriented to stdout
- * - Toggleable context chip panel and read-only task list
+ * Pane-aware ANSI renderer for the Brokk terminal UI.
  */
 public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiView {
+    private static final String ANSI_CLEAR = "\u001b[2J";
+    private static final String ANSI_HOME = "\u001b[H";
+    private static final String ANSI_RESET = "\u001b[0m";
+    private static final String SECTION_INDENT = "    ";
+
     private final ContextManager cm;
     private final PrintStream out;
     private final ScheduledExecutorService scheduler;
     private final Object renderLock = new Object();
 
-    private volatile boolean showChipPanel = false;
-    private volatile boolean showTaskList = false;
     private volatile Focus currentFocus = Focus.PROMPT;
-
-    private volatile float lastBalance = -1f;
+    private final StringBuilder outputBuffer = new StringBuilder();
+    private volatile List<Context> historyCache = List.of();
+    private volatile int historyIndex = -1;
     private volatile String lastTokenUsageBar = "";
-    private volatile String balanceTextOverride = "";
-
-    private volatile List<Context> renderedHistory = List.of();
-    private volatile int historySelection = -1;
-
+    private volatile float lastBalance = -1f;
+    private volatile String balanceText = "";
+    private volatile boolean hasBalanceOverride = false;
     private volatile boolean spinnerVisible = false;
     private volatile String spinnerMessage = "";
-
-    private volatile List<TaskEntry> pendingHistory = List.of();
+    private volatile String promptBuffer = "";
+    private volatile boolean showChipPanel = false;
+    private volatile boolean showTaskList = false;
+    private volatile List<TaskEntry> stagedHistory = List.of();
 
     public TuiConsole(ContextManager cm) {
         this(cm, System.out);
@@ -52,27 +53,27 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     public TuiConsole(ContextManager cm, PrintStream out) {
         this.cm = Objects.requireNonNull(cm, "cm");
         this.out = Objects.requireNonNull(out, "out");
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "tui-balance-poller");
             t.setDaemon(true);
             return t;
         });
-        synchronized (renderLock) {
-            renderHeader();
-        }
+        renderScreen();
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 var svc = cm.getService();
-                float bal = svc.getUserBalance();
-                boolean first = lastBalance < 0f;
-                if (first || Math.abs(bal - lastBalance) >= 0.01f) {
-                    lastBalance = bal;
-                    synchronized (renderLock) {
-                        renderHeader();
-                    }
+                var balance = svc.getUserBalance();
+                var prior = lastBalance;
+                if (prior < 0f || Math.abs(balance - prior) >= 0.01f) {
+                    updateStateAndRender(() -> {
+                        lastBalance = balance;
+                        if (!hasBalanceOverride) {
+                            balanceText = BalanceFormatter.format(balance);
+                        }
+                    });
                 }
             } catch (Throwable t) {
-                // swallow; headless console must not crash due to polling
+                // swallow; TUI must not terminate due to polling failures
             }
         }, 0, 30, TimeUnit.SECONDS);
     }
@@ -83,106 +84,86 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
 
     @Override
     public void toggleChipPanel() {
-        showChipPanel = !showChipPanel;
-        synchronized (renderLock) {
-            renderHeader();
-            renderChipPanel();
-        }
+        updateStateAndRender(() -> showChipPanel = !showChipPanel);
     }
 
     @Override
     public void toggleTaskList() {
-        showTaskList = !showTaskList;
-        synchronized (renderLock) {
-            renderHeader();
-            renderTaskList();
-        }
+        updateStateAndRender(() -> showTaskList = !showTaskList);
     }
 
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
+        var newMessage = isNewMessage(type, explicitNewMessage);
         super.llmOutput(token, type, explicitNewMessage, isReasoning);
-        synchronized (renderLock) {
-            if (explicitNewMessage && !pendingHistory.isEmpty()) {
-                out.println();
-                out.println("=== History: " + pendingHistory.size() + " entries ===");
-                pendingHistory = List.of();
+        updateStateAndRender(() -> {
+            if (newMessage) {
+                outputBuffer.setLength(0);
+                appendStagedHistoryLocked();
+                outputBuffer.append('[').append(type.name()).append("] ");
             }
-            out.print(token);
-            out.flush();
-        }
+            outputBuffer.append(token);
+        });
     }
 
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
         prepareOutputForNextStream(history);
-        synchronized (renderLock) {
-            out.println();
-            out.println("=== Task: " + String.valueOf(taskEntry));
-        }
+        appendLineToOutput("=== Task: " + String.valueOf(taskEntry) + " ===");
     }
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        pendingHistory = new ArrayList<>(history);
-    }
-
-    @Override
-    public void toolError(String msg, String title) {
+        Objects.requireNonNull(history, "history");
         synchronized (renderLock) {
-            out.println();
-            out.println("[TOOL ERROR] " + title + ": " + msg);
-            out.flush();
+            stagedHistory = List.copyOf(history);
         }
     }
 
     @Override
+    public void toolError(String msg, String title) {
+        appendLineToOutput("[TOOL ERROR] " + title + ": " + msg);
+    }
+
+    @Override
     public void showNotification(NotificationRole role, String message) {
-        String prefix = switch (role) {
+        Objects.requireNonNull(role, "role");
+        Objects.requireNonNull(message, "message");
+        var prefix = switch (role) {
             case ERROR -> "[ERROR] ";
             case CONFIRM -> "[CONFIRM] ";
             case COST -> "[COST] ";
             case INFO -> "[INFO] ";
         };
-        synchronized (renderLock) {
-            out.println();
-            out.println(prefix + message);
-            out.flush();
-        }
+        appendLineToOutput(prefix + message);
     }
 
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
-        synchronized (renderLock) {
-            out.println();
-            out.println("[CONFIRM] " + title + ": " + message + " (auto-yes)");
-            out.flush();
-        }
+        appendLineToOutput("[CONFIRM] " + title + ": " + message + " (auto-yes)");
         return 0;
     }
 
     @Override
     public int showConfirmDialog(
-            @Nullable java.awt.Component parent, String message, String title, int optionType, int messageType) {
+            @Nullable Component parent, String message, String title, int optionType, int messageType) {
         return showConfirmDialog(message, title, optionType, messageType);
     }
 
     @Override
     public void showOutputSpinner(String message) {
-        spinnerVisible = true;
-        spinnerMessage = message;
-        synchronized (renderLock) {
-            renderHeader();
-        }
+        updateStateAndRender(() -> {
+            spinnerVisible = true;
+            spinnerMessage = message == null ? "" : message;
+        });
     }
 
     @Override
     public void hideOutputSpinner() {
-        spinnerVisible = false;
-        spinnerMessage = "";
-        synchronized (renderLock) {
-            renderHeader();
-        }
+        updateStateAndRender(() -> {
+            spinnerVisible = false;
+            spinnerMessage = "";
+        });
     }
 
     @Override
@@ -206,119 +187,79 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
 
     @Override
     public void updateWorkspace() {
-        synchronized (renderLock) {
-            out.println();
-            out.println("[Workspace] updated");
-            out.flush();
-        }
+        appendLineToOutput("[Workspace] updated");
     }
 
     @Override
     public void updateGitRepo() {
-        synchronized (renderLock) {
-            out.println();
-            out.println("[Git] repo updated");
-            out.flush();
-        }
+        appendLineToOutput("[Git] repo updated");
     }
 
     @Override
     public void updateContextHistoryTable(Context context) {
-        synchronized (renderLock) {
-            out.println();
-            out.println("[History] context updated: " + context.getAction());
-            out.flush();
-        }
+        var action = context == null ? "(unknown)" : context.getAction();
+        appendLineToOutput("[History] context updated: " + action);
     }
 
     public void updateTokenUsageSummary(String summary) {
-        lastTokenUsageBar = summary == null ? "" : summary;
-        synchronized (renderLock) {
-            renderHeader();
-        }
+        updateStateAndRender(() -> lastTokenUsageBar = summary == null ? "" : summary);
     }
 
     public void clearTokenUsage() {
         updateTokenUsageSummary("");
     }
 
-    private void renderHeader() {
-        out.println();
-        out.println("==================== Brokk TUI ====================");
-        var parts = new ArrayList<String>();
-        if (!balanceTextOverride.isBlank()) {
-            parts.add("Balance: " + balanceTextOverride);
-        } else if (lastBalance >= 0f) {
-            parts.add("Balance: " + BalanceFormatter.format(lastBalance));
-        }
-        if (!lastTokenUsageBar.isBlank()) {
-            parts.add("Usage: " + lastTokenUsageBar);
-        }
-        if (spinnerVisible) {
-            parts.add("[" + (spinnerMessage.isBlank() ? "Working..." : spinnerMessage) + "]");
-        }
-        parts.add("Focus: " + currentFocus);
-        out.println(String.join("  |  ", parts));
-        out.println("===================================================");
-        out.flush();
-        if (showChipPanel) {
-            renderChipPanel();
-        }
-        if (showTaskList) {
-            renderTaskList();
-        }
-    }
-
     @Override
     public void setFocus(Focus focus) {
-        currentFocus = Objects.requireNonNull(focus, "focus");
-        synchronized (renderLock) {
-            renderHeader();
-        }
+        Objects.requireNonNull(focus, "focus");
+        updateStateAndRender(() -> currentFocus = focus);
     }
 
     @Override
-    public void updateHeader(String usageBar, String balanceText, boolean showSpinner) {
-        lastTokenUsageBar = usageBar == null ? "" : usageBar;
-        balanceTextOverride = balanceText == null ? "" : balanceText;
-        spinnerVisible = showSpinner;
-        if (!spinnerVisible) {
-            spinnerMessage = "";
-        } else if (spinnerMessage.isBlank()) {
-            spinnerMessage = "Working...";
-        }
-        synchronized (renderLock) {
-            renderHeader();
-        }
+    public void updateHeader(String usageBar, String balanceOverride, boolean showSpinner) {
+        updateStateAndRender(() -> {
+            lastTokenUsageBar = usageBar == null ? "" : usageBar;
+            if (balanceOverride != null && !balanceOverride.isBlank()) {
+                balanceText = balanceOverride;
+                hasBalanceOverride = true;
+            } else {
+                hasBalanceOverride = false;
+                if (lastBalance >= 0f) {
+                    balanceText = BalanceFormatter.format(lastBalance);
+                } else {
+                    balanceText = "";
+                }
+            }
+            spinnerVisible = showSpinner;
+            if (!spinnerVisible) {
+                spinnerMessage = "";
+            } else if (spinnerMessage.isBlank()) {
+                spinnerMessage = "Working...";
+            }
+        });
     }
 
     @Override
     public void renderHistory(List<Context> contexts, int selectedIndex) {
         Objects.requireNonNull(contexts, "contexts");
-        synchronized (renderLock) {
-            renderedHistory = List.copyOf(contexts);
-            historySelection = normalizeSelection(selectedIndex, renderedHistory.size());
-            renderHistoryInternal();
-        }
+        updateStateAndRender(() -> {
+            historyCache = List.copyOf(contexts);
+            historyIndex = normalizeSelection(selectedIndex, historyCache.size());
+        });
     }
 
     @Override
     public void setHistorySelection(int index) {
-        synchronized (renderLock) {
-            historySelection = normalizeSelection(index, renderedHistory.size());
-            renderHistoryInternal();
-        }
+        updateStateAndRender(() -> historyIndex = normalizeSelection(index, historyCache.size()));
     }
 
     @Override
     public void clearOutput() {
-        synchronized (renderLock) {
+        updateStateAndRender(() -> {
             resetTranscript();
-            pendingHistory = List.of();
-            out.println();
-            out.println("-- Output cleared --");
-            out.flush();
-        }
+            outputBuffer.setLength(0);
+            stagedHistory = List.of();
+        });
     }
 
     @Override
@@ -331,34 +272,174 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     @Override
     public void renderPrompt(String text) {
         Objects.requireNonNull(text, "text");
+        updateStateAndRender(() -> promptBuffer = text);
+    }
+
+    private void renderScreen() {
         synchronized (renderLock) {
-            out.println();
-            out.println("Prompt> " + text);
-            out.flush();
+            renderScreenLocked();
         }
     }
 
-    private void renderHistoryInternal() {
-        out.println();
-        out.println("-- History --");
-        if (renderedHistory.isEmpty()) {
-            out.println("(empty)");
-        } else {
-            var selection = historySelection;
-            if (selection < 0 || selection >= renderedHistory.size()) {
-                selection = -1;
-            }
-            for (int i = 0; i < renderedHistory.size(); i++) {
-                var ctx = renderedHistory.get(i);
-                var action = ctx.getAction();
-                if (action == null || action.isBlank()) {
-                    action = "(no action)";
-                }
-                var marker = i == selection ? ">" : " ";
-                out.println(marker + " [" + i + "] " + action);
-            }
+    private void renderScreenLocked() {
+        out.print(ANSI_CLEAR);
+        out.print(ANSI_HOME);
+
+        renderHeaderLocked();
+        renderHistoryLocked();
+        if (showChipPanel) {
+            renderChipPanelLocked();
         }
+        renderOutputLocked();
+        if (showTaskList) {
+            renderTaskListLocked();
+        }
+        renderPromptLocked();
+
+        out.print(ANSI_RESET);
         out.flush();
+    }
+
+    private void renderHeaderLocked() {
+        out.println("============ Brokk TUI ============");
+        var parts = new ArrayList<String>();
+        if (!balanceText.isBlank()) {
+            parts.add("Balance " + balanceText);
+        } else if (lastBalance >= 0f) {
+            parts.add("Balance " + BalanceFormatter.format(lastBalance));
+        }
+        if (!lastTokenUsageBar.isBlank()) {
+            parts.add("Tokens " + lastTokenUsageBar);
+        }
+        if (spinnerVisible) {
+            var msg = spinnerMessage.isBlank() ? "Working..." : spinnerMessage;
+            parts.add("[" + msg + "]");
+        }
+        if (!parts.isEmpty()) {
+            out.println(String.join("  |  ", parts));
+        }
+        out.println("Focus: " + currentFocus);
+    }
+
+    private void renderHistoryLocked() {
+        out.println();
+        renderSectionHeader("History", Focus.HISTORY);
+        if (historyCache.isEmpty()) {
+            out.println(SECTION_INDENT + "(empty)");
+            return;
+        }
+        for (var i = 0; i < historyCache.size(); i++) {
+            var ctx = historyCache.get(i);
+            var action = ctx.getAction();
+            if (action == null || action.isBlank()) {
+                action = "(no action)";
+            }
+            var selectionMarker = i == historyIndex ? "*" : " ";
+            out.println(SECTION_INDENT + selectionMarker + " [" + i + "] " + action);
+        }
+    }
+
+    private void renderChipPanelLocked() {
+        out.println();
+        out.println("  Context Fragments:");
+        try {
+            var fragments = cm.liveContext().getAllFragmentsInDisplayOrder();
+            if (fragments.isEmpty()) {
+                out.println(SECTION_INDENT + "(none)");
+            } else {
+                for (var fragment : fragments) {
+                    out.println(SECTION_INDENT + "- [" + fragment.getType() + "] " + safeShortDescription(fragment));
+                }
+            }
+        } catch (Throwable t) {
+            out.println(SECTION_INDENT + "(error rendering fragments: " + t.getMessage() + ")");
+        }
+    }
+
+    private void renderOutputLocked() {
+        out.println();
+        renderSectionHeader("Output", Focus.OUTPUT);
+        if (outputBuffer.length() == 0) {
+            out.println(SECTION_INDENT + "(waiting for output)");
+            return;
+        }
+        renderTextBlock(outputBuffer.toString());
+    }
+
+    private void renderTaskListLocked() {
+        out.println();
+        out.println("  Tasks:");
+        try {
+            var data = cm.getTaskList();
+            var tasks = data == null ? null : data.tasks();
+            if (tasks == null || tasks.isEmpty()) {
+                out.println(SECTION_INDENT + "(No tasks)");
+            } else {
+                var index = 1;
+                for (var task : tasks) {
+                    var mark = task.done() ? 'x' : ' ';
+                    out.println(String.format("%s%2d. [%c] %s", SECTION_INDENT, index++, mark, task.text()));
+                }
+            }
+        } catch (Throwable t) {
+            out.println(SECTION_INDENT + "(error rendering tasks: " + t.getMessage() + ")");
+        }
+    }
+
+    private void renderPromptLocked() {
+        out.println();
+        renderSectionHeader("Prompt", Focus.PROMPT);
+        if (promptBuffer.isEmpty()) {
+            out.println(SECTION_INDENT + "(ready)");
+        } else {
+            out.println(SECTION_INDENT + promptBuffer.replace("\n", "\n" + SECTION_INDENT));
+        }
+    }
+
+    private void renderSectionHeader(String title, Focus focus) {
+        out.println(sectionPrefix(focus) + title);
+    }
+
+    private String sectionPrefix(Focus focus) {
+        return currentFocus == focus ? "▶ " : "  ";
+    }
+
+    private void renderTextBlock(String text) {
+        var sanitized = text.replace("\r", "");
+        if (sanitized.isEmpty()) {
+            out.println(SECTION_INDENT + "(empty)");
+            return;
+        }
+        out.println(SECTION_INDENT + sanitized.replace("\n", "\n" + SECTION_INDENT));
+    }
+
+    private void appendLineToOutput(String line) {
+        Objects.requireNonNull(line, "line");
+        updateStateAndRender(() -> {
+            if (outputBuffer.length() > 0) {
+                outputBuffer.append('\n');
+            }
+            outputBuffer.append(line);
+        });
+    }
+
+    private void appendStagedHistoryLocked() {
+        if (stagedHistory.isEmpty()) {
+            return;
+        }
+        outputBuffer.append("-- History --\n");
+        for (var entry : stagedHistory) {
+            outputBuffer.append(" * ").append(entry).append('\n');
+        }
+        outputBuffer.append('\n');
+        stagedHistory = List.of();
+    }
+
+    private void updateStateAndRender(Runnable update) {
+        synchronized (renderLock) {
+            update.run();
+            renderScreenLocked();
+        }
     }
 
     private static int normalizeSelection(int index, int size) {
@@ -368,53 +449,12 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         return index;
     }
 
-    private void renderChipPanel() {
+    private static String safeShortDescription(ContextFragment fragment) {
         try {
-            var ctx = cm.liveContext();
-            var fragments = ctx.getAllFragmentsInDisplayOrder();
-            out.println("-- Context Fragments --");
-            if (fragments.isEmpty()) {
-                out.println("(none)");
-            } else {
-                for (var f : fragments) {
-                    out.println("- [" + f.getType() + "] " + safeShortDescription(f));
-                }
-            }
-            out.flush();
+            var description = fragment.shortDescription();
+            return description == null ? "" : description;
         } catch (Throwable t) {
-            out.println("-- Context Fragments --");
-            out.println("(error rendering fragments: " + t.getMessage() + ")");
-            out.flush();
-        }
-    }
-
-    private void renderTaskList() {
-        try {
-            TaskList.TaskListData data = cm.getTaskList();
-            out.println("-- Tasks --");
-            if (data == null || data.tasks() == null || data.tasks().isEmpty()) {
-                out.println("(No tasks)");
-            } else {
-                int i = 1;
-                for (var t : data.tasks()) {
-                    var mark = t.done() ? 'x' : ' ';
-                    out.println(String.format("%2d. [%c] %s", i++, mark, t.text()));
-                }
-            }
-            out.flush();
-        } catch (Throwable t) {
-            out.println("-- Tasks --");
-            out.println("(error rendering tasks: " + t.getMessage() + ")");
-            out.flush();
-        }
-    }
-
-    private static String safeShortDescription(ContextFragment f) {
-        try {
-            var s = f.shortDescription();
-            return s == null ? "" : s;
-        } catch (Throwable t) {
-            return f.getType().name();
+            return fragment.getType().name();
         }
     }
 }
