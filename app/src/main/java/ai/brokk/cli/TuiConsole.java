@@ -2,6 +2,7 @@ package ai.brokk.cli;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.cli.BalanceFormatter;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -22,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
  * - Streams LLM output line-oriented to stdout
  * - Toggleable context chip panel and read-only task list
  */
-public final class TuiConsole extends MemoryConsole implements IConsoleIO {
+public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiView {
     private final ContextManager cm;
     private final PrintStream out;
     private final ScheduledExecutorService scheduler;
@@ -239,7 +240,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO {
         out.println("==================== Brokk TUI ====================");
         var parts = new ArrayList<String>();
         if (lastBalance >= 0f) {
-            parts.add(String.format("Balance: $%.2f", lastBalance));
+            parts.add("Balance: " + BalanceFormatter.format(lastBalance));
         }
         if (!lastTokenUsageBar.isBlank()) {
             parts.add("Usage: " + lastTokenUsageBar);

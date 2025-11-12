@@ -12,17 +12,25 @@ import java.util.Objects;
 
 public final class TuiController {
     private final ContextManager cm;
-    private final TuiConsole console;
+    private final TuiView console;
     private final BufferedReader reader;
     private final PrintStream out;
     private volatile boolean running = false;
 
-    public TuiController(ContextManager cm, TuiConsole console) {
+    public TuiController(ContextManager cm, TuiView console) {
         this(cm, console, new InputStreamReader(System.in), System.out);
     }
 
-    public TuiController(ContextManager cm, TuiConsole console, Reader inputReader, PrintStream out) {
+    public TuiController(ContextManager cm, TuiView console, Reader inputReader, PrintStream out) {
         this.cm = Objects.requireNonNull(cm, "cm");
+        this.console = Objects.requireNonNull(console, "console");
+        Objects.requireNonNull(inputReader, "inputReader");
+        this.reader = inputReader instanceof BufferedReader br ? br : new BufferedReader(inputReader);
+        this.out = Objects.requireNonNull(out, "out");
+    }
+
+    TuiController(TuiView console, Reader inputReader, PrintStream out) {
+        this.cm = null;
         this.console = Objects.requireNonNull(console, "console");
         Objects.requireNonNull(inputReader, "inputReader");
         this.reader = inputReader instanceof BufferedReader br ? br : new BufferedReader(inputReader);
@@ -46,7 +54,12 @@ public final class TuiController {
                 }
             }
         } catch (IOException e) {
-            cm.getIo().toolError("Input error: " + e.getMessage(), "TUI");
+            if (cm != null) {
+                cm.getIo().toolError("Input error: " + e.getMessage(), "TUI");
+            } else {
+                out.println("[TUI] Input error: " + e.getMessage());
+                out.flush();
+            }
         } finally {
             console.shutdown();
         }
@@ -78,6 +91,11 @@ public final class TuiController {
     }
 
     private void submitLutz(String prompt) {
+        if (cm == null) {
+            out.println("[TUI] Lutz is unavailable in test routing mode.");
+            out.flush();
+            return;
+        }
         console.setTaskInProgress(true);
         try {
             var future =
