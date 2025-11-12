@@ -101,7 +101,7 @@ public final class ExecutorPool {
 
         pollForReadiness(host, port, authToken, execId);
 
-        var handle = new ExecutorHandle(sessionId, execId, host, port, authToken, process, Instant.now());
+        var handle = new ExecutorHandle(sessionId, sessionId, execId, host, port, authToken, process, Instant.now());
         activeExecutors.put(sessionId, handle);
 
         logger.info("Executor for session {} is ready at {}:{}", sessionId, host, port);
@@ -136,6 +136,7 @@ public final class ExecutorPool {
 
         var updatedHandle = new ExecutorHandle(
                 newSessionId,
+                handle.provisionId(),
                 handle.execId(),
                 handle.host(),
                 handle.port(),
@@ -175,7 +176,7 @@ public final class ExecutorPool {
         }
 
         try {
-            provisioner.teardown(sessionId);
+            provisioner.teardown(handle.provisionId());
         } catch (Provisioner.ProvisionException e) {
             logger.warn("Failed to tear down workspace for session {}", sessionId, e);
         }
@@ -242,6 +243,7 @@ public final class ExecutorPool {
     public void touch(UUID sessionId) {
         activeExecutors.computeIfPresent(sessionId, (id, handle) -> new ExecutorHandle(
                 handle.sessionId(),
+                handle.provisionId(),
                 handle.execId(),
                 handle.host(),
                 handle.port(),

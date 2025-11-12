@@ -207,7 +207,7 @@ class HeadlessSessionManagerTest {
         conn.disconnect();
     }
 
-    private void createSessionRequest(Map<String, Object> requestBody) throws Exception {
+    private Map<String, Object> createSessionRequest(Map<String, Object> requestBody) throws Exception {
         var url = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
@@ -220,7 +220,9 @@ class HeadlessSessionManagerTest {
         }
 
         assertEquals(201, conn.getResponseCode());
+        var response = OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
         conn.disconnect();
+        return response;
     }
 
     @Test
@@ -291,27 +293,10 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobCreation() throws Exception {
-        var sessionRequestBody = Map.of("name", "Job Test Session", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Job Test Session", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionToken = (String) sessionResponse.get("token");
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -353,27 +338,10 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobStatus() throws Exception {
-        var sessionRequestBody = Map.of("name", "Status Test Session", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Status Test Session", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionToken = (String) sessionResponse.get("token");
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -423,27 +391,10 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobEvents() throws Exception {
-        var sessionRequestBody = Map.of("name", "Events Test Session", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Events Test Session", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionToken = (String) sessionResponse.get("token");
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -494,27 +445,10 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobCancel() throws Exception {
-        var sessionRequestBody = Map.of("name", "Cancel Test Session", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Cancel Test Session", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionToken = (String) sessionResponse.get("token");
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -559,26 +493,9 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobWithMasterTokenRejected() throws Exception {
-        var sessionRequestBody = Map.of("name", "Master Token Test", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Master Token Test", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -611,27 +528,10 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testProxyJobDiff() throws Exception {
-        var sessionRequestBody = Map.of("name", "Diff Test Session", "repoPath", repoPath.toString());
-
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-
-        var sessionResponse =
-                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sessionRequestBody = Map.of("name", "Diff Test Session", "repoPath", repoPath.toString());
+        var sessionResponse = createSessionRequest(sessionRequestBody);
         var sessionToken = (String) sessionResponse.get("token");
         var sessionId = (String) sessionResponse.get("sessionId");
-
-        conn.disconnect();
 
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
@@ -684,5 +584,111 @@ class HeadlessSessionManagerTest {
         }
 
         diffConn.disconnect();
+    }
+
+    @Test
+    void testTeardownSession() throws Exception {
+        // Create two sessions to fill the pool (size=2 in setup)
+        var response1 = createSessionRequest(Map.of("name", "Session 1", "repoPath", repoPath.toString()));
+        var sessionId1 = UUID.fromString((String) response1.get("sessionId"));
+        createSessionRequest(Map.of("name", "Session 2", "repoPath", repoPath.toString()));
+
+        // Verify pool is at capacity and readiness check fails
+        var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
+        var readyConn = (HttpURLConnection) readyUrl.openConnection();
+        readyConn.setRequestMethod("GET");
+        readyConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(503, readyConn.getResponseCode());
+        readyConn.disconnect();
+
+        // Teardown one session
+        var deleteUrl = URI.create(baseUrl + "/v1/sessions/" + sessionId1).toURL();
+        var deleteConn = (HttpURLConnection) deleteUrl.openConnection();
+        deleteConn.setRequestMethod("DELETE");
+        deleteConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(204, deleteConn.getResponseCode());
+        deleteConn.disconnect();
+
+        // Wait a bit for async shutdown to complete
+        Thread.sleep(1000);
+
+        // Verify pool now has capacity and readiness check passes
+        var readyConnAfter = (HttpURLConnection) readyUrl.openConnection();
+        readyConnAfter.setRequestMethod("GET");
+        readyConnAfter.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(200, readyConnAfter.getResponseCode());
+        readyConnAfter.disconnect();
+
+        // Verify we can create a new session
+        createSessionRequest(Map.of("name", "Session 3", "repoPath", repoPath.toString()));
+    }
+
+    @Test
+    void testTeardownSession_Unauthorized() throws Exception {
+        // Create a session
+        Map<String, Object> requestBody = Map.of("name", "Unauthorized Teardown", "repoPath", repoPath.toString());
+        var response = createSessionRequest(requestBody);
+        var sessionId = (String) response.get("sessionId");
+        var sessionToken = (String) response.get("token");
+
+        // Attempt teardown with session token
+        var deleteUrl = URI.create(baseUrl + "/v1/sessions/" + sessionId).toURL();
+        var deleteConn = (HttpURLConnection) deleteUrl.openConnection();
+        deleteConn.setRequestMethod("DELETE");
+        deleteConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        assertEquals(403, deleteConn.getResponseCode());
+        deleteConn.disconnect();
+    }
+
+    @Test
+    void testTeardownCleansUpWorktreeAndReleasesCapacity() throws Exception {
+        // Create a session (pool size is 2 in setUp, so we will still have capacity after one session)
+        Map<String, Object> requestBody = Map.of("name", "Teardown Clean Session", "repoPath", repoPath.toString());
+        var response = createSessionRequest(requestBody);
+        var sessionId = UUID.fromString((String) response.get("sessionId"));
+
+        // Verify readiness is 200 and activeExecutors == 1
+        var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
+        var readyConn1 = (HttpURLConnection) readyUrl.openConnection();
+        readyConn1.setRequestMethod("GET");
+        readyConn1.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(200, readyConn1.getResponseCode());
+        var readyResp1 = OBJECT_MAPPER.readValue(readyConn1.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        readyConn1.disconnect();
+        assertEquals(1, ((Number) readyResp1.get("activeExecutors")).intValue(), "Expected 1 active executor before teardown");
+
+        // Worktree directory should exist under worktreeBaseDir; count directories
+        int dirCountBefore = countChildDirectories(worktreeBaseDir);
+        assertEquals(1, dirCountBefore, "Expected exactly one worktree directory before teardown");
+
+        // Teardown the session with master token
+        var deleteUrl = URI.create(baseUrl + "/v1/sessions/" + sessionId).toURL();
+        var deleteConn = (HttpURLConnection) deleteUrl.openConnection();
+        deleteConn.setRequestMethod("DELETE");
+        deleteConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(204, deleteConn.getResponseCode());
+        deleteConn.disconnect();
+
+        // Wait briefly to allow process and filesystem cleanup
+        Thread.sleep(1000);
+
+        // Verify readiness now 200 and activeExecutors == 0
+        var readyConn2 = (HttpURLConnection) readyUrl.openConnection();
+        readyConn2.setRequestMethod("GET");
+        readyConn2.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(200, readyConn2.getResponseCode());
+        var readyResp2 = OBJECT_MAPPER.readValue(readyConn2.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        readyConn2.disconnect();
+        assertEquals(0, ((Number) readyResp2.get("activeExecutors")).intValue(), "Expected 0 active executors after teardown");
+
+        // Worktree directory should be removed
+        int dirCountAfter = countChildDirectories(worktreeBaseDir);
+        assertEquals(0, dirCountAfter, "Expected no worktree directories after teardown");
+    }
+
+    private int countChildDirectories(Path dir) throws Exception {
+        try (var stream = java.nio.file.Files.list(dir)) {
+            return (int) stream.filter(java.nio.file.Files::isDirectory).count();
+        }
     }
 }

@@ -16,6 +16,7 @@ import java.util.UUID;
  */
 public record ExecutorHandle(
         UUID sessionId,
+        UUID provisionId,
         UUID execId,
         String host,
         int port,

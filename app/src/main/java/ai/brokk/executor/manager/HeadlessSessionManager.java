@@ -324,6 +324,11 @@ public final class HeadlessSessionManager {
             return;
         }
 
+        if (path.startsWith("/v1/sessions/") && method.equals("DELETE")) {
+            handleTeardownSession(exchange);
+            return;
+        }
+
         if (path.startsWith("/v1/jobs")) {
             handleJobProxy(exchange);
             return;
@@ -331,6 +336,48 @@ public final class HeadlessSessionManager {
 
         var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
         SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+    }
+
+    private void handleTeardownSession(HttpExchange exchange) throws IOException {
+        // Master token auth only
+        var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")
+                || !authHeader.substring("Bearer ".length()).strip().equals(masterAuthToken)) {
+            var error = ErrorPayload.of("FORBIDDEN", "Master token is required to delete a session");
+            SimpleHttpServer.sendJsonResponse(exchange, 403, error);
+            return;
+        }
+
+        var path = exchange.getRequestURI().getPath();
+        var parts = path.split("/");
+        if (parts.length != 4 || !parts[2].equals("sessions")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid session path for DELETE");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(parts[3]);
+        } catch (IllegalArgumentException e) {
+            var error = ErrorPayload.validationError("Invalid session ID format");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        logger.info("Received teardown request for session {}", sessionId);
+
+        var shutdownResult = pool.shutdown(sessionId);
+
+        if (shutdownResult) {
+            logger.info("Successfully tore down session {}", sessionId);
+            exchange.sendResponseHeaders(204, -1); // No Content
+        } else {
+            logger.warn("Session {} not found for teardown", sessionId);
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+        }
+        exchange.close();
     }
 
     private void handleCreateSession(HttpExchange exchange) throws IOException {
