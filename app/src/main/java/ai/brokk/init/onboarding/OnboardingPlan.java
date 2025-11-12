@@ -6,9 +6,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Represents an ordered plan of onboarding steps to execute.
@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * applicable to the current project state.
  */
 public class OnboardingPlan {
-    private static final Logger logger = LoggerFactory.getLogger(OnboardingPlan.class);
+    private static final Logger logger = LogManager.getLogger(OnboardingPlan.class);
 
     private final List<OnboardingStep> steps;
     private final Map<String, OnboardingStep> stepById;

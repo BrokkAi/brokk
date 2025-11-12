@@ -1,8 +1,8 @@
 package ai.brokk.init.onboarding;
 
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Onboarding step for offering style guide regeneration after Git is configured.
@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * This is optional and non-blocking - user can decline and continue.
  */
 public class PostGitStyleRegenerationStep implements OnboardingStep {
-    private static final Logger logger = LoggerFactory.getLogger(PostGitStyleRegenerationStep.class);
+    private static final Logger logger = LogManager.getLogger(PostGitStyleRegenerationStep.class);
 
     public static final String STEP_ID = "POST_GIT_STYLE_REGENERATION";
 

@@ -4,8 +4,8 @@ import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Utility class for Git ignore operations.
@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
  * used by OnboardingOrchestrator and MainProject.
  */
 public class GitIgnoreUtils {
-    private static final Logger logger = LoggerFactory.getLogger(GitIgnoreUtils.class);
+    private static final Logger logger = LogManager.getLogger(GitIgnoreUtils.class);
 
     // Utility class - prevent instantiation
     private GitIgnoreUtils() {}

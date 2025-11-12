@@ -2,9 +2,9 @@ package ai.brokk.init.onboarding;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Onboarding step for showing the build settings dialog.
@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
  * Depends on migration completing first (if migration was needed).
  */
 public class BuildSettingsStep implements OnboardingStep {
-    private static final Logger logger = LoggerFactory.getLogger(BuildSettingsStep.class);
+    private static final Logger logger = LogManager.getLogger(BuildSettingsStep.class);
 
     public static final String STEP_ID = "BUILD_SETTINGS";
 

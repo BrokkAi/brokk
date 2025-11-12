@@ -2,8 +2,8 @@ package ai.brokk.init.onboarding;
 
 import ai.brokk.analyzer.ProjectFile;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Onboarding step for migration confirmation from legacy .brokk/style.md to AGENTS.md.
@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
  * This step has no dependencies and runs first if applicable.
  */
 public class MigrationStep implements OnboardingStep {
-    private static final Logger logger = LoggerFactory.getLogger(MigrationStep.class);
+    private static final Logger logger = LogManager.getLogger(MigrationStep.class);
 
     public static final String STEP_ID = "MIGRATION";
 

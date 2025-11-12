@@ -7,9 +7,9 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Orchestrates the onboarding process by building an OnboardingPlan
@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
  * - PostGitStyleRegenerationStep (offers style regeneration after Git setup)
  */
 public class OnboardingOrchestrator {
-    private static final Logger logger = LoggerFactory.getLogger(OnboardingOrchestrator.class);
+    private static final Logger logger = LogManager.getLogger(OnboardingOrchestrator.class);
 
     /**
      * Builds an onboarding plan from the current project state.

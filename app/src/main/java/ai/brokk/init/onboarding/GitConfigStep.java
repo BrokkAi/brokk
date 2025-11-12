@@ -1,8 +1,8 @@
 package ai.brokk.init.onboarding;
 
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Onboarding step for git configuration confirmation.
@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
  * This step runs after build settings (if build settings was needed).
  */
 public class GitConfigStep implements OnboardingStep {
-    private static final Logger logger = LoggerFactory.getLogger(GitConfigStep.class);
+    private static final Logger logger = LogManager.getLogger(GitConfigStep.class);
 
     public static final String STEP_ID = "GIT_CONFIG";
 
