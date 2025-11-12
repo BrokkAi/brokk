@@ -433,6 +433,45 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    public List<CodeUnit> getAncestors(CodeUnit cu) {
+        // Breadth-first traversal of ancestors while preventing cycles and excluding the root.
+        if (!cu.isClass()) return List.of();
+
+        var result = new ArrayList<CodeUnit>();
+        var seen = new LinkedHashSet<String>();
+        // Mark root as seen to avoid re-adding it via cycles (e.g., interfaces A <-> B).
+        seen.add(cu.fqName());
+
+        var queue = new ArrayDeque<CodeUnit>();
+        // Seed with direct ancestors preserving declaration order.
+        for (var parent : getDirectAncestors(cu)) {
+            if (cu.fqName().equals(parent.fqName())) {
+                continue; // Defensive: avoid self-loop
+            }
+            if (seen.add(parent.fqName())) {
+                result.add(parent);
+                queue.add(parent);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            for (var parent : getDirectAncestors(current)) {
+                // Never add the original root as an ancestor.
+                if (cu.fqName().equals(parent.fqName())) {
+                    continue;
+                }
+                if (seen.add(parent.fqName())) {
+                    result.add(parent);
+                    queue.addLast(parent);
+                }
+            }
+        }
+
+        return List.copyOf(result);
+    }
+
+    @Override
     protected void createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,

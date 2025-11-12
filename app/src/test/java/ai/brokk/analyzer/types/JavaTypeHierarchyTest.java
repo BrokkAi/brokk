@@ -414,4 +414,51 @@ public class JavaTypeHierarchyTest {
                     "p2.Impl should extend p1.Base and implement p1.Service (resolved via wildcard import)");
         }
     }
+
+    @Test
+    public void cyclicInterfaces_terminatesAndDeduplicates() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package p;
+                public interface A extends B {}
+                """,
+                "A.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                package p;
+                public interface B extends A {}
+                """,
+                        "B.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeA = analyzer.getDefinition("p.A");
+            assertTrue(maybeA.isPresent(), "Definition for p.A should be present");
+            CodeUnit a = maybeA.get();
+
+            var maybeB = analyzer.getDefinition("p.B");
+            assertTrue(maybeB.isPresent(), "Definition for p.B should be present");
+            CodeUnit b = maybeB.get();
+
+            // Direct ancestors
+            List<String> aDirect = analyzer.getDirectAncestors(a).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
+            assertEquals(List.of("p.B"), aDirect, "A should directly extend B");
+
+            List<String> bDirect = analyzer.getDirectAncestors(b).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
+            assertEquals(List.of("p.A"), bDirect, "B should directly extend A");
+
+            // Transitive ancestors must terminate and de-duplicate
+            List<String> aTransitive =
+                    analyzer.getAncestors(a).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            assertEquals(List.of("p.B"), aTransitive, "A's ancestors should contain B only once and terminate");
+
+            List<String> bTransitive =
+                    analyzer.getAncestors(b).stream().map(CodeUnit::fqName).collect(Collectors.toList());
+            assertEquals(List.of("p.A"), bTransitive, "B's ancestors should contain A only once and terminate");
+        }
+    }
 }
