@@ -83,7 +83,7 @@ public class JavaTypeAnalyzer {
         }
 
         // Fallback: global search by simple name pattern
-        String pattern = ".*(?<!\\w)" + Pattern.quote(simple) + "$";
+        String pattern = "\\b%s\\b".formatted(Pattern.quote(simple));
         Optional<CodeUnit> foundGlobal = searchDefinitions.apply(pattern).stream()
                 .filter(CodeUnit::isClass)
                 .findFirst();

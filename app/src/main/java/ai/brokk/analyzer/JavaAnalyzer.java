@@ -365,6 +365,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
      * Java order: superclass (if any) first, then implemented interfaces in source order. Attempts to resolve names
      * using file imports, then package-local names, then global search. First tries a focused in-code Tree-sitter query
      * (string literal) for fast extraction; falls back to manual field traversal if needed.
+     *
+     * fixme: This implementation does not handle the Java import precedence which is "explicit wins over wildcard".
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
@@ -424,7 +426,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, this::searchDefinitions);
+                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
     }
 
     @Override

@@ -3479,8 +3479,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected AnalyzerState runImportResolution(AnalyzerState baseState) {
         try {
             // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
-            TreeSitterAnalyzer delegateForImports =
-                    Objects.equals(this.state, baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
+            TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
             Map<ProjectFile, FileProperties> updatedFileState = new HashMap<>(baseState.fileState());
 
             for (var entry : baseState.fileState().entrySet()) {
@@ -3515,8 +3514,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
         try {
             // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
-            TreeSitterAnalyzer delegateForTypes =
-                    Objects.equals(this.state, baseState) ? this : (TreeSitterAnalyzer) newSnapshot(baseState);
+            TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
             Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>(baseState.codeUnitState());
 
             for (var entry : baseState.codeUnitState().entrySet()) {
