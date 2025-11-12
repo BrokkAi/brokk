@@ -24,7 +24,7 @@ public final class TuiController {
     private static final int DELETE = 127;
 
     private final ContextManager cm;
-    private final TuiView console;
+    private final TuiView view;
     private final BufferedReader reader;
     private final PrintStream out;
     private final StringBuilder promptBuffer = new StringBuilder();
@@ -34,21 +34,21 @@ public final class TuiController {
     private volatile int historySelection = -1;
     private volatile boolean historyRendered = false;
 
-    public TuiController(ContextManager cm, TuiView console) {
-        this(cm, console, new InputStreamReader(System.in), System.out);
+    public TuiController(ContextManager cm, TuiView view) {
+        this(cm, view, new InputStreamReader(System.in), System.out);
     }
 
-    public TuiController(ContextManager cm, TuiView console, Reader inputReader, PrintStream out) {
+    public TuiController(ContextManager cm, TuiView view, Reader inputReader, PrintStream out) {
         this.cm = Objects.requireNonNull(cm, "cm");
-        this.console = Objects.requireNonNull(console, "console");
+        this.view = Objects.requireNonNull(view, "view");
         Objects.requireNonNull(inputReader, "inputReader");
         this.reader = inputReader instanceof BufferedReader br ? br : new BufferedReader(inputReader);
         this.out = Objects.requireNonNull(out, "out");
     }
 
-    TuiController(TuiView console, Reader inputReader, PrintStream out) {
+    TuiController(TuiView view, Reader inputReader, PrintStream out) {
         this.cm = null;
-        this.console = Objects.requireNonNull(console, "console");
+        this.view = Objects.requireNonNull(view, "view");
         Objects.requireNonNull(inputReader, "inputReader");
         this.reader = inputReader instanceof BufferedReader br ? br : new BufferedReader(inputReader);
         this.out = Objects.requireNonNull(out, "out");
@@ -59,7 +59,7 @@ public final class TuiController {
         running = true;
         promptBuffer.setLength(0);
         updateFocus(TuiView.Focus.PROMPT);
-        console.renderPrompt("");
+        view.renderPrompt("");
         refreshHistoryFromManager();
 
         var skipNextLineFeed = false;
@@ -111,7 +111,7 @@ public final class TuiController {
                 out.flush();
             }
         } finally {
-            console.shutdown();
+            view.shutdown();
         }
     }
 
@@ -189,7 +189,7 @@ public final class TuiController {
             return;
         }
         promptBuffer.append(ch);
-        console.renderPrompt(promptBuffer.toString());
+        view.renderPrompt(promptBuffer.toString());
     }
 
     private void handleHistoryPrintable(char ch) {
@@ -209,7 +209,7 @@ public final class TuiController {
             return;
         }
         promptBuffer.setLength(promptBuffer.length() - 1);
-        console.renderPrompt(promptBuffer.toString());
+        view.renderPrompt(promptBuffer.toString());
     }
 
     private void applyHistorySelection() {
@@ -306,7 +306,7 @@ public final class TuiController {
         }
         var input = promptBuffer.toString();
         promptBuffer.setLength(0);
-        console.renderPrompt("");
+        view.renderPrompt("");
         var trimmed = input.trim();
         if (trimmed.isEmpty()) {
             return;
@@ -320,14 +320,14 @@ public final class TuiController {
 
     private void updateFocus(TuiView.Focus focus) {
         currentFocus = Objects.requireNonNull(focus, "focus");
-        console.setFocus(currentFocus);
+        view.setFocus(currentFocus);
         if (currentFocus == TuiView.Focus.HISTORY) {
             refreshHistoryFromManager();
             if (historySelection >= 0) {
-                console.setHistorySelection(historySelection);
+                view.setHistorySelection(historySelection);
             }
         } else if (currentFocus == TuiView.Focus.PROMPT) {
-            console.renderPrompt(promptBuffer.toString());
+            view.renderPrompt(promptBuffer.toString());
         }
     }
 
@@ -350,8 +350,8 @@ public final class TuiController {
 
         historyCache = contexts;
         historySelection = newSelection;
-        console.renderHistory(historyCache, historySelection);
-        console.setHistorySelection(historySelection);
+        view.renderHistory(historyCache, historySelection);
+        view.setHistorySelection(historySelection);
         historyRendered = true;
     }
 
@@ -377,15 +377,15 @@ public final class TuiController {
     private void updateHistorySelection(int index) {
         if (historyCache.isEmpty()) {
             historySelection = -1;
-            console.renderHistory(historyCache, historySelection);
-            console.setHistorySelection(historySelection);
+            view.renderHistory(historyCache, historySelection);
+            view.setHistorySelection(historySelection);
             historyRendered = true;
             return;
         }
         var clamped = Math.max(0, Math.min(index, historyCache.size() - 1));
         historySelection = clamped;
-        console.renderHistory(historyCache, historySelection);
-        console.setHistorySelection(historySelection);
+        view.renderHistory(historyCache, historySelection);
+        view.setHistorySelection(historySelection);
         historyRendered = true;
     }
 
@@ -393,12 +393,12 @@ public final class TuiController {
         var normalized = cmd.toLowerCase(Locale.ROOT);
         switch (normalized) {
             case "/c", "/chips" -> {
-                console.toggleChipPanel();
+                view.toggleChipPanel();
                 out.println("[TUI] Chip panel toggled.");
                 out.flush();
             }
             case "/t", "/tasks" -> {
-                console.toggleTaskList();
+                view.toggleTaskList();
                 out.println("[TUI] Task list toggled.");
                 out.flush();
             }
@@ -420,7 +420,7 @@ public final class TuiController {
             out.flush();
             return;
         }
-        console.setTaskInProgress(true);
+        view.setTaskInProgress(true);
         try {
             var future =
                     cm.submitLlmAction(() -> {
@@ -435,14 +435,19 @@ public final class TuiController {
                             agent.execute();
                         }
                     });
+            if (future == null) {
+                view.setTaskInProgress(false);
+                cm.getIo().toolError("Lutz execution did not start: no future returned.", "TUI");
+                return;
+            }
             future.whenComplete((ignored, ex) -> {
-                console.setTaskInProgress(false);
+                view.setTaskInProgress(false);
                 if (ex != null) {
                     cm.getIo().toolError("Lutz execution failed: " + ex.getMessage(), "TUI");
                 }
             });
         } catch (Throwable t) {
-            console.setTaskInProgress(false);
+            view.setTaskInProgress(false);
             cm.getIo().toolError("Unable to submit Lutz run: " + t.getMessage(), "TUI");
         }
     }
