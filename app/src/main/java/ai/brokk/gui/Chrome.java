@@ -55,7 +55,6 @@ import ai.brokk.init.onboarding.MigrationStep;
 import ai.brokk.init.onboarding.OnboardingOrchestrator;
 import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
-import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.Environment;
@@ -3135,17 +3134,7 @@ public class Chrome
                     JOptionPane.QUESTION_MESSAGE);
 
             if (confirm == JOptionPane.YES_OPTION) {
-                // Perform migration using StyleGuideMigrator
-                var repo = mainProject.getRepo();
-                ai.brokk.git.GitRepo gitRepo = (repo instanceof ai.brokk.git.GitRepo r) ? r : null;
-                var result = StyleGuideMigrator.migrate(data.legacyStyle(), data.agentsFile(), gitRepo);
-
-                if (result.performed()) {
-                    logger.info("Migration successful: {}", result.message());
-                    systemNotify(result.message(), "Migration Complete", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                } else {
-                    logger.warn("Migration not performed: {}", result.message());
-                }
+                mainProject.performStyleMdToAgentsMdMigration(this);
             } else {
                 mainProject.setMigrationDeclined(true);
                 logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
