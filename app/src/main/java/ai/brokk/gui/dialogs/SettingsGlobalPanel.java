@@ -130,6 +130,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private JCheckBox experimentalSplitLayoutCheckbox = new JCheckBox(
+            "Use new split layout (Activity above Instructions; Output + Changes on right)");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -661,6 +663,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(experimentalSplitLayoutCheckbox, gbc);
+
+        var experimentalSplitLayoutNote = new JLabel("Takes effect after restart");
+        experimentalSplitLayoutNote.setFont(experimentalSplitLayoutNote.getFont().deriveFont(Font.ITALIC));
+        gbc.insets = new Insets(0, 25, 2, 5);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(experimentalSplitLayoutNote, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -1353,6 +1370,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode (General tab)
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+        experimentalSplitLayoutCheckbox.setSelected(GlobalUiSettings.isExperimentalSplitLayout());
 
         // Service Tab
         brokkKeyField.setText(MainProject.getBrokkKey());
@@ -1566,6 +1584,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // General Tab - Advanced Mode
         GlobalUiSettings.saveAdvancedMode(advancedModeCheckbox.isSelected());
+        GlobalUiSettings.saveExperimentalSplitLayout(experimentalSplitLayoutCheckbox.isSelected());
         try {
             chrome.applyAdvancedModeVisibility();
         } catch (Exception ex) {
