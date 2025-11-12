@@ -132,7 +132,9 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testFreshProject_AllStepsExceptMigration() {
-        var state = new StateBuilder().build();
+        var project = new TestProject(Path.of("/tmp/test"));
+        project.setHasGit(true);
+        var state = new StateBuilder().withProject(project).build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -152,7 +154,9 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testLegacyProject_NeedsMigration() {
-        var state = new StateBuilder().withLegacyStyleMd().build();
+        var project = new TestProject(Path.of("/tmp/test"));
+        project.setHasGit(true);
+        var state = new StateBuilder().withProject(project).withLegacyStyleMd().build();
 
         var orchestrator = new OnboardingOrchestrator();
         var plan = orchestrator.buildPlan(state);
@@ -229,7 +233,10 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_NotIncluded() {
+        var project = new TestProject(Path.of("/tmp/test"));
+        project.setHasGit(true);
         var state = new StateBuilder()
+                .withProject(project)
                 .withAgentsMd()
                 .withProjectProperties()
                 .withBuildDetails()

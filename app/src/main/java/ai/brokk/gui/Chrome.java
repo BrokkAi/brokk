@@ -3028,9 +3028,9 @@ public class Chrome
 
             // Handle steps that require user dialogs using pattern matching on typed data
             switch (dialogData) {
-                case MigrationStep.MigrationDialogData migrationData -> {
+                case MigrationStep.MigrationDialogData ignored -> {
                     logger.info("[{}] Showing migration dialog", result.stepId());
-                    showMigrationDialog(migrationData);
+                    showMigrationDialog();
                 }
                 case BuildSettingsStep.BuildSettingsDialogData buildData -> {
                     logger.info("[{}] Showing build settings dialog", result.stepId());
@@ -3104,7 +3104,7 @@ public class Chrome
     /**
      * Shows the migration confirmation dialog and performs migration if user accepts.
      */
-    private void showMigrationDialog(MigrationStep.MigrationDialogData data) {
+    private void showMigrationDialog() {
         if (!(getProject() instanceof MainProject mainProject)) {
             return; // Only main projects can be migrated
         }
