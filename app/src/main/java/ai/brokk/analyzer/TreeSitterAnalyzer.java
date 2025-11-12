@@ -902,6 +902,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * - true: "com.foo.Chrome", "ns::Type", "pkg.Class$Inner", "obj->field"
      * - false: "Chrome", "_Foo123"
      *
+     * <p>Developer guidance: If this detector frequently flags names for your language, update the language-specific
+     * Tree-sitter query so that the capture used for "name" yields an unqualified identifier, or enhance
+     * {@link #extractSimpleName(TSNode, String)} for that language to return just the bare identifier. The warning
+     * produced by the analyzer is diagnostic-only and does not mutate discovered names.
+     *
      * @param name candidate simple name extracted from the AST/query
      * @return true if the candidate likely contains a qualified hierarchical name, false otherwise
      */
@@ -1865,6 +1870,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             // Diagnostic: detect when the simpleName looks like a fully-qualified token produced by the query or
             // by extractSimpleName. Do not mutate the simpleName or affect analysis; log only.
+            //
+            // Developer guidance: If you see this warning frequently for a given language, the typical remedies are:
+            //  - Update the language-specific Tree-sitter query so the `.name` capture yields the bare identifier, or
+            //  - Improve/override `extractSimpleName(...)` for that language to return an unqualified identifier.
+            // The warning is diagnostic-only and should prompt updating the query/extractor rather than changing
+            // downstream logic.
             if (isLikelyQualifiedSimpleName(simpleName)) {
                 log.warn(
                         "Detected likely fully-qualified simpleName for capture '{}' (node: '{}') at line {} in file {}: '{}'",
