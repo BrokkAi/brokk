@@ -20,8 +20,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitTabExceptionMapper;
-import ai.brokk.gui.util.GitTabSettingsHandler;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;
@@ -77,6 +75,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final GitTabUiStateManager uiStateManager = new GitTabUiStateManager();
 
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
@@ -599,7 +598,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     @Override
     public void issueProviderChanged() {
         logger.debug("Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
-        GitTabSettingsHandler.handleProviderOrTokenChange(
+        uiStateManager.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -647,7 +646,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     @Override
     public void gitHubTokenChanged() {
         logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
-        GitTabSettingsHandler.handleProviderOrTokenChange(
+        uiStateManager.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -880,7 +879,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         "HTTP error while fetching issues: {} (status {})",
                         httpEx.getMessage(),
                         httpEx.getResponseCode());
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(httpEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(httpEx);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -889,7 +888,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (UnknownHostException ex) {
                 logger.error("Network error while fetching issues: unknown host", ex);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -898,7 +897,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (SocketTimeoutException ex) {
                 logger.error("Timeout while fetching issues", ex);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -907,7 +906,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (ConnectException ex) {
                 logger.error("Connection error while fetching issues", ex);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -916,7 +915,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 return null;
             } catch (IOException ex) {
                 logger.error("I/O error while fetching issues", ex);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();

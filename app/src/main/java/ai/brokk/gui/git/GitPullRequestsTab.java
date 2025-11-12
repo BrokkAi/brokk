@@ -22,8 +22,6 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
-import ai.brokk.gui.util.GitTabExceptionMapper;
-import ai.brokk.gui.util.GitTabSettingsHandler;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
@@ -79,6 +77,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitLogTab gitLogTab;
+    private final GitTabUiStateManager uiStateManager = new GitTabUiStateManager();
 
     private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
@@ -765,7 +764,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Override
     public void gitHubTokenChanged() {
-        GitTabSettingsHandler.handleProviderOrTokenChange(
+        uiStateManager.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -805,7 +804,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Override
     public void issueProviderChanged() {
-        GitTabSettingsHandler.handleProviderOrTokenChange(
+        uiStateManager.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -999,27 +998,27 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             } catch (HttpException httpEx) {
                 logger.error(
                         "GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(httpEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(httpEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (UnknownHostException unknownHostEx) {
                 logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(unknownHostEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(unknownHostEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (SocketTimeoutException timeoutEx) {
                 logger.error("Request timed out while fetching pull requests", timeoutEx);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(timeoutEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(timeoutEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (ConnectException connectEx) {
                 logger.error("Connection refused while fetching pull requests", connectEx);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(connectEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(connectEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (IOException ioEx) {
                 logger.error("I/O error while fetching pull requests", ioEx);
-                String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ioEx);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ioEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (Exception ex) {
