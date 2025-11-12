@@ -1479,6 +1479,15 @@ public class Chrome
         });
     }
 
+    /**
+     * Bind a non-null KeyStroke to an action key on the given root pane.
+     *
+     * Invariant: callers (for example, {@code GlobalUiSettings.getKeybinding(...)} and
+     * {@code KeyboardShortcutUtil}) guarantee that the supplied {@code KeyStroke} is
+     * non-null. Therefore this method does not perform a redundant null-check on
+     * {@code stroke}. If that guarantee ever changes, either callers must validate
+     * or this method should be updated to handle null values.
+     */
     private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
         // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y ->
         // "globalRedo").
