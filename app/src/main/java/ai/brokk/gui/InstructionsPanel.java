@@ -295,7 +295,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
         wandButton = new WandButton(
-                contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
+                contextManager,
+                chrome,
+                instructionsArea,
+                this::getInstructions,
+                this::recordAssistantPromptTrailSnapshot,
+                this::populateInstructionsAreaFromAssistant);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -1984,6 +1989,112 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Populate the instructions area with text produced by the assistant (AI). This method uses the session-scoped
+     * `aiPromptTrailSnapshot` as the "before" text for a single composite undo edit so a single Ctrl+Z will restore the
+     * user's previous input. If the assistant text equals the snapshot, we delegate to the regular
+     * `populateInstructionsArea` and clear the assistant trail to avoid a no-op AI-marked edit.
+     */
+    public void populateInstructionsAreaFromAssistant(String text) {
+        SwingUtilities.invokeLater(() -> {
+            // Activate input if needed (clears placeholder but preserves undo history behavior)
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                // Determine "before" text: prefer the stored snapshot, otherwise use current.
+                String beforeText = aiPromptTrailSnapshot != null ? aiPromptTrailSnapshot : instructionsArea.getText();
+                String afterText = text == null ? "" : text;
+
+                // If the assistant produced the same text as the snapshot, avoid creating an AI-marked no-op edit.
+                if (Objects.equals(afterText, beforeText)) {
+                    // Use the regular path (which will create a normal undo edit) and clear the assistant trail.
+                    populateInstructionsArea(afterText);
+                    clearAssistantPromptTrail();
+                    return;
+                }
+
+                // Mark as assistant generated before we set the text so listeners/UI can react.
+                aiPromptIsAssistantGenerated = true;
+                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+
+                // Temporarily detach the UndoManager listener so setText() doesn't create many low-level edits.
+                var doc = instructionsArea.getDocument();
+                doc.removeUndoableEditListener(commandInputUndoManager);
+                try {
+                    instructionsArea.setText(afterText);
+                } finally {
+                    doc.addUndoableEditListener(commandInputUndoManager);
+                }
+
+                // Add a single composite undo edit that will restore the stored snapshot on undo,
+                // and will reapply the assistant text (and tag) on redo.
+                commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+                    private static final long serialVersionUID = 1L;
+                    private final String before = beforeText;
+                    private final String after = afterText;
+
+                    @Override
+                    public void undo() throws CannotUndoException {
+                        super.undo();
+                        SwingUtilities.invokeLater(() -> {
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(before);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            // Clear assistant-trail state when user undoes the AI overwrite.
+                            clearAssistantPromptTrail();
+
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            before.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public void redo() throws CannotRedoException {
+                        super.redo();
+                        SwingUtilities.invokeLater(() -> {
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(after);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            // Reapply assistant-generated tag/state on redo.
+                            aiPromptIsAssistantGenerated = true;
+                            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            after.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public String getPresentationName() {
+                        return "Refine Prompt (AI)";
+                    }
+                });
+
+                // Place caret at end of assistant text.
+                instructionsArea.requestFocusInWindow();
+                instructionsArea.setCaretPosition(afterText.length());
+            });
+        });
+    }
+
+    /**
      * Hides the command input overlay, enables the input field and deep scan button, clears the placeholder text if
      * present, and requests focus for the input field.
      */
@@ -2825,16 +2936,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
 
+        /**
+         * @param contextManager the context manager used by WandAction
+         * @param consoleIO the console IO (for streaming feedback)
+         * @param instructionsArea the text area being edited (used by WandAction for streaming)
+         * @param promptSupplier supplies the current prompt text
+         * @param preExecuteHook optional Runnable that will be invoked synchronously on the EDT before the WandAction starts;
+         *                       used to record a snapshot of the user's input so a single undo can restore it.
+         * @param promptConsumer receives the final assistant-produced text
+         */
         public WandButton(
                 ContextManager contextManager,
                 IConsoleIO consoleIO,
                 JTextArea instructionsArea,
                 Supplier<String> promptSupplier,
+                Runnable preExecuteHook,
                 Consumer<String> promptConsumer) {
             super();
             SwingUtilities.invokeLater(() -> setIcon(Icons.WAND));
             setToolTipText(WAND_TOOLTIP);
             addActionListener(e -> {
+                // Record the snapshot before any assistant-driven overwrite begins
+                if (preExecuteHook != null) {
+                    try {
+                        preExecuteHook.run();
+                    } catch (Exception ex) {
+                        // Defensive: ensure the hook failure doesn't prevent the wand action
+                        logger.debug("Wand preExecuteHook threw an exception", ex);
+                    }
+                }
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
             });
