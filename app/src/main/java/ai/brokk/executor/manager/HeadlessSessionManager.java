@@ -171,6 +171,45 @@ public final class HeadlessSessionManager {
     }
 
     /**
+     * Extract sessionId from a session-scoped token in the Authorization header.
+     * Returns null with an appropriate ErrorPayload if extraction fails.
+     * Master tokens are rejected as they have no session scope.
+     */
+    @Nullable
+    private UUID extractSessionId(HttpExchange exchange) throws IOException {
+        var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authHeader == null || authHeader.isBlank()) {
+            var error = ErrorPayload.of("UNAUTHORIZED", "Missing Authorization header");
+            SimpleHttpServer.sendJsonResponse(exchange, 401, error);
+            return null;
+        }
+
+        if (!authHeader.startsWith("Bearer ")) {
+            var error = ErrorPayload.of("UNAUTHORIZED", "Invalid Authorization header format");
+            SimpleHttpServer.sendJsonResponse(exchange, 401, error);
+            return null;
+        }
+
+        var token = authHeader.substring("Bearer ".length()).strip();
+
+        if (token.equals(masterAuthToken)) {
+            var error = ErrorPayload.of("FORBIDDEN", "Job APIs require a session-scoped token");
+            SimpleHttpServer.sendJsonResponse(exchange, 403, error);
+            return null;
+        }
+
+        try {
+            var sessionToken = tokenService.validate(token);
+            return sessionToken.sessionId();
+        } catch (TokenService.InvalidTokenException e) {
+            logger.debug("Invalid session token: {}", e.getMessage());
+            var error = ErrorPayload.of("UNAUTHORIZED", "Invalid or expired token");
+            SimpleHttpServer.sendJsonResponse(exchange, 401, error);
+            return null;
+        }
+    }
+
+    /**
      * Mint a new session-scoped token with default validity of 1 hour.
      *
      * @param sessionId the session ID to encode in the token
@@ -254,6 +293,11 @@ public final class HeadlessSessionManager {
 
         if (path.equals("/v1/sessions") && method.equals("POST")) {
             handleCreateSession(exchange);
+            return;
+        }
+
+        if (path.startsWith("/v1/jobs")) {
+            handleJobProxy(exchange);
             return;
         }
 
@@ -348,6 +392,93 @@ public final class HeadlessSessionManager {
         } catch (Exception e) {
             logger.error("Error creating session", e);
             var error = ErrorPayload.internalError("Failed to create session", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * Proxy job API requests to the executor for the session identified by the token.
+     */
+    private void handleJobProxy(HttpExchange exchange) throws IOException {
+        var sessionId = extractSessionId(exchange);
+        if (sessionId == null) {
+            return;
+        }
+
+        var handle = pool.get(sessionId);
+        if (handle == null) {
+            logger.warn("No active executor found for session {}", sessionId);
+            var error = ErrorPayload.of("SESSION_NOT_FOUND", "No active executor for this session");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+
+        pool.touch(sessionId);
+
+        var path = exchange.getRequestURI().getPath();
+        var query = exchange.getRequestURI().getQuery();
+        var method = exchange.getRequestMethod();
+
+        var executorUrl = "http://" + handle.host() + ":" + handle.port() + path;
+        if (query != null && !query.isBlank()) {
+            executorUrl += "?" + query;
+        }
+
+        try {
+            var client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+
+            var requestBuilder = HttpRequest.newBuilder(URI.create(executorUrl))
+                    .header("Authorization", "Bearer " + handle.authToken())
+                    .timeout(Duration.ofMinutes(5));
+
+            if (method.equals("POST")) {
+                var contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+                if (contentType != null) {
+                    requestBuilder.header("Content-Type", contentType);
+                }
+
+                var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+                if (idempotencyKey != null) {
+                    requestBuilder.header("Idempotency-Key", idempotencyKey);
+                }
+
+                byte[] body;
+                try (var inputStream = exchange.getRequestBody()) {
+                    body = inputStream.readAllBytes();
+                }
+                requestBuilder.POST(HttpRequest.BodyPublishers.ofByteArray(body));
+            } else {
+                requestBuilder.method(method, HttpRequest.BodyPublishers.noBody());
+            }
+
+            var executorRequest = requestBuilder.build();
+
+            var executorResponse = client.send(executorRequest, HttpResponse.BodyHandlers.ofInputStream());
+
+            exchange.getResponseHeaders()
+                    .set("Content-Type", executorResponse.headers()
+                            .firstValue("Content-Type")
+                            .orElse("application/json"));
+
+            exchange.sendResponseHeaders(executorResponse.statusCode(), 0);
+
+            try (var executorBody = executorResponse.body();
+                    var responseBody = exchange.getResponseBody()) {
+                executorBody.transferTo(responseBody);
+            }
+
+            exchange.close();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted while proxying request to executor for session {}", sessionId, e);
+            var error = ErrorPayload.internalError("Request interrupted", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        } catch (Exception e) {
+            logger.error("Error proxying request to executor for session {}", sessionId, e);
+            var error = ErrorPayload.internalError("Failed to proxy request to executor", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }

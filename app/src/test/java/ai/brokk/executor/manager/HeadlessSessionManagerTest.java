@@ -221,4 +221,401 @@ class HeadlessSessionManagerTest {
         assertEquals(201, conn.getResponseCode());
         conn.disconnect();
     }
+
+    @Test
+    void testProxyJobCreation() throws Exception {
+        var sessionRequestBody = Map.of("name", "Job Test Session", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionToken = (String) sessionResponse.get("token");
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-job-via-manager");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(201, jobConn.getResponseCode());
+
+        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+
+        assertTrue(jobResponse.containsKey("jobId"));
+        assertTrue(jobResponse.containsKey("state"));
+
+        var jobId = (String) jobResponse.get("jobId");
+        assertNotNull(jobId);
+        assertFalse(jobId.isBlank());
+
+        jobConn.disconnect();
+    }
+
+    @Test
+    void testProxyJobStatus() throws Exception {
+        var sessionRequestBody = Map.of("name", "Status Test Session", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionToken = (String) sessionResponse.get("token");
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo status test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-job-status");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(201, jobConn.getResponseCode());
+
+        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobId = (String) jobResponse.get("jobId");
+
+        jobConn.disconnect();
+
+        var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
+        var statusConn = (HttpURLConnection) statusUrl.openConnection();
+        statusConn.setRequestMethod("GET");
+        statusConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+
+        assertEquals(200, statusConn.getResponseCode());
+
+        var statusResponse =
+                OBJECT_MAPPER.readValue(statusConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+
+        assertTrue(statusResponse.containsKey("state"));
+
+        statusConn.disconnect();
+    }
+
+    @Test
+    void testProxyJobEvents() throws Exception {
+        var sessionRequestBody = Map.of("name", "Events Test Session", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionToken = (String) sessionResponse.get("token");
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo events test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-job-events");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(201, jobConn.getResponseCode());
+
+        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobId = (String) jobResponse.get("jobId");
+
+        jobConn.disconnect();
+
+        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1").toURL();
+        var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
+        eventsConn.setRequestMethod("GET");
+        eventsConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+
+        assertEquals(200, eventsConn.getResponseCode());
+
+        var eventsResponse =
+                OBJECT_MAPPER.readValue(eventsConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+
+        assertTrue(eventsResponse.containsKey("events"));
+        assertTrue(eventsResponse.containsKey("nextAfter"));
+
+        eventsConn.disconnect();
+    }
+
+    @Test
+    void testProxyJobCancel() throws Exception {
+        var sessionRequestBody = Map.of("name", "Cancel Test Session", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionToken = (String) sessionResponse.get("token");
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo cancel test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-job-cancel");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(201, jobConn.getResponseCode());
+
+        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobId = (String) jobResponse.get("jobId");
+
+        jobConn.disconnect();
+
+        var cancelUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
+        var cancelConn = (HttpURLConnection) cancelUrl.openConnection();
+        cancelConn.setRequestMethod("POST");
+        cancelConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+
+        assertEquals(202, cancelConn.getResponseCode());
+
+        cancelConn.disconnect();
+    }
+
+    @Test
+    void testProxyJobWithMasterTokenRejected() throws Exception {
+        var sessionRequestBody = Map.of("name", "Master Token Test", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-master-token-rejected");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(403, jobConn.getResponseCode());
+
+        jobConn.disconnect();
+    }
+
+    @Test
+    void testProxyJobDiff() throws Exception {
+        var sessionRequestBody = Map.of("name", "Diff Test Session", "repoPath", repoPath.toString());
+
+        var url = URI.create(baseUrl + "/v1/sessions").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(sessionRequestBody));
+        }
+
+        assertEquals(201, conn.getResponseCode());
+
+        var sessionResponse =
+                OBJECT_MAPPER.readValue(conn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var sessionToken = (String) sessionResponse.get("token");
+        var sessionId = (String) sessionResponse.get("sessionId");
+
+        conn.disconnect();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                sessionId,
+                "taskInput",
+                "echo diff test",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash");
+
+        var jobUrl = URI.create(baseUrl + "/v1/jobs").toURL();
+        var jobConn = (HttpURLConnection) jobUrl.openConnection();
+        jobConn.setRequestMethod("POST");
+        jobConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+        jobConn.setRequestProperty("Content-Type", "application/json");
+        jobConn.setRequestProperty("Idempotency-Key", "test-job-diff");
+        jobConn.setDoOutput(true);
+
+        try (OutputStream os = jobConn.getOutputStream()) {
+            os.write(OBJECT_MAPPER.writeValueAsBytes(jobSpec));
+        }
+
+        assertEquals(201, jobConn.getResponseCode());
+
+        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobId = (String) jobResponse.get("jobId");
+
+        jobConn.disconnect();
+
+        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
+        var diffConn = (HttpURLConnection) diffUrl.openConnection();
+        diffConn.setRequestMethod("GET");
+        diffConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+
+        int statusCode = diffConn.getResponseCode();
+
+        if (statusCode == 200) {
+            var contentType = diffConn.getHeaderField("Content-Type");
+            assertNotNull(contentType);
+            assertTrue(contentType.startsWith("text/plain"), "Expected text/plain Content-Type, got: " + contentType);
+        } else if (statusCode == 409) {
+            var errorResponse =
+                    OBJECT_MAPPER.readValue(diffConn.getErrorStream(), new TypeReference<Map<String, Object>>() {});
+            assertEquals("NO_GIT", errorResponse.get("code"));
+        } else {
+            fail("Expected status 200 or 409, but got: " + statusCode);
+        }
+
+        diffConn.disconnect();
+    }
 }
