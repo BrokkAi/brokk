@@ -68,10 +68,10 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.text.*;
-import javax.swing.undo.UndoManager;
 import javax.swing.undo.AbstractUndoableEdit;
-import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CannotUndoException;
+import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
@@ -1849,88 +1849,96 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void populateInstructionsArea(String text) {
-    SwingUtilities.invokeLater(() -> {
-    // If placeholder is active or area is disabled, activate input first.
-    // Note: activateCommandInput() will clear placeholder and may discard history
-    // via clearCommandInput(); that's intended only for the placeholder case.
-    boolean didActivate = false;
-    if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
-    activateCommandInput(); // This enables, clears placeholder, requests focus
-    didActivate = true;
-    }
-    
-    SwingUtilities.invokeLater(() -> {
-    // Intentionally preserve undo history so users can press Ctrl/Cmd+Z to revert a refined prompt.
-    // Global undo/redo keybindings are wired in Chrome; we only create a single composite edit here.
-    // Capture previous content so we can provide a single undo/redo step.
-    String beforeText = instructionsArea.getText();
-    String afterText = text;
-    
-    // Temporarily detach the UndoManager listener so the programmatic setText()
-    // doesn't produce low-level undoable edits. We'll add a single composite edit.
-    var doc = instructionsArea.getDocument();
-    doc.removeUndoableEditListener(commandInputUndoManager);
-    try {
-    instructionsArea.setText(afterText);
-    } finally {
-    // Reattach the listener regardless of what happened above.
-    doc.addUndoableEditListener(commandInputUndoManager);
-    }
-    
-    // Add a single undoable edit that knows how to restore previous/next text.
-    // If we activated due to placeholder, the previous text may be empty and
-    // clearing the undo history earlier is expected; still we add this edit
-    // so redo/undo behaves predictably.
-    commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
-    private static final long serialVersionUID = 1L;
-    private final String before = beforeText;
-    private final String after = afterText;
-    
-    @Override
-    public void undo() throws CannotUndoException {
-    super.undo();
-    SwingUtilities.invokeLater(() -> {
-    // Temporarily suppress listening while applying undo to avoid
-    // creating additional undo edits.
-    var d = instructionsArea.getDocument();
-    d.removeUndoableEditListener(commandInputUndoManager);
-    try {
-    instructionsArea.setText(before);
-    } finally {
-    d.addUndoableEditListener(commandInputUndoManager);
-    }
-    instructionsArea.requestFocusInWindow();
-    instructionsArea.setCaretPosition(Math.max(0, Math.min(before.length(), instructionsArea.getDocument().getLength())));
-    });
-    }
-    
-    @Override
-    public void redo() throws CannotRedoException {
-    super.redo();
-    SwingUtilities.invokeLater(() -> {
-    var d = instructionsArea.getDocument();
-    d.removeUndoableEditListener(commandInputUndoManager);
-    try {
-    instructionsArea.setText(after);
-    } finally {
-    d.addUndoableEditListener(commandInputUndoManager);
-    }
-    instructionsArea.requestFocusInWindow();
-    instructionsArea.setCaretPosition(Math.max(0, Math.min(after.length(), instructionsArea.getDocument().getLength())));
-    });
-    }
-    
-    @Override
-    public String getPresentationName() {
-    return "Refine Prompt";
-    }
-    });
-    
-    // Ensure focus and caret are placed at the end of the new text.
-    instructionsArea.requestFocusInWindow();
-    instructionsArea.setCaretPosition(afterText.length());
-    });
-    });
+        SwingUtilities.invokeLater(() -> {
+            // If placeholder is active or area is disabled, activate input first.
+            // Note: activateCommandInput() will clear placeholder and may discard history
+            // via clearCommandInput(); that's intended only for the placeholder case.
+            boolean didActivate = false;
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput(); // This enables, clears placeholder, requests focus
+                didActivate = true;
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                // Intentionally preserve undo history so users can press Ctrl/Cmd+Z to revert a refined prompt.
+                // Global undo/redo keybindings are wired in Chrome; we only create a single composite edit here.
+                // Capture previous content so we can provide a single undo/redo step.
+                String beforeText = instructionsArea.getText();
+                String afterText = text;
+
+                // Temporarily detach the UndoManager listener so the programmatic setText()
+                // doesn't produce low-level undoable edits. We'll add a single composite edit.
+                var doc = instructionsArea.getDocument();
+                doc.removeUndoableEditListener(commandInputUndoManager);
+                try {
+                    instructionsArea.setText(afterText);
+                } finally {
+                    // Reattach the listener regardless of what happened above.
+                    doc.addUndoableEditListener(commandInputUndoManager);
+                }
+
+                // Add a single undoable edit that knows how to restore previous/next text.
+                // If we activated due to placeholder, the previous text may be empty and
+                // clearing the undo history earlier is expected; still we add this edit
+                // so redo/undo behaves predictably.
+                commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+                    private static final long serialVersionUID = 1L;
+                    private final String before = beforeText;
+                    private final String after = afterText;
+
+                    @Override
+                    public void undo() throws CannotUndoException {
+                        super.undo();
+                        SwingUtilities.invokeLater(() -> {
+                            // Temporarily suppress listening while applying undo to avoid
+                            // creating additional undo edits.
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(before);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            before.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public void redo() throws CannotRedoException {
+                        super.redo();
+                        SwingUtilities.invokeLater(() -> {
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(after);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            after.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public String getPresentationName() {
+                        return "Refine Prompt";
+                    }
+                });
+
+                // Ensure focus and caret are placed at the end of the new text.
+                instructionsArea.requestFocusInWindow();
+                instructionsArea.setCaretPosition(afterText.length());
+            });
+        });
     }
 
     /**
