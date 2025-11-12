@@ -1853,7 +1853,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             SwingUtilities.invokeLater(() -> {
                 instructionsArea.setText(text);
-                commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+                // Preserve existing undo history so users can undo the refined prompt (Ctrl/Cmd+Z).
+                // Previously we discarded all edits here which prevented undoing the refinement.
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
             });
