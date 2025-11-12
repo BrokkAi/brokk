@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -32,6 +33,8 @@ import org.apache.logging.log4j.Logger;
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
+    private static final Pattern BRK_MARKER_PATTERN =
+            Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     public static final String LAZY_REMINDER =
             """
@@ -566,8 +569,7 @@ public abstract class CodePrompts {
 
         // Try to detect semantic markers in the original SEARCH block
         var before = f.block().beforeText().strip();
-        var m = java.util.regex.Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", java.util.regex.Pattern.MULTILINE)
-                .matcher(before);
+        var m = BRK_MARKER_PATTERN.matcher(before);
         if (!m.find()) {
             // Not a semantic marker; return original commentary
             return base;
