@@ -74,7 +74,6 @@ import org.kohsuke.github.HttpException;
 public class GitIssuesTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
     private static final int DEFAULT_ROW_HEIGHT = 48;
-    private static final int ERROR_ROW_HEIGHT = 30;
 
     private final Chrome chrome;
     private final ContextManager contextManager;

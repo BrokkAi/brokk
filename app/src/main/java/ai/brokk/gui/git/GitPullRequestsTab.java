@@ -68,7 +68,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
     private static final int DEFAULT_ROW_HEIGHT = 48;
-    private static final int ERROR_ROW_HEIGHT = 30;
 
     // PR Table Column Indices
     private static final int PR_COL_NUMBER = 0;

@@ -39,10 +39,6 @@ import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.transport.RefSpec;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHPullRequest;
@@ -544,7 +540,8 @@ public final class GitUiUtil {
         }
 
         if (!GITHUB_OWNER_PATTERN.matcher(trimmedOwner).matches()) {
-            return Optional.of("Owner name must be alphanumeric and hyphens only, with no leading/trailing hyphens or consecutive hyphens.");
+            return Optional.of(
+                    "Owner name must be alphanumeric and hyphens only, with no leading/trailing hyphens or consecutive hyphens.");
         }
 
         return Optional.empty();
@@ -572,7 +569,8 @@ public final class GitUiUtil {
         }
 
         if (!GITHUB_REPO_PATTERN.matcher(trimmedRepo).matches()) {
-            return Optional.of("Repository name must be alphanumeric, underscores, dots, and hyphens only, with no leading/trailing dots.");
+            return Optional.of(
+                    "Repository name must be alphanumeric, underscores, dots, and hyphens only, with no leading/trailing dots.");
         }
 
         return Optional.empty();

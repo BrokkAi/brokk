@@ -527,7 +527,8 @@ public class GitRepoRemote {
 
         logger.debug("SHA {} not available locally - fetching {} from {}", sha, refSpec, remoteName);
         try {
-            var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
+            var fetchCommand =
+                    git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
             repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
             fetchCommand.call();
             if (repo.isCommitLocallyAvailable(sha)) {
@@ -535,7 +536,11 @@ public class GitRepoRemote {
                 repo.invalidateCaches();
                 return true;
             } else {
-                logger.warn("Failed to make SHA {} available locally even after fetching {} from {}", sha, refSpec, remoteName);
+                logger.warn(
+                        "Failed to make SHA {} available locally even after fetching {} from {}",
+                        sha,
+                        refSpec,
+                        remoteName);
                 return false;
             }
         } catch (Exception e) {

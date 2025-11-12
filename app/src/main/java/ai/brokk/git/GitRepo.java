@@ -696,7 +696,10 @@ public class GitRepo implements Closeable, IGitRepo {
                 return true;
             }
         } catch (MissingObjectException e) {
-            logger.debug("Commit object for SHA {} (resolved to {}) is missing locally.", shortHash(sha), objectId != null ? objectId.name() : "null");
+            logger.debug(
+                    "Commit object for SHA {} (resolved to {}) is missing locally.",
+                    shortHash(sha),
+                    objectId != null ? objectId.name() : "null");
             return false;
         } catch (Exception e) {
             logger.debug("Cannot resolve or parse SHA {}: {}", shortHash(sha), e.getMessage());
