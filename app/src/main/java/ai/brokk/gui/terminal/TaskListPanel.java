@@ -587,6 +587,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void addTask() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         var raw = input.getText();
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
@@ -610,6 +611,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void removeSelected() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             // Determine how many tasks can actually be removed (exclude running/queued)
@@ -672,6 +674,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void toggleSelectedDone() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             boolean changed = false;
@@ -698,6 +701,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void onGoStopButtonPressed() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         var contextManager = chrome.getContextManager();
         if (contextManager.isLlmTaskInProgress()) {
             contextManager.interruptLlmAction();
@@ -707,6 +711,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void editSelected() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         int idx = list.getSelectedIndex();
         if (idx < 0) return;
         if (runningIndex != null && idx == runningIndex.intValue()) {
@@ -825,19 +830,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
 
-        // Respect read-only state first: disable all edit actions
-        if (!taskListEditable) {
-            removeBtn.setEnabled(false);
-            toggleDoneBtn.setEnabled(false);
-            clearCompletedBtn.setEnabled(false);
-            input.setEnabled(false);
-            input.setEditable(false);
-
-            goStopButton.setEnabled(false);
-            goStopButton.setToolTipText(READ_ONLY_TIP);
-            goStopButton.repaint();
-            return;
-        }
+        
 
         // Remove/Toggle disabled if no selection OR selection includes running/pending
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
@@ -1013,6 +1006,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnSelected() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         if (chrome.getContextManager().isLlmTaskInProgress() || queueActive) {
             // A run is already in progress, do not start another.
             // The UI should prevent this, but this is a safeguard for the keyboard shortcut.
@@ -1030,6 +1024,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnAll() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         if (model.getSize() == 0) {
             return;
         }
@@ -1661,11 +1656,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public int getSourceActions(JComponent c) {
-            return MOVE;
+            return taskListEditable ? MOVE : NONE;
         }
 
         @Override
         protected @Nullable Transferable createTransferable(JComponent c) {
+            if (!taskListEditable) {
+                indices = null;
+                return null;
+            }
             indices = list.getSelectedIndices();
 
             // Disallow dragging if selection includes the running task
@@ -1704,6 +1703,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean canImport(TransferSupport support) {
+            if (!taskListEditable) return false;
             if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
@@ -1722,6 +1722,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean importData(TransferSupport support) {
+            if (!taskListEditable) return false;
             if (!support.isDrop()) {
                 return false;
             }
@@ -1799,6 +1800,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void combineSelectedTasks() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         int[] indices = list.getSelectedIndices();
         if (indices.length < 2) {
             JOptionPane.showMessageDialog(
@@ -1875,6 +1877,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void splitSelectedTask() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         int[] indices = list.getSelectedIndices();
         if (indices.length != 1) {
             JOptionPane.showMessageDialog(
@@ -2031,6 +2034,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void clearCompletedTasks() {
+        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
         if (model.isEmpty()) {
             return;
         }
