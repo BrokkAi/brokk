@@ -2462,10 +2462,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String toggleLine = "";
             try {
                 var toggleKs = GlobalUiSettings.getKeybinding(
-                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                 var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr == null || toggleStr.isBlank()) {
-                    toggleStr = "(unbound)";
+                if (toggleStr.isBlank()) {
+                toggleStr = "(unbound)";
                 }
                 toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
             } catch (Exception ignore) {
@@ -2475,10 +2475,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
-                        "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+                "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-                if (submitStr == null || submitStr.isBlank()) {
-                    submitStr = "(unbound)";
+                if (submitStr.isBlank()) {
+                submitStr = "(unbound)";
                 }
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
             } catch (Exception ignore) {
