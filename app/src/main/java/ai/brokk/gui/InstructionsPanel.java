@@ -2043,6 +2043,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             modeBadge.setVisible(advanced);
             actionButton.setDropdownEnabled(advanced);
 
+            // When switching TO EZ mode, reset to Lutz mode (the default for simplified UX)
+            if (!advanced) {
+                actionButton.setSelectedMode(ACTION_SEARCH);
+            }
+
             // Switch placeholder only if currently showing a placeholder
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
