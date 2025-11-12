@@ -372,7 +372,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             int right = Math.min(width, s.startX + s.widthPx + proximity);
             if (mouseX >= left && mouseX < right) {
                 // Suppress any tooltip when mouse is over or very near a filled segment.
-                return null;
+                return "";
             }
         }
 
@@ -393,7 +393,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public @Nullable Point getToolTipLocation(MouseEvent event) {
         try {
             String text = getToolTipText(event);
-            if (text == null || text.isEmpty()) {
+            if (text.isEmpty()) {
                 return null; // default behavior if no tooltip
             }
 
