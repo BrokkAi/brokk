@@ -927,9 +927,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } finally {
             isLoadingTasks = false;
             // Update the last-seen fragment ID after successful load (respecting selected context)
-            var cm2 = chrome.getContextManager();
-            Context sel = cm2.selectedContext();
-            Context baseCtx = (sel != null) ? sel : cm2.topContext();
+            var cm = chrome.getContextManager();
+            Context sel = cm.selectedContext();
+            Context baseCtx = (sel != null) ? sel : cm.topContext();
             lastTaskListFragmentId = baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
             clearExpansionOnStructureChange();
@@ -1643,28 +1643,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } else {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
-    }
-
-    /**
-     * Mirror WorkspacePanel behavior when the user browses history:
-     * - Determine if the currently selected context is the latest
-     * - Toggle read-only state accordingly
-     * - Reload tasks from the selected (or latest) context
-     *
-     * Safe to call from any thread; EDT work is dispatched as needed.
-     */
-    public void syncWithSelection() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::syncWithSelection);
-            return;
-        }
-        var cm = chrome.getContextManager();
-        var selected = cm.selectedContext();
-        boolean onLatest = (selected == null) || selected.equals(cm.topContext());
-
-        // Toggle read-only state first, then reload the task list model
-        setTaskListEditable(onLatest);
-        refreshFromManager();
     }
 
     /**

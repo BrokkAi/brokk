@@ -955,6 +955,7 @@ public class Chrome
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
+            taskListPanel.contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().topContext();
