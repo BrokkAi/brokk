@@ -130,8 +130,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
-    private JCheckBox experimentalSplitLayoutCheckbox = new JCheckBox(
-            "Use new split layout (Activity above Instructions; Output + Changes on right)");
+    private JCheckBox experimentalSplitLayoutCheckbox =
+            new JCheckBox("Use new split layout (Activity above Instructions; Output + Changes on right)");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -671,7 +671,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         panel.add(experimentalSplitLayoutCheckbox, gbc);
 
         var experimentalSplitLayoutNote = new JLabel("Takes effect after restart");
-        experimentalSplitLayoutNote.setFont(experimentalSplitLayoutNote.getFont().deriveFont(Font.ITALIC));
+        experimentalSplitLayoutNote.setFont(
+                experimentalSplitLayoutNote.getFont().deriveFont(Font.ITALIC));
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;
         gbc.gridy = row++;

@@ -199,7 +199,9 @@ public class Chrome
 
     private final JSplitPane topSplitPane; // Activity | (Workspace+Instructions) when experimental layout is enabled
     private final JSplitPane mainVerticalSplitPane; // Workspace (top) | Instructions (bottom)
-    private final @Nullable JSplitPane mainHorizontalSplitPane; // Activity+Instructions | Output+Changes (null when experimental layout is disabled)
+    private final @Nullable JSplitPane
+            mainHorizontalSplitPane; // Activity+Instructions | Output+Changes (null when experimental layout is
+    // disabled)
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
@@ -2552,15 +2554,15 @@ public class Chrome
 
         if (mainHorizontalSplitPane != null) {
             if (mainHorizontalSplitPane != null) {
-            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (mainHorizontalSplitPane.isShowing()) {
-            var newPos = mainHorizontalSplitPane.getDividerLocation();
-            if (newPos > 0) {
-            project.saveRightVerticalSplitPosition(newPos);
-            GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
-            }
-            }
-            });
+                mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                    if (mainHorizontalSplitPane.isShowing()) {
+                        var newPos = mainHorizontalSplitPane.getDividerLocation();
+                        if (newPos > 0) {
+                            project.saveRightVerticalSplitPosition(newPos);
+                            GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+                        }
+                    }
+                });
             }
         }
 
@@ -3769,30 +3771,31 @@ public class Chrome
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {
-                // Navigate to Instructions: topSplitPane bottom is Workspace|Instructions split,
-                // and that split's bottom is the Instructions container
-                Component instrContainer = null;
-                Component bottomComp = topSplitPane.getBottomComponent();
-                if (bottomComp instanceof JSplitPane sp) {
-                instrContainer = sp.getBottomComponent();
-                } else {
-                instrContainer = bottomComp;
-                }
-                if (instrContainer != null) {
-                instructionsHeightPx = Math.max(0, instrContainer.getHeight());
-                }
-                // Fallback estimate if height not realized yet
-                if (instructionsHeightPx == 0) {
-                int tsTotal = Math.max(0, topSplitPane.getHeight());
-                int tsDivider = topSplitPane.getDividerSize();
-                int maxFromTop = Math.max(0, tsTotal - tsDivider);
-                int minBottom = (instrContainer != null) ? Math.max(0, instrContainer.getMinimumSize().height) : 0;
-                instructionsHeightPx =
-                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
-                }
+                    // Navigate to Instructions: topSplitPane bottom is Workspace|Instructions split,
+                    // and that split's bottom is the Instructions container
+                    Component instrContainer = null;
+                    Component bottomComp = topSplitPane.getBottomComponent();
+                    if (bottomComp instanceof JSplitPane sp) {
+                        instrContainer = sp.getBottomComponent();
+                    } else {
+                        instrContainer = bottomComp;
+                    }
+                    if (instrContainer != null) {
+                        instructionsHeightPx = Math.max(0, instrContainer.getHeight());
+                    }
+                    // Fallback estimate if height not realized yet
+                    if (instructionsHeightPx == 0) {
+                        int tsTotal = Math.max(0, topSplitPane.getHeight());
+                        int tsDivider = topSplitPane.getDividerSize();
+                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
+                        int minBottom =
+                                (instrContainer != null) ? Math.max(0, instrContainer.getMinimumSize().height) : 0;
+                        instructionsHeightPx =
+                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
+                    }
                 } catch (Exception ex) {
-                // Defensive; we'll clamp during restore regardless
-                logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
+                    // Defensive; we'll clamp during restore regardless
+                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
                 }
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
@@ -3802,8 +3805,8 @@ public class Chrome
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
                 topSplitPane.revalidate();
-                SwingUtilities.invokeLater(() -> applyMainDividerForExactBottomHeight(
-                        topSplitPane, Math.max(0, pinnedInstructionsHeightPx)));
+                SwingUtilities.invokeLater(() ->
+                        applyMainDividerForExactBottomHeight(topSplitPane, Math.max(0, pinnedInstructionsHeightPx)));
 
                 this.workspaceCollapsed = true;
 
