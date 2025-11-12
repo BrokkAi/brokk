@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 
@@ -73,14 +74,14 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public List<CodeUnit> searchDefinitions(@Nullable String pattern) {
+    public Set<CodeUnit> searchDefinitions(@Nullable String pattern) {
         if (pattern == null || pattern.isEmpty()) {
-            return List.of();
+            return Set.of();
         }
         if (".*".equals(pattern)) {
             return Stream.concat(
                             allClasses.stream(), methodsMap.values().stream().flatMap(List::stream))
-                    .toList();
+                    .collect(Collectors.toSet());
         }
 
         var regex = "^(?i)" + pattern + "$";
@@ -95,9 +96,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
                 .filter(cu -> cu.fqName().matches(regex))
                 .toList();
 
-        return Stream.concat(matchingClasses.stream(), matchingMethods.stream())
-                .distinct()
-                .toList();
+        return Stream.concat(matchingClasses.stream(), matchingMethods.stream()).collect(Collectors.toSet());
     }
 
     @Override

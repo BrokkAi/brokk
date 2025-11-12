@@ -188,21 +188,17 @@ public class MultiAnalyzer
     }
 
     @Override
-    public List<CodeUnit> searchDefinitions(String pattern) {
+    public Set<CodeUnit> searchDefinitions(String pattern) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.searchDefinitions(pattern).stream())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
     }
 
     @Override
-    public List<CodeUnit> autocompleteDefinitions(String query) {
+    public Set<CodeUnit> autocompleteDefinitions(String query) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.autocompleteDefinitions(query).stream())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
     }
 
     @Override
