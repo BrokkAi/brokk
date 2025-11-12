@@ -1863,8 +1863,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu =
-                    createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
+            // Diagnostic: detect when the simpleName looks like a fully-qualified token produced by the query or
+            // by extractSimpleName. Do not mutate the simpleName or affect analysis; log only.
+            if (isLikelyQualifiedSimpleName(simpleName)) {
+                log.warn(
+                        "Detected likely fully-qualified simpleName for capture '{}' (node: '{}') at line {} in file {}: '{}'",
+                        primaryCaptureName,
+                        node.getType(),
+                        node.getStartPoint().getRow() + 1,
+                        file.getFileName(),
+                        simpleName);
+            }
+
+            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
