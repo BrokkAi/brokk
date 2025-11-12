@@ -2551,15 +2551,17 @@ public class Chrome
         });
 
         if (mainHorizontalSplitPane != null) {
+            if (mainHorizontalSplitPane != null) {
             mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (mainHorizontalSplitPane.isShowing()) {
-                    var newPos = mainHorizontalSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveRightVerticalSplitPosition(newPos);
-                        GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
-                    }
-                }
+            if (mainHorizontalSplitPane.isShowing()) {
+            var newPos = mainHorizontalSplitPane.getDividerLocation();
+            if (newPos > 0) {
+            project.saveRightVerticalSplitPosition(newPos);
+            GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+            }
+            }
             });
+            }
         }
 
         bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
