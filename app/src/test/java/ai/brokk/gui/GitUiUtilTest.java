@@ -452,7 +452,6 @@ public class GitUiUtilTest {
         assertEquals("my-repo", result.get().repo());
     }
 
-
     // ============ normalizeGitHubHost tests ============
 
     @Test

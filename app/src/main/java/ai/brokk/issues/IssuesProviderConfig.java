@@ -1,11 +1,9 @@
 package ai.brokk.issues;
 
-import ai.brokk.gui.util.GitUiUtil;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 /** Marker parent. Concrete records hold the supplier‐specific data. */
@@ -42,7 +40,6 @@ public sealed interface IssuesProviderConfig
                     && (repo == null || repo.isBlank())
                     && (host == null || host.isBlank());
         }
-
     }
 
     /** Jira provider */

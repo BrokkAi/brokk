@@ -117,8 +117,7 @@ public final class GitTabUiStateManager {
      * @param cancelActiveTasks A Runnable that cancels any active tasks/futures
      * @param refreshData A Runnable that refreshes data (may be scheduled asynchronously afterward)
      */
-    public void handleProviderOrTokenChange(
-            Runnable resetUiState, Runnable cancelActiveTasks, Runnable refreshData) {
+    public void handleProviderOrTokenChange(Runnable resetUiState, Runnable cancelActiveTasks, Runnable refreshData) {
         SwingUtilities.invokeLater(() -> {
             resetUiState.run();
             cancelActiveTasks.run();
