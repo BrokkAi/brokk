@@ -37,7 +37,7 @@ class CodePromptsTest {
     }
 
     @Test
-    void syntaxAwareEnabledWhenAtLeastOneEditableFileIsJava(@TempDir Path tempDir) throws Exception {
+    void syntaxAwareDisabledWhenEditableFilesIncludeNonJava(@TempDir Path tempDir) throws Exception {
         var project = new TestProject(tempDir, Languages.JAVA);
         Set<ProjectFile> files = new HashSet<>();
 
@@ -53,9 +53,9 @@ class CodePromptsTest {
         files.add(nonJavaFile);
 
         var flags = CodePrompts.instructionsFlags(project, files);
-        assertTrue(
+        assertFalse(
                 flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
-                "SYNTAX_AWARE should be enabled when at least one editable file is .java");
+                "SYNTAX_AWARE should be disabled unless all editable files are Java");
     }
 
     @Test

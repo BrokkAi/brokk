@@ -118,24 +118,32 @@ public abstract class CodePrompts {
                 .findFirst();
 
         if (maybeJavaLanguage.isPresent()) {
-            // Enable SYNTAX_AWARE if: (a)  at least one editable file is a Java source,
-            // (b) the project analyzer includes Java (e.g., MultiAnalyzer has a Java delegate)
-            var javaProject = maybeJavaLanguage.get();
-            var javaExtensions = javaProject.getExtensions().stream()
+            // Enable SYNTAX_AWARE only if:
+            // (a) editable set is non-empty AND
+            // (b) every editable file is a Java source (by extension) AND
+            // (c) the project analyzer includes Java
+            var javaLang = maybeJavaLanguage.get();
+            var javaExtensions = javaLang.getExtensions().stream()
                     .map(ext -> ext.toLowerCase(Locale.ROOT))
                     .collect(Collectors.toSet());
-            var editableJavaFiles = fileContents.keySet().stream()
-                    .filter(f -> javaExtensions.contains(f.extension().toLowerCase(Locale.ROOT)))
-                    .count();
-            var hasJavaEditable = editableJavaFiles > 0;
-            if (hasJavaEditable) {
+
+            var nonEmpty = !editableFiles.isEmpty();
+            var allEditableAreJava = fileContents.keySet().stream()
+                    .allMatch(f -> javaExtensions.contains(f.extension().toLowerCase(Locale.ROOT)));
+
+            if (nonEmpty && allEditableAreJava) {
                 flags.add(InstructionsFlags.SYNTAX_AWARE);
                 logger.debug(
-                        "Syntax-aware edits enabled for Java in a {}-language workspace: {} editable Java file(s).",
+                        "Syntax-aware edits enabled for Java-only editable set in a {}-language workspace ({} editable file(s)).",
                         languages.size(),
-                        editableJavaFiles);
+                        fileContents.size());
             } else {
-                logger.debug("Syntax-aware edits disabled: no editable Java files in workspace.");
+                if (!nonEmpty) {
+                    logger.debug("Syntax-aware edits disabled: editable set is empty.");
+                } else {
+                    logger.debug(
+                            "Syntax-aware edits disabled: editable set contains non-Java files (requires all editable files to be Java).");
+                }
             }
         } else {
             logger.debug("Syntax-aware edits disabled: project analyzer does not include Java.");

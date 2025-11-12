@@ -46,7 +46,7 @@ public class CodePromptsSyntaxAwareIntegrationTest {
     }
 
     @Test
-    void testMultiLanguageWithJava_enablesSyntaxAware() throws Exception {
+    void testMultiLanguageWithJava_disablesSyntaxAwareWhenEditableNotAllJava() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                         """
                         package p;
@@ -69,9 +69,9 @@ public class CodePromptsSyntaxAwareIntegrationTest {
                     new ProjectFile(project.getRoot(), "web/app.js"));
             var flags = CodePrompts.instructionsFlags(project, editable);
 
-            assertTrue(
+            assertFalse(
                     flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
-                    "Expected SYNTAX_AWARE to be enabled for mixed-language project containing Java");
+                    "Expected SYNTAX_AWARE to be disabled when editable set includes non-Java files");
         }
     }
 
