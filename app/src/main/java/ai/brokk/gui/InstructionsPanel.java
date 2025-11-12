@@ -157,6 +157,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // but do it explicitly here to be robust in the minimal path).
         this.instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
 
+        // Minimal autocomplete setup so tests and code paths that touch autocomplete will find non-null fields.
+        // This mirrors the main constructor's setup but in a lightweight form appropriate for tests.
+        this.instructionCompletionProvider = new InstructionsCompletionProvider();
+        this.instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
+        this.instructionAutoCompletion.setAutoActivationEnabled(false);
+        this.instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        this.instructionAutoCompletion.install(instructionsArea);
+
         // Minimal overlay that does not perform activation (safe no-op)
         this.commandInputOverlay = new OverlayPanel(overlay -> {}, ""); // no-op overlay for tests
         this.commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
