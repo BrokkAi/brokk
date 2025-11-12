@@ -23,6 +23,12 @@ or return value is not annotated @Nullable.
 1. **YAGNI**: Follow the principle of You Ain't Gonna Need It; implement the simplest solution that meets the requirements, unless you have specific knowledge that a more robust solution is needed to meet near-future requirements.
 1. **Keep related code together**: Don't split out code into a separate function, class, or file unless it is completely self-contained or called from multiple sites. It's easier to understand a short computation inline with its context, than split out to a separate location.
 
+## Working with LLMs
+
+1. **Tool Calls**: If you're making tool calls, make sure you have summaries of ToolRegistry and ToolExecutionResult in the Workspace.
+Note that ToolRegistry::executeTool catches exceptions and turns them into TER with INTERNAL_ERROR status, so wrapping executeTool
+with try/catch is unnecessary and futile; don't do that.
+
 ## Things to avoid
 
 1. **No Reflection**: Don't use reflection unless it's specifically requested by the user. Especially don't use reflection to work around member visibility issues; ask the user to add the necessary file to the Workspace so you can relax the visibility, instead.

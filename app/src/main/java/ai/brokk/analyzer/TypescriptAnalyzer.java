@@ -79,19 +79,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // typeParametersFieldName
             "type_parameters", // Standard field name for type parameters in TS
             // captureConfiguration - using unified naming convention
-            Map.of(
-                    CaptureNames.TYPE_DEFINITION,
-                    SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
-                    CaptureNames.FUNCTION_DEFINITION,
-                    SkeletonType.FUNCTION_LIKE, // Functions, methods
-                    CaptureNames.VALUE_DEFINITION,
-                    SkeletonType.FIELD_LIKE, // Variables, fields, constants
-                    CaptureNames.TYPEALIAS_DEFINITION,
-                    SkeletonType.ALIAS_LIKE, // Type aliases
-                    CaptureNames.DECORATOR_DEFINITION,
-                    SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
-                    "keyword.modifier",
-                    SkeletonType.UNSUPPORTED),
+            Map.ofEntries(
+                    Map.entry(
+                            CaptureNames.TYPE_DEFINITION,
+                            SkeletonType.CLASS_LIKE), // Classes, interfaces, enums, namespaces
+                    Map.entry(CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    Map.entry(CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE),
+                    Map.entry(CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
+                    Map.entry(CaptureNames.DECORATOR_DEFINITION, SkeletonType.UNSUPPORTED),
+                    Map.entry("keyword.modifier", SkeletonType.UNSUPPORTED)),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
             // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
@@ -148,38 +145,82 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        // Adjust FQN based on capture type and context
-        String finalShortName;
-        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        return super.refineSkeletonType(captureName, definitionNode, profile);
+    }
 
-        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+    @Override
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
+        // In TypeScript, namespaces appear in BOTH packageName and classChain.
+        // To avoid duplication in FQNames, strip the package prefix from classChain.
+        String adjustedClassChain = classChain;
+        if (!packageName.isBlank() && !classChain.isBlank()) {
+            if (classChain.equals(packageName)) {
+                // ClassChain is exactly the package - just the namespace, no nesting
+                adjustedClassChain = "";
+            } else if (classChain.startsWith(packageName)
+                    && classChain.length() > packageName.length()
+                    && classChain.charAt(packageName.length()) == '.') {
+                // ClassChain starts with package - remove the package prefix
+                // Optimized to avoid string concatenation in hot path
+                adjustedClassChain = classChain.substring(packageName.length() + 1);
+            }
+        }
+
+        String finalShortName;
+        final String shortName = adjustedClassChain.isEmpty() ? simpleName : adjustedClassChain + "." + simpleName;
+
         switch (skeletonType) {
             case CLASS_LIKE -> {
                 finalShortName = shortName;
                 return CodeUnit.cls(file, packageName, finalShortName);
             }
             case FUNCTION_LIKE -> {
+                if (definitionNode != null && !definitionNode.isNull()) {
+                    String nodeType = definitionNode.getType();
+                    if ("call_signature".equals(nodeType)) {
+                        finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+                        return CodeUnit.fn(file, packageName, finalShortName);
+                    }
+                }
                 if (simpleName.equals("anonymous_arrow_function") || simpleName.isEmpty()) {
                     log.warn(
                             "Anonymous or unnamed function found for capture {} in file {}. ClassChain: {}. Will use placeholder or rely on extracted name.",
                             captureName,
                             file,
                             classChain);
-                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
-                    // found
                 }
                 finalShortName = shortName;
                 return CodeUnit.fn(file, packageName, finalShortName);
             }
             case FIELD_LIKE -> {
-                finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                if (definitionNode != null && !definitionNode.isNull()) {
+                    String nodeType = definitionNode.getType();
+                    if ("index_signature".equals(nodeType)) {
+                        // Fields require "Container.field" format; use _module_. when no class container
+                        finalShortName = adjustedClassChain.isEmpty()
+                                ? "_module_." + simpleName
+                                : adjustedClassChain + "." + simpleName;
+                        return CodeUnit.field(file, packageName, finalShortName);
+                    }
+                }
+                // Fields require "Container.field" format; use _module_. when no class container
+                finalShortName =
+                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             case ALIAS_LIKE -> {
-                // Type aliases are top-level or module-level, treated like fields for FQN and CU type.
-                finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
+                // Type aliases are fields and require "Container.alias" format; use _module_. when no class container
+                finalShortName =
+                        adjustedClassChain.isEmpty() ? "_module_." + simpleName : adjustedClassChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
@@ -192,6 +233,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 throw new UnsupportedOperationException("Unsupported skeleton type: " + skeletonType);
             }
         }
+    }
+
+    @Override
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
+        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, skeletonType);
     }
 
     @Override
@@ -209,15 +257,90 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        String packageName = cu.packageName();
+
+        if (!packageName.isBlank() && !classChain.isBlank()) {
+            if (classChain.equals(packageName)) {
+                return packageName;
+            } else if (classChain.startsWith(packageName)
+                    && classChain.length() > packageName.length()
+                    && classChain.charAt(packageName.length()) == '.') {
+                String remainingChain = classChain.substring(packageName.length() + 1);
+                return remainingChain.isBlank() ? packageName : packageName + "." + remainingChain;
+            }
+        }
+
+        return super.buildParentFqName(cu, classChain);
+    }
+
+    private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
+        // Optimized: use ArrayDeque for O(1) prepend instead of ArrayList's O(n) addAll(0, ...)
+        var namespaces = new java.util.ArrayDeque<String>();
+        TSNode current = definitionNode.getParent();
+        boolean insideClass = false;
+
+        // Cache the class-like node types Set to avoid repeated getter calls
+        var classLikeTypes = getLanguageSyntaxProfile().classLikeNodeTypes();
+
+        while (current != null && !current.isNull()) {
+            String nodeType = current.getType();
+
+            if (classLikeTypes.contains(nodeType) && !"internal_module".equals(nodeType)) {
+                insideClass = true;
+                break;
+            }
+
+            if ("internal_module".equals(nodeType)) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String name = cachedTextSliceStripped(nameNode, src);
+                    // Manual dot-splitting instead of Splitter (faster, less overhead)
+                    // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
+                    // Parse dot-separated parts in order, then prepend entire list to deque
+                    var parts = new java.util.ArrayList<String>();
+                    int start = 0;
+                    int dotIndex;
+                    while ((dotIndex = name.indexOf('.', start)) >= 0) {
+                        if (dotIndex > start) { // Skip empty segments (matches omitEmptyStrings)
+                            parts.add(name.substring(start, dotIndex));
+                        }
+                        start = dotIndex + 1;
+                    }
+                    // Add last segment
+                    if (start < name.length()) {
+                        parts.add(name.substring(start));
+                    }
+                    // Prepend all parts in reverse order to maintain correct namespace hierarchy
+                    for (int i = parts.size() - 1; i >= 0; i--) {
+                        namespaces.addFirst(parts.get(i));
+                    }
+                }
+            }
+
+            current = current.getParent();
+        }
+
+        if (insideClass || namespaces.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(String.join(".", namespaces));
+    }
+
+    @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        // Initial implementation: directory-based, like JavaScript.
-        // TODO: Enhance to detect 'namespace A.B.C {}' or 'module A.B.C {}' and use that.
+        var namespacePath = extractNamespacePath(definitionNode, src);
+        if (namespacePath.isPresent()) {
+            return namespacePath.get();
+        }
+
         var projectRoot = getProject().getRoot();
         var filePath = file.absPath();
         var parentDir = filePath.getParent();
 
         if (parentDir == null || parentDir.equals(projectRoot)) {
-            return ""; // File is in the project root
+            return "";
         }
 
         var relPath = projectRoot.relativize(parentDir);
@@ -235,12 +358,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String paramsText,
             String returnTypeText,
             String indent) {
-        // Use text slicing approach for simpler rendering
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
-        // For arrow functions, handle specially
         if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
@@ -253,15 +374,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return indent + signature + " " + bodyPlaceholder();
         }
 
-        // For regular functions, use text slicing when possible
         if (hasBody) {
             String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
                     .strip();
 
-            // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
             if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
-                // Check if any word in the prefix is already in the signature to avoid duplicates
                 List<String> prefixWords = Splitter.on(Pattern.compile("\\s+")).splitToList(prefix);
                 StringBuilder uniquePrefix = new StringBuilder();
                 for (String word : prefixWords) {
@@ -277,7 +395,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return indent + signature + " " + bodyPlaceholder();
         }
 
-        // For signatures without bodies, build minimal signature
         String prefix = exportAndModifierPrefix.stripTrailing();
         String keyword = getKeywordForFunction(funcNode, functionName);
         String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
@@ -410,43 +527,27 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
-        // TypeScript modifier extraction - look for export, declare, async, static, etc.
-        // This method is called when keyword.modifier captures are not available.
+        // With keyword captures now in the query, this method is only called as a fallback
+        // for cases not covered by query patterns (e.g., class/interface member modifiers).
+        // The query handles export, default, declare, async, abstract, const, let, var at the top level.
         StringBuilder modifiers = new StringBuilder();
-
-        // Check the node itself and its parent for common modifier patterns
         TSNode nodeToCheck = node;
-        TSNode parent = node.getParent();
 
-        // For variable declarators, check the parent declaration
-        if ("variable_declarator".equals(node.getType())
-                && parent != null
-                && ("lexical_declaration".equals(parent.getType())
-                        || "variable_declaration".equals(parent.getType()))) {
-            nodeToCheck = parent;
+        // Check if the node or its unwrapped form is a variable declarator, check the parent declaration (lexical/var)
+        TSNode parentDecl = nodeToCheck.getParent();
+        if ("variable_declarator".equals(nodeToCheck.getType())
+                && parentDecl != null
+                && ("lexical_declaration".equals(parentDecl.getType())
+                        || "variable_declaration".equals(parentDecl.getType()))) {
+            nodeToCheck = parentDecl;
         }
 
-        // Check for export statement wrapper
-        if (parent != null && "export_statement".equals(parent.getType())) {
-            modifiers.append("export ");
-
-            // Check for default export
-            TSNode exportKeyword = parent.getChild(0);
-            if (exportKeyword != null && parent.getChildCount() > 1) {
-                TSNode defaultKeyword = parent.getChild(1);
-                if (defaultKeyword != null && "default".equals(cachedTextSliceStripped(defaultKeyword, src))) {
-                    modifiers.append("default ");
-                }
-            }
-        }
-
-        // Look for modifier keywords in the first few children of the declaration
-        for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 5); i++) {
+        // Look for modifier keywords in the first few children (needed for class/interface members)
+        for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
                 String childText = cachedTextSliceStripped(child, src);
-                // Check for common TypeScript modifiers
-                if (Set.of("declare", "abstract", "static", "readonly", "async", "const", "let", "var")
+                if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
                     modifiers.append(childText).append(" ");
                 } else if ("accessibility_modifier".equals(child.getType())) {
@@ -479,6 +580,128 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+        var skeletonType = getSkeletonTypeForCapture(captureName);
+
+        // For function-like and field-like nodes in classes, check for modifiers
+        if (skeletonType == SkeletonType.FUNCTION_LIKE || skeletonType == SkeletonType.FIELD_LIKE) {
+            // Check if this is a method/field inside a class (not top-level)
+            TSNode parent = definitionNode.getParent();
+            if (parent != null && !parent.isNull()) {
+                String parentType = parent.getType();
+                // Check if parent is class_body (methods/fields are children of class_body)
+                if ("class_body".equals(parentType)) {
+                    // Check for accessor keywords (get/set) first, as they're more specific
+                    // Handle both concrete methods (method_definition) and abstract methods (abstract_method_signature)
+                    String nodeType = definitionNode.getType();
+                    if ("method_definition".equals(nodeType) || "abstract_method_signature".equals(nodeType)) {
+                        String accessorType = getAccessorType(definitionNode);
+                        if ("get".equals(accessorType)) {
+                            return fqName + "$get";
+                        } else if ("set".equals(accessorType)) {
+                            return fqName + "$set";
+                        }
+                    }
+
+                    // Check for "static" modifier among the children of definitionNode
+                    if (hasStaticModifier(definitionNode)) {
+                        return fqName + "$static";
+                    }
+                }
+            }
+        }
+
+        return fqName;
+    }
+
+    /**
+     * Checks if a node has a "static" modifier as one of its children.
+     *
+     * @param node the node to check
+     * @return true if the node has a "static" child, false otherwise
+     */
+    private boolean hasStaticModifier(TSNode node) {
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (!child.isNull()) {
+                if ("static".equals(child.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Determines if a method_definition node is a getter or setter accessor.
+     *
+     * @param node the method_definition node to check
+     * @return "get" if it's a getter, "set" if it's a setter, or empty string if neither
+     */
+    private String getAccessorType(TSNode node) {
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            TSNode child = node.getChild(i);
+            if (!child.isNull()) {
+                String childType = child.getType();
+                if ("get".equals(childType)) {
+                    return "get";
+                } else if ("set".equals(childType)) {
+                    return "set";
+                }
+            }
+        }
+        return "";
+    }
+
+    @Override
+    protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
+        // Suppress DEBUG message for function.definition when name capture is missing
+        // - function_declaration: fallback extractSimpleName works correctly
+        // - construct_signature: intentionally has no name, uses default "new"
+        // - call_signature: intentionally has no name, uses default "[call]"
+        if (CaptureNames.FUNCTION_DEFINITION.equals(captureName)
+                && ("function_declaration".equals(nodeType)
+                        || "construct_signature".equals(nodeType)
+                        || "call_signature".equals(nodeType))) {
+            return true;
+        }
+        // - index_signature: intentionally has no name, uses default "[index]"
+        if (CaptureNames.VALUE_DEFINITION.equals(captureName) && "index_signature".equals(nodeType)) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+        // Skip method_definition nodes inside object literals to prevent duplicate FQNames.
+        // Example: class field "shellIntegration" vs getter in object literal value.
+        if ("method_definition".equals(node.getType())) {
+            // Walk up the AST to see if we're inside an object literal
+            TSNode parent = node.getParent();
+            while (parent != null && !parent.isNull()) {
+                String parentType = parent.getType();
+
+                // If we hit class_body first, we're a class method - keep it
+                if ("class_body".equals(parentType)) {
+                    return false;
+                }
+
+                // If we hit an object literal, we're inside an object - skip it
+                if ("object".equals(parentType)) {
+                    return true;
+                }
+
+                parent = parent.getParent();
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         // Classes, interfaces, enums, modules/namespaces all use '}'
         if (cu.isClass()) { // isClass is true for all CLASS_LIKE CUs
@@ -492,6 +715,75 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // e.g., @parameters, @return_type_node if they are only for context and not main definitions
         return Set.of(
                 "parameters", "return_type_node", "predefined_type_node", "type_identifier_node", "export.keyword");
+    }
+
+    @Override
+    protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
+        // TypeScript declaration merging: function overloads, interface merging,
+        // function+namespace merging, enum+namespace merging, field+getter pattern.
+
+        // Function overloads are benign
+        if (existing.isFunction() && candidate.isFunction()) {
+            return true;
+        }
+
+        // Class-like entities (interfaces, classes, etc.) can merge through declaration merging
+        if (existing.isClass() && candidate.isClass()) {
+            return true;
+        }
+
+        // Function + Namespace merging (common pattern in TypeScript)
+        // Example: function foo() {} and namespace foo { export const x = 1; }
+        if ((existing.isFunction() && candidate.isClass()) || (existing.isClass() && candidate.isFunction())) {
+            return true;
+        }
+
+        // Field + Getter/Setter pattern (common TypeScript encapsulation pattern)
+        // Example: private id = 0; and get id() { return id; }
+        // Both are captured as field-like entities with same FQN but different signatures
+        // Note: We can't use signaturesOf() here because analyzer state isn't fully built yet
+        // during duplicate detection. Since these patterns are benign, we allow the duplicate
+        // and let base class add both signatures.
+        if (existing.isField() && candidate.isField()) {
+            log.trace(
+                    "TypeScript field+field duplicate detected for {} (existing: {}, candidate: {}). Treating as benign.",
+                    existing.fqName(),
+                    existing.kind(),
+                    candidate.kind());
+            return true;
+        }
+
+        // Log when field check fails to help debug
+        if ((existing.isField() || candidate.isField()) && existing.fqName().equals(candidate.fqName())) {
+            log.debug(
+                    "TypeScript duplicate {} with at least one field: existing.isField()={} (kind={}), candidate.isField()={} (kind={})",
+                    existing.fqName(),
+                    existing.isField(),
+                    existing.kind(),
+                    candidate.isField(),
+                    candidate.kind());
+        }
+
+        // Note: TypeScript enums are mapped to CLASS type via classLikeNodeTypes in the syntax profile.
+        // They are already covered by the class/function merging check above.
+        // The enum check that was here was dead code since CodeUnitType enum has no "enum" value.
+
+        return false;
+    }
+
+    @Override
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // For function+namespace declaration merging, keep the first one (typically the function)
+        if (isBenignDuplicate(existing, candidate)) {
+            log.trace(
+                    "TypeScript declaration merging detected for {} (function + namespace). Keeping {} kind.",
+                    existing.fqName(),
+                    existing.isFunction() ? "function" : "namespace");
+            return true; // Ignore the duplicate (keep first one)
+        }
+
+        // Default behavior for other duplicates
+        return super.shouldIgnoreDuplicate(existing, candidate, file);
     }
 
     /**
@@ -550,7 +842,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         Map<CodeUnit, String> skeletons = getSkeletons(topLevel.source());
         String skeleton = skeletons.get(topLevel);
 
-        return Optional.ofNullable(skeleton);
+        if (skeleton == null) {
+            return Optional.empty();
+        }
+        return Optional.of(skeleton);
     }
 
     /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
@@ -581,94 +876,33 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         var skeletons = super.getSkeletons(file);
 
-        // Clean up skeleton content and handle duplicates more carefully
-        var cleanedSkeletons = new HashMap<CodeUnit, String>();
+        // Apply minimal cosmetic cleanup only
+        // Note: TypeScript duplicates (field+getter, overloads) are intentional and handled by base class
+        var cleaned = new HashMap<CodeUnit, String>(skeletons.size());
 
         for (var entry : skeletons.entrySet()) {
             CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
-            // Fix duplicate interface headers within skeleton
-            if (skeleton.contains("interface ") && skeleton.contains("export interface ")) {
-                // Remove lines that are just "interface Name {" when we already have "export interface Name {"
-                var lines = List.of(skeleton.split("\n"));
-                var filteredLines = new ArrayList<String>();
-                boolean foundExportInterface = false;
-
-                for (String line : lines) {
-                    String trimmed = line.trim();
-                    if (trimmed.startsWith("export interface ") && trimmed.endsWith(" {")) {
-                        foundExportInterface = true;
-                        filteredLines.add(line);
-                    } else if (foundExportInterface
-                            && trimmed.startsWith("interface ")
-                            && trimmed.endsWith(" {")
-                            && !trimmed.startsWith("export interface ")) {
-                        // Skip this duplicate interface header
-                    } else {
-                        filteredLines.add(line);
-                    }
-                }
-                skeleton = String.join("\n", filteredLines);
-            }
-
-            cleanedSkeletons.put(cu, skeleton);
-        }
-
-        // Now handle FQN-based deduplication only for class-like entities
-        var deduplicatedSkeletons = new HashMap<String, Map.Entry<CodeUnit, String>>();
-
-        for (var entry : cleanedSkeletons.entrySet()) {
-            CodeUnit cu = entry.getKey();
-            String skeleton = entry.getValue();
-            String fqn = cu.fqName();
-
-            // Only deduplicate class-like entities (interfaces, classes, enums, etc.)
-            // Don't deduplicate field-like entities as they should be unique
-            if (cu.isClass()) {
-                // Check if we already have this FQN for class-like entities
-                if (deduplicatedSkeletons.containsKey(fqn)) {
-                    // Prefer the one with "export" in the skeleton
-                    String existingSkeleton = deduplicatedSkeletons.get(fqn).getValue();
-                    if (skeleton.startsWith("export") && !existingSkeleton.startsWith("export")) {
-                        // Replace with export version
-                        deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
-                    }
-                    // Otherwise keep the existing one
-                } else {
-                    deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
-                }
-            } else {
-                // For non-class entities (functions, fields), don't deduplicate by FQN
-                // Use a unique key to preserve all of them
-                String uniqueKey = fqn + "#" + cu.kind() + "#" + System.identityHashCode(cu);
-                deduplicatedSkeletons.put(uniqueKey, Map.entry(cu, skeleton));
-            }
-        }
-
-        // Apply basic cleanup
-        var cleaned = new HashMap<CodeUnit, String>(deduplicatedSkeletons.size());
-        for (var entry : deduplicatedSkeletons.values()) {
-            CodeUnit cu = entry.getKey();
-            String skeleton = entry.getValue();
-
-            // Basic cleanup: remove trailing commas in enums and semicolons from type aliases
+            // Basic cleanup: remove trailing commas in enums
             skeleton = ENUM_COMMA_CLEANUP.matcher(skeleton).replaceAll("\n$1");
 
-            // Remove semicolons from type alias lines
-            var lines = Splitter.on('\n').splitToList(skeleton);
-            var skeletonBuilder = new StringBuilder(skeleton.length());
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
-                if (TYPE_ALIAS_LINE.matcher(line).find()) {
-                    line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
+            // Remove semicolons from type alias lines (cosmetic only)
+            if (skeleton.contains("type ")) {
+                String[] lines = skeleton.split("\n", -1);
+                var skeletonBuilder = new StringBuilder(skeleton.length());
+                for (int i = 0; i < lines.length; i++) {
+                    String line = lines[i];
+                    if (TYPE_ALIAS_LINE.matcher(line).find()) {
+                        line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
+                    }
+                    skeletonBuilder.append(line);
+                    if (i < lines.length - 1) {
+                        skeletonBuilder.append('\n');
+                    }
                 }
-                skeletonBuilder.append(line);
-                if (i < lines.size() - 1) {
-                    skeletonBuilder.append("\n");
-                }
+                skeleton = skeletonBuilder.toString();
             }
-            skeleton = skeletonBuilder.toString();
 
             cleaned.put(cu, skeleton);
         }
@@ -697,9 +931,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
-        // Handle constructor signatures which don't have a name field
-        if ("construct_signature".equals(decl.getType())) {
+        // Provide default names for special TypeScript constructs that don't have explicit names
+        String nodeType = decl.getType();
+        if ("construct_signature".equals(nodeType)) {
             return Optional.of("new");
+        }
+        if ("index_signature".equals(nodeType)) {
+            return Optional.of("[index]");
+        }
+        if ("call_signature".equals(nodeType)) {
+            return Optional.of("[call]");
         }
         return super.extractSimpleName(decl, src);
     }
@@ -802,5 +1043,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 localTopLevelCUs,
                 localSignatures,
                 localSourceRanges);
+    }
+
+    @Override
+    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
+        // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
+        // We should NOT set the signature field on individual CodeUnits because it makes them unequal.
+        // Instead, signature information is extracted during skeleton building and stored in
+        // CodeUnitProperties.signatures list.
+        // Return null to avoid setting CodeUnit.signature field.
+        return null;
     }
 }

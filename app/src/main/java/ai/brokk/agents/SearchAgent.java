@@ -19,6 +19,7 @@ import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -34,15 +35,16 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,10 +64,40 @@ import org.jetbrains.annotations.Nullable;
 public class SearchAgent {
     private static final Logger logger = LogManager.getLogger(SearchAgent.class);
 
-    public enum Terminal {
+    private enum Terminal {
         TASK_LIST,
         ANSWER,
-        WORKSPACE
+        WORKSPACE,
+        CODE
+    }
+
+    public enum Objective {
+        ANSWER_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
+        },
+        TASKS_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.TASK_LIST);
+            }
+        },
+        WORKSPACE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.WORKSPACE);
+            }
+        },
+        LUTZ {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
+            }
+        };
+
+        public abstract Set<Terminal> terminals();
     }
 
     // Keep thresholds consistent with other agents
@@ -79,7 +111,7 @@ public class SearchAgent {
     private final Llm summarizer;
     private final IConsoleIO io;
     private final String goal;
-    private final Set<Terminal> allowedTerminals;
+    private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
 
@@ -91,12 +123,13 @@ public class SearchAgent {
 
     // State toggles
     private boolean beastMode;
+    private boolean codeAgentJustSucceeded;
 
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            Set<Terminal> allowedTerminals,
+            Objective objective,
             ContextManager.TaskScope scope) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
@@ -112,7 +145,8 @@ public class SearchAgent {
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
-        this.allowedTerminals = Set.copyOf(allowedTerminals);
+        this.codeAgentJustSucceeded = false;
+        this.objective = objective;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
@@ -180,12 +214,17 @@ public class SearchAgent {
             var allowedToolNames = calculateAllowedToolNames();
 
             // Agent-owned tools (instance methods)
+            var allowedTerminals = objective.terminals();
             var agentTerminalTools = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.ANSWER)) {
                 agentTerminalTools.add("answer");
+                agentTerminalTools.add("askForClarification");
             }
             if (allowedTerminals.contains(Terminal.WORKSPACE)) {
                 agentTerminalTools.add("workspaceComplete");
+            }
+            if (allowedTerminals.contains(Terminal.CODE)) {
+                agentTerminalTools.add("callCodeAgent");
             }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
@@ -253,22 +292,31 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
-                    ToolExecutionResult exec = executeTool(req, tr, wst);
+                    ToolExecutionResult toolResult = executeTool(req, tr, wst);
+                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        var details =
+                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
+                        return errorResult(details, taskMeta());
+                    }
 
                     // Summarize large results
-                    var display = exec.resultText();
-                    boolean summarize = exec.status() == ToolExecutionResult.Status.SUCCESS
+                    var display = toolResult.resultText();
+                    boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
                             && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
                             && shouldSummarize(req.name());
+                    ToolExecutionResult finalResult;
                     if (summarize) {
                         var reasoning = getArgumentsMap(req)
                                 .getOrDefault("reasoning", "")
                                 .toString();
                         display = summarizeResult(goal, req, display, reasoning);
+                        finalResult = new ToolExecutionResult(req, toolResult.status(), display);
+                    } else {
+                        finalResult = toolResult;
                     }
 
                     // Write to visible transcript and to Context history
-                    sessionMessages.add(ToolExecutionResultMessage.from(req, display));
+                    sessionMessages.add(finalResult.toExecutionResultMessage());
 
                     // Track research categories to decide later if finalization is permitted
                     var category = categorizeTool(req.name());
@@ -288,7 +336,7 @@ public class SearchAgent {
                     var termExec = executeTool(termReq, tr, wst);
 
                     var display = termExec.resultText();
-                    sessionMessages.add(ToolExecutionResultMessage.from(termReq, display));
+                    sessionMessages.add(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(
@@ -302,8 +350,14 @@ public class SearchAgent {
                         return errorResult(
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display),
                                 taskMeta());
+                    } else if (termReq.name().equals("callCodeAgent")) {
+                        if (codeAgentJustSucceeded) {
+                            return createResult(termReq.name(), goal);
+                        }
+                        // If CodeAgent did not succeed, continue planning/search loop
+                    } else {
+                        return createResult(termReq.name(), goal);
                     }
-                    return createResult(termReq.name(), goal);
                 }
             } finally {
                 // End turn tracking - always called even on exceptions
@@ -312,17 +366,15 @@ public class SearchAgent {
         }
     }
 
-    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst) {
-        ToolExecutionResult termExec;
-        try {
-            metrics.recordToolCall(req.name());
-            termExec = registry.executeTool(req);
+    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
+            throws InterruptedException {
+        metrics.recordToolCall(req.name());
+        var result = registry.executeTool(req);
+        // Only copy context back if this was a workspace tool
+        if (isWorkspaceTool(req, registry)) {
             context = wst.getContext();
-        } catch (Exception e) {
-            logger.warn("Tool execution failed for {}: {}", req.name(), e.getMessage(), e);
-            termExec = ToolExecutionResult.failure(req, "Error: " + e.getMessage());
         }
-        return termExec;
+        return result;
     }
 
     // =======================
@@ -436,10 +488,13 @@ public class SearchAgent {
             }
         }
 
+        var allowedTerminals = objective.terminals();
         var finals = new ArrayList<String>();
         if (allowedTerminals.contains(Terminal.ANSWER)) {
             finals.add(
                     "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
+            finals.add(
+                    "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
         }
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
@@ -456,6 +511,10 @@ public class SearchAgent {
         if (allowedTerminals.contains(Terminal.WORKSPACE)) {
             finals.add(
                     "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
+        }
+        if (allowedTerminals.contains(Terminal.CODE)) {
+            finals.add(
+                    "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
@@ -589,50 +648,37 @@ public class SearchAgent {
     private record TerminalObjective(String type, String text) {}
 
     private TerminalObjective buildTerminalObjective() {
-        boolean hasAnswer = allowedTerminals.contains(Terminal.ANSWER);
-        boolean hasTaskList = allowedTerminals.contains(Terminal.TASK_LIST);
-        boolean hasWorkspace = allowedTerminals.contains(Terminal.WORKSPACE);
-
-        if (hasAnswer && hasTaskList) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "query",
-                    """
-                    Deliver either a written answer or a task list:
-                      - Prefer answer(String) when no code changes are needed.
-                      - Prefer createTaskList(List<String>) if code changes will be needed next.
-                    """);
-        }
-
-        if (hasAnswer && !hasTaskList) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "query",
-                    """
+        return switch (objective) {
+            case ANSWER_ONLY ->
+                new TerminalObjective(
+                        "query",
+                        """
                     Deliver a written answer using the answer(String) tool.
                     """);
-        }
-
-        if (hasTaskList && !hasAnswer) {
-            assert !hasWorkspace;
-            return new TerminalObjective(
-                    "task",
-                    """
+            case TASKS_ONLY ->
+                new TerminalObjective(
+                        "instructions",
+                        """
                     Deliver a task list using the createTaskList(List<String>) tool.
                     """);
-        }
-
-        if (hasWorkspace) {
-            assert !hasAnswer && !hasTaskList;
-            return new TerminalObjective(
-                    "task",
-                    """
+            case WORKSPACE_ONLY ->
+                new TerminalObjective(
+                        "task",
+                        """
                     Deliver a curated Workspace containing everything required for the follow-on Code Agent
                     to solve the given task.
                     """);
-        }
-
-        throw new IllegalStateException();
+            case LUTZ ->
+                new TerminalObjective(
+                        "query_or_instructions",
+                        """
+                    Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
+                    In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
+                      - Prefer answer(String) when no code changes are needed.
+                      - Prefer callCodeAgent(String) if the requested change is small.
+                      - Otherwise, decompose the problem with createTaskList(List<String>); do not attempt to write code yet.
+                    """);
+        };
     }
 
     private enum ToolCategory {
@@ -643,7 +689,12 @@ public class SearchAgent {
 
     private ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
-            case "answer", "createTaskList", "workspaceComplete", "abortSearch" -> ToolCategory.TERMINAL;
+            case "answer",
+                    "askForClarification",
+                    "callCodeAgent",
+                    "createTaskList",
+                    "workspaceComplete",
+                    "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
             default -> ToolCategory.RESEARCH;
         };
@@ -675,8 +726,9 @@ public class SearchAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
+            case "callCodeAgent" -> 99;
             case "createTaskList" -> 100;
-            case "answer", "workspaceComplete" -> 101; // should never co-occur
+            case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;
         };
@@ -705,16 +757,11 @@ public class SearchAgent {
         sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
         sessionMessages.add(result.aiMessage());
 
-        // Execute tool requests
+        // Execute tool requests (one shot; we're not responding back with results)
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            try {
-                tr.executeTool(req);
-            } catch (Exception e) {
-                logger.warn("Tool execution failed during initial pruning for {}: {}", req.name(), e.getMessage());
-            }
+            executeTool(req, tr, wst);
         }
-        context = wst.getContext();
     }
 
     private List<ChatMessage> buildInitialPruningPrompt() {
@@ -733,7 +780,7 @@ public class SearchAgent {
         messages.add(sys);
 
         // Current Workspace contents
-        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -836,6 +883,35 @@ public class SearchAgent {
         if (!skeletonFragments.isEmpty()) {
             context = context.addVirtualFragments(skeletonFragments);
         }
+
+        // Emit pseudo-tool explanation for UX parity
+        emitContextAddedExplanation(pathFragments, skeletonFragments);
+    }
+
+    private void emitContextAddedExplanation(
+            List<ContextFragment.ProjectPathFragment> pathFragments,
+            List<ContextFragment.SummaryFragment> skeletonFragments) {
+        var details = new LinkedHashMap<String, Object>();
+        details.put("fragmentCount", pathFragments.size() + skeletonFragments.size());
+
+        if (!pathFragments.isEmpty()) {
+            var paths = pathFragments.stream()
+                    .map(ppf -> ppf.file().toString())
+                    .sorted()
+                    .toList();
+            details.put("pathFragments", paths);
+        }
+
+        if (!skeletonFragments.isEmpty()) {
+            var skeletonNames = skeletonFragments.stream()
+                    .map(ContextFragment::description)
+                    .sorted()
+                    .toList();
+            details.put("skeletonFragments", skeletonNames);
+        }
+
+        var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
+        io.llmOutput(explanation, ChatMessageType.AI);
     }
 
     // =======================
@@ -855,6 +931,14 @@ public class SearchAgent {
                     String explanation) {
         io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
         return explanation;
+    }
+
+    @Tool(
+            "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
+    public String askForClarification(
+            @P("A concise question or clarification request for the human user.") String queryForUser) {
+        io.llmOutput(queryForUser, ChatMessageType.AI);
+        return queryForUser;
     }
 
     @Tool(
@@ -905,6 +989,56 @@ public class SearchAgent {
             logger.error(err, e);
             return err;
         }
+    }
+
+    @Tool(
+            "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
+    public String callCodeAgent(
+            @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
+                    String instructions)
+            throws InterruptedException, ToolRegistry.FatalLlmException {
+        // append first the SearchAgent's result so far, CodeAgent appends its own result
+        context = scope.append(createResult("Search: " + goal, goal));
+
+        logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+        io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
+        var agent = new CodeAgent(cm, cm.getCodeModel());
+        var opts = new HashSet<CodeAgent.Option>();
+
+        var result = agent.runTask(context, List.of(), instructions, opts);
+        var stopDetails = result.stopDetails();
+        var reason = stopDetails.reason();
+
+        context = scope.append(result);
+
+        if (reason == TaskResult.StopReason.SUCCESS) {
+            // we need an output to be appended by the search agent caller (code agent appended its own result)
+            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
+            var resultString = "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            logger.debug("SearchAgent.callCodeAgent finished successfully");
+            codeAgentJustSucceeded = true;
+            return resultString;
+        }
+
+        // propagate critical failures
+        if (reason == TaskResult.StopReason.INTERRUPTED) {
+            throw new InterruptedException();
+        }
+        if (reason == TaskResult.StopReason.LLM_ERROR) {
+            // we need an output to be appended by the search agent caller (code agent appended its own result)
+            io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
+            logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
+            throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
+        }
+
+        // Non-success outcomes: continue planning on next loop
+        codeAgentJustSucceeded = false;
+        logger.debug("SearchAgent.callCodeAgent failed with reason {}; continuing planning", reason);
+        return """
+                CodeAgent was not able to get to a clean build. Details are in the Workspace.
+                Changes were made but can be undone with 'undoLastChanges' if they are negative progress.
+                Continuing search and planning.
+                """;
     }
 
     // =======================

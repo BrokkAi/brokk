@@ -1,7 +1,7 @@
 package ai.brokk.agents;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Llm;
-import ai.brokk.Service;
 import ai.brokk.util.AdaptiveExecutor;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -170,8 +170,8 @@ public final class RelevanceClassifier {
      * @param tasks list of tasks to score
      * @return a map from task to relevance score in [0.0, 1.0]
      */
-    public static Map<RelevanceTask, Double> relevanceScoreBatch(Llm llm, Service service, List<RelevanceTask> tasks)
-            throws InterruptedException {
+    public static Map<RelevanceTask, Double> relevanceScoreBatch(
+            Llm llm, AbstractService service, List<RelevanceTask> tasks) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
         var results = new HashMap<RelevanceTask, Double>();
@@ -217,8 +217,8 @@ public final class RelevanceClassifier {
      * @param tasks tasks to classify
      * @return a map from task to boolean relevance
      */
-    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(Llm llm, Service service, List<RelevanceTask> tasks)
-            throws InterruptedException {
+    public static Map<RelevanceTask, Boolean> relevanceBooleanBatch(
+            Llm llm, AbstractService service, List<RelevanceTask> tasks) throws InterruptedException {
         if (tasks.isEmpty()) return Collections.emptyMap();
 
         var results = new HashMap<RelevanceTask, Boolean>();

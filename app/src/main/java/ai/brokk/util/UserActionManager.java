@@ -129,8 +129,7 @@ public class UserActionManager {
                     logger.warn("Failed to upload exception report", reportingError);
                 }
             } else {
-                GlobalExceptionHandler.handle(
-                        Thread.currentThread(), th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+                GlobalExceptionHandler.handle(th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
             }
         };
         return new LoggingExecutorService(delegate, onError);

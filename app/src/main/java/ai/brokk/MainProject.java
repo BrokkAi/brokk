@@ -1,6 +1,6 @@
 package ai.brokk;
 
-import ai.brokk.Service.ModelConfig;
+import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -620,12 +620,6 @@ public final class MainProject extends AbstractProject {
             issuesProviderCache = IssueProvider.none();
         }
 
-        // Save the default so it's persisted
-        setIssuesProvider(issuesProviderCache);
-        logger.info(
-                "Defaulted issue provider to {} for project {}",
-                issuesProviderCache.type(),
-                getRoot().getFileName());
         return issuesProviderCache;
     }
 

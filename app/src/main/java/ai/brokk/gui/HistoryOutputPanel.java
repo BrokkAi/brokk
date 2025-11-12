@@ -1865,8 +1865,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * If a preset history is staged and this is the start of a new message, apply the preset before any text append.
      * Must be called on the EDT.
      */
-    private void applyPresetIfNeeded(boolean isNewMessage) {
-        if (!isNewMessage || pendingHistory == null) {
+    private void applyPresetIfNeeded() {
+        if (pendingHistory == null) {
             return;
         }
 
@@ -1884,7 +1884,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /** Appends text to the LLM output area */
     public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         // Apply any staged preset exactly once before the first token of the next stream
-        applyPresetIfNeeded(isNewMessage);
+        applyPresetIfNeeded();
 
         llmStreamArea.append(text, type, isNewMessage, isReasoning);
         activeStreamingWindows.forEach(
@@ -2188,7 +2188,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             continue;
                         }
                         var ter = tr.executeTool(req);
-                        if (ter.status() == ToolExecutionResult.Status.FAILURE) {
+                        if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                         }
                     }

@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
@@ -29,7 +30,7 @@ import org.junit.jupiter.api.Test;
 class BlitzForgeInterruptedTest {
 
     private IContextManager contextManager;
-    private Service service;
+    private AbstractService service;
 
     @BeforeEach
     void setUp() throws Exception {

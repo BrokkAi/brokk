@@ -91,9 +91,10 @@ public final class HeadlessExecutorMain {
         return System.getenv(envVarName);
     }
 
-    public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, Path workspaceDir, Path sessionsDir)
+    public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
             throws IOException {
         this.execId = execId;
+        this.contextManager = contextManager;
 
         // Parse listen address
         var parts = Splitter.on(':').splitToList(listenAddr);
@@ -108,6 +109,10 @@ public final class HeadlessExecutorMain {
             throw new IllegalArgumentException("Invalid port in LISTEN_ADDR: " + parts.get(1), e);
         }
 
+        // Derive workspace and sessions paths from the provided ContextManager
+        var workspaceDir = contextManager.getProject().getRoot();
+        var sessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
+
         logger.info(
                 "Initializing HeadlessExecutorMain: execId={}, listen={}:{}, workspace={}",
                 execId,
@@ -121,10 +126,6 @@ public final class HeadlessExecutorMain {
         // Initialize JobStore and SessionManager
         this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
         this.sessionManager = new SessionManager(sessionsDir);
-
-        // Initialize ContextManager
-        var project = new MainProject(workspaceDir);
-        this.contextManager = new ContextManager(project);
 
         // Initialize headless context asynchronously to avoid blocking constructor
         var initThread = new Thread(
@@ -855,20 +856,21 @@ public final class HeadlessExecutorMain {
             }
             var workspaceDir = Path.of(workspaceDirStr);
 
-            var sessionsDirStr = getConfigValue(parsedArgs, "sessions-dir", "SESSIONS_DIR");
-            var sessionsDir = sessionsDirStr != null && !sessionsDirStr.isBlank()
-                    ? Path.of(sessionsDirStr)
-                    : workspaceDir.resolve(".brokk").resolve("sessions");
+            // Build ContextManager from workspace
+            var project = new MainProject(workspaceDir);
+            var contextManager = new ContextManager(project);
+
+            var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
             logger.info(
                     "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
                     execId,
                     listenAddr,
                     workspaceDir,
-                    sessionsDir);
+                    derivedSessionsDir);
 
             // Create and start executor
-            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, workspaceDir, sessionsDir);
+            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
             executor.start();
 
             // Add shutdown hook

@@ -27,6 +27,7 @@ public final class CaptureNames {
 
     // Function-like captures
     public static final String LAMBDA_DEFINITION = "lambda.definition";
+    public static final String ARROW_FUNCTION_DEFINITION = "arrow_function.definition";
     public static final String DESTRUCTOR_DEFINITION = "destructor.definition";
 
     // Attribute/metadata captures
