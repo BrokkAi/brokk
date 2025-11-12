@@ -92,25 +92,30 @@ public interface IAnalyzer {
         return getDefinition(cu.fqName());
     }
 
+    default List<CodeUnit> searchDefinitions(String pattern) {
+        return searchDefinitions(pattern, true);
+    }
+
     /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided pattern as
      * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
-    default List<CodeUnit> searchDefinitions(String pattern) {
+    default List<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {
             return List.of();
         }
 
         // Prepare case-insensitive regex pattern
-        var preparedPattern = pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*";
-        var ciPattern = "(?i)" + preparedPattern;
+        if (autoQuote) {
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+        }
 
         // Try to compile the pattern
         Pattern compiledPattern;
         try {
-            compiledPattern = Pattern.compile(ciPattern);
+            compiledPattern = Pattern.compile(pattern);
         } catch (PatternSyntaxException e) {
             // Fallback to simple case-insensitive substring matching
             var fallbackPattern = pattern.toLowerCase(Locale.ROOT);
