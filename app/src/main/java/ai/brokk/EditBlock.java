@@ -728,6 +728,15 @@ public class EditBlock {
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
 
+        // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
+        var editableFiles = contextManager.getFilesInContext();
+        var javaOnly = !editableFiles.isEmpty()
+                && editableFiles.stream().allMatch(f -> "java".equalsIgnoreCase(f.extension()));
+        if (!javaOnly) {
+            throw new AssertionError(
+                    "BRK_[CLASS|FUNCTION] used outside a Java-only editable workspace; prompt gating bug.");
+        }
+
         var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
