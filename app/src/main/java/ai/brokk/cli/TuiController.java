@@ -11,6 +11,12 @@ import java.io.Reader;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.function.Supplier;
 
 public final class TuiController {
     private static final int ESCAPE = 27;
@@ -24,9 +30,9 @@ public final class TuiController {
     private final StringBuilder promptBuffer = new StringBuilder();
     private volatile boolean running = false;
     private TuiView.Focus currentFocus = TuiView.Focus.PROMPT;
-    private List<Context> historyCache = List.of();
-    private int historySelection = -1;
-    private boolean historyRendered = false;
+    private volatile List<Context> historyCache = List.of();
+    private volatile int historySelection = -1;
+    private volatile boolean historyRendered = false;
 
     public TuiController(ContextManager cm, TuiView console) {
         this(cm, console, new InputStreamReader(System.in), System.out);
@@ -175,11 +181,24 @@ public final class TuiController {
     }
 
     private void handlePrintable(char ch) {
+        if (currentFocus == TuiView.Focus.HISTORY) {
+            handleHistoryPrintable(ch);
+            return;
+        }
         if (currentFocus != TuiView.Focus.PROMPT) {
             return;
         }
         promptBuffer.append(ch);
         console.renderPrompt(promptBuffer.toString());
+    }
+
+    private void handleHistoryPrintable(char ch) {
+        var normalized = Character.toLowerCase(ch);
+        if (normalized == 'u') {
+            triggerUndo();
+        } else if (normalized == 'r') {
+            triggerRedo();
+        }
     }
 
     private void handleBackspace() {
@@ -193,7 +212,95 @@ public final class TuiController {
         console.renderPrompt(promptBuffer.toString());
     }
 
+    private void applyHistorySelection() {
+        if (cm == null) {
+            out.println("[TUI] Cannot apply history selection in test routing mode.");
+            out.flush();
+            return;
+        }
+        var contexts = cm.getContextHistoryList();
+        if (contexts == null || contexts.isEmpty()) {
+            return;
+        }
+        var index = historySelection;
+        if (index < 0 || index >= contexts.size()) {
+            index = contexts.size() - 1;
+        }
+        if (index < 0) {
+            return;
+        }
+        cm.setSelectedContext(contexts.get(index));
+        historyRendered = false;
+        refreshHistoryFromManager();
+    }
+
+    private void triggerUndo() {
+        if (cm == null) {
+            out.println("[TUI] Undo is unavailable in test routing mode.");
+            out.flush();
+            return;
+        }
+        triggerHistoryMutation("Undo", cm::undoContextAsync);
+    }
+
+    private void triggerRedo() {
+        if (cm == null) {
+            out.println("[TUI] Redo is unavailable in test routing mode.");
+            out.flush();
+            return;
+        }
+        triggerHistoryMutation("Redo", cm::redoContextAsync);
+    }
+
+    private void triggerHistoryMutation(String verb, Supplier<Future<?>> mutationSupplier) {
+        if (cm == null) {
+            out.println("[TUI] " + verb + " is unavailable in test routing mode.");
+            out.flush();
+            return;
+        }
+        if (mutationSupplier == null) {
+            historyRendered = false;
+            refreshHistoryFromManager();
+            return;
+        }
+        final Future<?> pending;
+        try {
+            pending = mutationSupplier.get();
+        } catch (Throwable t) {
+            cm.getIo().toolError("Unable to " + verb.toLowerCase(Locale.ROOT) + ": " + t.getMessage(), "TUI");
+            return;
+        }
+        if (pending == null) {
+            historyRendered = false;
+            refreshHistoryFromManager();
+            return;
+        }
+        CompletableFuture
+                .runAsync(() -> {
+                    try {
+                        pending.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new CompletionException(e);
+                    } catch (ExecutionException | CancellationException e) {
+                        throw new CompletionException(e);
+                    }
+                })
+                .whenComplete((ignored, throwable) -> {
+                    if (throwable != null) {
+                        var cause = throwable.getCause() == null ? throwable : throwable.getCause();
+                        cm.getIo().toolError(verb + " failed: " + cause.getMessage(), "TUI");
+                    }
+                    historyRendered = false;
+                    refreshHistoryFromManager();
+                });
+    }
+
     private void handleEnter() {
+        if (currentFocus == TuiView.Focus.HISTORY) {
+            applyHistorySelection();
+            return;
+        }
         if (currentFocus != TuiView.Focus.PROMPT) {
             return;
         }
@@ -270,18 +377,16 @@ public final class TuiController {
     private void updateHistorySelection(int index) {
         if (historyCache.isEmpty()) {
             historySelection = -1;
+            console.renderHistory(historyCache, historySelection);
             console.setHistorySelection(historySelection);
+            historyRendered = true;
             return;
         }
         var clamped = Math.max(0, Math.min(index, historyCache.size() - 1));
-        if (clamped == historySelection) {
-            return;
-        }
         historySelection = clamped;
+        console.renderHistory(historyCache, historySelection);
         console.setHistorySelection(historySelection);
-        if (cm != null) {
-            cm.setSelectedContext(historyCache.get(historySelection));
-        }
+        historyRendered = true;
     }
 
     private void handleCommand(String cmd) {
