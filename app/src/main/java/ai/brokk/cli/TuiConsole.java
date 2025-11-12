@@ -21,9 +21,6 @@ import org.jetbrains.annotations.Nullable;
  * Pane-aware ANSI renderer for the Brokk terminal UI.
  */
 public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiView {
-    private static final String ANSI_CLEAR = "\u001b[2J";
-    private static final String ANSI_HOME = "\u001b[H";
-    private static final String ANSI_RESET = "\u001b[0m";
     private static final String SECTION_INDENT = "    ";
 
     private final ContextManager cm;
@@ -284,8 +281,8 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     }
 
     private void renderScreenLocked() {
-        out.print(ANSI_CLEAR);
-        out.print(ANSI_HOME);
+        Ansi.clearScreen(out);
+        Ansi.home(out);
 
         renderHeaderLocked();
         renderHistoryLocked();
@@ -298,7 +295,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         }
         renderPromptLocked();
 
-        out.print(ANSI_RESET);
+        Ansi.reset(out);
         out.flush();
     }
 
