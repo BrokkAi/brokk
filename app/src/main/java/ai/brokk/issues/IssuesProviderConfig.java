@@ -43,45 +43,6 @@ public sealed interface IssuesProviderConfig
                     && (host == null || host.isBlank());
         }
 
-        /**
-         * Returns the trimmed owner, or empty string if null.
-         *
-         * @return trimmed owner string
-         */
-        @JsonIgnore
-        public String ownerTrimmed() {
-            return (owner == null) ? "" : owner.trim();
-        }
-
-        /**
-         * Returns the trimmed repo, or empty string if null.
-         *
-         * @return trimmed repo string
-         */
-        @JsonIgnore
-        public String repoTrimmed() {
-            return (repo == null) ? "" : repo.trim();
-        }
-
-        /**
-         * Validates the owner and repo using {@link GitUiUtil#validateOwnerRepo}. Returns empty if either is empty
-         * (incomplete config, treated as valid default), or if validation passes.
-         *
-         * @return Optional.empty() if valid or incomplete, or Optional.of(errorMessage) if invalid
-         */
-        @JsonIgnore
-        public Optional<String> validationError() {
-            String trimmedOwner = ownerTrimmed();
-            String trimmedRepo = repoTrimmed();
-
-            // If either is empty, treat as incomplete (valid default)
-            if (trimmedOwner.isEmpty() || trimmedRepo.isEmpty()) {
-                return Optional.empty();
-            }
-
-            // Validate only when both are non-empty
-            return GitUiUtil.validateOwnerRepo(trimmedOwner, trimmedRepo);
-        }
     }
 
     /** Jira provider */
