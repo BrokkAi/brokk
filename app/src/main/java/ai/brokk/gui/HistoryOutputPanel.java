@@ -101,6 +101,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private JLayeredPane historyLayeredPane;
 
+    // Exposed containers for external re-parenting:
+    // - activityContainer wraps the session header + the Activity panel (with layered overlay support)
+    // - outputChangesContainer hosts the Output + Changes tabs
+    private JComponent activityContainer;
+    private JComponent outputChangesContainer;
+
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JScrollPane historyScrollPane;
 
@@ -369,19 +375,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         headerPanel.add(sessionNameLabel);
 
-        // Wrap activity panel in a tabbed pane with single "Activity" tab
-        var activityTabs = new JTabbedPane(JTabbedPane.TOP);
-        activityTabs.addTab("Activity", activityPanel);
-        activityTabs.setMinimumSize(new Dimension(250, 0));
-        activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
-
-        // Create center container with both tab panels
+        // Expose Output+Changes container (tabs) directly
         var centerContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         centerContainer.add(centerPanel, BorderLayout.CENTER);
-        centerContainer.add(activityTabs, BorderLayout.EAST);
+        this.outputChangesContainer = centerPanel; // host of Output + Changes tabs
 
-        // Main layout: header at top, center container in center
-        add(headerPanel, BorderLayout.NORTH);
+        // Build the externally reusable Activity container that wraps Session header + Activity panel
+        var activityContainerLocal = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        activityContainerLocal.add(headerPanel, BorderLayout.NORTH);
+        activityContainerLocal.add(activityPanel, BorderLayout.CENTER);
+        activityContainerLocal.setMinimumSize(new Dimension(250, 0));
+        activityContainerLocal.setBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
+        this.activityContainer = activityContainerLocal;
+
+        // Compose the main visible layout (Output+Changes center, Activity+Header on the right)
+        centerContainer.add(activityContainerLocal, BorderLayout.EAST);
+
+        // Main layout: center container in center
         add(centerContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
@@ -2006,6 +2017,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /** Gets the LLM scroll pane */
     public JScrollPane getLlmScrollPane() {
         return llmScrollPane;
+    }
+
+    /**
+     * Returns a container that wraps the Session header and the Activity panel.
+     * This includes the layered activity area used for the session-switch overlay.
+     */
+    public JComponent getActivityContainer() {
+        return activityContainer;
+    }
+
+    /**
+     * Returns the container hosting the Output + Changes tabs (no Activity/header included).
+     */
+    public JComponent getOutputChangesContainer() {
+        return outputChangesContainer;
     }
 
     public MarkdownOutputPanel getLlmStreamArea() {
