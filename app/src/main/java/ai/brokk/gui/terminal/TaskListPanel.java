@@ -114,6 +114,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
 
+    // Read-only state: when viewing a historical context, editing is disabled
+    private boolean taskListEditable = true;
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
+
     // Badge support for the Tasks tab: shows number of incomplete tasks.
     private @Nullable BadgedIcon tasksTabBadgedIcon = null;
     private final Icon tasksBaseIcon = Icons.LIST;
@@ -268,6 +272,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.addMouseListener(new MouseAdapter() {
             private void showContextMenu(MouseEvent e) {
                 if (!e.isPopupTrigger()) {
+                    return;
+                }
+
+                // When read-only, all edit actions are disabled; allow only Copy
+                if (!taskListEditable) {
+                    toggleItem.setEnabled(false);
+                    runItem.setEnabled(false);
+                    editItem.setEnabled(false);
+                    splitItem.setEnabled(false);
+                    combineItem.setEnabled(false);
+                    deleteItem.setEnabled(false);
+                    copyItem.setEnabled(true);
+                    popup.show(list, e.getX(), e.getY());
                     return;
                 }
 
@@ -771,6 +788,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void updateButtonStates() {
+        // Respect read-only state before any other logic
+        if (!taskListEditable) {
+            removeBtn.setEnabled(false);
+            removeBtn.setToolTipText(READ_ONLY_TIP);
+            toggleDoneBtn.setEnabled(false);
+            toggleDoneBtn.setToolTipText(READ_ONLY_TIP);
+            clearCompletedBtn.setEnabled(false);
+            clearCompletedBtn.setToolTipText(READ_ONLY_TIP);
+            input.setEnabled(false);
+            input.setEditable(false);
+
+            goStopButton.setEnabled(false);
+            goStopButton.setToolTipText(READ_ONLY_TIP);
+            goStopButton.repaint();
+            return;
+        }
+
         boolean hasSelection = list.getSelectedIndex() >= 0;
         boolean llmBusy = false;
         try {
@@ -791,10 +825,28 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
 
+        // Respect read-only state first: disable all edit actions
+        if (!taskListEditable) {
+            removeBtn.setEnabled(false);
+            toggleDoneBtn.setEnabled(false);
+            clearCompletedBtn.setEnabled(false);
+            input.setEnabled(false);
+            input.setEditable(false);
+
+            goStopButton.setEnabled(false);
+            goStopButton.setToolTipText(READ_ONLY_TIP);
+            goStopButton.repaint();
+            return;
+        }
+
         // Remove/Toggle disabled if no selection OR selection includes running/pending
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
+
+        // Input is enabled while editable
+        input.setEnabled(true);
+        input.setEditable(true);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
@@ -861,7 +913,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         try {
             var cm = chrome.getContextManager();
-            var data = cm.getTaskList();
+            var selected = cm.selectedContext();
+            TaskList.TaskListData data = (selected != null)
+                    ? selected.getTaskListDataOrEmpty()
+                    : cm.topContext().getTaskListDataOrEmpty();
+
             // Only populate if still the same sessionId
             if (!sid.equals(this.sessionIdAtLoad)) {
                 return;
@@ -877,12 +933,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
         } finally {
             isLoadingTasks = false;
-            // Update the last-seen fragment ID after successful load
-            lastTaskListFragmentId = chrome.getContextManager()
-                    .topContext()
-                    .getTaskListFragment()
-                    .map(ContextFragment::id)
-                    .orElse(null);
+            // Update the last-seen fragment ID after successful load (respecting selected context)
+            var cm2 = chrome.getContextManager();
+            Context sel = cm2.selectedContext();
+            Context baseCtx = (sel != null) ? sel : cm2.topContext();
+            lastTaskListFragmentId = baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
+
             clearExpansionOnStructureChange();
             // Ensure the Tasks tab badge reflects the freshly loaded model.
             updateTasksTabBadge();
@@ -917,6 +973,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clear the model and transient fragment marker until the new session is loaded
         model.clear();
         lastTaskListFragmentId = null;
+
+        // Reset read-only flag when switching sessions
+        taskListEditable = true;
 
         // Update UI
         clearExpansionOnStructureChange();
@@ -1315,27 +1374,37 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     return;
                 }
 
+                // Update icon with count if possible
                 if (incomplete <= 0) {
-                    // Restore base icon when there is no badge to show
                     try {
                         tabs.setIconAt(idx, tasksBaseIcon);
                     } finally {
                         tasksTabBadgedIcon = null;
                     }
-                    return;
-                }
-
-                // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
-                if (tasksTabBadgedIcon == null) {
-                    GuiTheme theme = null;
-                    try {
-                        theme = chrome.getTheme();
-                    } catch (Exception ex) {
-                        theme = currentTheme;
+                } else {
+                    // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
+                    if (tasksTabBadgedIcon == null) {
+                        GuiTheme theme = null;
+                        try {
+                            theme = chrome.getTheme();
+                        } catch (Exception ex) {
+                            theme = currentTheme;
+                        }
+                        if (theme != null) {
+                            try {
+                                tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                            } catch (Exception ex) {
+                                logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                                tasksTabBadgedIcon = null;
+                            }
+                        }
                     }
 
-                    if (theme == null) {
-                        // Cannot create a themed badge without a theme; fallback to title update
+                    if (tasksTabBadgedIcon != null) {
+                        tasksTabBadgedIcon.setCount(incomplete, tabs);
+                        tabs.setIconAt(idx, tasksTabBadgedIcon);
+                    } else {
+                        // As a last-resort fallback, update the tab title to include the count
                         try {
                             String baseTitle = tabs.getTitleAt(idx);
                             if (baseTitle == null || baseTitle.isBlank()) {
@@ -1345,31 +1414,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         } catch (Exception ex) {
                             logger.debug("Failed to set tab title fallback for tasks badge", ex);
                         }
-                        return;
-                    }
-
-                    try {
-                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
-                        tasksTabBadgedIcon = null;
                     }
                 }
 
-                if (tasksTabBadgedIcon != null) {
-                    tasksTabBadgedIcon.setCount(incomplete, tabs);
-                    tabs.setIconAt(idx, tasksTabBadgedIcon);
-                } else {
-                    // As a last-resort fallback, update the tab title to include the count
-                    try {
-                        String baseTitle = tabs.getTitleAt(idx);
-                        if (baseTitle == null || baseTitle.isBlank()) {
-                            baseTitle = "Tasks";
-                        }
-                        tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                // Always update tab title suffix for read-only indication
+                try {
+                    String baseTitle = tabs.getTitleAt(idx);
+                    if (baseTitle == null || baseTitle.isBlank()) {
+                        baseTitle = "Tasks";
                     }
+                    String suffix = " (read-only)";
+                    // Normalize: remove existing suffix if present
+                    String normalized = baseTitle.endsWith(suffix)
+                            ? baseTitle.substring(0, baseTitle.length() - suffix.length())
+                            : baseTitle;
+                    String newTitle = taskListEditable ? normalized : normalized + suffix;
+                    if (!Objects.equals(baseTitle, newTitle)) {
+                        tabs.setTitleAt(idx, newTitle);
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to update tasks tab read-only suffix", ex);
                 }
             } catch (Exception ex) {
                 logger.debug("Error updating tasks tab badge", ex);
@@ -2178,8 +2242,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
 
-        // Extract current Task List fragment ID
-        String currentFragmentId = newCtx.getTaskListFragment()
+        var cm = chrome.getContextManager();
+        Context selected = cm.selectedContext();
+        boolean onLatest = (selected == null) || selected.equals(cm.topContext());
+
+        // Toggle read-only state based on whether we're viewing history
+        SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
+
+        // Extract current Task List fragment ID from the newly selected context
+        String currentFragmentId = (selected != null ? selected : newCtx)
+                .getTaskListFragment()
                 .map(ContextFragment::id)
                 .orElse(null);
 
@@ -2334,6 +2406,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             return this;
         }
+    }
+
+    /**
+     * Controls whether the task list is editable. When false, all edit actions are disabled and the
+     * Tasks tab title is suffixed with "(read-only)". Safe to call from any thread.
+     */
+    public void setTaskListEditable(boolean editable) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> setTaskListEditable(editable));
+            return;
+        }
+        this.taskListEditable = editable;
+        // Reflect state immediately on input and actions; updateButtonStates will compute the rest.
+        input.setEnabled(editable);
+        input.setEditable(editable);
+        list.setDragEnabled(editable);
+
+        updateButtonStates();
+        updateTasksTabBadge();
     }
 
     public void disablePlay() {
