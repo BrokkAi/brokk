@@ -12,6 +12,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -24,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -431,6 +433,49 @@ public class WorkspaceTools {
             context = context.addVirtualFragment(newFrag);
             return "Created Task Notes and added the note.";
         }
+    }
+
+    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
+    public String createTaskList(
+            @P(
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                    String explanation,
+            @P(
+                            """
+            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
+
+            Requirements (apply to EACH task):
+            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
+            - Size target: ~2 hours for an experienced contributor across < 10 files.
+            - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior; if automation is not a good fit, you may omit tests rather than prescribe manual steps.
+            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
+            - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
+            - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
+
+
+            Rubric for slicing:
+            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
+            - TOO SMALL if it lacks a distinct, reviewable outcome (or test) - merge into its nearest parent goal.
+            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+
+            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            """)
+                    List<String> tasks) {
+        logger.debug("createTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var io = context.getContextManager().getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+        context = context.getContextManager().appendTasksToTaskList(tasks);
+
+        var lines = IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        return formattedTaskList;
     }
 
     // --- Helper Methods ---

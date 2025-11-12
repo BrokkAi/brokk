@@ -1468,14 +1468,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * is created with done=false.
      */
     @Override
-    public void appendTasksToTaskList(List<String> tasks) {
+    public Context appendTasksToTaskList(List<String> tasks) {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .map(s -> new TaskList.TaskItem(s, false))
                 .toList();
         if (additions.isEmpty()) {
-            return;
+            return liveContext();
         }
 
         // Use fragment-backed task list as the source of truth
@@ -1492,7 +1492,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
-        setTaskList(newData);
+        var newContext = setTaskList(newData);
 
         if (io instanceof Chrome chrome) {
             // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
@@ -1502,15 +1502,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        return newContext;
     }
 
     /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public void setTaskList(TaskList.TaskListData data) {
+    public Context setTaskList(TaskList.TaskListData data) {
         // Track the change in history by pushing a new context with the Task List fragment
-        pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
