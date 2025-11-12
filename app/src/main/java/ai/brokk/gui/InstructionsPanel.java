@@ -1856,6 +1856,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    private void recordAssistantPromptTrailSnapshot() {
+    // Ensure we run on the EDT when touching Swing components.
+    if (SwingUtilities.isEventDispatchThread()) {
+    aiPromptTrailSnapshot = getInstructions();
+    aiPromptIsAssistantGenerated = true;
+    instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+    } else {
+    SwingUtilities.invokeLater(() -> {
+    aiPromptTrailSnapshot = getInstructions();
+    aiPromptIsAssistantGenerated = true;
+    instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+    });
+    }
+    }
+    
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first.
