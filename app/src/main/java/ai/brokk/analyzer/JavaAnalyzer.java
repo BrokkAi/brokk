@@ -560,29 +560,4 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             return List.of();
         }
     }
-
-    private static List<String> splitTypeListRespectingGenericsJava(String text) {
-        List<String> out = new ArrayList<>();
-        StringBuilder sb = new StringBuilder(text.length());
-        int depth = 0;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '<') {
-                depth++;
-                sb.append(c);
-            } else if (c == '>') {
-                if (depth > 0) depth--;
-                sb.append(c);
-            } else if (c == ',' && depth == 0) {
-                String token = sb.toString().trim();
-                if (!token.isEmpty()) out.add(token);
-                sb.setLength(0);
-            } else {
-                sb.append(c);
-            }
-        }
-        String token = sb.toString().trim();
-        if (!token.isEmpty()) out.add(token);
-        return List.copyOf(out);
-    }
 }
