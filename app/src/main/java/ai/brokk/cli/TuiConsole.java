@@ -248,7 +248,11 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
 
     @Override
     public void setHistorySelection(int index) {
-        updateStateAndRender(() -> historyIndex = normalizeSelection(index, historyCache.size()));
+        var clamped = normalizeSelection(index, historyCache.size());
+        if (clamped == historyIndex) {
+            return;
+        }
+        updateStateAndRender(() -> historyIndex = clamped);
     }
 
     @Override
@@ -328,13 +332,23 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         }
         for (var i = 0; i < historyCache.size(); i++) {
             var ctx = historyCache.get(i);
-            var action = ctx.getAction();
-            if (action == null || action.isBlank()) {
-                action = "(no action)";
-            }
-            var selectionMarker = i == historyIndex ? "*" : " ";
-            out.println(SECTION_INDENT + selectionMarker + " [" + i + "] " + action);
+            var selectionMarker = i == historyIndex ? ">" : " ";
+            out.println(SECTION_INDENT + selectionMarker + " " + formatHistoryLine(i, ctx));
         }
+    }
+
+    private static String formatHistoryLine(int index, Context context) {
+        Objects.requireNonNull(context, "context");
+        var action = context.getAction();
+        if (action == null || action.isBlank()) {
+            action = "(no action)";
+        } else {
+            action = action.replace('\n', ' ').strip();
+        }
+        if (action.length() > 80) {
+            action = action.substring(0, 77) + "...";
+        }
+        return "[" + index + "] " + action;
     }
 
     private void renderChipPanelLocked() {
@@ -446,8 +460,14 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
     }
 
     private static int normalizeSelection(int index, int size) {
-        if (index < 0 || index >= size) {
+        if (size <= 0) {
             return -1;
+        }
+        if (index < 0) {
+            return 0;
+        }
+        if (index >= size) {
+            return size - 1;
         }
         return index;
     }
