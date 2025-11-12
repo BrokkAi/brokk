@@ -910,7 +910,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param name candidate simple name extracted from the AST/query
      * @return true if the candidate likely contains a qualified hierarchical name, false otherwise
      */
-    static boolean isLikelyQualifiedSimpleName(String name) {
+    static boolean isLikelyQualifiedSimpleName(@Nullable String name) {
         if (name == null) return false;
         String t = name.trim();
         if (t.isEmpty()) return false;
