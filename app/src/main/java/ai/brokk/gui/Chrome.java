@@ -195,8 +195,8 @@ public class Chrome
     private JLabel backgroundStatusLabel;
     private final JPanel bottomPanel;
 
-    private final JSplitPane topSplitPane; // Instructions | Workspace
-    private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
+    private final JSplitPane topSplitPane; // Activity | (Workspace+Instructions)
+    private final JSplitPane mainVerticalSplitPane; // Workspace (top) | Instructions (bottom)
     private final JSplitPane mainHorizontalSplitPane; // Activity+Instructions | Output+Changes
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
