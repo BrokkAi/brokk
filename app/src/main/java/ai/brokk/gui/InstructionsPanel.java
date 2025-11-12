@@ -1857,18 +1857,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void recordAssistantPromptTrailSnapshot() {
-    // Ensure we run on the EDT when touching Swing components.
-    if (SwingUtilities.isEventDispatchThread()) {
-    aiPromptTrailSnapshot = getInstructions();
-    aiPromptIsAssistantGenerated = true;
-    instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
-    } else {
-    SwingUtilities.invokeLater(() -> {
-    aiPromptTrailSnapshot = getInstructions();
-    aiPromptIsAssistantGenerated = true;
-    instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
-    });
+        // Ensure we run on the EDT when touching Swing components.
+        if (SwingUtilities.isEventDispatchThread()) {
+            aiPromptTrailSnapshot = getInstructions();
+            aiPromptIsAssistantGenerated = true;
+            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                aiPromptTrailSnapshot = getInstructions();
+                aiPromptIsAssistantGenerated = true;
+                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+            });
+        }
     }
+
+    /**
+     * Clears the session-scoped assistant prompt trail state.
+     * This resets the stored user snapshot, the assistant-generated flag, and the
+     * client property on the instructions area. EDT-safe.
+     */
+    private void clearAssistantPromptTrail() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            aiPromptTrailSnapshot = null;
+            aiPromptIsAssistantGenerated = false;
+            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, null);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                aiPromptTrailSnapshot = null;
+                aiPromptIsAssistantGenerated = false;
+                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, null);
+            });
+        }
     }
     
     public void populateInstructionsArea(String text) {
