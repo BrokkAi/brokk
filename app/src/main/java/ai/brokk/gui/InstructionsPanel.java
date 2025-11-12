@@ -157,13 +157,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.instructionCompletionProvider = new InstructionsCompletionProvider();
         this.instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
         this.instructionAutoCompletion.setAutoActivationEnabled(false);
-        this.instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        this.instructionAutoCompletion.setTriggerKey(
+                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
         this.instructionAutoCompletion.install(instructionsArea);
         // Ensure the document listens to our undo manager (buildCommandInputField already attempts this,
         // but do it explicitly here to be robust in the minimal path).
         this.instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
 
-        // Autocomplete already initialized earlier in the minimal constructor path; no-op here to avoid duplicate install.
+        // Autocomplete already initialized earlier in the minimal constructor path; no-op here to avoid duplicate
+        // install.
 
         // Minimal overlay that does not perform activation (safe no-op)
         this.commandInputOverlay = new OverlayPanel(overlay -> {}, ""); // no-op overlay for tests
