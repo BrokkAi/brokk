@@ -109,26 +109,102 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             """
                     .stripIndent();
 
-    private final Chrome chrome;
-    private final JTextArea instructionsArea;
-    private final VoiceInputButton micButton;
-    private final ActionSplitButton actionButton;
-    private final WandButton wandButton;
-    private final ModelSelector modelSelector;
-    private final TokenUsageBar tokenUsageBar;
+    private Chrome chrome;
+    private JTextArea instructionsArea;
+    private VoiceInputButton micButton;
+    private ActionSplitButton actionButton;
+    private WandButton wandButton;
+    private ModelSelector modelSelector;
+    private TokenUsageBar tokenUsageBar;
     private String storedAction;
     private SplitButton historyDropdown;
-    private final ModeBadge modeBadge;
-    private final ContextManager contextManager;
+    private ModeBadge modeBadge;
+    private ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
-    private final JPanel centerPanel;
+    private JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private final Color defaultActionButtonBg;
-    private final Color secondaryActionButtonBg;
+    private Color defaultActionButtonBg;
+    private Color secondaryActionButtonBg;
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+
+    /**
+     * Package-private minimal constructor for tests.
+     *
+     * Creates a light-weight InstructionsPanel with only the pieces required by tests:
+     * - `instructionsArea`
+     * - `commandInputUndoManager`
+     * - small, safe defaults for other UI fields so methods like `populateInstructionsAreaFromAssistant`
+     *   and `getInstructionsArea()` can be exercised without the heavy UI wiring.
+     *
+     * This constructor is intentionally minimal and should be used only from tests in the same package.
+     */
+    InstructionsPanel(Chrome chrome, boolean minimalForTests) {
+        super(new BorderLayout(2, 2));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+        // Core references
+        this.chrome = chrome;
+        this.contextManager = chrome.getContextManager();
+
+        // Minimal undo manager and command input field (ensure UndoManager exists before building field)
+        this.commandInputUndoManager = new UndoManager();
+        // buildCommandInputField expects commandInputUndoManager to be present
+        this.instructionsArea = buildCommandInputField();
+        // Ensure the document listens to our undo manager (buildCommandInputField already attempts this,
+        // but do it explicitly here to be robust in the minimal path).
+        this.instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+
+        // Minimal overlay that does not perform activation (safe no-op)
+        this.commandInputOverlay = new OverlayPanel(overlay -> {
+        }, ""); // no-op overlay for tests
+        this.commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
+
+        // Minimal UI placeholders so other code can safely interact with the panel in tests
+        this.storedAction = loadActionMode();
+        this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
+        this.secondaryActionButtonBg = UIManager.getColor("Button.background");
+
+        this.centerPanel = new JPanel();
+        this.contextAreaContainer = new ContextAreaContainer();
+        this.modeBadge = new ModeBadge();
+        this.modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Lightweight components constructed with shields to avoid complex side effects
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(chrome);
+        this.tokenUsageBar = new TokenUsageBar(chrome);
+        this.tokenUsageBar.setVisible(false);
+        this.tokenUsageBarPopupMenu = new JPopupMenu();
+
+        // Lightweight interactive controls (the concrete classes are reused with no-op callbacks).
+        this.micButton =
+                new VoiceInputButton(instructionsArea, contextManager, () -> {
+                }, msg -> {
+                });
+        this.actionButton = new ActionSplitButton(() -> false, ACTION_SEARCH);
+        this.wandButton =
+                new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, () -> {
+                }, s -> {
+                });
+        this.modelSelector = new ModelSelector(chrome);
+        this.historyDropdown = createHistoryDropdown();
+
+        // Minimal layout: put instructionsArea into a scroll pane and make it available as layered pane
+        var commandScrollPane = new JScrollPane(instructionsArea);
+        commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        this.inputLayeredPane = commandScrollPane;
+        this.centerPanel.add(this.inputLayeredPane);
+
+        // Keep other optional fields null (test code should not rely on them)
+        this.statusStripComponent = null;
+        this.bottomToolbarPanel = null;
+        this.selectorStripPanel = null;
+
+        // Important: ensure the panel has the minimal child components expected by callers.
+        add(this.centerPanel, BorderLayout.CENTER);
+    }
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
