@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.EditBlock;
 import ai.brokk.TaskResult;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.testutil.TestContextManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -53,6 +54,12 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 Map.of() // javaLintDiagnostics
                 );
 
+        // Ensure Java-only editable workspace to satisfy BRK_* guard
+        var cm = codeAgent.contextManager;
+        var tcm = (TestContextManager) cm;
+        tcm.getFilesInContext().clear();
+        tcm.addEditableFile(cm.toFile("A.java"));
+
         // Invoke apply phase, which should attempt to apply, fail, and then craft a retry request with feedback.
         var step = codeAgent.applyPhase(cs, es, null);
 
@@ -93,6 +100,11 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         // Ensure analyzer is aware of this file
         cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
 
+        // Force Java-only editable workspace to satisfy BRK_* guard
+        var tcm = (TestContextManager) cm;
+        tcm.getFilesInContext().clear();
+        tcm.addEditableFile(file);
+
         // 2) Simulate an LLM response that emits a single S/R block using BRK_FUNCTION to target method p.A.greet
         var llmText = buildSrBlock(
                 "src/main/java/p/A.java",
@@ -125,27 +137,19 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         var errBefore = System.err;
         var out = new ByteArrayOutputStream();
         try {
-            System.setErr(new PrintStream(out, true, "UTF-8"));
+            System.setErr(new PrintStream(out, true, StandardCharsets.UTF_8));
 
             // Create CodeAgent.Metrics via reflection and populate minimal fields
-            var metricsClz = Class.forName("ai.brokk.agents.CodeAgent$Metrics");
-            var ctor = metricsClz.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            Object metrics = ctor.newInstance();
-
+            CodeAgent.Metrics metrics = new CodeAgent.Metrics();
             // Set a few counters to expected values
-            setField(metrics, "totalEditBlocks", 1);
-            setField(metrics, "failedEditBlocks", 0);
-            setField(metrics, "applyRetries", 0);
+            metrics.totalEditBlocks = 1;
+            metrics.failedEditBlocks = 0;
+            metrics.applyRetries = 0;
 
-            // Call print(Set<ProjectFile>, StopDetails)
-            var print = metricsClz.getDeclaredMethod("print", Set.class, TaskResult.StopDetails.class);
-
-            print.setAccessible(true);
             var stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "");
-            print.invoke(metrics, Set.of(file), stop);
+            metrics.print(Set.of(file), stop);
 
-            var s = out.toString("UTF-8");
+            var s = out.toString(StandardCharsets.UTF_8);
             assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
             var json = s.substring(s.indexOf("BRK_CODEAGENT_METRICS=") + "BRK_CODEAGENT_METRICS=".length())
                     .trim();
@@ -176,6 +180,11 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """
                         .stripIndent());
         cm.getAnalyzerWrapper().updateFiles(Set.of(file)).get();
+
+        // Force Java-only editable workspace to satisfy BRK_* guard
+        var tcm = (TestContextManager) cm;
+        tcm.getFilesInContext().clear();
+        tcm.addEditableFile(file);
 
         // 2) Simulate an LLM response with BRK_FUNCTION pointing to a non-existent method
         var llmText = buildSrBlock(
@@ -209,22 +218,15 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         var errBefore = System.err;
         var out = new ByteArrayOutputStream();
         try {
-            System.setErr(new PrintStream(out, true, "UTF-8"));
+            System.setErr(new PrintStream(out, true, StandardCharsets.UTF_8));
 
-            var metricsClz = Class.forName("ai.brokk.agents.CodeAgent$Metrics");
-            var ctor = metricsClz.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            Object metrics = ctor.newInstance();
-
-            setField(metrics, "totalEditBlocks", 1);
-            setField(metrics, "failedEditBlocks", 1);
-            setField(metrics, "applyRetries", 1);
-
-            var print = metricsClz.getDeclaredMethod("print", Set.class, TaskResult.StopDetails.class);
-            print.setAccessible(true);
+            CodeAgent.Metrics metrics = new CodeAgent.Metrics();
+            metrics.totalEditBlocks = 1;
+            metrics.failedEditBlocks = 1;
+            metrics.applyRetries = 1;
 
             var stop = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Unable to resolve method");
-            print.invoke(metrics, Set.of(), stop);
+            metrics.print(Set.of(), stop);
 
             var s = out.toString(StandardCharsets.UTF_8);
             assertTrue(s.contains("BRK_CODEAGENT_METRICS="), "Metrics line should be printed");
@@ -254,11 +256,5 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """
                 .stripIndent()
                 .formatted(filePath, search, replace);
-    }
-
-    private static void setField(Object target, String name, Object value) throws Exception {
-        var f = target.getClass().getDeclaredField(name);
-        f.setAccessible(true);
-        f.set(target, value);
     }
 }
