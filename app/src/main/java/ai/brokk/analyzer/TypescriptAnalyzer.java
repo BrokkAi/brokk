@@ -297,17 +297,23 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     String name = cachedTextSliceStripped(nameNode, src);
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
                     // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
+                    // Parse dot-separated parts in order, then prepend entire list to deque
+                    var parts = new java.util.ArrayList<String>();
                     int start = 0;
                     int dotIndex;
                     while ((dotIndex = name.indexOf('.', start)) >= 0) {
                         if (dotIndex > start) { // Skip empty segments (matches omitEmptyStrings)
-                            namespaces.addFirst(name.substring(start, dotIndex));
+                            parts.add(name.substring(start, dotIndex));
                         }
                         start = dotIndex + 1;
                     }
                     // Add last segment
                     if (start < name.length()) {
-                        namespaces.addFirst(name.substring(start));
+                        parts.add(name.substring(start));
+                    }
+                    // Prepend all parts in reverse order to maintain correct namespace hierarchy
+                    for (int i = parts.size() - 1; i >= 0; i--) {
+                        namespaces.addFirst(parts.get(i));
                     }
                 }
             }
@@ -767,8 +773,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
         // TypeScript declaration merging: function overloads, interface merging,
-        // function+namespace merging, enum+namespace merging.
-        // Field-like duplicates are NOT benign (may indicate bugs).
+        // function+namespace merging, enum+namespace merging, field+getter pattern.
 
         // Function overloads are benign
         if (existing.isFunction() && candidate.isFunction()) {
@@ -786,12 +791,36 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return true;
         }
 
+        // Field + Getter/Setter pattern (common TypeScript encapsulation pattern)
+        // Example: private id = 0; and get id() { return id; }
+        // Both are captured as field-like entities with same FQN but different signatures
+        // Note: We can't use signaturesOf() here because analyzer state isn't fully built yet
+        // during duplicate detection. Since these patterns are benign, we allow the duplicate
+        // and let base class add both signatures.
+        if (existing.isField() && candidate.isField()) {
+            log.trace(
+                    "TypeScript field+field duplicate detected for {} (existing: {}, candidate: {}). Treating as benign.",
+                    existing.fqName(),
+                    existing.kind(),
+                    candidate.kind());
+            return true;
+        }
+
+        // Log when field check fails to help debug
+        if ((existing.isField() || candidate.isField()) && existing.fqName().equals(candidate.fqName())) {
+            log.debug(
+                    "TypeScript duplicate {} with at least one field: existing.isField()={} (kind={}), candidate.isField()={} (kind={})",
+                    existing.fqName(),
+                    existing.isField(),
+                    existing.kind(),
+                    candidate.isField(),
+                    candidate.kind());
+        }
+
         // Note: TypeScript enums are mapped to CLASS type via classLikeNodeTypes in the syntax profile.
         // They are already covered by the class/function merging check above.
         // The enum check that was here was dead code since CodeUnitType enum has no "enum" value.
 
-        // Field-like duplicates (const variables, etc.) are NOT benign - they may indicate bugs
-        // Don't mask these as benign patterns
         return false;
     }
 
@@ -900,100 +929,23 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         var skeletons = super.getSkeletons(file);
 
-        // Clean up skeleton content and handle duplicates more carefully
-        var cleanedSkeletons = new HashMap<CodeUnit, String>();
+        // Apply minimal cosmetic cleanup only
+        // Note: TypeScript duplicates (field+getter, overloads) are intentional and handled by base class
+        var cleaned = new HashMap<CodeUnit, String>(skeletons.size());
 
         for (var entry : skeletons.entrySet()) {
             CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
-            // Fix duplicate interface headers within skeleton
-            // Optimization: early exit if both patterns aren't present
-            int interfacePos = skeleton.indexOf("interface ");
-            int exportInterfacePos = skeleton.indexOf("export interface ");
-            if (interfacePos >= 0 && exportInterfacePos >= 0) {
-                // Remove lines that are just "interface Name {" when we already have "export interface Name {"
-                // Optimized: use split with char instead of regex, avoid List.of wrapper
-                String[] lines = skeleton.split("\n", -1);
-                var filteredLines = new ArrayList<String>(lines.length);
-                boolean foundExportInterface = false;
-
-                for (String line : lines) {
-                    String trimmed = line.trim();
-                    if (trimmed.startsWith("export interface ") && trimmed.endsWith(" {")) {
-                        foundExportInterface = true;
-                        filteredLines.add(line);
-                    } else if (foundExportInterface
-                            && trimmed.startsWith("interface ")
-                            && trimmed.endsWith(" {")
-                            && !trimmed.startsWith("export interface ")) {
-                        // Skip this duplicate interface header
-                    } else {
-                        filteredLines.add(line);
-                    }
-                }
-                skeleton = String.join("\n", filteredLines);
-            }
-
-            cleanedSkeletons.put(cu, skeleton);
-        }
-
-        // Now handle FQN-based deduplication only for class-like entities
-        var deduplicatedSkeletons = new HashMap<String, Map.Entry<CodeUnit, String>>();
-
-        for (var entry : cleanedSkeletons.entrySet()) {
-            CodeUnit cu = entry.getKey();
-            String skeleton = entry.getValue();
-            String fqn = cu.fqName();
-
-            // Only deduplicate class-like entities (interfaces, classes, enums, etc.)
-            // Don't deduplicate field-like entities as they should be unique
-            if (cu.isClass()) {
-                // Check if we already have this FQN for class-like entities
-                if (deduplicatedSkeletons.containsKey(fqn)) {
-                    // Prefer the one with "export" in the skeleton
-                    String existingSkeleton = deduplicatedSkeletons.get(fqn).getValue();
-                    if (skeleton.startsWith("export") && !existingSkeleton.startsWith("export")) {
-                        // Replace with export version
-                        deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
-                    }
-                    // Otherwise keep the existing one
-                } else {
-                    deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
-                }
-            } else {
-                // For non-class entities (functions, fields), don't deduplicate by FQN
-                // Use a unique key to preserve all of them
-                // Optimized: use StringBuilder to reduce intermediate string allocations
-                String uniqueKey = new StringBuilder(fqn.length() + 20)
-                        .append(fqn)
-                        .append('#')
-                        .append(cu.kind())
-                        .append('#')
-                        .append(System.identityHashCode(cu))
-                        .toString();
-                deduplicatedSkeletons.put(uniqueKey, Map.entry(cu, skeleton));
-            }
-        }
-
-        // Apply basic cleanup
-        var cleaned = new HashMap<CodeUnit, String>(deduplicatedSkeletons.size());
-        for (var entry : deduplicatedSkeletons.values()) {
-            CodeUnit cu = entry.getKey();
-            String skeleton = entry.getValue();
-
-            // Basic cleanup: remove trailing commas in enums and semicolons from type aliases
+            // Basic cleanup: remove trailing commas in enums
             skeleton = ENUM_COMMA_CLEANUP.matcher(skeleton).replaceAll("\n$1");
 
-            // Remove semicolons from type alias lines
-            // Optimized: only process if skeleton contains "type " to avoid unnecessary work
+            // Remove semicolons from type alias lines (cosmetic only)
             if (skeleton.contains("type ")) {
-                // Use manual split instead of Splitter to reduce overhead
                 String[] lines = skeleton.split("\n", -1);
                 var skeletonBuilder = new StringBuilder(skeleton.length());
                 for (int i = 0; i < lines.length; i++) {
                     String line = lines[i];
-                    // Use regex to detect type alias lines (handles indentation, export default, etc.)
                     if (TYPE_ALIAS_LINE.matcher(line).find()) {
                         line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
                     }
