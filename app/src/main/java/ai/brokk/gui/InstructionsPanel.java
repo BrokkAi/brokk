@@ -1798,50 +1798,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Let the badge compute its own theme-aware colors based on the active mode
         modeBadge.setActiveMode(mode);
 
-        // Build and set a dynamic tooltip that includes the mode description and the toggle shortcut
-        try {
-            var toggleKs = GlobalUiSettings.getKeybinding(
-                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-            var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-            if (toggleStr.isBlank()) {
-                toggleStr = "(unbound)";
-            }
-
-            String title;
-            String desc;
-            switch (mode) {
-                case ACTION_CODE -> {
-                    title = "Code Mode";
-                    desc =
-                            "Code: Applies changes directly to the files currently in your Workspace context based on your instructions.";
-                }
-                case ACTION_ASK -> {
-                    title = "Ask Mode";
-                    desc =
-                            "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
-                }
-                case ACTION_SEARCH -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-                default -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-            }
-
-            String body =
-                    "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
-                            .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
-            String html = wrapTooltipHtml(body, 320);
-            modeBadge.setToolTipText(html);
-        } catch (Exception ex) {
-            // Defensive: ensure tooltip failures don't affect the UI
-            modeBadge.setToolTipText(null);
-        }
-
         // Apply accent stripe only in Advanced Mode
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
@@ -2062,13 +2018,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> {
             modeBadge.setVisible(advanced);
             actionButton.setDropdownEnabled(advanced);
-            
+
             // Switch placeholder only if currently showing a placeholder
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
                 instructionsArea.setText(getCurrentPlaceholder());
             }
-            
+
             refreshModeIndicator();
         });
     }
