@@ -2372,6 +2372,28 @@ public class Chrome
         // Add property change listeners for future updates (also persist globally)
         addSplitPaneListeners(project);
 
+        // Set initial divider for topSplitPane (Activity vs Workspace+Instructions) using left vertical position
+        int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
+        if (topSplitPos > 0) {
+            topSplitPane.setDividerLocation(topSplitPos);
+        } else {
+            // Calculate absolute position with proper component height
+            int topSplitHeight = topSplitPane.getHeight();
+            int defaultTopSplitPos = (int) (topSplitHeight * 0.4); // Activity gets 40%
+            topSplitPane.setDividerLocation(defaultTopSplitPos);
+        }
+
+        // Set initial divider for eastSplit (left stack vs Output+Changes) using repurposed right vertical position
+        int eastSplitPos = GlobalUiSettings.getRightVerticalSplitPosition();
+        if (eastSplitPos > 0) {
+            mainHorizontalSplitPane.setDividerLocation(eastSplitPos);
+        } else {
+            // Calculate absolute position: left side gets 35%
+            int eastSplitWidth = mainHorizontalSplitPane.getWidth();
+            int defaultEastSplitPos = (int) (eastSplitWidth * 0.35);
+            mainHorizontalSplitPane.setDividerLocation(defaultEastSplitPos);
+        }
+
         // Apply title bar now that layout is complete
         applyTitleBar(frame, frame.getTitle());
 
@@ -2387,27 +2409,11 @@ public class Chrome
         frame.setSize(intendedWidth, intendedHeight); // Restore intended window size
         frame.validate();
 
-        // NOW calculate vertical split pane dividers with proper component heights
-
-        // Global-first for top split (Workspace | Instructions)
-        int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
-        if (topSplitPos > 0) {
-            topSplitPane.setDividerLocation(topSplitPos);
-        } else {
-            // Calculate absolute position with proper component height
-            int topSplitHeight = topSplitPane.getHeight();
-            int defaultTopSplitPos = (int) (topSplitHeight * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
-            topSplitPane.setDividerLocation(defaultTopSplitPos);
-        }
-
-        // Global-first for main vertical split (Output | Main)
-        int mainVerticalPos = GlobalUiSettings.getRightVerticalSplitPosition();
-        if (mainVerticalPos > 0) {
-            mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
-        } else {
-            // Calculate absolute position with proper component height
-            int mainVerticalHeight = mainVerticalSplitPane.getHeight();
-            int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_OUTPUT_MAIN_SPLIT);
+        // Set initial divider for mainVerticalSplitPane (Workspace vs Instructions)
+        // Use default resize weight for this nested split
+        int mainVerticalHeight = mainVerticalSplitPane.getHeight();
+        if (mainVerticalHeight > 0) {
+            int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
             mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
         }
 
@@ -2471,28 +2477,17 @@ public class Chrome
     /** Adds property change listeners to split panes for saving positions (global-first). */
     private void addSplitPaneListeners(AbstractProject project) {
         topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (topSplitPane.isShowing()) {
-                var newPos = topSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Keep backward-compat but persist globally as the source of truth
-                    project.saveLeftVerticalSplitPosition(newPos);
-                    GlobalUiSettings.saveLeftVerticalSplitPosition(newPos);
-                }
-            }
-        });
-
-        mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!mainVerticalSplitPane.isShowing()) {
+            if (!topSplitPane.isShowing()) {
                 return;
             }
 
-            int newPos = mainVerticalSplitPane.getDividerLocation();
+            int newPos = topSplitPane.getDividerLocation();
 
-            // Clamp so the bottom (Instructions area) never shrinks below its minimum height.
-            int total = mainVerticalSplitPane.getHeight();
+            // Clamp so the bottom (Workspace+Instructions area) never shrinks below its minimum height
+            int total = topSplitPane.getHeight();
             if (total > 0) {
-                int dividerSize = mainVerticalSplitPane.getDividerSize();
-                Component bottom = mainVerticalSplitPane.getBottomComponent();
+                int dividerSize = topSplitPane.getDividerSize();
+                Component bottom = topSplitPane.getBottomComponent();
                 int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
                 int maxLocation = Math.max(0, total - dividerSize - minBottom);
 
@@ -2501,7 +2496,7 @@ public class Chrome
                         adjustingMainDivider = true;
                         SwingUtilities.invokeLater(() -> {
                             try {
-                                mainVerticalSplitPane.setDividerLocation(maxLocation);
+                                topSplitPane.setDividerLocation(maxLocation);
                             } finally {
                                 adjustingMainDivider = false;
                             }
@@ -2514,8 +2509,19 @@ public class Chrome
 
             if (newPos > 0) {
                 // Keep backward-compat but persist globally as the source of truth
-                project.saveRightVerticalSplitPosition(newPos);
-                GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+                project.saveLeftVerticalSplitPosition(newPos);
+                GlobalUiSettings.saveLeftVerticalSplitPosition(newPos);
+            }
+        });
+
+        mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (mainHorizontalSplitPane.isShowing()) {
+                var newPos = mainHorizontalSplitPane.getDividerLocation();
+                if (newPos > 0) {
+                    // Repurpose "right vertical split" key for horizontal position (eastSplit)
+                    project.saveRightVerticalSplitPosition(newPos);
+                    GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
+                }
             }
         });
 
