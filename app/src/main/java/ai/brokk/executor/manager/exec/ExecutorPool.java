@@ -120,6 +120,35 @@ public final class ExecutorPool {
     }
 
     /**
+     * Update the session ID for an existing executor.
+     * This is used when a temporary provision ID needs to be replaced with the actual session ID.
+     *
+     * @param oldSessionId the old session ID (provision ID)
+     * @param newSessionId the new session ID (actual session ID)
+     * @return true if the update succeeded, false if the old session ID was not found
+     */
+    public boolean updateSessionId(UUID oldSessionId, UUID newSessionId) {
+        var handle = activeExecutors.remove(oldSessionId);
+        if (handle == null) {
+            logger.warn("Cannot update session ID: old session {} not found", oldSessionId);
+            return false;
+        }
+
+        var updatedHandle = new ExecutorHandle(
+                newSessionId,
+                handle.execId(),
+                handle.host(),
+                handle.port(),
+                handle.authToken(),
+                handle.process(),
+                handle.lastActiveAt());
+
+        activeExecutors.put(newSessionId, updatedHandle);
+        logger.info("Updated session ID from {} to {}", oldSessionId, newSessionId);
+        return true;
+    }
+
+    /**
      * Shutdown the executor for the given session.
      *
      * @param sessionId the session ID

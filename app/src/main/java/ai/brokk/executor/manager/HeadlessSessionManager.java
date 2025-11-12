@@ -4,9 +4,18 @@ import ai.brokk.BuildInfo;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.manager.auth.TokenService;
+import ai.brokk.executor.manager.exec.ExecutorPool;
+import ai.brokk.executor.manager.provision.SessionSpec;
+import ai.brokk.executor.manager.provision.WorktreeProvisioner;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -24,14 +33,16 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class HeadlessSessionManager {
     private static final Logger logger = LogManager.getLogger(HeadlessSessionManager.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final UUID managerId;
     private final SimpleHttpServer server;
     private final int poolSize;
     private final Path worktreeBaseDir;
-    private final int activeExecutors = 0; // Placeholder until ExecutorPool is implemented
     private final String masterAuthToken;
     private final TokenService tokenService;
+    private final WorktreeProvisioner provisioner;
+    private final ExecutorPool pool;
 
     /**
      * Parse command-line arguments into a map of normalized keys to values.
@@ -79,13 +90,20 @@ public final class HeadlessSessionManager {
     }
 
     public HeadlessSessionManager(
-            UUID managerId, String listenAddr, String authToken, int poolSize, Path worktreeBaseDir)
+            UUID managerId,
+            String listenAddr,
+            String authToken,
+            int poolSize,
+            Path worktreeBaseDir,
+            String executorClasspath)
             throws IOException {
         this.managerId = managerId;
         this.poolSize = poolSize;
         this.worktreeBaseDir = worktreeBaseDir;
         this.masterAuthToken = authToken;
         this.tokenService = new TokenService(authToken);
+        this.provisioner = new WorktreeProvisioner(worktreeBaseDir);
+        this.pool = new ExecutorPool(provisioner, executorClasspath);
 
         var parts = Splitter.on(':').splitToList(listenAddr);
         if (parts.size() != 2) {
@@ -100,12 +118,13 @@ public final class HeadlessSessionManager {
         }
 
         logger.info(
-                "Initializing HeadlessSessionManager: managerId={}, listen={}:{}, poolSize={}, worktreeBaseDir={}",
+                "Initializing HeadlessSessionManager: managerId={}, listen={}:{}, poolSize={}, worktreeBaseDir={}, executorClasspath={}",
                 managerId,
                 host,
                 port,
                 poolSize,
-                worktreeBaseDir);
+                worktreeBaseDir,
+                executorClasspath);
 
         Files.createDirectories(worktreeBaseDir);
 
@@ -194,11 +213,11 @@ public final class HeadlessSessionManager {
             return;
         }
 
-        var hasCapacity = activeExecutors < poolSize;
-        var provisionerHealthy = Files.isDirectory(worktreeBaseDir) && Files.isWritable(worktreeBaseDir);
+        var hasCapacity = pool.size() < poolSize;
+        var provisionerHealthy = provisioner.healthcheck();
 
         if (!hasCapacity) {
-            logger.info("/health/ready: no capacity (activeExecutors={}, poolSize={})", activeExecutors, poolSize);
+            logger.info("/health/ready: no capacity (activeExecutors={}, poolSize={})", pool.size(), poolSize);
             var error = ErrorPayload.of("NO_CAPACITY", "Executor pool is at capacity");
             SimpleHttpServer.sendJsonResponse(exchange, 503, error);
             return;
@@ -217,9 +236,9 @@ public final class HeadlessSessionManager {
 
         var response = Map.of(
                 "status", "ready",
-                "activeExecutors", activeExecutors,
+                "activeExecutors", pool.size(),
                 "poolSize", poolSize,
-                "availableCapacity", poolSize - activeExecutors);
+                "availableCapacity", poolSize - pool.size());
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
@@ -230,9 +249,110 @@ public final class HeadlessSessionManager {
             return;
         }
 
+        var path = exchange.getRequestURI().getPath();
+        var method = exchange.getRequestMethod();
+
+        if (path.equals("/v1/sessions") && method.equals("POST")) {
+            handleCreateSession(exchange);
+            return;
+        }
+
         var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
         SimpleHttpServer.sendJsonResponse(exchange, 404, error);
     }
+
+    private void handleCreateSession(HttpExchange exchange) throws IOException {
+        if (pool.size() >= poolSize) {
+            logger.info("Pool at capacity, rejecting session creation request");
+            exchange.getResponseHeaders().add("Retry-After", "30");
+            var error = ErrorPayload.of("CAPACITY_EXCEEDED", "Executor pool is at capacity");
+            SimpleHttpServer.sendJsonResponse(exchange, 429, error);
+            return;
+        }
+
+        CreateSessionRequest request;
+        try {
+            request = SimpleHttpServer.parseJsonRequest(exchange, CreateSessionRequest.class);
+        } catch (Exception e) {
+            logger.warn("Invalid JSON in POST /v1/sessions", e);
+            var error = ErrorPayload.validationError("Invalid JSON request body");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        if (request == null || request.name() == null || request.name().isBlank()) {
+            var error = ErrorPayload.validationError("Session name is required");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        if (request.repoPath() == null || request.repoPath().isBlank()) {
+            var error = ErrorPayload.validationError("repoPath is required");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        var provisionId = UUID.randomUUID();
+        var repoPath = Path.of(request.repoPath());
+        var spec = new SessionSpec(provisionId, repoPath, request.ref());
+
+        try {
+            var handle = pool.spawn(spec);
+
+            var client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+
+            var executorUrl = "http://" + handle.host() + ":" + handle.port() + "/v1/sessions";
+            var executorRequest = HttpRequest.newBuilder(URI.create(executorUrl))
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            objectMapper.writeValueAsString(Map.of("name", request.name()))))
+                    .header("Authorization", "Bearer " + handle.authToken())
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+
+            var executorResponse = client.send(executorRequest, HttpResponse.BodyHandlers.ofString());
+
+            if (executorResponse.statusCode() != 201) {
+                logger.error(
+                        "Executor session creation failed: status={}, body={}",
+                        executorResponse.statusCode(),
+                        executorResponse.body());
+                pool.shutdown(provisionId);
+                var error = ErrorPayload.internalError("Executor failed to create session", null);
+                SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                return;
+            }
+
+            var executorBody =
+                    objectMapper.readValue(executorResponse.body(), new TypeReference<Map<String, Object>>() {});
+            var sessionId = UUID.fromString((String) executorBody.get("sessionId"));
+
+            pool.updateSessionId(provisionId, sessionId);
+
+            var token = mintSessionToken(sessionId);
+
+            var response = Map.of(
+                    "sessionId", sessionId.toString(),
+                    "state", "ready",
+                    "token", token);
+
+            SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+
+        } catch (ExecutorPool.ExecutorSpawnException e) {
+            logger.warn("Failed to spawn executor for session", e);
+            exchange.getResponseHeaders().add("Retry-After", "60");
+            var error = ErrorPayload.of("SPAWN_FAILED", "Failed to start executor: " + e.getMessage());
+            SimpleHttpServer.sendJsonResponse(exchange, 429, error);
+        } catch (Exception e) {
+            logger.error("Error creating session", e);
+            var error = ErrorPayload.internalError("Failed to create session", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    private record CreateSessionRequest(String name, String repoPath, @Nullable String ref) {}
 
     public void start() {
         this.server.start();
@@ -240,6 +360,7 @@ public final class HeadlessSessionManager {
     }
 
     public void stop(int delaySeconds) {
+        pool.shutdownAll();
         this.server.stop(delaySeconds);
         logger.info("HeadlessSessionManager stopped");
     }
@@ -290,6 +411,12 @@ public final class HeadlessSessionManager {
             }
             var worktreeBaseDir = Path.of(worktreeBaseDirStr);
 
+            var executorClasspath = getConfigValue(parsedArgs, "executor-classpath", "EXECUTOR_CLASSPATH");
+            if (executorClasspath == null || executorClasspath.isBlank()) {
+                executorClasspath = System.getProperty("java.class.path");
+                logger.info("Using current classpath for executors: {}", executorClasspath);
+            }
+
             logger.info(
                     "Starting HeadlessSessionManager with config: managerId={}, listenAddr={}, poolSize={}, worktreeBaseDir={}",
                     managerId,
@@ -297,7 +424,8 @@ public final class HeadlessSessionManager {
                     poolSize,
                     worktreeBaseDir);
 
-            var manager = new HeadlessSessionManager(managerId, listenAddr, authToken, poolSize, worktreeBaseDir);
+            var manager = new HeadlessSessionManager(
+                    managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath);
             manager.start();
 
             Runtime.getRuntime()
