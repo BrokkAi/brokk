@@ -1887,8 +1887,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             // Use the refined skeletonType computed above when creating the CodeUnit to avoid unused-variable warnings
-            CodeUnit cu = createCodeUnit(
-                    file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
+            CodeUnit cu =
+                    createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
