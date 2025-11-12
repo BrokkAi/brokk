@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
  * Validates step selection, ordering, and plan generation.
  */
 class OnboardingOrchestratorTest {
+    // Platform-independent absolute path for testing
+    private static final Path TEST_ROOT = Path.of(System.getProperty("java.io.tmpdir"), "test");
 
     /**
      * Minimal test implementation of IProject for testing.
@@ -55,7 +57,7 @@ class OnboardingOrchestratorTest {
 
     /** Builder for creating ProjectState in tests with sensible defaults. */
     private static class StateBuilder {
-        private TestProject project = new TestProject(Path.of("/tmp/test"));
+        private TestProject project = new TestProject(TEST_ROOT);
         private boolean agentsMdExists = false;
         private boolean agentsMdHasContent = false;
         private boolean legacyStyleMdExists = false;
@@ -132,7 +134,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testFreshProject_AllStepsExceptMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         project.setHasGit(true);
         var state = new StateBuilder().withProject(project).build();
 
@@ -154,7 +156,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testLegacyProject_NeedsMigration() {
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         project.setHasGit(true);
         var state = new StateBuilder().withProject(project).withLegacyStyleMd().build();
 
@@ -206,7 +208,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_Included() {
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
@@ -233,7 +235,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_NotIncluded() {
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
@@ -282,7 +284,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildProjectState_Helper() {
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         var styleFuture = CompletableFuture.completedFuture("# Style Guide");
         var buildFuture = CompletableFuture.completedFuture(null);
 
@@ -301,7 +303,7 @@ class OnboardingOrchestratorTest {
     @Test
     void testStepDependencies_CorrectOrder() {
         // Create state where all steps are applicable
-        var project = new TestProject(Path.of("/tmp/test"));
+        var project = new TestProject(TEST_ROOT);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
