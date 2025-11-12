@@ -1569,6 +1569,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         try {
             chrome.applyAdvancedModeVisibility();
             chrome.getInstructionsPanel().applyAdvancedModeForInstructions(advancedModeCheckbox.isSelected());
+            chrome.refreshKeybindings();
         } catch (Exception ex) {
             // Non-fatal: hook will be implemented in follow-up tasks
         }
