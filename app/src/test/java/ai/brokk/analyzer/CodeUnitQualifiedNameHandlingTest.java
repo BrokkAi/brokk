@@ -33,4 +33,19 @@ public class CodeUnitQualifiedNameHandlingTest {
         // fqName should be composed of package + '.' + shortName
         assertEquals("com.example.MyClass", cu.fqName());
     }
+
+    @Test
+    public void nestedLikeShortNameIsPreservedAndPrefixedByPackage() {
+        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/Outer.java");
+        // Simulate a shortName that already looks like an inner-class token "Outer$Inner"
+        CodeUnit cu = CodeUnit.cls(source, "com.example", "Outer$Inner");
+
+        // The supplied shortName contains a nested/inner-class marker and should be preserved as-is
+        assertEquals("Outer$Inner", cu.shortName());
+        // fqName should be composed of package + '.' + shortName, preserving the '$' marker
+        assertEquals("com.example.Outer$Inner", cu.fqName());
+
+        // This test locks in behavior for nested-like tokens provided as short names: they are not split
+        // into package vs. simple name by CodeUnit construction and are preserved verbatim.
+    }
 }
