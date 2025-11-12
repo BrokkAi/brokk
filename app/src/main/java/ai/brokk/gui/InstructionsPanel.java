@@ -50,8 +50,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -1903,7 +1903,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             });
         }
     }
-    
+
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first.
