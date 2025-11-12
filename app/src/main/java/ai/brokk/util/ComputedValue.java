@@ -19,7 +19,6 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 /**
  * One-shot, self-materializing computed value.
@@ -60,8 +59,7 @@ public final class ComputedValue<T> {
      * @param name       used in the worker thread name; not null/blank
      * @param supplier   computation to run
      */
-    @TestOnly
-    public ComputedValue(String name, Supplier<T> supplier) {
+    ComputedValue(String name, Supplier<T> supplier) {
         this(name, supplier, null, new CompletableFuture<>());
     }
 
