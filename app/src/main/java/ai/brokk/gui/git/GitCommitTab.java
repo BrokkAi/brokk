@@ -1127,6 +1127,8 @@ Would you like to resolve these conflicts with the Merge Agent?
         // Perform complete UI tree update
         SwingUtilities.invokeLater(() -> {
             SwingUtilities.updateComponentTreeUI(this);
+            // updateComponentTreeUI installs a fresh UI delegate, so reapply the primary styling afterwards
+            SwingUtil.applyPrimaryButtonStyle(commitButton);
             revalidate();
             repaint();
         });
