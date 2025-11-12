@@ -31,9 +31,14 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
 
     private volatile boolean showChipPanel = false;
     private volatile boolean showTaskList = false;
+    private volatile Focus currentFocus = Focus.PROMPT;
 
     private volatile float lastBalance = -1f;
     private volatile String lastTokenUsageBar = "";
+    private volatile String balanceTextOverride = "";
+
+    private volatile List<Context> renderedHistory = List.of();
+    private volatile int historySelection = -1;
 
     private volatile boolean spinnerVisible = false;
     private volatile String spinnerMessage = "";
@@ -76,6 +81,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         scheduler.shutdownNow();
     }
 
+    @Override
     public void toggleChipPanel() {
         showChipPanel = !showChipPanel;
         synchronized (renderLock) {
@@ -84,6 +90,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         }
     }
 
+    @Override
     public void toggleTaskList() {
         showTaskList = !showTaskList;
         synchronized (renderLock) {
@@ -239,7 +246,9 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         out.println();
         out.println("==================== Brokk TUI ====================");
         var parts = new ArrayList<String>();
-        if (lastBalance >= 0f) {
+        if (!balanceTextOverride.isBlank()) {
+            parts.add("Balance: " + balanceTextOverride);
+        } else if (lastBalance >= 0f) {
             parts.add("Balance: " + BalanceFormatter.format(lastBalance));
         }
         if (!lastTokenUsageBar.isBlank()) {
@@ -248,6 +257,7 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         if (spinnerVisible) {
             parts.add("[" + (spinnerMessage.isBlank() ? "Working..." : spinnerMessage) + "]");
         }
+        parts.add("Focus: " + currentFocus);
         out.println(String.join("  |  ", parts));
         out.println("===================================================");
         out.flush();
@@ -257,6 +267,105 @@ public final class TuiConsole extends MemoryConsole implements IConsoleIO, TuiVi
         if (showTaskList) {
             renderTaskList();
         }
+    }
+
+    @Override
+    public void setFocus(Focus focus) {
+        currentFocus = Objects.requireNonNull(focus, "focus");
+        synchronized (renderLock) {
+            renderHeader();
+        }
+    }
+
+    @Override
+    public void updateHeader(String usageBar, String balanceText, boolean showSpinner) {
+        lastTokenUsageBar = usageBar == null ? "" : usageBar;
+        balanceTextOverride = balanceText == null ? "" : balanceText;
+        spinnerVisible = showSpinner;
+        if (!spinnerVisible) {
+            spinnerMessage = "";
+        } else if (spinnerMessage.isBlank()) {
+            spinnerMessage = "Working...";
+        }
+        synchronized (renderLock) {
+            renderHeader();
+        }
+    }
+
+    @Override
+    public void renderHistory(List<Context> contexts, int selectedIndex) {
+        Objects.requireNonNull(contexts, "contexts");
+        synchronized (renderLock) {
+            renderedHistory = List.copyOf(contexts);
+            historySelection = normalizeSelection(selectedIndex, renderedHistory.size());
+            renderHistoryInternal();
+        }
+    }
+
+    @Override
+    public void setHistorySelection(int index) {
+        synchronized (renderLock) {
+            historySelection = normalizeSelection(index, renderedHistory.size());
+            renderHistoryInternal();
+        }
+    }
+
+    @Override
+    public void clearOutput() {
+        synchronized (renderLock) {
+            resetTranscript();
+            pendingHistory = List.of();
+            out.println();
+            out.println("-- Output cleared --");
+            out.flush();
+        }
+    }
+
+    @Override
+    public void appendOutput(String token, boolean isReasoning) {
+        Objects.requireNonNull(token, "token");
+        var newMessage = messages.isEmpty() || messages.getLast().type() != ChatMessageType.AI;
+        llmOutput(token, ChatMessageType.AI, newMessage, isReasoning);
+    }
+
+    @Override
+    public void renderPrompt(String text) {
+        Objects.requireNonNull(text, "text");
+        synchronized (renderLock) {
+            out.println();
+            out.println("Prompt> " + text);
+            out.flush();
+        }
+    }
+
+    private void renderHistoryInternal() {
+        out.println();
+        out.println("-- History --");
+        if (renderedHistory.isEmpty()) {
+            out.println("(empty)");
+        } else {
+            var selection = historySelection;
+            if (selection < 0 || selection >= renderedHistory.size()) {
+                selection = -1;
+            }
+            for (int i = 0; i < renderedHistory.size(); i++) {
+                var ctx = renderedHistory.get(i);
+                var action = ctx.getAction();
+                if (action == null || action.isBlank()) {
+                    action = "(no action)";
+                }
+                var marker = i == selection ? ">" : " ";
+                out.println(marker + " [" + i + "] " + action);
+            }
+        }
+        out.flush();
+    }
+
+    private static int normalizeSelection(int index, int size) {
+        if (index < 0 || index >= size) {
+            return -1;
+        }
+        return index;
     }
 
     private void renderChipPanel() {
