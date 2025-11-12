@@ -3725,23 +3725,30 @@ public class Chrome
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {
-                    // Bottom of the workspaceInstructionsSplit is the Instructions container when expanded
-                    Component bottom = mainVerticalSplitPane.getBottomComponent();
-                    if (bottom != null) {
-                        instructionsHeightPx = Math.max(0, bottom.getHeight());
-                    }
-                    // Fallback estimate if height not realized yet
-                    if (instructionsHeightPx == 0) {
-                        int tsTotal = Math.max(0, mainVerticalSplitPane.getHeight());
-                        int tsDivider = mainVerticalSplitPane.getDividerSize();
-                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
-                        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                        instructionsHeightPx =
-                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
-                    }
+                // Navigate to Instructions: topSplitPane bottom is Workspace|Instructions split,
+                // and that split's bottom is the Instructions container
+                Component instrContainer = null;
+                Component bottomComp = topSplitPane.getBottomComponent();
+                if (bottomComp instanceof JSplitPane sp) {
+                instrContainer = sp.getBottomComponent();
+                } else {
+                instrContainer = bottomComp;
+                }
+                if (instrContainer != null) {
+                instructionsHeightPx = Math.max(0, instrContainer.getHeight());
+                }
+                // Fallback estimate if height not realized yet
+                if (instructionsHeightPx == 0) {
+                int tsTotal = Math.max(0, topSplitPane.getHeight());
+                int tsDivider = topSplitPane.getDividerSize();
+                int maxFromTop = Math.max(0, tsTotal - tsDivider);
+                int minBottom = (instrContainer != null) ? Math.max(0, instrContainer.getMinimumSize().height) : 0;
+                instructionsHeightPx =
+                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
+                }
                 } catch (Exception ex) {
-                    // Defensive; we'll clamp during restore regardless
-                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
+                // Defensive; we'll clamp during restore regardless
+                logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
                 }
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
