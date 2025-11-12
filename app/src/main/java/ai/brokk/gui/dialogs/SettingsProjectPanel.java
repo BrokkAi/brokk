@@ -36,6 +36,8 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
@@ -50,48 +52,48 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // General UI Components
-    private JTextArea styleGuideArea = new JTextArea(5, 40);
-    private JTextArea commitFormatArea = new JTextArea(5, 40);
+    private final JTextArea styleGuideArea = new JTextArea(5, 40);
+    private final JTextArea commitFormatArea = new JTextArea(5, 40);
 
     @Nullable
     private JTextArea reviewGuideArea;
 
     // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
     // Analyzer-related UI
-    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
-    private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-    private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private MaterialButton addExcludedDirButton = new MaterialButton();
-    private MaterialButton removeExcludedDirButton = new MaterialButton();
+    private final DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
+    private final JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
+    private final JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+    private final MaterialButton addExcludedDirButton = new MaterialButton();
+    private final MaterialButton removeExcludedDirButton = new MaterialButton();
 
-    private Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+    private final Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
 
-    private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+    private final JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     // Issue Provider related UI
-    private JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
-    private CardLayout issueProviderCardLayout = new CardLayout();
-    private JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
+    private final JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
+    private final CardLayout issueProviderCardLayout = new CardLayout();
+    private final JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
 
     // GitHub specific fields
-    private JTextField githubOwnerField = new JTextField(20);
-    private JTextField githubRepoField = new JTextField(20);
-    private JTextField githubHostField = new JTextField(20);
-    private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
-    private JLabel githubOwnerLabel = new JLabel();
-    private JLabel githubRepoLabel = new JLabel();
-    private JLabel githubHostLabel = new JLabel();
-    private JLabel githubInfoLabel = new JLabel();
+    private final JTextField githubOwnerField = new JTextField(20);
+    private final JTextField githubRepoField = new JTextField(20);
+    private final JTextField githubHostField = new JTextField(20);
+    private final JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private final JLabel githubOwnerLabel = new JLabel();
+    private final JLabel githubRepoLabel = new JLabel();
+    private final JLabel githubHostLabel = new JLabel();
+    private final JLabel githubInfoLabel = new JLabel();
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
     private static final String JIRA_CARD = "Jira";
 
     // Jira specific fields
-    private JTextField jiraProjectKeyField = new JTextField();
-    private JTextField jiraBaseUrlField = new JTextField();
-    private JPasswordField jiraApiTokenField = new JPasswordField();
-    private MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
+    private final JTextField jiraProjectKeyField = new JTextField();
+    private final JTextField jiraBaseUrlField = new JTextField();
+    private final JPasswordField jiraApiTokenField = new JPasswordField();
+    private final MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
     private final LinkedHashMap<Language, AnalyzerSettingsPanel> analyzerSettingsCache = new LinkedHashMap<>();
@@ -231,7 +233,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 if (success) {
                     // Migration succeeded - hide button and refresh UI
                     migrateButton.setVisible(false);
-                    SwingUtilities.invokeLater(() -> loadSettings());
+                    SwingUtilities.invokeLater(this::loadSettings);
                 } else {
                     // Migration failed - re-enable button
                     SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
@@ -424,7 +426,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gitHubCard.add(githubRepoField, gbcGitHub);
 
         // Individual validation for owner field
-        var ownerValidator = (Function<String, Optional<String>>) ownerText -> {
+        Function<String, Optional<String>> ownerValidator = ownerText -> {
             if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
                 return Optional.empty();
             }
@@ -432,7 +434,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         };
 
         // Individual validation for repo field
-        var repoValidator = (Function<String, Optional<String>>) repoText -> {
+        Function<String, Optional<String>> repoValidator = repoText -> {
             if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
                 return Optional.empty();
             }
@@ -460,15 +462,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gitHubCard.add(githubHostField, gbcGitHub);
 
         // Real-time validation for host field
-        var hostValidator = (Function<String, Optional<String>>) hostText -> {
+        Function<String, Optional<String>> hostValidator = hostText -> {
             if (hostText.isEmpty() || !githubOverrideCheckbox.isSelected()) {
                 return Optional.empty();
             }
             var normalizedOpt = GitUiUtil.normalizeGitHubHost(hostText);
-            if (normalizedOpt.isPresent()) {
-                return GitUiUtil.validateGitHubHost(normalizedOpt.get());
-            }
-            return Optional.empty();
+            return normalizedOpt.flatMap(GitUiUtil::validateGitHubHost);
         };
         githubHostField
                 .getDocument()
@@ -511,19 +510,19 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             gitHubCard.repaint();
         });
 
-        githubRepoField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        githubRepoField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 onRepoFieldChanged();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 onRepoFieldChanged();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 onRepoFieldChanged();
             }
 
@@ -531,13 +530,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 String repoText = githubRepoField.getText().trim();
                 if (!repoText.isEmpty()) {
                     var parseResult = GitUiUtil.parseOwnerRepoFlexible(repoText);
-                    if (parseResult.isPresent()) {
-                        var ownerRepo = parseResult.get();
-                        SwingUtilities.invokeLater(() -> {
-                            githubOwnerField.setText(ownerRepo.owner());
-                            githubRepoField.setText(ownerRepo.repo());
-                        });
-                    }
+                    parseResult.ifPresent(ownerRepo -> SwingUtilities.invokeLater(() -> {
+                        githubOwnerField.setText(ownerRepo.owner());
+                        githubRepoField.setText(ownerRepo.repo());
+                    }));
                 }
             }
         });
@@ -951,10 +947,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            return switch (columnIndex) {
-                case 0 -> Boolean.class;
-                default -> String.class;
-            };
+            if (columnIndex == 0) {
+                return Boolean.class;
+            } else {
+                return String.class;
+            }
         }
 
         @Override

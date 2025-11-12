@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -81,8 +82,7 @@ public final class GitUiUtil {
         // Error border
         var errorBorder = new RoundedLineBorder(ThemeColors.getColor(ThemeColors.NOTIF_ERROR_BORDER), 2, 3);
 
-        // Use array to store debounce timer (allows modification in lambda)
-        Timer[] debounceTimer = {null};
+        AtomicReference<Timer> debounceTimer = new AtomicReference<>(null);
 
         return new DocumentListener() {
             @Override
@@ -102,12 +102,13 @@ public final class GitUiUtil {
 
             private void scheduleValidation() {
                 // Cancel any pending validation
-                if (debounceTimer[0] != null) {
-                    debounceTimer[0].stop();
+                Timer existing = debounceTimer.get();
+                if (existing != null) {
+                    existing.stop();
                 }
 
                 // Schedule new validation after 200ms debounce
-                debounceTimer[0] = new Timer(200, evt -> {
+                Timer newTimer = new Timer(200, evt -> {
                     String text = textField.getText().trim();
                     Optional<String> validationError = validator.apply(text);
 
@@ -122,8 +123,9 @@ public final class GitUiUtil {
                         textField.setToolTipText(null);
                     }
                 });
-                debounceTimer[0].setRepeats(false);
-                debounceTimer[0].start();
+                newTimer.setRepeats(false);
+                newTimer.start();
+                debounceTimer.set(newTimer);
             }
         };
     }
