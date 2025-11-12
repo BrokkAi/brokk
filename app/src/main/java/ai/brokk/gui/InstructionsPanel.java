@@ -261,6 +261,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
+    // Session-scoped assistant prompt trail snapshot and flag to mark AI-generated overwrites.
+    // `aiPromptTrailSnapshot` holds the user's input immediately before the assistant overwrites it.
+    private @Nullable String aiPromptTrailSnapshot = null;
+    // When true, indicates the current content was produced by the assistant in this session.
+    private boolean aiPromptIsAssistantGenerated = false;
+    // Client property key to mark the JTextArea as containing AI-generated prompt text.
+    private static final String PROMPT_AI_GENERATED_KEY = "prompt.aiGenerated";
+
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
     private JPopupMenu tokenUsageBarPopupMenu;
