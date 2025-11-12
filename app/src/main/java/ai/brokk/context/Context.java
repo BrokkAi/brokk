@@ -1062,6 +1062,12 @@ public class Context {
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
     public Context withTaskList(TaskList.TaskListData data) {
+        // Guard: if data hasn't changed, return this context unchanged
+        var currentData = getTaskListDataOrEmpty();
+        if (currentData.equals(data)) {
+            return this;
+        }
+
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
             var desc = ContextFragment.TASK_LIST.description();
