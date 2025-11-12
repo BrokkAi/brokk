@@ -22,6 +22,9 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +46,15 @@ public final class HeadlessSessionManager {
     private final TokenService tokenService;
     private final WorktreeProvisioner provisioner;
     private final ExecutorPool pool;
+
+    // Idle eviction policy
+    private final Duration idleTimeout;
+    private final Duration evictionInterval;
+    private final ScheduledExecutorService evictionScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        var t = new Thread(r, "HSM-IdleEvictor");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * Parse command-line arguments into a map of normalized keys to values.
@@ -97,6 +109,20 @@ public final class HeadlessSessionManager {
             Path worktreeBaseDir,
             String executorClasspath)
             throws IOException {
+        this(managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath,
+                Duration.ofMinutes(15), Duration.ofSeconds(60));
+    }
+
+    public HeadlessSessionManager(
+            UUID managerId,
+            String listenAddr,
+            String authToken,
+            int poolSize,
+            Path worktreeBaseDir,
+            String executorClasspath,
+            Duration idleTimeout,
+            Duration evictionInterval)
+            throws IOException {
         this.managerId = managerId;
         this.poolSize = poolSize;
         this.worktreeBaseDir = worktreeBaseDir;
@@ -104,6 +130,8 @@ public final class HeadlessSessionManager {
         this.tokenService = new TokenService(authToken);
         this.provisioner = new WorktreeProvisioner(worktreeBaseDir);
         this.pool = new ExecutorPool(provisioner, executorClasspath);
+        this.idleTimeout = idleTimeout;
+        this.evictionInterval = evictionInterval;
 
         var parts = Splitter.on(':').splitToList(listenAddr);
         if (parts.size() != 2) {
@@ -487,10 +515,28 @@ public final class HeadlessSessionManager {
 
     public void start() {
         this.server.start();
+
+        // Schedule periodic idle eviction
+        evictionScheduler.scheduleAtFixedRate(() -> {
+            try {
+                var evicted = pool.evictIdle(idleTimeout);
+                if (evicted > 0) {
+                    logger.info("Idle eviction cycle evicted {} executor(s)", evicted);
+                }
+            } catch (Exception e) {
+                logger.warn("Error during idle eviction cycle", e);
+            }
+        }, evictionInterval.toMillis(), evictionInterval.toMillis(), TimeUnit.MILLISECONDS);
+
         logger.info("HeadlessSessionManager HTTP server started; listening on port {}", server.getPort());
     }
 
     public void stop(int delaySeconds) {
+        try {
+            evictionScheduler.shutdownNow();
+        } catch (Exception e) {
+            logger.warn("Error shutting down eviction scheduler", e);
+        }
         pool.shutdownAll();
         this.server.stop(delaySeconds);
         logger.info("HeadlessSessionManager stopped");
@@ -548,15 +594,44 @@ public final class HeadlessSessionManager {
                 logger.info("Using current classpath for executors: {}", executorClasspath);
             }
 
+            var idleTimeoutSecondsStr = getConfigValue(parsedArgs, "idle-timeout-seconds", "IDLE_TIMEOUT_SECONDS");
+            var evictionIntervalSecondsStr =
+                    getConfigValue(parsedArgs, "eviction-interval-seconds", "EVICTION_INTERVAL_SECONDS");
+
+            var idleTimeout = Duration.ofMinutes(15);
+            var evictionInterval = Duration.ofSeconds(60);
+            try {
+                if (idleTimeoutSecondsStr != null && !idleTimeoutSecondsStr.isBlank()) {
+                    long secs = Long.parseLong(idleTimeoutSecondsStr);
+                    if (secs > 0) {
+                        idleTimeout = Duration.ofSeconds(secs);
+                    }
+                }
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid IDLE_TIMEOUT_SECONDS value '{}', using default {}", idleTimeoutSecondsStr, idleTimeout);
+            }
+            try {
+                if (evictionIntervalSecondsStr != null && !evictionIntervalSecondsStr.isBlank()) {
+                    long secs = Long.parseLong(evictionIntervalSecondsStr);
+                    if (secs > 0) {
+                        evictionInterval = Duration.ofSeconds(secs);
+                    }
+                }
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid EVICTION_INTERVAL_SECONDS value '{}', using default {}", evictionIntervalSecondsStr, evictionInterval);
+            }
+
             logger.info(
-                    "Starting HeadlessSessionManager with config: managerId={}, listenAddr={}, poolSize={}, worktreeBaseDir={}",
+                    "Starting HeadlessSessionManager with config: managerId={}, listenAddr={}, poolSize={}, worktreeBaseDir={}, idleTimeout={}, evictionInterval={}",
                     managerId,
                     listenAddr,
                     poolSize,
-                    worktreeBaseDir);
+                    worktreeBaseDir,
+                    idleTimeout,
+                    evictionInterval);
 
             var manager = new HeadlessSessionManager(
-                    managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath);
+                    managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath, idleTimeout, evictionInterval);
             manager.start();
 
             Runtime.getRuntime()

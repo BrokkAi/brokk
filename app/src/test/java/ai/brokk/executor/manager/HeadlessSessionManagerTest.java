@@ -10,6 +10,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -220,6 +221,72 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, conn.getResponseCode());
         conn.disconnect();
+    }
+
+    @Test
+    void testHealthReadyCapacity() throws Exception {
+        // Initially should be ready (capacity available and provisioner healthy)
+        var url = URI.create(baseUrl + "/health/ready").toURL();
+        var conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(200, conn.getResponseCode());
+        conn.disconnect();
+
+        // Fill pool to capacity (pool size = 2 from setup)
+        var requestBody1 = Map.<String, Object>of("name", "S1", "repoPath", repoPath.toString());
+        var requestBody2 = Map.<String, Object>of("name", "S2", "repoPath", repoPath.toString());
+        createSessionRequest(requestBody1);
+        createSessionRequest(requestBody2);
+
+        // Now readiness should report no capacity
+        var conn2 = (HttpURLConnection) url.openConnection();
+        conn2.setRequestMethod("GET");
+        conn2.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(503, conn2.getResponseCode());
+        conn2.disconnect();
+    }
+
+    @Test
+    void testIdleEvictionPolicy() throws Exception {
+        // Restart manager with very short idle timeout and eviction interval
+        if (manager != null) {
+            manager.stop(1);
+        }
+        var executorClasspath = System.getProperty("java.class.path");
+        manager = new HeadlessSessionManager(
+                UUID.randomUUID(),
+                "127.0.0.1:0",
+                authToken,
+                1,
+                worktreeBaseDir,
+                executorClasspath,
+                Duration.ofMillis(200),
+                Duration.ofMillis(100));
+        manager.start();
+        baseUrl = "http://127.0.0.1:" + manager.getPort();
+
+        // Create one session (fills capacity)
+        var requestBody = Map.<String, Object>of("name", "Idle Evict Session", "repoPath", repoPath.toString());
+        createSessionRequest(requestBody);
+
+        // Shortly after, readiness should show 503 (no capacity)
+        var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
+        var beforeEvict = (HttpURLConnection) readyUrl.openConnection();
+        beforeEvict.setRequestMethod("GET");
+        beforeEvict.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(503, beforeEvict.getResponseCode());
+        beforeEvict.disconnect();
+
+        // Wait for idle eviction to run
+        Thread.sleep(1000);
+
+        // After eviction, readiness should return 200 (capacity available again)
+        var afterEvict = (HttpURLConnection) readyUrl.openConnection();
+        afterEvict.setRequestMethod("GET");
+        afterEvict.setRequestProperty("Authorization", "Bearer " + authToken);
+        assertEquals(200, afterEvict.getResponseCode());
+        afterEvict.disconnect();
     }
 
     @Test
