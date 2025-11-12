@@ -770,7 +770,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
-                    setReloadUiEnabled(true);
                 },
                 () -> {
                     List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
@@ -811,7 +810,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
-                    setReloadUiEnabled(true);
                 },
                 () -> {
                     List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
