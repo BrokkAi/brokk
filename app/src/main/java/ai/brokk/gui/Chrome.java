@@ -2829,6 +2829,20 @@ public class Chrome
             // Update session management visibility in History panel
             historyOutputPanel.setAdvancedMode(advanced);
 
+            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
+            try {
+                instructionsPanel.applyAdvancedModeForInstructions(advanced);
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode to instructions panel", ex);
+            }
+
+            // Refresh keybindings to update toggle-mode shortcut based on advanced mode
+            try {
+                refreshKeybindings();
+            } catch (Exception ex) {
+                logger.debug("Failed to refresh keybindings after advanced-mode toggle", ex);
+            }
+
             // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
                 if (gitCommitTab != null) {
