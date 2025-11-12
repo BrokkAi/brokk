@@ -871,6 +871,24 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     /**
+     * Clears all PR-related data and displays an error in the table.
+     * Must be called on the EDT.
+     *
+     * @param message The error message to display
+     */
+    private void showPrListError(String message) {
+        assert SwingUtilities.isEventDispatchThread();
+        allPrsFromApi.clear();
+        displayedPrs.clear();
+        ciStatusCache.clear();
+        prCommitsCache.clear();
+        authorChoices.clear();
+        labelChoices.clear();
+        assigneeChoices.clear();
+        showErrorInTable(message);
+    }
+
+    /**
      * Displays an error message in the PR table and disables interactions.
      * Sets isShowingError flag, clears the table, adds a single error row, and disables buttons and filters.
      *
@@ -982,86 +1000,32 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 logger.error(
                         "GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
                 String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(httpEx);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (UnknownHostException unknownHostEx) {
                 logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
                 String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(unknownHostEx);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (SocketTimeoutException timeoutEx) {
                 logger.error("Request timed out while fetching pull requests", timeoutEx);
                 String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(timeoutEx);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (ConnectException connectEx) {
                 logger.error("Connection refused while fetching pull requests", connectEx);
                 String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(connectEx);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (IOException ioEx) {
                 logger.error("I/O error while fetching pull requests", ioEx);
                 String errorMessage = GitTabExceptionMapper.mapExceptionToUserMessage(ioEx);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (Exception ex) {
                 logger.error("Failed to fetch pull requests", ex);
                 String errorMessage = "Error fetching PRs: " + ex.getMessage();
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    showErrorInTable(errorMessage);
-                });
+                SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             }
 

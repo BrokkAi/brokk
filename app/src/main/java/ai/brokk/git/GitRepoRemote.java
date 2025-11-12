@@ -477,42 +477,6 @@ public class GitRepoRemote {
     }
 
     /**
-     * Ensures a commit SHA is available locally by fetching from all remotes if necessary.
-     * Tries each remote in turn until the SHA becomes available or all remotes have been tried.
-     *
-     * @param sha The commit SHA that must be present locally
-     * @return true if the SHA is now available locally, false otherwise
-     * @throws GitAPIException if a Git error occurs during fetch operations
-     */
-    public boolean ensureShaIsLocal(String sha) throws GitAPIException {
-        if (repo.isCommitLocallyAvailable(sha)) {
-            return true;
-        }
-
-        logger.debug("SHA {} not available locally, trying to fetch from remotes", sha);
-
-        for (String remoteName : repository.getRemoteNames()) {
-            try {
-                logger.debug("Fetching from remote {} to make SHA {} available", remoteName, sha);
-                var fetchCommand = git.fetch().setRemote(remoteName);
-                repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
-                fetchCommand.call();
-
-                if (repo.isCommitLocallyAvailable(sha)) {
-                    logger.debug("Successfully fetched SHA {} from remote {}", sha, remoteName);
-                    repo.invalidateCaches();
-                    return true;
-                }
-            } catch (GitAPIException e) {
-                logger.debug("Failed to fetch SHA {} from remote {}: {}", sha, remoteName, e.getMessage());
-            }
-        }
-
-        logger.warn("Failed to make SHA {} available locally after trying all remotes", sha);
-        return false;
-    }
-
-    /**
      * Ensures a commit SHA is available locally by fetching a specific refSpec from a remote.
      *
      * @param sha The commit SHA that must be present locally
