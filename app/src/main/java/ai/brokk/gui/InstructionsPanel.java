@@ -2080,103 +2080,118 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * `populateInstructionsArea` and clear the assistant trail to avoid a no-op AI-marked edit.
      */
     public void populateInstructionsAreaFromAssistant(String text) {
-        SwingUtilities.invokeLater(() -> {
+        Runnable applyAssistantText = () -> {
             // Activate input if needed (clears placeholder but preserves undo history behavior)
             if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput();
             }
 
-            SwingUtilities.invokeLater(() -> {
-                // Determine "before" text: prefer the stored snapshot, otherwise use current.
-                String beforeText = aiPromptTrailSnapshot != null ? aiPromptTrailSnapshot : instructionsArea.getText();
-                String afterText = text;
+            // Determine "before" text: prefer the stored snapshot, otherwise use current.
+            String beforeText = aiPromptTrailSnapshot != null ? aiPromptTrailSnapshot : instructionsArea.getText();
+            String afterText = text;
 
-                // If the assistant produced the same text as the snapshot, avoid creating an AI-marked no-op edit.
-                if (Objects.equals(afterText, beforeText)) {
-                    // Use the regular path (which will create a normal undo edit) and clear the assistant trail.
-                    populateInstructionsArea(afterText);
-                    clearAssistantPromptTrail();
-                    return;
+            // If the assistant produced the same text as the snapshot, avoid creating an AI-marked no-op edit.
+            if (Objects.equals(afterText, beforeText)) {
+                // Use the regular path (which will create a normal undo edit) and clear the assistant trail.
+                populateInstructionsArea(afterText);
+                clearAssistantPromptTrail();
+                return;
+            }
+
+            // Mark as assistant generated before we set the text so listeners/UI can react.
+            aiPromptIsAssistantGenerated = true;
+            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, true);
+
+            // Temporarily detach the UndoManager listener so setText() doesn't create many low-level edits.
+            var doc = instructionsArea.getDocument();
+            doc.removeUndoableEditListener(commandInputUndoManager);
+            try {
+                instructionsArea.setText(afterText);
+            } finally {
+                doc.addUndoableEditListener(commandInputUndoManager);
+            }
+
+            // Add a single composite undo edit that will restore the stored snapshot on undo,
+            // and will reapply the assistant text (and tag) on redo.
+            commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+                private static final long serialVersionUID = 1L;
+                private final String before = beforeText;
+                private final String after = afterText;
+
+                @Override
+                public void undo() throws CannotUndoException {
+                    super.undo();
+                    SwingUtilities.invokeLater(() -> {
+                        var d = instructionsArea.getDocument();
+                        d.removeUndoableEditListener(commandInputUndoManager);
+                        try {
+                            instructionsArea.setText(before);
+                        } finally {
+                            d.addUndoableEditListener(commandInputUndoManager);
+                        }
+                        // Clear assistant-trail state when user undoes the AI overwrite.
+                        clearAssistantPromptTrail();
+
+                        instructionsArea.requestFocusInWindow();
+                        instructionsArea.setCaretPosition(Math.max(
+                                0,
+                                Math.min(
+                                        before.length(),
+                                        instructionsArea.getDocument().getLength())));
+                    });
                 }
 
-                // Mark as assistant generated before we set the text so listeners/UI can react.
-                aiPromptIsAssistantGenerated = true;
-                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
+                @Override
+                public void redo() throws CannotRedoException {
+                    super.redo();
+                    SwingUtilities.invokeLater(() -> {
+                        var d = instructionsArea.getDocument();
+                        d.removeUndoableEditListener(commandInputUndoManager);
+                        try {
+                            instructionsArea.setText(after);
+                        } finally {
+                            d.addUndoableEditListener(commandInputUndoManager);
+                        }
+                        // Reapply assistant-generated tag/state on redo.
+                        aiPromptIsAssistantGenerated = true;
+                        instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, true);
 
-                // Temporarily detach the UndoManager listener so setText() doesn't create many low-level edits.
-                var doc = instructionsArea.getDocument();
-                doc.removeUndoableEditListener(commandInputUndoManager);
-                try {
-                    instructionsArea.setText(afterText);
-                } finally {
-                    doc.addUndoableEditListener(commandInputUndoManager);
+                        instructionsArea.requestFocusInWindow();
+                        instructionsArea.setCaretPosition(Math.max(
+                                0,
+                                Math.min(
+                                        after.length(),
+                                        instructionsArea.getDocument().getLength())));
+                    });
                 }
 
-                // Add a single composite undo edit that will restore the stored snapshot on undo,
-                // and will reapply the assistant text (and tag) on redo.
-                commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
-                    private static final long serialVersionUID = 1L;
-                    private final String before = beforeText;
-                    private final String after = afterText;
-
-                    @Override
-                    public void undo() throws CannotUndoException {
-                        super.undo();
-                        SwingUtilities.invokeLater(() -> {
-                            var d = instructionsArea.getDocument();
-                            d.removeUndoableEditListener(commandInputUndoManager);
-                            try {
-                                instructionsArea.setText(before);
-                            } finally {
-                                d.addUndoableEditListener(commandInputUndoManager);
-                            }
-                            // Clear assistant-trail state when user undoes the AI overwrite.
-                            clearAssistantPromptTrail();
-
-                            instructionsArea.requestFocusInWindow();
-                            instructionsArea.setCaretPosition(Math.max(
-                                    0,
-                                    Math.min(
-                                            before.length(),
-                                            instructionsArea.getDocument().getLength())));
-                        });
-                    }
-
-                    @Override
-                    public void redo() throws CannotRedoException {
-                        super.redo();
-                        SwingUtilities.invokeLater(() -> {
-                            var d = instructionsArea.getDocument();
-                            d.removeUndoableEditListener(commandInputUndoManager);
-                            try {
-                                instructionsArea.setText(after);
-                            } finally {
-                                d.addUndoableEditListener(commandInputUndoManager);
-                            }
-                            // Reapply assistant-generated tag/state on redo.
-                            aiPromptIsAssistantGenerated = true;
-                            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
-
-                            instructionsArea.requestFocusInWindow();
-                            instructionsArea.setCaretPosition(Math.max(
-                                    0,
-                                    Math.min(
-                                            after.length(),
-                                            instructionsArea.getDocument().getLength())));
-                        });
-                    }
-
-                    @Override
-                    public String getPresentationName() {
-                        return "Refine Prompt (AI)";
-                    }
-                });
-
-                // Place caret at end of assistant text.
-                instructionsArea.requestFocusInWindow();
-                instructionsArea.setCaretPosition(afterText.length());
+                @Override
+                public String getPresentationName() {
+                    return "Refine Prompt (AI)";
+                }
             });
-        });
+
+            // Place caret at end of assistant text.
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(afterText.length());
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            // If caller is already on EDT, run synchronously so callers (tests or callers using invokeAndWait)
+            // observe the change immediately.
+            applyAssistantText.run();
+        } else {
+            try {
+                // Ensure callers from background threads block until the assistant text is applied so
+                // behavior is deterministic (important for tests and callers that expect immediate effect).
+                SwingUtilities.invokeAndWait(applyAssistantText);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while applying assistant text", e);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                logger.error("Error while applying assistant text", e);
+            }
+        }
     }
 
     /**
