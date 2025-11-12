@@ -175,8 +175,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         });
         trackCancellableFuture(future);
 
-        // Issue Description panel will be added below the issues table; no split pane is needed
-
         // --- Left side - Issues table and filters ---
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
         mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
@@ -200,8 +198,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
         // ── Refresh button ──────────────────────────────────────────────────────
-        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        refreshButton = new MaterialButton(); // Unicode clockwise arrow
+        refreshButton = new MaterialButton();
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -213,7 +210,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         refreshButton.addActionListener(e -> updateIssueList());
         searchPanel.add(refreshButton, BorderLayout.EAST);
 
-        // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
@@ -465,8 +461,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
-        // No separate bottom-button panel needed after redesign
-
         copyIssueDescriptionButton = new MaterialButton();
         copyIssueDescriptionButton.setAction(copyDescriptionAction);
         openInBrowserButton = new MaterialButton();
@@ -524,8 +518,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         // place the bar at the bottom of the description area
         issueDetailPanel.add(actionScrollPane, BorderLayout.SOUTH);
 
-        // Add the Issue-Description panel under the table and hide it until a row is chosen
-        /* issueDetailPanel is now managed by the JSplitPane; no direct add() here */
         issueDetailPanel.setVisible(false);
 
         add(mainIssueAreaPanel, BorderLayout.CENTER);

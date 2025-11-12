@@ -166,7 +166,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         tokenPanelWrapper.add(gitHubTokenMissingPanel);
         mainPrAreaPanel.add(tokenPanelWrapper, BorderLayout.NORTH);
 
-        // Panel to hold filters (WEST) and table+buttons (CENTER)
+        // Panel to hold filters and table+buttons
         JPanel centerContentPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
 
         // Vertical Filter Panel
@@ -297,11 +297,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTableAndButtonsPanel.add(prButtonPanel, BorderLayout.SOUTH);
         setupPrTableContextMenu();
         setupPrTableDoubleClick();
-        centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER); // Add to centerContentPanel
-        mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
+        centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER);
+        mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER);
 
-        // Right side - Commits and Files in the selected PR
-        // prCommitsAndFilesPanel is already initialized above and added to the split pane
+        // Commits and Files in the selected PR (initialized above and added to the split pane)
         prCommitsAndFilesPanel.setVisible(false); // Hidden until a PR is chosen
 
         // Create vertical split pane for commits (top) and files (bottom)
@@ -1502,9 +1501,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return displayOptionWithCount; // For simple string options like "Open", "Closed", or names without counts
     }
 
-    // This method is now part of disablePrButtonsAndClearCommitsAndMenus
-    // private void disablePrButtons() { ... }
-
     private void captureSelectedPrDiff() {
         int selectedRow = prTable.getSelectedRow();
         if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
@@ -1768,9 +1764,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return null;
         });
     }
-
-    // Unused method removed
-    // private String getLocalSyncStatus(GHPullRequest pr, String prHeadSha) { ... }
 
     private String getCiStatus(GHPullRequest pr) throws IOException {
         // This method is now called from a background thread within updatePrList.
