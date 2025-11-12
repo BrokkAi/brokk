@@ -1258,23 +1258,29 @@ public class Chrome
             }
         });
 
-        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
-        KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
-                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-        bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
-        rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        instructionsPanel.toggleCodeAnswerMode();
-                        showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
-                    } catch (Exception ex) {
-                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable; only in Advanced Mode)
+        if (GlobalUiSettings.isAdvancedMode()) {
+            KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
+                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+            bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
+            rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    // Defensive guard: early-return if not in Advanced Mode
+                    if (!GlobalUiSettings.isAdvancedMode()) {
+                        return;
                     }
-                });
-            }
-        });
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            instructionsPanel.toggleCodeAnswerMode();
+                            showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
+                        } catch (Exception ex) {
+                            logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+                        }
+                    });
+                }
+            });
+        }
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
         KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
