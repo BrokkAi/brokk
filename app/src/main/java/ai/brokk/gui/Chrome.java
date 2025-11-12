@@ -3753,8 +3753,6 @@ public class Chrome
         }
 
         private int getIndex(java.awt.Component c) {
-            if (c == null) return -1;
-
             // Find component or one of its ancestors in the order list
             for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
                 int i = order.indexOf(comp);
@@ -3767,7 +3765,7 @@ public class Chrome
 
         @Override
         public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
-            if (order.isEmpty()) return null;
+            if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
                 return getFirstComponent(focusCycleRoot);
@@ -3779,12 +3777,12 @@ public class Chrome
                     return nextComp;
                 }
             }
-            return null;
+            return aComponent;
         }
 
         @Override
         public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
-            if (order.isEmpty()) return null;
+            if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
                 return getLastComponent(focusCycleRoot);
@@ -3796,31 +3794,31 @@ public class Chrome
                     return prevComp;
                 }
             }
-            return null;
+            return aComponent;
         }
 
         @Override
         public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
-            if (order.isEmpty()) return null;
+            if (order.isEmpty()) return focusCycleRoot;
             for (int i = 0; i < order.size(); i++) {
                 java.awt.Component comp = order.get(i);
                 if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
                     return comp;
                 }
             }
-            return null;
+            return focusCycleRoot;
         }
 
         @Override
         public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
-            if (order.isEmpty()) return null;
+            if (order.isEmpty()) return focusCycleRoot;
             for (int i = order.size() - 1; i >= 0; i--) {
                 java.awt.Component comp = order.get(i);
                 if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
                     return comp;
                 }
             }
-            return null;
+            return focusCycleRoot;
         }
 
         @Override
@@ -3831,12 +3829,12 @@ public class Chrome
 
     // Global focus highlighting mechanism
     private static final Color FOCUS_BORDER_COLOR = new Color(0x1F6FEB); // Blue focus color
-    private Component lastHighlightedComponent = null;
+    private @Nullable Component lastHighlightedComponent = null;
 
     private void applyFocusHighlighting(@Nullable Component oldFocus, @Nullable Component newFocus) {
         // Remove highlighting from old component
-        if (lastHighlightedComponent != null && lastHighlightedComponent != newFocus) {
-            removeFocusHighlight(lastHighlightedComponent);
+        if (oldFocus != null && oldFocus != newFocus) {
+            removeFocusHighlight(oldFocus);
         }
 
         // Apply highlighting to new component
@@ -3850,7 +3848,7 @@ public class Chrome
 
     private boolean shouldHighlightComponent(Component component) {
         // Only highlight components that are part of our focus traversal policy
-        if (component == null || !component.isFocusable()) {
+        if (!component.isFocusable()) {
             return false;
         }
 
