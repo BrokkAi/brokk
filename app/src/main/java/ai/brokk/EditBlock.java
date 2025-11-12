@@ -734,7 +734,7 @@ public class EditBlock {
                 && editableFiles.stream().allMatch(f -> "java".equalsIgnoreCase(f.extension()));
         if (!javaOnly) {
             throw new AssertionError(
-                    "BRK_[CLASS|FUNCTION] used outside a Java-only editable workspace; prompt gating bug.");
+                    "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
         }
 
         var analyzer = contextManager.getAnalyzer();
