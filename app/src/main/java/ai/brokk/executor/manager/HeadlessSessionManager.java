@@ -109,8 +109,15 @@ public final class HeadlessSessionManager {
             Path worktreeBaseDir,
             String executorClasspath)
             throws IOException {
-        this(managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath,
-                Duration.ofMinutes(15), Duration.ofSeconds(60));
+        this(
+                managerId,
+                listenAddr,
+                authToken,
+                poolSize,
+                worktreeBaseDir,
+                executorClasspath,
+                Duration.ofMinutes(15),
+                Duration.ofSeconds(60));
     }
 
     public HeadlessSessionManager(
@@ -302,10 +309,14 @@ public final class HeadlessSessionManager {
         }
 
         var response = Map.of(
-                "status", "ready",
-                "activeExecutors", pool.size(),
-                "poolSize", poolSize,
-                "availableCapacity", poolSize - pool.size());
+                "status",
+                "ready",
+                "activeExecutors",
+                pool.size(),
+                "poolSize",
+                poolSize,
+                "availableCapacity",
+                poolSize - pool.size());
         SimpleHttpServer.sendJsonResponse(exchange, response);
     }
 
@@ -341,7 +352,8 @@ public final class HeadlessSessionManager {
     private void handleTeardownSession(HttpExchange exchange) throws IOException {
         // Master token auth only
         var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
-        if (authHeader == null || !authHeader.startsWith("Bearer ")
+        if (authHeader == null
+                || !authHeader.startsWith("Bearer ")
                 || !authHeader.substring("Bearer ".length()).strip().equals(masterAuthToken)) {
             var error = ErrorPayload.of("FORBIDDEN", "Master token is required to delete a session");
             SimpleHttpServer.sendJsonResponse(exchange, 403, error);
@@ -452,10 +464,7 @@ public final class HeadlessSessionManager {
 
             var token = mintSessionToken(sessionId);
 
-            var response = Map.of(
-                    "sessionId", sessionId.toString(),
-                    "state", "ready",
-                    "token", token);
+            var response = Map.of("sessionId", sessionId.toString(), "state", "ready", "token", token);
 
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
 
@@ -533,9 +542,12 @@ public final class HeadlessSessionManager {
             var executorResponse = client.send(executorRequest, HttpResponse.BodyHandlers.ofInputStream());
 
             exchange.getResponseHeaders()
-                    .set("Content-Type", executorResponse.headers()
-                            .firstValue("Content-Type")
-                            .orElse("application/json"));
+                    .set(
+                            "Content-Type",
+                            executorResponse
+                                    .headers()
+                                    .firstValue("Content-Type")
+                                    .orElse("application/json"));
 
             exchange.sendResponseHeaders(executorResponse.statusCode(), 0);
 
@@ -564,16 +576,20 @@ public final class HeadlessSessionManager {
         this.server.start();
 
         // Schedule periodic idle eviction
-        evictionScheduler.scheduleAtFixedRate(() -> {
-            try {
-                var evicted = pool.evictIdle(idleTimeout);
-                if (evicted > 0) {
-                    logger.info("Idle eviction cycle evicted {} executor(s)", evicted);
-                }
-            } catch (Exception e) {
-                logger.warn("Error during idle eviction cycle", e);
-            }
-        }, evictionInterval.toMillis(), evictionInterval.toMillis(), TimeUnit.MILLISECONDS);
+        evictionScheduler.scheduleAtFixedRate(
+                () -> {
+                    try {
+                        var evicted = pool.evictIdle(idleTimeout);
+                        if (evicted > 0) {
+                            logger.info("Idle eviction cycle evicted {} executor(s)", evicted);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Error during idle eviction cycle", e);
+                    }
+                },
+                evictionInterval.toMillis(),
+                evictionInterval.toMillis(),
+                TimeUnit.MILLISECONDS);
 
         logger.info("HeadlessSessionManager HTTP server started; listening on port {}", server.getPort());
     }
@@ -598,8 +614,9 @@ public final class HeadlessSessionManager {
             var parsedArgs = parseArgs(args);
 
             var managerIdStr = getConfigValue(parsedArgs, "manager-id", "MANAGER_ID");
-            var managerId =
-                    (managerIdStr != null && !managerIdStr.isBlank()) ? UUID.fromString(managerIdStr) : UUID.randomUUID();
+            var managerId = (managerIdStr != null && !managerIdStr.isBlank())
+                    ? UUID.fromString(managerIdStr)
+                    : UUID.randomUUID();
 
             var listenAddr = getConfigValue(parsedArgs, "listen-addr", "LISTEN_ADDR");
             if (listenAddr == null || listenAddr.isBlank()) {
@@ -655,7 +672,10 @@ public final class HeadlessSessionManager {
                     }
                 }
             } catch (NumberFormatException e) {
-                logger.warn("Invalid IDLE_TIMEOUT_SECONDS value '{}', using default {}", idleTimeoutSecondsStr, idleTimeout);
+                logger.warn(
+                        "Invalid IDLE_TIMEOUT_SECONDS value '{}', using default {}",
+                        idleTimeoutSecondsStr,
+                        idleTimeout);
             }
             try {
                 if (evictionIntervalSecondsStr != null && !evictionIntervalSecondsStr.isBlank()) {
@@ -665,7 +685,10 @@ public final class HeadlessSessionManager {
                     }
                 }
             } catch (NumberFormatException e) {
-                logger.warn("Invalid EVICTION_INTERVAL_SECONDS value '{}', using default {}", evictionIntervalSecondsStr, evictionInterval);
+                logger.warn(
+                        "Invalid EVICTION_INTERVAL_SECONDS value '{}', using default {}",
+                        evictionIntervalSecondsStr,
+                        evictionInterval);
             }
 
             logger.info(
@@ -678,7 +701,14 @@ public final class HeadlessSessionManager {
                     evictionInterval);
 
             var manager = new HeadlessSessionManager(
-                    managerId, listenAddr, authToken, poolSize, worktreeBaseDir, executorClasspath, idleTimeout, evictionInterval);
+                    managerId,
+                    listenAddr,
+                    authToken,
+                    poolSize,
+                    worktreeBaseDir,
+                    executorClasspath,
+                    idleTimeout,
+                    evictionInterval);
             manager.start();
 
             Runtime.getRuntime()

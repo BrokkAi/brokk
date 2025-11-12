@@ -44,7 +44,8 @@ public final class WorktreeProvisioner implements Provisioner {
             return worktreePath;
         }
 
-        logger.info("Provisioning worktree for session {} from repo {} (ref={})", sessionId, spec.repoPath(), spec.ref());
+        logger.info(
+                "Provisioning worktree for session {} from repo {} (ref={})", sessionId, spec.repoPath(), spec.ref());
 
         try {
             var processBuilder = new ProcessBuilder();
@@ -126,7 +127,8 @@ public final class WorktreeProvisioner implements Provisioner {
             int exitCode = process.waitFor();
 
             if (exitCode != 0) {
-                logger.warn("git worktree remove failed with exit code {} for session {}: {}", exitCode, sessionId, output);
+                logger.warn(
+                        "git worktree remove failed with exit code {} for session {}: {}", exitCode, sessionId, output);
             }
 
             if (Files.exists(worktreePath)) {

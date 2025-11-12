@@ -66,7 +66,8 @@ public final class ExecutorPool {
 
         var existing = activeExecutors.get(sessionId);
         if (existing != null) {
-            logger.debug("Session {} already has an active executor at {}:{}", sessionId, existing.host(), existing.port());
+            logger.debug(
+                    "Session {} already has an active executor at {}:{}", sessionId, existing.host(), existing.port());
             return existing;
         }
 
@@ -92,7 +93,8 @@ public final class ExecutorPool {
             var processBuilder = new ProcessBuilder(command);
             processBuilder.redirectErrorStream(true);
             process = processBuilder.start();
-            logger.info("Started executor process for session {} (execId={}, pid={})", sessionId, execId, process.pid());
+            logger.info(
+                    "Started executor process for session {} (execId={}, pid={})", sessionId, execId, process.pid());
 
             consumeProcessOutput(process, sessionId);
         } catch (IOException e) {
@@ -222,9 +224,7 @@ public final class ExecutorPool {
             var handle = activeExecutors.get(sessionId);
             if (handle != null) {
                 logger.info(
-                        "Evicting idle executor for session {} (lastActiveAt={})",
-                        sessionId,
-                        handle.lastActiveAt());
+                        "Evicting idle executor for session {} (lastActiveAt={})", sessionId, handle.lastActiveAt());
                 if (shutdown(sessionId)) {
                     evicted++;
                 }
@@ -241,15 +241,17 @@ public final class ExecutorPool {
      * @param sessionId the session ID
      */
     public void touch(UUID sessionId) {
-        activeExecutors.computeIfPresent(sessionId, (id, handle) -> new ExecutorHandle(
-                handle.sessionId(),
-                handle.provisionId(),
-                handle.execId(),
-                handle.host(),
-                handle.port(),
-                handle.authToken(),
-                handle.process(),
-                Instant.now()));
+        activeExecutors.computeIfPresent(
+                sessionId,
+                (id, handle) -> new ExecutorHandle(
+                        handle.sessionId(),
+                        handle.provisionId(),
+                        handle.execId(),
+                        handle.host(),
+                        handle.port(),
+                        handle.authToken(),
+                        handle.process(),
+                        Instant.now()));
     }
 
     private String generateAuthToken() {
@@ -298,11 +300,9 @@ public final class ExecutorPool {
         outputReader.start();
     }
 
-    private void pollForReadiness(String host, int port, String authToken, UUID execId)
-            throws ExecutorSpawnException {
-        var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(2))
-                .build();
+    private void pollForReadiness(String host, int port, String authToken, UUID execId) throws ExecutorSpawnException {
+        var client =
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
 
         var healthUrl = URI.create("http://" + host + ":" + port + "/health/live");
 
@@ -322,10 +322,7 @@ public final class ExecutorPool {
                     return;
                 }
 
-                logger.debug(
-                        "Executor {} health check returned status {}, retrying...",
-                        execId,
-                        response.statusCode());
+                logger.debug("Executor {} health check returned status {}, retrying...", execId, response.statusCode());
             } catch (IOException | InterruptedException e) {
                 logger.debug("Executor {} not yet ready: {}", execId, e.getMessage());
             }
@@ -338,8 +335,8 @@ public final class ExecutorPool {
             }
         }
 
-        throw new ExecutorSpawnException("Executor " + execId + " did not become ready within "
-                + HEALTH_CHECK_TIMEOUT_SECONDS + " seconds");
+        throw new ExecutorSpawnException(
+                "Executor " + execId + " did not become ready within " + HEALTH_CHECK_TIMEOUT_SECONDS + " seconds");
     }
 
     /**

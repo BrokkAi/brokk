@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -87,9 +86,7 @@ class HeadlessSessionManagerTest {
 
     @Test
     void testCreateSession_Success() throws Exception {
-        var requestBody = Map.of(
-                "name", "Test Session",
-                "repoPath", repoPath.toString());
+        var requestBody = Map.of("name", "Test Session", "repoPath", repoPath.toString());
 
         var url = URI.create(baseUrl + "/v1/sessions").toURL();
         var conn = (HttpURLConnection) url.openConnection();
@@ -324,7 +321,8 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, jobConn.getResponseCode());
 
-        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobResponse =
+                OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
 
         assertTrue(jobResponse.containsKey("jobId"));
         assertTrue(jobResponse.containsKey("state"));
@@ -369,7 +367,8 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, jobConn.getResponseCode());
 
-        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobResponse =
+                OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
         var jobId = (String) jobResponse.get("jobId");
 
         jobConn.disconnect();
@@ -422,12 +421,14 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, jobConn.getResponseCode());
 
-        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobResponse =
+                OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
         var jobId = (String) jobResponse.get("jobId");
 
         jobConn.disconnect();
 
-        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1").toURL();
+        var eventsUrl =
+                URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1").toURL();
         var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
         eventsConn.setRequestMethod("GET");
         eventsConn.setRequestProperty("Authorization", "Bearer " + sessionToken);
@@ -476,7 +477,8 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, jobConn.getResponseCode());
 
-        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobResponse =
+                OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
         var jobId = (String) jobResponse.get("jobId");
 
         jobConn.disconnect();
@@ -559,7 +561,8 @@ class HeadlessSessionManagerTest {
 
         assertEquals(201, jobConn.getResponseCode());
 
-        var jobResponse = OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var jobResponse =
+                OBJECT_MAPPER.readValue(jobConn.getInputStream(), new TypeReference<Map<String, Object>>() {});
         var jobId = (String) jobResponse.get("jobId");
 
         jobConn.disconnect();
@@ -653,9 +656,13 @@ class HeadlessSessionManagerTest {
         readyConn1.setRequestMethod("GET");
         readyConn1.setRequestProperty("Authorization", "Bearer " + authToken);
         assertEquals(200, readyConn1.getResponseCode());
-        var readyResp1 = OBJECT_MAPPER.readValue(readyConn1.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var readyResp1 =
+                OBJECT_MAPPER.readValue(readyConn1.getInputStream(), new TypeReference<Map<String, Object>>() {});
         readyConn1.disconnect();
-        assertEquals(1, ((Number) readyResp1.get("activeExecutors")).intValue(), "Expected 1 active executor before teardown");
+        assertEquals(
+                1,
+                ((Number) readyResp1.get("activeExecutors")).intValue(),
+                "Expected 1 active executor before teardown");
 
         // Worktree directory should exist under worktreeBaseDir; count directories
         int dirCountBefore = countChildDirectories(worktreeBaseDir);
@@ -677,9 +684,13 @@ class HeadlessSessionManagerTest {
         readyConn2.setRequestMethod("GET");
         readyConn2.setRequestProperty("Authorization", "Bearer " + authToken);
         assertEquals(200, readyConn2.getResponseCode());
-        var readyResp2 = OBJECT_MAPPER.readValue(readyConn2.getInputStream(), new TypeReference<Map<String, Object>>() {});
+        var readyResp2 =
+                OBJECT_MAPPER.readValue(readyConn2.getInputStream(), new TypeReference<Map<String, Object>>() {});
         readyConn2.disconnect();
-        assertEquals(0, ((Number) readyResp2.get("activeExecutors")).intValue(), "Expected 0 active executors after teardown");
+        assertEquals(
+                0,
+                ((Number) readyResp2.get("activeExecutors")).intValue(),
+                "Expected 0 active executors after teardown");
 
         // Worktree directory should be removed
         int dirCountAfter = countChildDirectories(worktreeBaseDir);

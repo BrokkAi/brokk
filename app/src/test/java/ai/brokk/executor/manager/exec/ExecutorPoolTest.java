@@ -100,9 +100,8 @@ class ExecutorPoolTest {
         assertTrue(handle.process().isAlive());
 
         var baseUrl = "http://" + handle.host() + ":" + handle.port();
-        var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
-                .build();
+        var client =
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
         var liveRequest = HttpRequest.newBuilder(URI.create(baseUrl + "/health/live"))
                 .GET()
@@ -115,10 +114,10 @@ class ExecutorPoolTest {
         assertTrue(liveResponse.body().contains(handle.execId().toString()));
 
         var readyRequest = HttpRequest.newBuilder(URI.create(baseUrl + "/health/ready"))
-        .GET()
-        .timeout(Duration.ofSeconds(5))
-        .build();
-        
+                .GET()
+                .timeout(Duration.ofSeconds(5))
+                .build();
+
         var readyResponse = client.send(readyRequest, HttpResponse.BodyHandlers.ofString());
         assertEquals(503, readyResponse.statusCode());
     }
@@ -193,15 +192,15 @@ class ExecutorPoolTest {
         var spec = new SessionSpec(sessionId, repoPath, null);
         var handle = pool.spawn(spec);
         assertNotNull(handle);
-        
+
         Thread.sleep(50);
-        
+
         int evicted = pool.evictIdle(java.time.Duration.ofMillis(1));
         assertEquals(1, evicted);
         assertEquals(0, pool.size());
-        
+
         Thread.sleep(1000);
-        
+
         assertFalse(handle.process().isAlive());
     }
 }
