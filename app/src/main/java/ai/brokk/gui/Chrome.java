@@ -2042,7 +2042,8 @@ public class Chrome
                         if (startLine < lines.length) {
                             var charOffset = 0;
                             for (var i = 0; i < startLine; i++) {
-                                charOffset += lines[i].length() + 1; // +1 for line separator
+                                charOffset += lines[i].length()
+                                        + System.lineSeparator().length(); // +N for line separator
                             }
                             panel.setCaretPositionAndCenter(charOffset);
                         } else {

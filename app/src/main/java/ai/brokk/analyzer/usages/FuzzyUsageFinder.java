@@ -217,7 +217,7 @@ public final class FuzzyUsageFinder {
                 int running = 0;
                 for (int i = 0; i < lines.length; i++) {
                     lineStarts[i] = running;
-                    running += lines[i].length() + 1; // +1 for the '\n' separator
+                    running += lines[i].length() + System.lineSeparator().length(); // +N for the newline separator
                 }
 
                 for (var pattern : patterns) {
