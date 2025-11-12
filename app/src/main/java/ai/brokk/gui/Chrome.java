@@ -1480,15 +1480,10 @@ public class Chrome
     }
 
     private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
-        // Remove any previous stroke bound to this actionKey to avoid duplicates
+        // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y -> "globalRedo").
+        // The InputMap is cleared when refreshing keybindings, so duplicates are not a concern there.
+        if (stroke == null) return;
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        // Remove all existing inputs mapping to actionKey
-        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
-            Object val = im.get(ks);
-            if (actionKey.equals(val)) {
-                im.remove(ks);
-            }
-        }
         im.put(stroke, actionKey);
     }
 
@@ -1497,20 +1492,29 @@ public class Chrome
      * can reuse the same logic. Binds both the platform Shift+Cmd/Ctrl+Z redo and
      * the Ctrl/Ctrl+Y variant to the "globalRedo" action key.
      *
+     * Uses a headless-safe helper to obtain the platform menu shortcut mask so tests
+     * running in CI (headless) do not trigger HeadlessException when accessing Toolkit.
+     *
      * @param rootPane  the root pane to attach the key strokes to
      * @param redoAction the Action to put into the rootPane's action map under "globalRedo"
      */
-    private static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
-        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redo",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Z,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+    private static int getMenuShortcutKeyMaskExSafe() {
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException e) {
+            // Fall back to CTRL mask in headless environments (CI)
+            return InputEvent.CTRL_DOWN_MASK;
+        }
+    }
+
+    public static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
+        int menuMask = getMenuShortcutKeyMaskExSafe();
+
+        KeyStroke redoKeyStroke =
+                GlobalUiSettings.getKeybinding("global.redo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, menuMask | InputEvent.SHIFT_DOWN_MASK));
         // For Windows/Linux, Ctrl+Y is also common for redo
-        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redoY",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        KeyStroke redoYKeyStroke =
+                GlobalUiSettings.getKeybinding("global.redoY", KeyStroke.getKeyStroke(KeyEvent.VK_Y, menuMask));
 
         bindKey(rootPane, redoKeyStroke, "globalRedo");
         bindKey(rootPane, redoYKeyStroke, "globalRedo");
