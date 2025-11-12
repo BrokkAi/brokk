@@ -1820,19 +1820,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
+            // Allow subclasses to enhance the FQN (e.g., C++ destructor normalization, TypeScript $static suffix)
+            // This must happen BEFORE checking for overloads, so we don't incorrectly match
+            // instance methods with static methods/fields that have the same base name.
+            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
+
             // For function overloads, reuse the existing CodeUnit instance instead of creating a new one.
             // This ensures that all signatures and ranges accumulate under the same CodeUnit key.
             // This applies to both TypeScript (function_signature + function_declaration) and Java
             // (method_declaration).
-            CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
+            // IMPORTANT: We check using the ENHANCED FQName to avoid false matches with instance members.
+            CodeUnit existingCUforKeyLookup = localCuByFqName.get(enhancedFqName);
             if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
                 // Reuse existing CodeUnit for function overloads
                 cu = existingCUforKeyLookup;
                 log.trace("Reusing existing CodeUnit for function overload: {}", cu.fqName());
             }
 
-            // Allow subclasses to enhance the FQN (e.g., C++ destructor normalization)
-            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, src);
+            // Debug logging for static member captures (must be AFTER enhanceFqName adds $static suffix)
+            if (enhancedFqName.endsWith("$static")) {
+                log.trace(
+                        "CAPTURE static member: fqn={}, file={}, capture={}, nodeType={}, range={}:{}, kind={}",
+                        enhancedFqName,
+                        file.getFileName(),
+                        primaryCaptureName,
+                        node.getType(),
+                        node.getStartByte(),
+                        node.getEndByte(),
+                        cu.kind());
+            }
 
             // Extract signature separately for function-like entities (C++ overload disambiguation)
             @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, src);
