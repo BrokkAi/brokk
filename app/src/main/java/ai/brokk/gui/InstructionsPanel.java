@@ -51,6 +51,7 @@ import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.KeyAdapter;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -310,6 +311,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
+
+        // Lightweight hardening: if the current content was produced by the assistant in this session,
+        // clear the assistant prompt trail as soon as the user begins typing so the AI tag/snapshot
+        // doesn't linger after manual edits. We use KeyEvents to avoid clearing during programmatic setText().
+        instructionsArea.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyTyped(KeyEvent e) {
+                if (aiPromptIsAssistantGenerated) {
+                    clearAssistantPromptTrail();
+                }
+            }
+        });
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(
