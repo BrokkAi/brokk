@@ -562,6 +562,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setText(getCurrentPlaceholder()); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
 
+        // Add focus listener to restore placeholder when focus is lost with empty text
+        area.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                // Restore placeholder state if text is empty
+                SwingUtilities.invokeLater(() -> deactivateCommandInput());
+            }
+        });
+
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
         // Undo/Redo shortcuts are handled globally by Chrome.registerGlobalKeyboardShortcuts()
@@ -1846,6 +1855,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
+    }
+
+    /**
+     * Deactivates the command input, restoring the placeholder state if the text area is empty.
+     * This is called when focus is lost and no text has been entered.
+     */
+    private void deactivateCommandInput() {
+        String currentText = instructionsArea.getText();
+        // Only restore placeholder if text is empty or whitespace-only
+        if (currentText == null || currentText.trim().isEmpty()) {
+            instructionsArea.setText(getCurrentPlaceholder());
+            instructionsArea.setEnabled(false);
+            commandInputOverlay.showOverlay();
+        }
+        // If user typed something, leave it as-is (don't restore placeholder)
     }
 
     public VoiceInputButton getVoiceInputButton() {
