@@ -54,6 +54,16 @@ public class CodeUnitQualifiedNameHandlingTest {
         // into package vs. simple name by CodeUnit construction and are preserved verbatim.
     }
 
+    @Test
+    public void functionQualifiedShortNameIsPreservedInCodeUnit() {
+        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
+        CodeUnit cu = CodeUnit.fn(source, "", "com.example.MyClass.myMethod");
+
+        // When a function-style qualified token is provided as the short name, CodeUnit preserves it
+        assertEquals("com.example.MyClass.myMethod", cu.shortName());
+        assertEquals("com.example.MyClass.myMethod", cu.fqName());
+    }
+
     /**
      * Disabled placeholder illustrating how to capture the WARN diagnostic emitted by
      * TreeSitterAnalyzer.analyzeFileContent(...) when a likely-qualified simple name is detected.
