@@ -1468,14 +1468,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * is created with done=false.
      */
     @Override
-    public Context appendTasksToTaskList(List<String> tasks) {
+    public Context appendTasksToTaskList(Context context,List<String> tasks) {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .map(s -> new TaskList.TaskItem(s, false))
                 .toList();
         if (additions.isEmpty()) {
-            return liveContext();
+            return context;
         }
 
         // Use fragment-backed task list as the source of truth
@@ -1488,11 +1488,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .filter(s -> !s.isEmpty())
                 .collect(java.util.stream.Collectors.toSet());
 
-        var combined = new ArrayList<TaskList.TaskItem>(currentTasks);
+        var combined = new ArrayList<>(currentTasks);
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
-        var newContext = setTaskList(newData);
+        context = context.withTaskList(newData);
 
         if (io instanceof Chrome chrome) {
             // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
@@ -1502,7 +1502,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
-        return newContext;
+        return context;
     }
 
     /**

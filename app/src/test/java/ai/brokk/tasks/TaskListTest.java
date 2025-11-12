@@ -36,7 +36,7 @@ public class TaskListTest {
         UUID sessionId = cm.getCurrentSessionId();
 
         var tasksToAdd = List.of("first task to do", "second task to do");
-        cm.appendTasksToTaskList(tasksToAdd);
+        cm.appendTasksToTaskList(cm.liveContext(), tasksToAdd);
 
         var data = cm.getTaskList();
         assertNotNull(data, "TaskListData should not be null after append");
@@ -66,12 +66,12 @@ public class TaskListTest {
         // Create session 1 and add a task
         cm.createSessionAsync("session 1").get();
         UUID session1Id = cm.getCurrentSessionId();
-        cm.appendTasksToTaskList(List.of("task only in session 1"));
+        cm.appendTasksToTaskList(cm.liveContext(), List.of("task only in session 1"));
 
         // Create session 2 and add a different task
         cm.createSessionAsync("session 2").get();
         UUID session2Id = cm.getCurrentSessionId();
-        cm.appendTasksToTaskList(List.of("task only in session 2"));
+        cm.appendTasksToTaskList(cm.liveContext(), List.of("task only in session 2"));
 
         // Switch back to session 1 and verify
         cm.switchSessionAsync(session1Id).get();

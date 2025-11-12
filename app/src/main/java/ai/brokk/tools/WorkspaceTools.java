@@ -9,6 +9,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -466,9 +467,19 @@ public class WorkspaceTools {
             return "No tasks provided.";
         }
 
-        var io = context.getContextManager().getIo();
+        var cm = context.getContextManager();
+        var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-        context = context.getContextManager().appendTasksToTaskList(tasks);
+
+        // Append tasks to the local context
+        // also takes care of autostarting tasks in EZ mode
+        context = cm.appendTasksToTaskList(context, tasks);
+
+        var additions = tasks.stream()
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .map(s -> new TaskList.TaskItem(s, false))
+                .toList();
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
