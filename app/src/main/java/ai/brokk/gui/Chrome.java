@@ -1194,21 +1194,8 @@ public class Chrome
         bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
-        // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
-        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redo",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Z,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        // For Windows/Linux, Ctrl+Y is also common for redo
-        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redoY",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-
-        bindKey(rootPane, redoKeyStroke, "globalRedo");
-        bindKey(rootPane, redoYKeyStroke, "globalRedo");
-        rootPane.getActionMap().put("globalRedo", globalRedoAction);
+        // Register redo keybindings via helper (Cmd/Ctrl+Shift+Z and optionally Ctrl/Ctrl+Y)
+        registerRedoKeybindings(rootPane, globalRedoAction);
 
         // Cmd/Ctrl+C => global copy
         KeyStroke copyKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1503,6 +1490,31 @@ public class Chrome
             }
         }
         im.put(stroke, actionKey);
+    }
+
+    /**
+     * Register standard redo keybindings in a single place so tests or other callers
+     * can reuse the same logic. Binds both the platform Shift+Cmd/Ctrl+Z redo and
+     * the Ctrl/Ctrl+Y variant to the "globalRedo" action key.
+     *
+     * @param rootPane  the root pane to attach the key strokes to
+     * @param redoAction the Action to put into the rootPane's action map under "globalRedo"
+     */
+    private static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
+        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.redo",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Z,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        // For Windows/Linux, Ctrl+Y is also common for redo
+        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.redoY",
+                KeyStroke.getKeyStroke(
+                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+
+        bindKey(rootPane, redoKeyStroke, "globalRedo");
+        bindKey(rootPane, redoYKeyStroke, "globalRedo");
+        rootPane.getActionMap().put("globalRedo", redoAction);
     }
 
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
