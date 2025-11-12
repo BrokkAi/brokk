@@ -892,6 +892,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Heuristic detector to identify when a "simple name" appears to be a fully-qualified token produced by a query
+     * or by extractSimpleName. This is package-visible on purpose so tests in the same package can exercise it.
+     *
+     * <p>Returns false for null or blank inputs. Trims the input and checks for common hierarchy separators such as
+     * '.', '::', '->', and '$'.
+     *
+     * Examples:
+     * - true: "com.foo.Chrome", "ns::Type", "pkg.Class$Inner", "obj->field"
+     * - false: "Chrome", "_Foo123"
+     *
+     * @param name candidate simple name extracted from the AST/query
+     * @return true if the candidate likely contains a qualified hierarchical name, false otherwise
+     */
+    static boolean isLikelyQualifiedSimpleName(String name) {
+        if (name == null) return false;
+        String t = name.trim();
+        if (t.isEmpty()) return false;
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (t.contains(sep)) return true;
+        }
+        return false;
+    }
+
+    /**
      * Assuming the fqName is an entity nested within a method, a type, or is a method itself, will return the fqName of
      * the nearest method or type/class. This is useful with escaping lambdas to their parent method, or normalizing
      * full names with generic type arguments.
