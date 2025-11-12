@@ -56,6 +56,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.AbstractAction;
@@ -936,8 +937,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
 
-        // Persist via ContextManager
-        chrome.getContextManager().setTaskList(data);
+        // Persist via ContextManager on a background thread.
+        // Context freezing may block waiting for the analyzer (fetching skeletons for SummaryFragment),
+        // which would violate AnalyzerWrapper's EDT prohibition and cause UnsupportedOperationException.
+        // Moving this off EDT keeps the UI responsive and respects the analyzer's threading contract.
+        CompletableFuture.runAsync(() -> {
+            try {
+                chrome.getContextManager().setTaskList(data);
+            } catch (Exception e) {
+                logger.error("Error saving task list", e);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.toolError("Failed to save tasks: " + e.getMessage(), "Save Error");
+                });
+            }
+        });
     }
 
     private void runArchitectOnSelected() {
