@@ -746,6 +746,7 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
+            instructionsPanel.applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
@@ -3014,6 +3015,13 @@ public class Chrome
                 }
             } catch (Exception ex) {
                 logger.debug("Failed to update rightTabbedHeader visibility", ex);
+            }
+
+            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
+            try {
+                instructionsPanel.applyAdvancedModeForInstructions(advanced);
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode to instructions panel", ex);
             }
         };
 

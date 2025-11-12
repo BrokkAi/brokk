@@ -65,6 +65,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.text.*;
@@ -1824,13 +1825,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             modeBadge.setToolTipText(null);
         }
 
-        // Use the badge's accent for the input pane stripe
-        Color accent = modeBadge.getAccent();
-
+        // Apply accent stripe only in Advanced Mode
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
-            var stripe = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
-            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(stripe, inner));
+            Border outerBorder;
+            if (GlobalUiSettings.isAdvancedMode()) {
+                Color accent = modeBadge.getAccent();
+                outerBorder = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
+            } else {
+                outerBorder = BorderFactory.createEmptyBorder(0, 4, 0, 0);
+            }
+            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(outerBorder, inner));
             inputLayeredPane.revalidate();
             inputLayeredPane.repaint();
         }
@@ -2031,6 +2036,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Applies Advanced Mode UI visibility to the Instructions panel.
+     * When in EZ mode (advanced=false), hides the mode badge and disables the mode dropdown.
+     * Safe to call from any thread.
+     */
+    public void applyAdvancedModeForInstructions(boolean advanced) {
+        SwingUtilities.invokeLater(() -> {
+            modeBadge.setVisible(advanced);
+            actionButton.setDropdownEnabled(advanced);
+            refreshModeIndicator();
+        });
+    }
+
+    /**
      * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
      * The main button area executes the selected action, while the dropdown arrow shows mode options.
      */
@@ -2050,6 +2068,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
                 "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+        private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
             super();
@@ -2082,7 +2101,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
                 @Override
                 public void mouseMoved(MouseEvent e) {
-                    boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
+                    boolean inDropdown = dropdownEnabled && e.getX() >= getWidth() - DROPDOWN_WIDTH;
                     setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 }
             });
@@ -2105,6 +2124,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     listener.accept(mode);
                 }
             }
+        }
+
+        public void setDropdownEnabled(boolean enabled) {
+            this.dropdownEnabled = enabled;
+            repaint();
         }
 
         public void updateTooltip() {
@@ -2201,7 +2225,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int x = e.getX();
             int y = e.getY();
             boolean inDropdown = x >= getWidth() - DROPDOWN_WIDTH && x <= getWidth() && y >= 0 && y <= getHeight();
-            if (inDropdown && isEnabled()) {
+            if (inDropdown && isEnabled() && dropdownEnabled) {
                 // Swallow events in dropdown area and show menu on press
                 if (e.getID() == MouseEvent.MOUSE_PRESSED) {
                     showDropdownMenu();
@@ -2263,8 +2287,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
 
-                // Draw divider line if not in stop mode
-                if (!inStopMode) {
+                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
+                if (!inStopMode && dropdownEnabled) {
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                     g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
