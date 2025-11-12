@@ -3829,7 +3829,6 @@ public class Chrome
 
     // Global focus highlighting mechanism
     private static final Color FOCUS_BORDER_COLOR = new Color(0x1F6FEB); // Blue focus color
-    private @Nullable Component lastHighlightedComponent = null;
 
     private void applyFocusHighlighting(@Nullable Component oldFocus, @Nullable Component newFocus) {
         // Remove highlighting from old component
@@ -3840,9 +3839,6 @@ public class Chrome
         // Apply highlighting to new component
         if (newFocus != null && shouldHighlightComponent(newFocus)) {
             applyFocusHighlight(newFocus);
-            lastHighlightedComponent = newFocus;
-        } else {
-            lastHighlightedComponent = null;
         }
     }
 
