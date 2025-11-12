@@ -322,6 +322,91 @@ public interface ContextFragment {
          * Implementations that track external state may override to trigger recomputation.
          */
         ContextFragment refreshCopy();
+
+        /**
+         * Bind this fragment's computed values to a Swing component, automatically managing subscriptions
+         * and running UI updates on the EDT. Starts all relevant computed values (text, description, files)
+         * and registers completion handlers that run uiUpdate on the EDT when any of them complete.
+         * Subscriptions are automatically disposed when the owner component is removed from its parent.
+         *
+         * @param owner the Swing component that owns these subscriptions
+         * @param uiUpdate a runnable to execute on the EDT when any computed value completes
+         */
+        default void bind(javax.swing.JComponent owner, java.lang.Runnable uiUpdate) {
+            computedText().start();
+            computedDescription().start();
+            computedFiles().start();
+
+            // Key for storing subscription list on the component
+            final String CV_SUBS_KEY = "brokk.cv.subs";
+
+            // Helper to register a subscription
+            java.util.function.Consumer<ComputedValue.Subscription> registerSub = sub -> {
+                @SuppressWarnings("unchecked")
+                var existing = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
+                if (existing == null) {
+                    existing = new java.util.ArrayList<>();
+                    owner.putClientProperty(CV_SUBS_KEY, existing);
+                }
+                existing.add(sub);
+            };
+
+            // Helper to run UI update, coalesced onto EDT
+            final boolean[] scheduled = {false};
+            java.lang.Runnable scheduleUpdate = () -> {
+                if (!scheduled[0]) {
+                    scheduled[0] = true;
+                    SwingUtilities.invokeLater(() -> {
+                        scheduled[0] = false;
+                        uiUpdate.run();
+                    });
+                }
+            };
+
+            // Subscribe to text completion
+            var s1 = computedText().onComplete((v, ex) -> scheduleUpdate.run());
+            registerSub.accept(s1);
+
+            // Subscribe to description completion
+            var s2 = computedDescription().onComplete((v, ex) -> scheduleUpdate.run());
+            registerSub.accept(s2);
+
+            // Subscribe to files completion
+            var s3 = computedFiles().onComplete((v, ex) -> scheduleUpdate.run());
+            registerSub.accept(s3);
+
+            // Auto-dispose when owner is removed from parent
+            owner.addAncestorListener(new javax.swing.event.AncestorListener() {
+                private boolean disposed = false;
+
+                @Override
+                public void ancestorAdded(javax.swing.event.AncestorEvent e) {}
+
+                @Override
+                public void ancestorRemoved(javax.swing.event.AncestorEvent e) {
+                    if (!disposed) {
+                        disposed = true;
+                        @SuppressWarnings("unchecked")
+                        var subs = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
+                        if (subs != null) {
+                            for (var sub : subs) {
+                                try {
+                                    sub.dispose();
+                                } catch (Exception ex) {
+                                    // best-effort disposal
+                                }
+                            }
+                            subs.clear();
+                            owner.putClientProperty(CV_SUBS_KEY, null);
+                        }
+                        owner.removeAncestorListener(this);
+                    }
+                }
+
+                @Override
+                public void ancestorMoved(javax.swing.event.AncestorEvent e) {}
+            });
+        }
     }
 
     /**

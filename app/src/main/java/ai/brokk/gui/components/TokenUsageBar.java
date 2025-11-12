@@ -280,39 +280,24 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
 
-        // Pre-register non-blocking listeners to repaint as fragments finish computing
+        // Dispose any previous owner-level ComputedFragment bindings to avoid accumulation
+        var subsObj = getClientProperty("brokk.cv.subs");
+        if (subsObj instanceof java.util.List<?> subs) {
+            for (var sObj : subs) {
+                if (sObj instanceof ComputedValue.Subscription sub) {
+                    sub.dispose();
+                }
+            }
+            putClientProperty("brokk.cv.subs", null);
+        }
+
+        // Bind fragments to a single repaint/token-cache invalidation runnable
         for (var f : this.fragments) {
             if (f instanceof ContextFragment.ComputedFragment cf) {
-                try {
-                    // Ensure background computation starts
-                    cf.computedText().start();
-                    cf.computedDescription().start();
-                    cf.computedFiles().start();
-
-                    // When text completes, invalidate token cache for this fragment and repaint
-                    var s1 = cf.computedText().onComplete((val, ex) -> {
-                        try {
-                            tokenCache.remove(f.id());
-                        } catch (Exception ignore) {
-                            // safe
-                        }
-                        SwingUtilities.invokeLater(this::repaint);
-                    });
-                    cvSubscriptions.add(s1);
-
-                    // When description or files complete, repaint to refresh tooltips
-                    var s2 = cf.computedDescription().onComplete((val, ex) -> {
-                        SwingUtilities.invokeLater(this::repaint);
-                    });
-                    cvSubscriptions.add(s2);
-
-                    var s3 = cf.computedFiles().onComplete((val, ex) -> {
-                        SwingUtilities.invokeLater(this::repaint);
-                    });
-                    cvSubscriptions.add(s3);
-                } catch (Exception ignore) {
-                    // best-effort; failures will fallback to lazy non-blocking rendering
-                }
+                cf.bind(TokenUsageBar.this, () -> {
+                    tokenCache.remove(f.id());
+                    repaint();
+                });
             }
         }
 
