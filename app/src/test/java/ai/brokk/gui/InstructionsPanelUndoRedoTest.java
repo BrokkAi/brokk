@@ -57,7 +57,8 @@ public class InstructionsPanelUndoRedoTest {
         // Set initial user input
         SwingUtilities.invokeAndWait(() -> ta.setText("user input"));
 
-        // Invoke the private snapshot recorder (recordAssistantPromptTrailSnapshot) on the EDT so it runs synchronously.
+        // Invoke the private snapshot recorder (recordAssistantPromptTrailSnapshot) on the EDT so it runs
+        // synchronously.
         Method recordSnapshot = InstructionsPanel.class.getDeclaredMethod("recordAssistantPromptTrailSnapshot");
         recordSnapshot.setAccessible(true);
         SwingUtilities.invokeAndWait(() -> {
@@ -73,7 +74,8 @@ public class InstructionsPanelUndoRedoTest {
 
         // Ensure the instructions area shows the assistant text and is marked AI-generated.
         SwingUtilities.invokeAndWait(() -> {
-            assertEquals("refined prompt", ta.getText(), "After assistant overwrite, text should be the refined prompt");
+            assertEquals(
+                    "refined prompt", ta.getText(), "After assistant overwrite, text should be the refined prompt");
             Object prop = ta.getClientProperty("prompt.aiGenerated");
             assertTrue(Boolean.TRUE.equals(prop), "Client property should mark prompt as AI-generated");
         });
@@ -101,7 +103,9 @@ public class InstructionsPanelUndoRedoTest {
         SwingUtilities.invokeAndWait(() -> {
             assertEquals("refined prompt", ta.getText(), "After redo, text should be the refined prompt again");
             Object prop = ta.getClientProperty("prompt.aiGenerated");
-            assertTrue(Boolean.TRUE.equals(prop), "Client property should be restored to mark AI-generated content after redo");
+            assertTrue(
+                    Boolean.TRUE.equals(prop),
+                    "Client property should be restored to mark AI-generated content after redo");
         });
     }
 }

@@ -158,8 +158,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Minimal overlay that does not perform activation (safe no-op)
-        this.commandInputOverlay = new OverlayPanel(overlay -> {
-        }, ""); // no-op overlay for tests
+        this.commandInputOverlay = new OverlayPanel(overlay -> {}, ""); // no-op overlay for tests
         this.commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         // Minimal UI placeholders so other code can safely interact with the panel in tests
@@ -179,15 +178,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.tokenUsageBarPopupMenu = new JPopupMenu();
 
         // Lightweight interactive controls (the concrete classes are reused with no-op callbacks).
-        this.micButton =
-                new VoiceInputButton(instructionsArea, contextManager, () -> {
-                }, msg -> {
-                });
+        this.micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {}, msg -> {});
         this.actionButton = new ActionSplitButton(() -> false, ACTION_SEARCH);
         this.wandButton =
-                new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, () -> {
-                }, s -> {
-                });
+                new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, () -> {}, s -> {});
         this.modelSelector = new ModelSelector(chrome);
         this.historyDropdown = createHistoryDropdown();
 
@@ -2462,10 +2456,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String toggleLine = "";
             try {
                 var toggleKs = GlobalUiSettings.getKeybinding(
-                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                 var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
                 if (toggleStr.isBlank()) {
-                toggleStr = "(unbound)";
+                    toggleStr = "(unbound)";
                 }
                 toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
             } catch (Exception ignore) {
@@ -2475,10 +2469,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
-                "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
+                        "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
                 if (submitStr.isBlank()) {
-                submitStr = "(unbound)";
+                    submitStr = "(unbound)";
                 }
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
             } catch (Exception ignore) {

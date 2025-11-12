@@ -1480,7 +1480,8 @@ public class Chrome
     }
 
     private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
-        // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y -> "globalRedo").
+        // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y ->
+        // "globalRedo").
         // The InputMap is cleared when refreshing keybindings, so duplicates are not a concern there.
         if (stroke == null) return;
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -1510,8 +1511,8 @@ public class Chrome
     public static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
         int menuMask = getMenuShortcutKeyMaskExSafe();
 
-        KeyStroke redoKeyStroke =
-                GlobalUiSettings.getKeybinding("global.redo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, menuMask | InputEvent.SHIFT_DOWN_MASK));
+        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.redo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, menuMask | InputEvent.SHIFT_DOWN_MASK));
         // For Windows/Linux, Ctrl+Y is also common for redo
         KeyStroke redoYKeyStroke =
                 GlobalUiSettings.getKeybinding("global.redoY", KeyStroke.getKeyStroke(KeyEvent.VK_Y, menuMask));
