@@ -1862,17 +1862,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void recordAssistantPromptTrailSnapshot() {
-        // Ensure we run on the EDT when touching Swing components.
+        // Record the user's current input as the pre-assistant snapshot on the EDT.
+        // Do NOT mark the text as assistant-generated yet — the assistant tag is applied
+        // only when the assistant's final text is written (populateInstructionsAreaFromAssistant).
         if (SwingUtilities.isEventDispatchThread()) {
             aiPromptTrailSnapshot = getInstructions();
-            aiPromptIsAssistantGenerated = true;
-            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
         } else {
-            SwingUtilities.invokeLater(() -> {
-                aiPromptTrailSnapshot = getInstructions();
-                aiPromptIsAssistantGenerated = true;
-                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, Boolean.TRUE);
-            });
+            SwingUtilities.invokeLater(() -> aiPromptTrailSnapshot = getInstructions());
         }
     }
 
