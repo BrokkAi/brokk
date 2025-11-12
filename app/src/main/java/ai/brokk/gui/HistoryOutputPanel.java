@@ -108,9 +108,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JTabbedPane activityTabs;
+
     // Output tabs
     @Nullable
     private JTabbedPane outputTabs;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel activityTabsContainer;
 
     @Nullable
     private JPanel changesTabPlaceholder;
@@ -370,19 +376,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         headerPanel.add(sessionNameLabel);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
-        var activityTabs = new JTabbedPane(JTabbedPane.TOP);
+        activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
         activityTabs.setMinimumSize(new Dimension(250, 0));
         activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
 
         // Create center container with both tab panels
-        var centerContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        centerContainer.add(centerPanel, BorderLayout.CENTER);
-        centerContainer.add(activityTabs, BorderLayout.EAST);
+        activityTabsContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        activityTabsContainer.add(centerPanel, BorderLayout.CENTER);
+        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
         // Main layout: header at top, center container in center
         add(headerPanel, BorderLayout.NORTH);
-        add(centerContainer, BorderLayout.CENTER);
+        add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -965,6 +971,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public @Nullable JTable getHistoryTable() {
         return historyTable;
+    }
+
+    public JTabbedPane getActivityTabs() {
+        return activityTabs;
+    }
+
+    public @Nullable JTabbedPane getOutputTabs() {
+        return outputTabs;
+    }
+
+    public JPanel getActivityTabsContainer() {
+        return activityTabsContainer;
     }
 
     /** Builds the LLM streaming area where markdown output is displayed */
