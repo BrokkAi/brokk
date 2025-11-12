@@ -762,7 +762,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public void reportException(Throwable th) {
-        CompletableFuture.runAsync(() -> {
+        submitBackgroundTask("Report exception", () -> {
             exceptionReporter.reportException(th);
         });
     }
@@ -2710,6 +2710,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
+            // TODO: Get off common FJP
             List<TaskEntry> compressedTaskEntries = taskHistoryToCompress.parallelStream()
                     .map(this::compressHistory)
                     .collect(Collectors.toCollection(() -> new ArrayList<>(taskHistoryToCompress.size())));

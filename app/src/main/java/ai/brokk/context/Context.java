@@ -19,7 +19,6 @@ import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
@@ -31,12 +30,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -55,9 +51,6 @@ public class Context {
 
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
-
-    // Cache diffs per "other" context id; contexts are immutable so diffs won't change
-    private final transient Map<UUID, List<DiffEntry>> diffCache = new ConcurrentHashMap<>();
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Session Start";
@@ -138,6 +131,7 @@ public class Context {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
+        // TODO: Get this off common FJP
         return candidates.parallelStream()
                 .map(pf -> Map.entry(pf, buildRelatedIdentifiers(analyzer, pf)))
                 .filter(e -> !e.getValue().isBlank())
@@ -959,238 +953,7 @@ public class Context {
      * This method awaits all async computations (e.g., ComputedValue) before returning the final diff list.
      */
     public List<DiffEntry> getDiff(Context other) {
-        var cached = diffCache.get(other.id()); // cache should key on "other.id()", not this.id()
-        if (cached != null) {
-            return cached;
-        }
-
-        // Trigger all async diff computations and collect their futures
-        var diffFutures =
-                fragments.stream().map(cf -> computeDiffForFragment(cf, other)).toList();
-
-        // Wait for all futures to complete (no timeout, wait indefinitely)
-        try {
-            List<DiffEntry> diffs = diffFutures.stream()
-                    .map(CompletableFuture::join) // Wait indefinitely for each future
-                    .filter(Objects::nonNull)
-                    .toList();
-
-            diffCache.put(other.id(), diffs);
-            return diffs;
-        } catch (Exception ex) {
-            logger.error("Error computing diffs between contexts: {}", ex.getMessage(), ex);
-            return List.of();
-        }
-    }
-
-    /**
-     * Helper method to compute diff for a single fragment against the other context asynchronously.
-     * Returns a CompletableFuture that completes when all async dependencies (e.g., ComputedValue)
-     * are resolved and the diff is computed.
-     * Triggers async computations but does not block on them.
-     * Errors are logged and result in a placeholder DiffEntry with empty diff.
-     */
-    @Blocking
-    private CompletableFuture<@Nullable DiffEntry> computeDiffForFragment(ContextFragment thisFragment, Context other) {
-        // Find matching fragment in 'other' context using universal matching semantics
-        var otherFragment = other.fragments.stream()
-                .filter(thisFragment::hasSameSource)
-                .findFirst()
-                .orElse(null);
-
-        if (otherFragment == null) {
-            // No matching fragment in 'other'; fragment is either new or was removed
-            // For any new fragment (file or virtual), diff against empty
-            return extractFragmentContentAsync(thisFragment, true)
-                    .thenApply(newContent -> {
-                        var result = ContentDiffUtils.computeDiffResult(
-                                "",
-                                newContent,
-                                "old/" + thisFragment.shortDescription(),
-                                "new/" + thisFragment.shortDescription());
-                        if (result.diff().isEmpty()) {
-                            return null;
-                        }
-                        return new DiffEntry(
-                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
-                    })
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing diff for new fragment '{}': {}",
-                                thisFragment.shortDescription(),
-                                ex.getMessage(),
-                                ex);
-                        return new DiffEntry(
-                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                    });
-        }
-
-        // Extract content from both fragments asynchronously
-        var oldContentFuture = extractFragmentContentAsync(otherFragment, false);
-        var newContentFuture = extractFragmentContentAsync(thisFragment, true);
-
-        // For image fragments, handle specially
-        if (!thisFragment.isText() || !otherFragment.isText()) {
-            return newContentFuture
-                    .thenCombine(oldContentFuture, (nc, oc) -> computeImageDiffEntry(thisFragment, otherFragment))
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing image diff for fragment '{}': {}",
-                                thisFragment.shortDescription(),
-                                ex.getMessage(),
-                                ex);
-                        return new DiffEntry(
-                                thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
-                    });
-        }
-
-        // For text fragments, combine both content futures and compute diff
-        return oldContentFuture
-                .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.trace(
-                            "getDiff: fragment='{}' id={} oldLines={} newLines={}",
-                            thisFragment.shortDescription(),
-                            id,
-                            oldLineCount,
-                            newLineCount);
-
-                    var result = ContentDiffUtils.computeDiffResult(
-                            oldContent,
-                            newContent,
-                            "old/" + thisFragment.shortDescription(),
-                            "new/" + thisFragment.shortDescription());
-
-                    logger.trace(
-                            "getDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription(),
-                            result.added(),
-                            result.deleted(),
-                            result.diff().isEmpty());
-
-                    if (result.diff().isEmpty()) {
-                        return null;
-                    }
-
-                    // Store live fragment directly in DiffEntry
-                    return new DiffEntry(
-                            thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
-                })
-                .exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription(),
-                            ex.getMessage(),
-                            ex);
-                    return new DiffEntry(
-                            thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                });
-    }
-
-    /**
-     * Extract text content from a fragment asynchronously.
-     * Returns a CompletableFuture that completes with the fragment's text content.
-     * For ComputedFragment, triggers the computation and chains it properly.
-     * For non-dynamic fragments, returns an already-completed future.
-     */
-    private CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
-        try {
-            // ComputedFragment: chain the computed text future
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var computedTextFuture = cf.computedText().future();
-                return computedTextFuture.exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing text for {} fragment '{}': {}",
-                            fragment.getClass().getSimpleName(),
-                            fragment.shortDescription(),
-                            ex.getMessage(),
-                            ex);
-                    return "";
-                });
-            }
-
-            // Non-dynamic virtual fragments: use text() directly and wrap in completed future
-            return CompletableFuture.completedFuture(fragment.text());
-        } catch (UncheckedIOException e) {
-            logger.warn(
-                    "IO error reading content for {} fragment '{}' ({}): {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    isNew ? "new" : "old",
-                    e.getMessage());
-            return CompletableFuture.completedFuture("");
-        } catch (java.util.concurrent.CancellationException e) {
-            logger.warn(
-                    "Computation cancelled for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return CompletableFuture.completedFuture("");
-        } catch (Exception e) {
-            logger.error(
-                    "Unexpected error extracting content for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    e.getMessage(),
-                    e);
-            return CompletableFuture.completedFuture("");
-        }
-    }
-
-    /**
-     * Extract image bytes from a fragment, handling ComputedFragment.
-     */
-    private byte @Nullable [] extractImageBytes(ContextFragment fragment) {
-        try {
-            // Try to read via image() method if available
-            if (fragment instanceof ContextFragment.ImageFragment imgFrag) {
-                var image = imgFrag.image();
-                return ImageUtil.imageToBytes(image);
-            }
-        } catch (CancellationException | IOException e) {
-            logger.warn(
-                    "Computation cancelled for image fragment '{}'; image will show as changed. Cause: {}",
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return null;
-        }
-
-        return null;
-    }
-
-    /**
-     * Compute diff entry for image fragments. Shows "[image changed]" as diff if either side unavailable.
-     */
-    private @Nullable DiffEntry computeImageDiffEntry(ContextFragment thisFragment, ContextFragment otherFragment) {
-        byte[] oldImageBytes = extractImageBytes(otherFragment);
-        byte[] newImageBytes = extractImageBytes(thisFragment);
-
-        // If both images are unavailable or identical, skip diff
-        if (oldImageBytes == null && newImageBytes == null) {
-            return null;
-        }
-
-        boolean imagesEqual = false;
-        if (oldImageBytes != null && newImageBytes != null) {
-            imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
-        }
-
-        if (imagesEqual) {
-            return null;
-        }
-
-        // Generate placeholder diff showing image changed
-        String diff = "[Image changed]";
-        return new DiffEntry(
-                thisFragment,
-                diff,
-                1, // 1 line "added" (image changed)
-                1, // 1 line "deleted" (image changed)
-                oldImageBytes != null ? "[image]" : "",
-                newImageBytes != null ? "[image]" : "");
+        return DiffService.computeDiff(this, other);
     }
 
     /**
@@ -1200,8 +963,7 @@ public class Context {
      * Note: Both contexts should be frozen (no dynamic fragments) for reliable results.
      */
     public java.util.Set<ProjectFile> getChangedFiles(Context other) {
-        var diffs = this.getDiff(other);
-        return diffs.stream().flatMap(de -> de.fragment.files().stream()).collect(Collectors.toSet());
+        return DiffService.getChangedFiles(this, other);
     }
 
     /**

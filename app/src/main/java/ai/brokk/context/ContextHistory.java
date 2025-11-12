@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -232,97 +231,6 @@ public class ContextHistory {
     /** Exposes the centralized diff service. */
     public DiffService getDiffService() {
         return diffService;
-    }
-
-    /**
-     * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
-     *
-     * <p>Keys by current context id assuming a single stable predecessor per context. Works directly with live
-     * contexts (containing {@link ai.brokk.util.ComputedValue} futures) and uses bounded awaits during diff
-     * computation to avoid blocking the UI indefinitely. For fragments that timeout during diff computation,
-     * falls back to empty content rather than blocking.
-     *
-     * <p>This service materializes computed values
-     * asynchronously as needed via {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
-     */
-    public static final class DiffService {
-        private final ContextHistory history;
-        private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache =
-                new ConcurrentHashMap<>();
-
-        DiffService(ContextHistory history) {
-            this.history = history;
-        }
-
-        /**
-         * Non-blocking peek: returns cached result if ready, otherwise empty Optional.
-         *
-         * <p>Safe to call from the EDT; does not block or trigger computation.
-         *
-         * @param curr the current (new) context to peek diffs for
-         * @return Optional containing the diff list if already computed, or empty if not ready
-         */
-        public Optional<List<Context.DiffEntry>> peek(Context curr) {
-            var cf = cache.get(curr.id());
-            if (cf != null && cf.isDone()) {
-                return java.util.Optional.ofNullable(cf.getNow(null));
-            }
-            return java.util.Optional.empty();
-        }
-
-        /**
-         * Computes or retrieves cached diff between this context and its predecessor.
-         *
-         * <p>Uses live contexts with asynchronous {@link ai.brokk.util.ComputedValue} evaluation. Shared across
-         * callers via a {@link CompletableFuture} to avoid redundant computation.
-         *
-         * @param curr the current (new) context to compute diffs for
-         * @return CompletableFuture that will contain the list of diff entries
-         */
-        public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-            return cache.computeIfAbsent(
-                    curr.id(),
-                    id -> CompletableFuture.supplyAsync(() -> {
-                        var prev = history.previousOf(curr);
-                        if (prev == null) return java.util.List.of();
-                        return curr.getDiff(prev);
-                    }));
-        }
-
-        /**
-         * Best-effort prefetch: triggers diff computation for all contexts with a predecessor.
-         *
-         * <p>Useful for warming up the cache with multiple contexts in parallel. Does not block the caller.
-         *
-         * @param contexts the list of contexts to prefetch diffs for
-         */
-        public void warmUp(List<Context> contexts) {
-            for (var c : contexts) {
-                if (history.previousOf(c) != null) {
-                    diff(c);
-                }
-            }
-        }
-
-        /**
-         * Clears all cached diff entries.
-         *
-         * <p>Useful for freeing memory or forcing recomputation of diffs.
-         */
-        public void clear() {
-            cache.clear();
-        }
-
-        /**
-         * Retains only diffs for the provided set of context ids, discarding all others.
-         *
-         * <p>Used during history truncation to keep the cache bounded.
-         *
-         * @param currentIds the set of context ids whose diffs should be retained
-         */
-        public void retainOnly(java.util.Set<UUID> currentIds) {
-            cache.keySet().retainAll(currentIds);
-        }
     }
 
     /* ─────────────── undo / redo  ────────────── */
