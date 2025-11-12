@@ -3,11 +3,13 @@ package ai.brokk.executor.manager;
 import ai.brokk.BuildInfo;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.manager.auth.TokenService;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -28,6 +30,8 @@ public final class HeadlessSessionManager {
     private final int poolSize;
     private final Path worktreeBaseDir;
     private final int activeExecutors = 0; // Placeholder until ExecutorPool is implemented
+    private final String masterAuthToken;
+    private final TokenService tokenService;
 
     /**
      * Parse command-line arguments into a map of normalized keys to values.
@@ -80,6 +84,8 @@ public final class HeadlessSessionManager {
         this.managerId = managerId;
         this.poolSize = poolSize;
         this.worktreeBaseDir = worktreeBaseDir;
+        this.masterAuthToken = authToken;
+        this.tokenService = new TokenService(authToken);
 
         var parts = Splitter.on(':').splitToList(listenAddr);
         if (parts.size() != 2) {
@@ -106,9 +112,53 @@ public final class HeadlessSessionManager {
         this.server = new SimpleHttpServer(host, port, authToken, 8);
 
         this.server.registerUnauthenticatedContext("/health/live", this::handleHealthLive);
-        this.server.registerAuthenticatedContext("/health/ready", this::handleHealthReady);
+        this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
+        this.server.registerUnauthenticatedContext("/v1", this::handleV1Router);
 
         logger.info("HeadlessSessionManager initialized successfully");
+    }
+
+    /**
+     * Check authorization header for either master token or valid session token.
+     * Returns null if authorized, or an ErrorPayload to send as response if not authorized.
+     */
+    @Nullable
+    private ErrorPayload checkAuth(HttpExchange exchange, @Nullable UUID requiredSessionId) {
+        var authHeader = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authHeader == null || authHeader.isBlank()) {
+            return ErrorPayload.of("UNAUTHORIZED", "Missing Authorization header");
+        }
+
+        if (!authHeader.startsWith("Bearer ")) {
+            return ErrorPayload.of("UNAUTHORIZED", "Invalid Authorization header format");
+        }
+
+        var token = authHeader.substring("Bearer ".length()).strip();
+
+        if (token.equals(masterAuthToken)) {
+            return null;
+        }
+
+        try {
+            var sessionToken = tokenService.validate(token);
+            if (requiredSessionId != null && !sessionToken.sessionId().equals(requiredSessionId)) {
+                return ErrorPayload.of("FORBIDDEN", "Token does not grant access to this session");
+            }
+            return null;
+        } catch (TokenService.InvalidTokenException e) {
+            logger.debug("Invalid session token: {}", e.getMessage());
+            return ErrorPayload.of("UNAUTHORIZED", "Invalid or expired token");
+        }
+    }
+
+    /**
+     * Mint a new session-scoped token with default validity of 1 hour.
+     *
+     * @param sessionId the session ID to encode in the token
+     * @return the signed token string
+     */
+    public String mintSessionToken(UUID sessionId) {
+        return tokenService.mint(sessionId, Duration.ofHours(1));
     }
 
     private void handleHealthLive(HttpExchange exchange) throws IOException {
@@ -135,6 +185,12 @@ public final class HeadlessSessionManager {
         if (!exchange.getRequestMethod().equals("GET")) {
             var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        var authError = checkAuth(exchange, null);
+        if (authError != null) {
+            SimpleHttpServer.sendJsonResponse(exchange, 401, authError);
             return;
         }
 
@@ -165,6 +221,17 @@ public final class HeadlessSessionManager {
                 "poolSize", poolSize,
                 "availableCapacity", poolSize - activeExecutors);
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    private void handleV1Router(HttpExchange exchange) throws IOException {
+        var authError = checkAuth(exchange, null);
+        if (authError != null) {
+            SimpleHttpServer.sendJsonResponse(exchange, 401, authError);
+            return;
+        }
+
+        var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+        SimpleHttpServer.sendJsonResponse(exchange, 404, error);
     }
 
     public void start() {
