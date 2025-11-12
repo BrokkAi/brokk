@@ -81,9 +81,10 @@ public record ProjectState(
 
     /**
      * Checks if git configuration is needed (.gitignore needs Brokk patterns).
+     * Only returns true if the project has Git initialized and .gitignore lacks Brokk patterns.
      */
     public boolean needsGitConfig() {
-        return !gitignoreConfigured;
+        return project.hasGit() && !gitignoreConfigured;
     }
 
     /**

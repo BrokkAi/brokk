@@ -31,7 +31,7 @@ public class GitConfigStep implements OnboardingStep {
 
     @Override
     public boolean isApplicable(ProjectState state) {
-        return state.needsGitConfig();
+        return state.project().hasGit() && state.needsGitConfig();
     }
 
     @Override
