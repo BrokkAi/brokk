@@ -136,6 +136,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         // Buttons
         var cancelButton = new MaterialButton("Cancel");
         cancelButton.addActionListener(e -> {
+            logger.debug(
+                    "Cancel button pressed: done={}, thread={}",
+                    done.get(),
+                    Thread.currentThread().getName());
             if (!done.get()) {
                 try {
                     this.cancelCallback.run();
@@ -156,6 +160,10 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent windowEvent) {
+                logger.debug(
+                        "Window closing requested: done={}, thread={}",
+                        done.get(),
+                        Thread.currentThread().getName());
                 if (!done.get()) {
                     int choice = chrome.showConfirmDialog(
                             BlitzForgeProgressDialog.this,
@@ -247,6 +255,13 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
     @Override
     public void onComplete(TaskResult result) {
+        var reason = result.stopDetails().reason();
+        var explanation = result.stopDetails().explanation();
+        logger.debug(
+                "BlitzForgeProgressDialog.onComplete: reason={}, explanation={}, thread={}",
+                reason,
+                explanation,
+                Thread.currentThread().getName());
         SwingUtilities.invokeLater(() -> {
             try {
                 done.set(true);

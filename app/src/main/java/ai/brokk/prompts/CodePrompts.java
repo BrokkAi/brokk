@@ -2,16 +2,16 @@ package ai.brokk.prompts;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
-import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -129,7 +129,7 @@ public abstract class CodePrompts {
         return flags;
     }
 
-    public String codeReminder(Service service, StreamingChatModel model) {
+    public String codeReminder(AbstractService service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
         return baseReminder + "\n" + MARKDOWN_REMINDER;
     }
@@ -295,7 +295,15 @@ public abstract class CodePrompts {
 
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
-        var styleGuide = cm.getProject().getStyleGuide();
+
+        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
+        // root guide.
+        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
+        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """
@@ -317,7 +325,17 @@ public abstract class CodePrompts {
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = cm.getProject().getStyleGuide();
+
+        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
+        // fall back to the project root style guide if none found.
+        var topCtx = cm.topContext();
+        var projectFiles = topCtx.fileFragments()
+                .flatMap(cf -> cf.files().stream())
+                .map(bf -> (ProjectFile) bf)
+                .collect(Collectors.toList());
+
+        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
+        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """

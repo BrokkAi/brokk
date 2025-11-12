@@ -7,6 +7,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,14 +68,14 @@ public class FuzzyUsageFinderJavaTest {
         };
     }
 
-    private static Set<String> baseNamesFromHits(Set<UsageHit> hits) {
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
         return hits.stream()
                 .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+                .collect(Collectors.toSet());
     }
 
     private static FuzzyUsageFinder newFinder(IProject project) {
-        return new FuzzyUsageFinder(project, analyzer, null, null); // No LLM for these tests
+        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null); // No LLM for these tests
     }
 
     @Test
@@ -88,7 +89,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect references to be in B.java and AnonymousUsage.java (may include others; we assert presence)
         assertTrue(files.contains("B.java"), "Expected a usage in B.java; actual: " + files);
@@ -106,7 +107,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertFalse(files.contains("A.java"), "Declaration should not be counted as usage; actual: " + files);
     }
@@ -131,7 +132,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("D.java"), "Expected a usage in D.java; actual: " + files);
         assertTrue(files.contains("E.java"), "Expected a usage in E.java; actual: " + files);
@@ -158,7 +159,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected a usage in UseE.java; actual: " + files);
     }
@@ -174,7 +175,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect references across several files (constructor and method usage)
         assertTrue(files.contains("B.java"), "Expected usage in B.java; actual: " + files);
@@ -203,7 +204,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
     }
@@ -219,7 +220,7 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         assertTrue(files.contains("UseE.java"), "Expected usage in UseE.java; actual: " + files);
     }
@@ -235,10 +236,72 @@ public class FuzzyUsageFinderJavaTest {
         }
 
         var hits = either.getUsages();
-        var files = baseNamesFromHits(hits);
+        var files = fileNamesFromHits(hits);
 
         // Expect a usage in classes that extend or refer to BaseClass
         assertTrue(files.contains("XExtendsY.java"), "Expected usage in XExtendsY.java; actual: " + files);
         assertTrue(files.contains("MethodReturner.java"), "Expected usage in MethodReturner.java; actual: " + files);
+    }
+
+    @Test
+    public void getUsesFunctionNoPrefixMatchTest() {
+        // Ensure that searching for A$AInner does NOT prefix-match A$AInner$AInnerInner
+        var finder = newFinder(testProject);
+        var symbol = "A$AInner";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        assertFalse(hits.isEmpty(), "Expected at least one usage for " + symbol);
+
+        var files = fileNamesFromHits(hits);
+        assertTrue(files.contains("A.java"), "Expected usage in A.java; actual: " + files);
+
+        // Verify that all hits are for A$AInner, not for any prefix-matched longer class names
+        for (var hit : hits) {
+            var enclosing = hit.enclosing();
+            assertNotEquals(
+                    "A$AInner$AInnerInner",
+                    enclosing.fqName(),
+                    "Should not have matched the nested class A$AInner$AInnerInner");
+        }
+    }
+
+    @Test
+    public void getUsesFunctionVsFieldAmbiguityTest() {
+        // Test that searching for a method foo() correctly identifies usages within the right enclosing methods
+        // and does NOT match field usages like E.foo.
+        var finder = newFinder(testProject);
+        var symbol = "ServiceImpl.foo";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages().stream()
+                .map(uh -> uh.enclosing().identifier())
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("foo", "callFoo"), hits);
+    }
+
+    @Test
+    public void getUsesMethodReferenceTest() {
+        // Test that method references (e.g., this::transform) are correctly identified
+        var finder = newFinder(testProject);
+        var symbol = "MethodReferenceUsage.transform";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages().stream()
+                .map(uh -> uh.enclosing().identifier())
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("demonstrateCall", "demonstrateInstanceReference", "demonstrateReferenceParameter"), hits);
     }
 }

@@ -130,9 +130,10 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
             return afterGitDiffBracket;
         }
 
+        // If fence closes after git-diff, mark as complete on success
         return effects.attempt(
             { tokenize: tokenizeFenceClose, concrete: true },
-            done,
+            doneComplete,
             fx.nok
         )(code);
     }
@@ -145,23 +146,44 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
         if (code === codes.graveAccent) {
             return effects.attempt(
                 { tokenize: tokenizeFenceClose, concrete: true },
-                done, // After successful fence close, we're done
-                done  // If fence close fails, we're still done (malformed but we'll accept it)
+                doneComplete,  // After successful fence close, we're done
+                doneComplete   // If fence close fails, we're still done (malformed but we'll accept it) but mark complete
             )(code);
         }
 
-        return done(code);
+        // If there are no backticks after ], treat it as complete git-diff block
+        return doneComplete(code);
     }
 
 
     function afterBody(code: Code): State {
         const next = eatEndLineAndCheckEof(code, afterBody)
         if (next) return next;
+        // Always attempt to close the fence, but completion depends on tailSeen in body
         return effects.attempt(
             { tokenize: tokenizeFenceClose, concrete: true },
-            done,
+            doneMaybeComplete,
             fx.nok
         )(code);
+    }
+
+    function markComplete(): void {
+        fx.enter('editBlockComplete');
+        fx.exit('editBlockComplete');
+    }
+
+    function doneMaybeComplete(code: Code): State {
+        // Only mark structural completion for SEARCH/REPLACE when the tail was actually consumed.
+        if ((ctx as any)._editBlockCompleted === true) {
+            markComplete();
+        }
+        return done(code);
+    }
+
+    function doneComplete(code: Code): State {
+        // Mark structural completion (used for git-diff fenced cases)
+        markComplete();
+        return done(code);
     }
 
     function done(code: Code): State {

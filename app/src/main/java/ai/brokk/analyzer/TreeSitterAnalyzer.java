@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -69,11 +70,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
-    // Definition priority constants - lower values are preferred for sorting
-    protected static final int PRIORITY_DEFAULT = 0;
-    protected static final int PRIORITY_HIGH = -1;
-    protected static final int PRIORITY_LOW = 1;
-
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -96,6 +92,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Gets the thread-local query for use in subclass overrides.
+     *
      * @return the thread-local query instance
      */
     protected TSQuery getThreadLocalQuery() {
@@ -103,7 +100,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     // transferable snapshot of analyzer state
-    private volatile AnalyzerState state;
+    private final AnalyzerState state;
 
     // Stage timing captured during construction
     private volatile @Nullable StageTiming stageTiming;
@@ -112,27 +109,44 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
      *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree the corresponding parse tree.
-     * @param importStatements imports found on this file.
+     * @param parsedTree        the corresponding parse tree.
+     * @param importStatements  imports found on this file.
+     * @param resolvedImports   resolved CodeUnits from import statements.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits, @Nullable TSTree parsedTree, List<String> importStatements) {
+            List<CodeUnit> topLevelCodeUnits,
+            @Nullable TSTree parsedTree,
+            List<String> importStatements,
+            Set<CodeUnit> resolvedImports) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList());
+            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), Set.of());
         }
     }
 
     /**
-     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
-     * hasBody indicates a non-empty body exists; merged across files using logical OR.
+     * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
+     * <p>
+     * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
+     * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
+     * definition anywhere marks the CodeUnit as having a body.
      */
     public record CodeUnitProperties(
-            List<CodeUnit> children, List<String> signatures, List<Range> ranges, boolean hasBody) {
+            List<CodeUnit> children,
+            List<String> signatures,
+            List<Range> ranges,
+            List<String> rawSupertypes,
+            List<CodeUnit> supertypes,
+            boolean hasBody) {
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
-                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false);
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    false);
         }
     }
 
@@ -358,7 +372,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         keySet.addAll(localSymbolIndex.keySet());
         var symbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet));
 
-        this.state = new AnalyzerState(
+        var initialState = new AnalyzerState(
                 HashTreePMap.from(localSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
@@ -428,11 +442,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
+        // Post-processing: resolve imports then compute supertypes in a single pipeline
+        var postProcessed = runPostProcessing(initialState);
+        this.state = postProcessed;
+
         log.debug(
                 "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
                 language.name(),
-                state.codeUnitState().size(),
-                state.fileState().size());
+                postProcessed.codeUnitState().size(),
+                postProcessed.fileState().size());
 
         // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
         var initInstant = Instant.now();
@@ -470,27 +488,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 language.name(),
                 state.codeUnitState().size(),
                 state.fileState().size());
-    }
-
-    /**
-     * Frees memory from the parsed AST cache.
-     */
-    public void clearCaches() {
-        var current = this.state;
-        // Drop parsed trees by nulling them inside FileProperties
-        var newFileState = current.fileState().entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        e -> new FileProperties(
-                                e.getValue().topLevelCodeUnits(),
-                                null,
-                                e.getValue().importStatements())));
-        this.state = new AnalyzerState(
-                current.symbolIndex(),
-                current.codeUnitState(),
-                HashTreePMap.from(newFileState),
-                current.symbolKeyIndex(),
-                current.snapshotEpochNanos());
     }
 
     /**
@@ -547,6 +544,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return codeUnitProperties(codeUnit).ranges();
     }
 
+    protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).supertypes();
+    }
+
     private FileProperties fileProperties(ProjectFile file) {
         return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
     }
@@ -567,6 +568,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return fileProperties(file).importStatements();
+    }
+
+    /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return fileProperties(file).resolvedImports();
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
@@ -621,7 +632,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
 
-        return matches.stream().sorted(DEFINITION_COMPARATOR).findFirst();
+        // Allow languages to prioritize which definition we return
+        return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
     }
 
     @Override
@@ -893,11 +905,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Hook for language-specific preference when multiple CodeUnits share the same FQN. Lower values are preferred.
-     * Default is PRIORITY_DEFAULT (no preference).
+     * Returns a comparator for language-specific definition priority preferences.
+     * Lower values are preferred. Default comparator treats all CodeUnits equally (returns 0).
+     *
+     * Override in subclasses to provide language-specific ordering, such as preferring
+     * definitions with bodies in source files (.cpp) over declarations in headers (.h).
      */
-    protected int definitionOverridePriority(CodeUnit cu) {
-        return PRIORITY_DEFAULT;
+    protected Comparator<CodeUnit> prioritizingComparator() {
+        return Comparator.comparingInt(cu -> 0);
     }
 
     /**
@@ -1121,10 +1136,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Called during analysis with access to the definition node and source code.
      * Default implementation returns the input FQName unchanged.
      *
-     * @param fqName the computed FQName
-     * @param captureName the capture name from the query
+     * @param fqName         the computed FQName
+     * @param captureName    the capture name from the query
      * @param definitionNode the AST node for this definition
-     * @param src the source code
+     * @param src            the source code
      * @return enhanced FQName, or input FQName if no enhancement needed
      */
     protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
@@ -1135,9 +1150,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Extracts the signature string for a callable entity (function/method).
      * Subclasses can override this to provide language-specific signature extraction.
      *
-     * @param captureName The capture name from the query
+     * @param captureName    The capture name from the query
      * @param definitionNode The AST node for the definition
-     * @param src The source code string
+     * @param src            The source code string
      * @return The signature string (e.g., "(int, String)"), or null if not applicable
      */
     protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
@@ -1227,10 +1242,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Extracts the actual definition node from a decorator-wrapping node and collects decorator text.
      * Only called if hasWrappingDecoratorNode() returns true.
      *
-     * @param decoratedNode the wrapping node (e.g., Python's decorated_definition)
+     * @param decoratedNode     the wrapping node (e.g., Python's decorated_definition)
      * @param outDecoratorLines list to append decorator text to
-     * @param srcBytes source code bytes
-     * @param profile language syntax profile for identifying decorator and definition node types
+     * @param srcBytes          source code bytes
+     * @param profile           language syntax profile for identifying decorator and definition node types
      * @return the unwrapped definition node
      */
     protected TSNode extractContentFromDecoratedNode(
@@ -1253,7 +1268,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * JavaScript/TypeScript use lexical_declaration (const/let) and variable_declaration (var)
      * which contain variable_declarator nodes that might hold arrow functions or const values.
      *
-     * @param node the node to check
+     * @param node         the node to check
      * @param skeletonType the expected skeleton type
      * @return true if unwrapping is needed
      */
@@ -1275,9 +1290,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Extracts receiver type for method definitions in languages that support receivers.
      * Examples: Go methods, Rust impl blocks, C++ member functions.
      *
-     * @param node the method definition node
+     * @param node               the method definition node
      * @param primaryCaptureName the primary capture name (e.g., "method.definition")
-     * @param fileBytes source code bytes
+     * @param fileBytes          source code bytes
      * @return the receiver type name (with leading * removed for pointers), or empty if no receiver
      */
     protected Optional<String> extractReceiverType(TSNode node, String primaryCaptureName, byte[] fileBytes) {
@@ -1289,9 +1304,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Called when a CodeUnit with matching fqName already exists.
      * Subclasses can override to implement language-specific duplicate handling.
      *
-     * @param existing The CodeUnit already in the list
+     * @param existing  The CodeUnit already in the list
      * @param candidate The new CodeUnit being considered for addition
-     * @param file The file being analyzed
+     * @param file      The file being analyzed
      * @return true if the candidate should be ignored (existing kept), false if candidate should be added
      */
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
@@ -1310,13 +1325,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Adds a CodeUnit to the top-level list with language-specific duplicate handling.
-     *
-     * For functions, prefers definitions (hasBody=true) over declarations (hasBody=false).
-     * The hasBody flag is AST-derived and stored in CodeUnitProperties. When both have the
-     * same hasBody value, applies signature comparison and language-specific policies.
-     * Replacements remove the old CodeUnit and its descendants to prevent orphaned children.
-     * The hasBody flag merges across snapshots using logical OR.
+     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
+     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
+     * <p>
+     * Definition vs Declaration (hasBody-based tie-breaker):
+     * - For function-like CodeUnits, we compute an AST-derived boolean hasBody during analysis and store it in
+     * CodeUnitProperties.
+     * - When two CodeUnits share the same fqName, a candidate with hasBody == true (a definition) is preferred over
+     * one with hasBody == false (a forward declaration). This preference applies both to top-level items and to
+     * children (see addChildCodeUnit for analogous child handling).
+     * - This decision is based solely on the hasBody boolean and does NOT inspect signature strings or any
+     * presentation placeholders.
+     * - If both candidates have the same hasBody value (both true or both false), existing duplicate/overload logic
+     * still applies (signature comparison, language-specific policies, etc.).
+     * - When a replacement occurs, we remove the old CodeUnit and all its descendants from the local maps to avoid
+     * orphaned children.
+     * <p>
+     * Presentation-only placeholders:
+     * - bodyPlaceholder() may still be appended by language analyzers when rendering skeleton text purely for UI
+     * clarity. It MUST NOT be used for semantic decisions like duplicate handling.
+     * <p>
+     * Incremental updates:
+     * - The hasBody flag is merged across snapshots using logical OR semantics so that a definition discovered in
+     * any pass/file marks the CodeUnit as having a body.
      */
     private void addTopLevelCodeUnit(
             CodeUnit cu,
@@ -1552,6 +1583,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
+        Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
         Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
@@ -1928,6 +1960,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         simpleName);
             }
 
+            // Allow language-specific extraction of raw supertypes (e.g., extends/implements for Java)
+            if (cu.isClass()) {
+                List<String> rawSupers = extractRawSupertypesForClassLike(cu, node, signature, src);
+                if (!rawSupers.isEmpty()) {
+                    localRawSupertypes.put(cu, rawSupers);
+                }
+            }
+
             // Handle potential duplicates (e.g. JS export and direct lexical declaration).
             // If `cu` is `equals()` to `existingCUforKeyLookup` (e.g., overloads), signatures are accumulated.
             // If they are not `equals()` but have same FQName, this logic might replace based on export preference.
@@ -2066,7 +2106,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localCuByFqName,
                 localTopLevelCUs,
                 localSignatures,
-                localSourceRanges);
+                localSourceRanges,
+                localChildren);
 
         log.trace(
                 "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries.",
@@ -2094,9 +2135,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var kids = finalLocalChildren.getOrDefault(cu, List.of());
             var sigs = localSignatures.getOrDefault(cu, List.of());
             var rngs = finalLocalSourceRanges.getOrDefault(cu, List.of());
+            var rawSupers = localRawSupertypes.getOrDefault(cu, List.of());
             boolean hasBody = localHasBody.getOrDefault(cu, false);
             localStates.put(
-                    cu, new CodeUnitProperties(List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), hasBody));
+                    cu,
+                    new CodeUnitProperties(
+                            List.copyOf(kids),
+                            List.copyOf(sigs),
+                            List.copyOf(rngs),
+                            List.copyOf(rawSupers),
+                            List.of(),
+                            hasBody));
         }
 
         // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
@@ -2138,7 +2187,45 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Hook to extract raw supertype names (extends/implements) for a class-like node.
+     * Default implementation returns an empty list. Language analyzers (e.g., JavaAnalyzer)
+     * should override this to return ordered raw type names as they appear in source.
+     *
+     * The returned names should be raw textual representations (possibly including generics)
+     * and will be resolved later in runTypeAnalysis via imports and global search.
+     *
+     * @param cu           the CodeUnit representing the class-like declaration
+     * @param classNode    the TSNode for the class/interface/enum/record declaration
+     * @param signature    the rendered signature text (first line typically), if useful
+     * @param src          the source code string
+     * @return ordered list of raw supertypes; empty if none or not applicable
+     */
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Default: languages that need inheritance extraction should override this.
+        return List.of();
+    }
+
+    /**
      * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
+     */
+    // Legacy signature retained for backward compatibility so subclasses (e.g., JS/TS analyzers)
+    // that override this continue to compile. Prefer overriding the variant with localChildren.
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        // default no-op
+    }
+
+    /**
+     * Preferred variant that also provides access to localChildren so modules can attach their children.
+     * Delegates to the legacy method by default to keep existing overrides functioning.
      */
     protected void createModulesFromImports(
             ProjectFile file,
@@ -2148,7 +2235,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<String, CodeUnit> localCuByFqName,
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {}
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+        // Delegate to legacy signature for backward compatibility
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges);
+    }
 
     /**
      * Renders the opening part of a class-like structure (e.g., "public class Foo {").
@@ -2648,13 +2747,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Returns the language-specific string marker appended to rendered function signatures to visually indicate
      * the presence of a body in skeleton output.
-     *
+     * <p>
      * Important:
      * - This value is used for presentation only and MUST NOT be used by any semantic logic such as duplicate
-     *   resolution or definition-preference. Those decisions rely on the AST-derived hasBody flag stored in
-     *   CodeUnitProperties.
+     * resolution or definition-preference. Those decisions rely on the AST-derived hasBody flag stored in
+     * CodeUnitProperties.
      * - Language analyzers should ensure their renderers append this marker consistently for display clarity only.
-     *
+     * <p>
      * Examples:
      * - C++/Java: "{...}"
      * - Scala: "= {...}"
@@ -2912,6 +3011,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return childrenOf(cu);
     }
 
+    /**
+     * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity. For non-class code
+     * units, returns an empty list.
+     */
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return List.of();
+        }
+        return supertypesOf(cu);
+    }
+
     /* ---------- file filtering helpers ---------- */
 
     /**
@@ -3057,10 +3168,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Merge code unit state
         analysisResult.codeUnitState().forEach((cu, newState) -> {
-            targetCodeUnitState.compute(cu, (k, existing) -> {
+            // For MODULE CodeUnits (e.g., Java packages), prefer merging using a canonical key
+            // so that children from multiple files aggregate under a single module entry.
+            CodeUnit mergeKey = cu;
+            if (cu.isModule()) {
+                for (CodeUnit existingKey : targetCodeUnitState.keySet()) {
+                    if (existingKey.isModule() && existingKey.fqName().equals(cu.fqName())) {
+                        mergeKey = existingKey; // use the canonical key already present
+                        break;
+                    }
+                }
+            }
+
+            targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
-                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
+                            newState.children(),
+                            newState.signatures(),
+                            newState.ranges(),
+                            newState.rawSupertypes(),
+                            newState.supertypes(),
+                            newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
                 var newKids = newState.children();
@@ -3086,18 +3214,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     for (var r : newRngs) if (!tmp.contains(r)) tmp.add(r);
                     mergedRanges = List.copyOf(tmp);
                 }
+                List<String> mergedRawSupers = existing.rawSupertypes();
+                var newRawSupers = newState.rawSupertypes();
+                if (!newRawSupers.isEmpty()) {
+                    var tmp = new ArrayList<String>(existing.rawSupertypes().size() + newRawSupers.size());
+                    tmp.addAll(existing.rawSupertypes());
+                    for (var s : newRawSupers) if (!tmp.contains(s)) tmp.add(s);
+                    mergedRawSupers = List.copyOf(tmp);
+                }
+
+                List<CodeUnit> mergedSupertypes = existing.supertypes();
+                var newSupertypes = newState.supertypes();
+                if (!newSupertypes.isEmpty()) {
+                    var tmp = new ArrayList<CodeUnit>(existing.supertypes().size() + newSupertypes.size());
+                    tmp.addAll(existing.supertypes());
+                    for (var r : newSupertypes) if (!tmp.contains(r)) tmp.add(r);
+                    mergedSupertypes = List.copyOf(tmp);
+                }
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedHasBody);
+                return new CodeUnitProperties(
+                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSupertypes, mergedHasBody);
             });
         });
 
-        // Update file state
+        // Update file state - initialize with empty resolved imports (will be populated during import resolution pass)
         targetFileState.put(
                 pf,
                 new FileProperties(
-                        analysisResult.topLevelCUs(), analysisResult.parsedTree(), analysisResult.importStatements()));
+                        analysisResult.topLevelCUs(),
+                        analysisResult.parsedTree(),
+                        analysisResult.importStatements(),
+                        Collections.unmodifiableSet(new HashSet<>())));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {
@@ -3160,6 +3309,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                 List.copyOf(filteredKids),
                                                 state.signatures(),
                                                 state.ranges(),
+                                                state.rawSupertypes(),
+                                                state.supertypes(),
                                                 state.hasBody());
                             });
                             // Purge from symbol index
@@ -3207,7 +3358,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var snapshotInstant = Instant.now();
         long snapshotNanos = snapshotInstant.getEpochSecond() * 1_000_000_000L + snapshotInstant.getNano();
 
-        var nextKeySet = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        var nextKeySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         nextKeySet.addAll(newSymbolIndex.keySet());
         var nextSymbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(nextKeySet));
 
@@ -3231,7 +3382,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 reanalyzeMs,
                 totalMs);
 
-        return newSnapshot(nextState);
+        // Re-run combined post-processing (imports + type analysis) after ingesting updates
+        var typedState = runPostProcessing(nextState);
+
+        return newSnapshot(typedState);
     }
 
     /**
@@ -3309,7 +3463,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         long detectMs = System.currentTimeMillis() - detectStartMs;
 
-        // reuse the existing incremental logic
+        // reuse the existing incremental logic, then recompute type and import analysis
         long updateStartMs = System.currentTimeMillis();
         var analyzer = update(changed);
         long updateMs = System.currentTimeMillis() - updateStartMs;
@@ -3324,6 +3478,119 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 totalMs);
 
         return analyzer;
+    }
+
+    /* ---------- type analysis (supertypes/basetypes) ---------- */
+
+    /**
+     * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit. Default implementation returns an
+     * empty list.
+     */
+    protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        return List.of();
+    }
+
+    /**
+     * Overridable hook to resolve import statements to concrete CodeUnits for a given file.
+     * Default implementation returns an empty set. Subclasses can override to provide language-specific
+     * import resolution logic.
+     *
+     * @param file             the project file being analyzed
+     * @param importStatements the raw import statement strings from the file
+     * @return a set of resolved CodeUnits corresponding to the imports
+     */
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return Set.of();
+    }
+
+    /**
+     * Combined post-processing pipeline: delegates to runImportResolution followed by runTypeAnalysis
+     * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
+     */
+    protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
+        try {
+            var afterImports = runImportResolution(baseState);
+            return runTypeAnalysis(afterImports);
+        } catch (Throwable t) {
+            log.warn("runPostProcessing encountered an error: {}", t.getMessage(), t);
+            return baseState;
+        }
+    }
+
+    /**
+     * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated fileState.resolvedImports.
+     */
+    protected AnalyzerState runImportResolution(AnalyzerState baseState) {
+        try {
+            // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
+            TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
+            Map<ProjectFile, FileProperties> updatedFileState = new HashMap<>(baseState.fileState());
+
+            for (var entry : baseState.fileState().entrySet()) {
+                var file = entry.getKey();
+                var fileProps = entry.getValue();
+
+                Set<CodeUnit> resolvedImports = delegateForImports.resolveImports(file, fileProps.importStatements());
+                updatedFileState.put(
+                        file,
+                        new FileProperties(
+                                fileProps.topLevelCodeUnits(),
+                                fileProps.parsedTree(),
+                                fileProps.importStatements(),
+                                Collections.unmodifiableSet(resolvedImports)));
+            }
+
+            return new AnalyzerState(
+                    baseState.symbolIndex(),
+                    baseState.codeUnitState(),
+                    HashTreePMap.from(updatedFileState),
+                    baseState.symbolKeyIndex(),
+                    baseState.snapshotEpochNanos());
+        } catch (Throwable t) {
+            log.warn("runImportResolution encountered an error: {}", t.getMessage(), t);
+            return baseState;
+        }
+    }
+
+    /**
+     * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
+     */
+    protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
+        try {
+            // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
+            TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
+            Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>(baseState.codeUnitState());
+
+            for (var entry : baseState.codeUnitState().entrySet()) {
+                var cu = entry.getKey();
+                var props = entry.getValue();
+                if (!cu.isClass()) continue;
+
+                List<CodeUnit> supers = List.copyOf(delegateForTypes.computeSupertypes(cu));
+
+                if (!Objects.equals(props.supertypes(), supers)) {
+                    updatedCodeUnitState.put(
+                            cu,
+                            new CodeUnitProperties(
+                                    props.children(),
+                                    props.signatures(),
+                                    props.ranges(),
+                                    props.rawSupertypes(),
+                                    supers,
+                                    props.hasBody()));
+                }
+            }
+
+            return new AnalyzerState(
+                    baseState.symbolIndex(),
+                    HashTreePMap.from(updatedCodeUnitState),
+                    baseState.fileState(),
+                    baseState.symbolKeyIndex(),
+                    baseState.snapshotEpochNanos());
+        } catch (Throwable t) {
+            log.warn("runTypeAnalysis encountered an error: {}", t.getMessage(), t);
+            return baseState;
+        }
     }
 
     /* ---------- comment detection for source expansion ---------- */

@@ -59,5 +59,60 @@
 ; Lambda expressions
 (lambda_expression) @lambda.definition
 
+; Inheritance/type hierarchy captures merged here for single-pass parsing
+(class_declaration
+  name: (identifier) @type.name
+  superclass: (superclass
+                [
+                  (type_identifier)
+                  (scoped_type_identifier)
+                ] @type.super
+              )?
+  interfaces: (super_interfaces
+                (type_list
+                  [
+                    (type_identifier)
+                    (scoped_type_identifier)
+                  ] @type.super
+                )
+              )?
+) @type.decl
+
+(interface_declaration
+  name: (identifier) @type.name
+  (extends_interfaces
+    (type_list
+      [
+        (type_identifier)
+        (scoped_type_identifier)
+        ] @type.super
+      )
+    )?
+) @type.decl
+
+(enum_declaration
+  name: (identifier) @type.name
+  interfaces: (super_interfaces
+                (type_list
+                  [
+                    (type_identifier)
+                    (scoped_type_identifier)
+                  ] @type.super
+                )
+              )?
+) @type.decl
+
+(record_declaration
+  name: (identifier) @type.name
+  interfaces: (super_interfaces
+                (type_list
+                  [
+                    (type_identifier)
+                    (scoped_type_identifier)
+                  ] @type.super
+                )
+              )?
+) @type.decl
+
 ; Annotations to strip
 (annotation) @annotation

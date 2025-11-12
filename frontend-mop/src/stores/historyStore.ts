@@ -2,7 +2,7 @@ import {writable} from 'svelte/store';
 import type {BrokkEvent, BubbleState, HistoryTask} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {parse} from '../worker/worker-bridge';
-import {register, unregister} from '../worker/parseRouter';
+import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
 
 export const historyStore = writable<HistoryTask[]>([]);
@@ -77,8 +77,14 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 newTask.entries.forEach(entry => {
                     register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, newTask.threadId));
                     // First a fast pass, then a deferred full pass for syntax highlighting
-                    parse(entry.markdown, entry.seq, true);
-                    setTimeout(() => parse(entry.markdown, entry.seq), 0);
+                    // Use updateBuffer=false to avoid colliding with live streaming buffer
+                    parse(entry.markdown, entry.seq, true, false);
+                    // slow parse can block around 50ms, delay it to give main area/live streaming time to post results between slow parses or before
+                    setTimeout(() => {
+                        if (isRegistered(entry.seq)) {
+                            parse(entry.markdown, entry.seq, false, false);
+                        }
+                    }, 100);
                 });
 
                 // Insert in order of sequence
