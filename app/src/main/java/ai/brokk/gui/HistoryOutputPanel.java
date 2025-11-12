@@ -376,8 +376,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         headerPanel.add(sessionNameLabel);
 
         // Expose Output+Changes container (tabs) directly
-        var centerContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        centerContainer.add(centerPanel, BorderLayout.CENTER);
         this.outputChangesContainer = centerPanel; // host of Output + Changes tabs
 
         // Build the externally reusable Activity container that wraps Session header + Activity panel
@@ -389,11 +387,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
         this.activityContainer = activityContainerLocal;
 
-        // Compose the main visible layout (Output+Changes center, Activity+Header on the right)
-        centerContainer.add(activityContainerLocal, BorderLayout.EAST);
-
-        // Main layout: center container in center
-        add(centerContainer, BorderLayout.CENTER);
+        // The HistoryOutputPanel now only holds the output/changes view.
+        // The activity view is managed and placed by Chrome.
+        add(this.outputChangesContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -2580,6 +2576,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
         if (aggregatedChangesPanel instanceof ThemeAware ta) {
             ta.applyTheme(guiTheme);
+        }
+
+        if (activityContainer != null) {
+            SwingUtilities.updateComponentTreeUI(activityContainer);
+        }
+        if (outputChangesContainer != null) {
+            SwingUtilities.updateComponentTreeUI(outputChangesContainer);
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
