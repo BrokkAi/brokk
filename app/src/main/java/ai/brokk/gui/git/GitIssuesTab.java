@@ -611,8 +611,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
-                    setReloadUiEnabled(true);
-                    searchBox.setLoading(false, "");
                 },
                 this::cancelActiveFutures,
                 () -> chrome.recreateIssuesPanel());
@@ -661,9 +659,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         GitTabSettingsHandler.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
-                    issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
-                    setReloadUiEnabled(true);
-                    searchBox.setLoading(false, "");
                 },
                 this::cancelActiveFutures,
                 this::updateIssueList);
