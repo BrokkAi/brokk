@@ -1860,6 +1860,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
     
     SwingUtilities.invokeLater(() -> {
+    // Intentionally preserve undo history so users can press Ctrl/Cmd+Z to revert a refined prompt.
+    // Global undo/redo keybindings are wired in Chrome; we only create a single composite edit here.
     // Capture previous content so we can provide a single undo/redo step.
     String beforeText = instructionsArea.getText();
     String afterText = text;
