@@ -2089,7 +2089,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             SwingUtilities.invokeLater(() -> {
                 // Determine "before" text: prefer the stored snapshot, otherwise use current.
                 String beforeText = aiPromptTrailSnapshot != null ? aiPromptTrailSnapshot : instructionsArea.getText();
-                String afterText = text == null ? "" : text;
+                String afterText = text;
 
                 // If the assistant produced the same text as the snapshot, avoid creating an AI-marked no-op edit.
                 if (Objects.equals(afterText, beforeText)) {
