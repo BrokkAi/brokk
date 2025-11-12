@@ -1646,6 +1646,28 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Mirror WorkspacePanel behavior when the user browses history:
+     * - Determine if the currently selected context is the latest
+     * - Toggle read-only state accordingly
+     * - Reload tasks from the selected (or latest) context
+     *
+     * Safe to call from any thread; EDT work is dispatched as needed.
+     */
+    public void syncWithSelection() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::syncWithSelection);
+            return;
+        }
+        var cm = chrome.getContextManager();
+        var selected = cm.selectedContext();
+        boolean onLatest = (selected == null) || selected.equals(cm.topContext());
+
+        // Toggle read-only state first, then reload the task list model
+        setTaskListEditable(onLatest);
+        refreshFromManager();
+    }
+
+    /**
      * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
      * the same list.
      */
