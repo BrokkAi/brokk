@@ -15,8 +15,8 @@
   (lexical_declaration
     ["const" "let"] @keyword.modifier
     (variable_declarator
-      name: (identifier) @function.name
-      value: ((arrow_function) @function.definition))))
+      name: (identifier) @arrow_function.name
+      value: ((arrow_function) @arrow_function.definition))))
 
 ; Top-level non-exported const/let/var variable assignment
 ; ((lexical_declaration
@@ -184,8 +184,8 @@
     declaration: (lexical_declaration
       ["const" "let"] @keyword.modifier
       (variable_declarator
-        name: (identifier) @function.name
-        value: ((arrow_function) @function.definition) ; Capture the arrow_function itself as the definition
+        name: (identifier) @arrow_function.name
+        value: ((arrow_function) @arrow_function.definition)
       )
     )
   )

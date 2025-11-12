@@ -670,30 +670,24 @@ public class CodeAgent {
 
         // Base success/failure decision on raw build result, not processed output
         if (buildError.isEmpty()) {
-            // Build succeeded or was skipped by performBuildVerification
-            if (!es.javaLintDiagnostics().isEmpty()) {
-                // Build a concise summary of the pre‑lint diagnostics and report it directly.
-                var sb = new StringBuilder();
-                sb.append("Java pre‑lint false positives after successful build: ")
-                        .append(es.javaLintDiagnostics().size())
-                        .append(" file(s).\n");
+            // Report any false positives from the "lint" phase
+            for (var entry : es.javaLintDiagnostics().entrySet()) {
+                var pf = entry.getKey();
+                var diags = entry.getValue();
 
-                for (var entry : es.javaLintDiagnostics().entrySet()) {
-                    var pf = entry.getKey();
-                    var diags = entry.getValue();
-                    sb.append("- ")
-                            .append(pf.getFileName())
-                            .append(": ")
-                            .append(diags.size())
-                            .append(" issue(s)\n");
-                    // Include up to three diagnostic snippets for quick inspection.
-                    diags.stream()
-                            .forEach(d ->
-                                    sb.append("  * ").append(d.description()).append("\n"));
-                }
+                var diagnosticDetails =
+                        diags.stream().map(d -> "  * " + d.description()).collect(Collectors.joining("\n"));
 
-                // Send the summary string to the server via ExceptionReporter.
-                contextManager.reportException(new JavaPreLintFalsePositiveException(sb.toString()));
+                var message =
+                        """
+                        Java pre-lint false positives in %s: %d issue(s)
+                        %s
+                        """
+                                .formatted(pf.getFileName(), diags.size(), diagnosticDetails);
+
+                // Report this file's exception with sourcefile in optional fields
+                contextManager.reportException(
+                        new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
             reportComplete("Success!");

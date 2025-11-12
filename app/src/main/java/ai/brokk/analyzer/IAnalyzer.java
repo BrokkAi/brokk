@@ -92,25 +92,30 @@ public interface IAnalyzer {
         return getDefinition(cu.fqName());
     }
 
+    default List<CodeUnit> searchDefinitions(String pattern) {
+        return searchDefinitions(pattern, true);
+    }
+
     /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided pattern as
      * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
-    default List<CodeUnit> searchDefinitions(String pattern) {
+    default List<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {
             return List.of();
         }
 
         // Prepare case-insensitive regex pattern
-        var preparedPattern = pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*";
-        var ciPattern = "(?i)" + preparedPattern;
+        if (autoQuote) {
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+        }
 
         // Try to compile the pattern
         Pattern compiledPattern;
         try {
-            compiledPattern = Pattern.compile(ciPattern);
+            compiledPattern = Pattern.compile(pattern);
         } catch (PatternSyntaxException e) {
             // Fallback to simple case-insensitive substring matching
             var fallbackPattern = pattern.toLowerCase(Locale.ROOT);
@@ -297,5 +302,60 @@ public interface IAnalyzer {
         public boolean isContainedWithin(Range other) {
             return startByte >= other.startByte && endByte <= other.endByte;
         }
+    }
+
+    /**
+     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate ancestors.
+     */
+    default List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        // should always be supported; UOE here is for convenience in mocking
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns the transitive set of supertypes/basetypes for the given CodeUnit.
+     * This is computed via a fixed-point iterative traversal using getDirectAncestors:
+     * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
+     * - Duplicates are removed by fqName.
+     * - Cycles are handled gracefully via a visited set.
+     *
+     * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
+     * ancestor resolution. This method composes those results into a transitive closure.
+     */
+    default List<CodeUnit> getAncestors(CodeUnit cu) {
+        // Seed with direct ancestors
+        List<CodeUnit> direct = getDirectAncestors(cu);
+        if (direct.isEmpty()) {
+            return List.of();
+        }
+
+        // Fixed-point traversal: BFS over direct ancestors
+        var result = new ArrayList<CodeUnit>(direct.size());
+        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
+        var queue = new ArrayDeque<CodeUnit>(direct.size());
+
+        for (var d : direct) {
+            if (visited.add(d.fqName())) {
+                result.add(d);
+                queue.add(d);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            List<CodeUnit> parents = getDirectAncestors(current);
+            if (parents.isEmpty()) continue;
+
+            for (var p : parents) {
+                String key = p.fqName();
+                if (visited.add(key)) {
+                    result.add(p);
+                    queue.addLast(p);
+                }
+            }
+        }
+
+        return result;
     }
 }

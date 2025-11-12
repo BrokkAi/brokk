@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 import javax.swing.SwingUtilities;
@@ -54,6 +55,17 @@ public class JavaLanguage implements Language {
     public IAnalyzer loadAnalyzer(IProject project) {
         // the LSP server component will handle loading in the cache
         return createAnalyzer(project);
+    }
+
+    @Override
+    public Set<String> getSearchPatterns(CodeUnitType type) {
+        if (type == CodeUnitType.FUNCTION) {
+            return Set.of(
+                    "\\b$ident\\s*\\(", // method calls: foo(...)
+                    "::\\s*$ident\\b" // method references: ::foo or this::foo
+                    );
+        }
+        return Language.super.getSearchPatterns(type);
     }
 
     @Override

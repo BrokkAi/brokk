@@ -433,15 +433,26 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Reports a client exception to the Brokk server for monitoring and debugging purposes.
+     * Reports a client exception to the Brokk server for monitoring and debugging purposes, with optional context
+     * fields.
      */
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
+    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
+            throws IOException {
         String brokkKey = MainProject.getBrokkKey();
 
         var jsonBody = objectMapper.createObjectNode();
         jsonBody.put("stacktrace", stacktrace);
         jsonBody.put("client_version", clientVersion);
+
+        // Add optional fields
+        if (!optionalFields.isEmpty()) {
+            var fieldsNode = objectMapper.createObjectNode();
+            for (var entry : optionalFields.entrySet()) {
+                fieldsNode.put(entry.getKey(), entry.getValue());
+            }
+            jsonBody.set("context", fieldsNode);
+        }
 
         RequestBody body = RequestBody.create(jsonBody.toString(), MediaType.parse("application/json"));
 

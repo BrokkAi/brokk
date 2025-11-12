@@ -15,6 +15,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -186,6 +187,8 @@ public interface IContextManager {
     }
 
     default void reportException(Throwable th) {}
+
+    default void reportException(Throwable th, Map<String, String> optionalFields) {}
 
     default StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
         var service = getService();

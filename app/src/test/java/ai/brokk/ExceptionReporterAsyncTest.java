@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -166,6 +167,66 @@ class ExceptionReporterAsyncTest {
     }
 
     @Test
+    @DisplayName("Should include optional fields in service call")
+    void shouldIncludeOptionalFieldsInServiceCall() throws Exception {
+        Exception testException = new RuntimeException("Test exception with fields");
+        Map<String, String> optionalFields = Map.of("userId", "user123", "context", "test-operation");
+
+        // Report the exception with optional fields
+        exceptionReporter.reportException(testException, optionalFields);
+        Thread.sleep(500);
+
+        // Verify the service was called
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+        assertEquals(optionalFields, call.optionalFields, "Optional fields should be passed to the service");
+        assertTrue(call.stacktrace.contains("RuntimeException"));
+    }
+
+    @Test
+    @DisplayName("Should handle empty optional fields map")
+    void shouldHandleEmptyOptionalFieldsMap() throws Exception {
+        Exception testException = new RuntimeException("Test exception");
+        Map<String, String> emptyFields = Map.of();
+
+        // Report the exception with empty optional fields
+        exceptionReporter.reportException(testException, emptyFields);
+        Thread.sleep(500);
+
+        // Verify the service was called
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+        assertTrue(call.optionalFields.isEmpty(), "Optional fields should be empty");
+    }
+
+    @Test
+    @DisplayName("Should support multiple optional fields")
+    void shouldSupportMultipleOptionalFields() throws Exception {
+        Exception testException = new RuntimeException("Test exception");
+        Map<String, String> optionalFields = Map.of(
+                "userId", "user123",
+                "sessionId", "sess456",
+                "operationType", "codeAnalysis",
+                "projectName", "TestProject");
+
+        // Report the exception with multiple optional fields
+        exceptionReporter.reportException(testException, optionalFields);
+        Thread.sleep(500);
+
+        // Verify the service was called
+        assertEquals(1, serviceSpy.getCalls().size(), "Service should be called once");
+
+        ServiceCall call = serviceSpy.getCalls().get(0);
+        assertEquals(4, call.optionalFields.size(), "Should have 4 optional fields");
+        assertEquals("user123", call.optionalFields.get("userId"));
+        assertEquals("sess456", call.optionalFields.get("sessionId"));
+        assertEquals("codeAnalysis", call.optionalFields.get("operationType"));
+        assertEquals("TestProject", call.optionalFields.get("projectName"));
+    }
+
+    @Test
     @DisplayName("Should report same exception type from different locations separately")
     void shouldReportSameExceptionTypeFromDifferentLocations() throws Exception {
         // Create two RuntimeExceptions from different methods (different stack traces)
@@ -227,9 +288,10 @@ class ExceptionReporterAsyncTest {
         private final ObjectMapper objectMapper = new ObjectMapper();
 
         @Override
-        public JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
+        public JsonNode reportClientException(
+                String stacktrace, String clientVersion, Map<String, String> optionalFields) throws IOException {
             callCount.incrementAndGet();
-            calls.add(new ServiceCall(stacktrace, clientVersion));
+            calls.add(new ServiceCall(stacktrace, clientVersion, optionalFields));
 
             if (shouldFail) {
                 throw new IOException("Test service failure");
@@ -255,10 +317,16 @@ class ExceptionReporterAsyncTest {
     private static class ServiceCall {
         final String stacktrace;
         final String clientVersion;
+        final Map<String, String> optionalFields;
 
         ServiceCall(String stacktrace, String clientVersion) {
+            this(stacktrace, clientVersion, Map.of());
+        }
+
+        ServiceCall(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
             this.stacktrace = stacktrace;
             this.clientVersion = clientVersion;
+            this.optionalFields = optionalFields != null ? optionalFields : Map.of();
         }
     }
 }
