@@ -360,32 +360,42 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public String getToolTipText(MouseEvent event) {
-        Segment seg = findSegmentAt(event.getX());
-        if (seg != null) {
-            // Do not show tooltips over context blocks.
-            return "";
-        }
-
-        // Not over a segment, so we're over the unfilled area.
-        // Show the primary/warning tooltip.
-        String primaryTooltip = computeWarningTooltip(
-                rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
-
-        if (primaryTooltip != null) {
-            return primaryTooltip;
-        }
-
-        // No segment and no primary tooltip. Fallback to default.
-        return super.getToolTipText(event);
+    // Expand the effective "over segment" area by a small horizontal margin so
+    // thin gaps or near-edge positions do not show the model-level tooltip.
+    int mouseX = event.getX();
+    int width = getWidth();
+    final int proximity = 4; // pixels to the left/right to treat as part of a segment
+    var segs = computeSegments(width);
+    for (var s : segs) {
+    if (s.widthPx <= 0) continue;
+    int left = Math.max(0, s.startX - proximity);
+    int right = Math.min(width, s.startX + s.widthPx + proximity);
+    if (mouseX >= left && mouseX < right) {
+    // Suppress any tooltip when mouse is over or very near a filled segment.
+    return null;
+    }
+    }
+    
+    // Not near any segment, so we're over the unfilled area.
+    // Show the primary/warning tooltip (unchanged behavior).
+    String primaryTooltip = computeWarningTooltip(
+    rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
+    
+    if (primaryTooltip != null) {
+    return primaryTooltip;
+    }
+    
+    // No segment and no primary tooltip. Fallback to default.
+    return super.getToolTipText(event);
     }
 
     @Override
     public @Nullable Point getToolTipLocation(MouseEvent event) {
-        try {
-            String text = getToolTipText(event);
-            if (text.isEmpty()) {
-                return null; // default behavior if no tooltip
-            }
+    try {
+    String text = getToolTipText(event);
+    if (text == null || text.isEmpty()) {
+    return null; // default behavior if no tooltip
+    }
 
             JToolTip tip = createToolTip();
             tip.setTipText(text);
