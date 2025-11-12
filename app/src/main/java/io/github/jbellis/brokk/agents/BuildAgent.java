@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -385,6 +386,7 @@ public class BuildAgent {
     }
 
     /** Holds semi-structured information about a project's build process */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> excludedDirectories) {
         public BuildDetails {
