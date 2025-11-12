@@ -197,6 +197,7 @@ public class Chrome
 
     private final JSplitPane topSplitPane; // Instructions | Workspace
     private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
+    private final JSplitPane mainHorizontalSplitPane; // Activity+Instructions | Output+Changes
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
@@ -647,17 +648,26 @@ public class Chrome
         // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
         workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
 
-        // Keep reference so existing persistence logic still works
-        topSplitPane = workspaceInstructionsSplit;
+        // NEW LAYOUT:
+        // New vertical split for Activity over (Workspace + Instructions)
+        var activityInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        activityInstructionsSplit.setTopComponent(historyOutputPanel.getActivityContainer());
+        activityInstructionsSplit.setBottomComponent(workspaceInstructionsSplit);
+        activityInstructionsSplit.setResizeWeight(0.4); // Activity gets 40%
+        activityInstructionsSplit.setMinimumSize(new Dimension(250, 0));
 
-        // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
-        JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputStackSplit.setTopComponent(historyOutputPanel);
-        outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
-        outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
+        // Assign to fields for persistence.
+        // `topSplitPane` now controls Activity vs (Workspace+Instructions).
+        // `mainVerticalSplitPane` now controls Workspace vs Instructions.
+        topSplitPane = activityInstructionsSplit;
+        mainVerticalSplitPane = workspaceInstructionsSplit;
 
-        // Keep reference so existing persistence logic still works
-        mainVerticalSplitPane = outputStackSplit;
+        // New horizontal split for the whole east side
+        var eastSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        eastSplit.setLeftComponent(activityInstructionsSplit);
+        eastSplit.setRightComponent(historyOutputPanel.getOutputChangesContainer());
+        eastSplit.setResizeWeight(0.35); // Left side (activity/instructions) gets 35%
+        this.mainHorizontalSplitPane = eastSplit;
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -675,9 +685,9 @@ public class Chrome
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
         bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
-        bottomSplitPane.setRightComponent(outputStackSplit);
+        bottomSplitPane.setRightComponent(eastSplit);
         // Ensure the right stack can shrink enough so the sidebar can grow
-        outputStackSplit.setMinimumSize(new Dimension(200, 0));
+        eastSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
         int tempDividerLocation = 300; // Reasonable default that will be recalculated
@@ -3709,15 +3719,15 @@ public class Chrome
                 // Measure the current on-screen height of the Instructions area so we can keep it EXACT
                 int instructionsHeightPx = 0;
                 try {
-                    // Bottom of the topSplitPane is the Instructions container when expanded
-                    Component bottom = topSplitPane.getBottomComponent();
+                    // Bottom of the workspaceInstructionsSplit is the Instructions container when expanded
+                    Component bottom = mainVerticalSplitPane.getBottomComponent();
                     if (bottom != null) {
                         instructionsHeightPx = Math.max(0, bottom.getHeight());
                     }
                     // Fallback estimate if height not realized yet
                     if (instructionsHeightPx == 0) {
-                        int tsTotal = Math.max(0, topSplitPane.getHeight());
-                        int tsDivider = topSplitPane.getDividerSize();
+                        int tsTotal = Math.max(0, mainVerticalSplitPane.getHeight());
+                        int tsDivider = mainVerticalSplitPane.getDividerSize();
                         int maxFromTop = Math.max(0, tsTotal - tsDivider);
                         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
                         instructionsHeightPx =
@@ -3730,19 +3740,19 @@ public class Chrome
                 // Pin the measured Instructions height for exact restore later
                 pinnedInstructionsHeightPx = instructionsHeightPx;
 
-                // Swap to Instructions-only in the bottom (now using the rightTabbedContainer directly)
-                mainVerticalSplitPane.setBottomComponent(rightTabbedContainer);
+                // Swap to Instructions-only in the bottom of the activity/instructions split
+                topSplitPane.setBottomComponent(rightTabbedContainer);
 
                 // Revalidate layout, then set the main divider so bottom == pinned Instructions height
-                mainVerticalSplitPane.revalidate();
-                SwingUtilities.invokeLater(
-                        () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
+                topSplitPane.revalidate();
+                SwingUtilities.invokeLater(() -> applyMainDividerForExactBottomHeight(
+                        topSplitPane, Math.max(0, pinnedInstructionsHeightPx)));
 
                 this.workspaceCollapsed = true;
 
                 // Refresh layout/paint
-                mainVerticalSplitPane.revalidate();
-                mainVerticalSplitPane.repaint();
+                topSplitPane.revalidate();
+                topSplitPane.repaint();
 
                 // Persist collapsed/expanded state (per-project + global)
                 try {
@@ -3762,17 +3772,17 @@ public class Chrome
     }
 
     /**
-     * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height, clamped to the
+     * Set the divider so that the bottom height equals the exact desired pixel height, clamped to the
      * bottom component's minimum size. This is used when collapsing Workspace to guarantee the Instructions area does
      * not resize at all.
      */
-    private void applyMainDividerForExactBottomHeight(int desiredBottomPx) {
-        int total = mainVerticalSplitPane.getHeight();
+    private void applyMainDividerForExactBottomHeight(JSplitPane splitPane, int desiredBottomPx) {
+        int total = splitPane.getHeight();
         if (total <= 0) {
             return;
         }
-        int dividerSize = mainVerticalSplitPane.getDividerSize();
-        Component bottom = mainVerticalSplitPane.getBottomComponent();
+        int dividerSize = splitPane.getDividerSize();
+        Component bottom = splitPane.getBottomComponent();
         int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
 
         int target = Math.max(0, desiredBottomPx);
@@ -3781,7 +3791,7 @@ public class Chrome
         int clampedBottom = Math.max(minAllowed, Math.min(target, maxAllowed));
 
         int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
-        mainVerticalSplitPane.setDividerLocation(safeDivider);
+        splitPane.setDividerLocation(safeDivider);
     }
 
     /**
