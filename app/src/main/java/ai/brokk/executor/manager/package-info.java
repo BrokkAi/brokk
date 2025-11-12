@@ -1,2 +1,2 @@
 @org.jspecify.annotations.NullMarked
-package ai.brokk.executor.manager.auth;
+package ai.brokk.executor.manager;
