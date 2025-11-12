@@ -1483,7 +1483,6 @@ public class Chrome
         // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y ->
         // "globalRedo").
         // The InputMap is cleared when refreshing keybindings, so duplicates are not a concern there.
-        if (stroke == null) return;
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         im.put(stroke, actionKey);
     }
