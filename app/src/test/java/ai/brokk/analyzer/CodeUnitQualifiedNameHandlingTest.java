@@ -1,11 +1,10 @@
 package ai.brokk.analyzer;
 
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Paths;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests verifying CodeUnit behavior when the provided short name is a fully-qualified token versus when package and
@@ -19,7 +18,8 @@ public class CodeUnitQualifiedNameHandlingTest {
 
     @Test
     public void qualifiedShortNameIsPreservedInCodeUnit() {
-        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
+        ProjectFile source =
+                new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
         CodeUnit cu = CodeUnit.cls(source, "", "com.example.MyClass");
 
         // The supplied shortName is itself a qualified token; CodeUnit should preserve it as the short name
@@ -30,7 +30,8 @@ public class CodeUnitQualifiedNameHandlingTest {
 
     @Test
     public void fqNameConstructedFromPackageAndShortName() {
-        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
+        ProjectFile source =
+                new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
         CodeUnit cu = CodeUnit.cls(source, "com.example", "MyClass");
 
         // When package and shortName are provided separately, shortName remains the simple name
@@ -41,7 +42,8 @@ public class CodeUnitQualifiedNameHandlingTest {
 
     @Test
     public void nestedLikeShortNameIsPreservedAndPrefixedByPackage() {
-        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/Outer.java");
+        ProjectFile source =
+                new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/Outer.java");
         // Simulate a shortName that already looks like an inner-class token "Outer$Inner"
         CodeUnit cu = CodeUnit.cls(source, "com.example", "Outer$Inner");
 
@@ -56,7 +58,8 @@ public class CodeUnitQualifiedNameHandlingTest {
 
     @Test
     public void functionQualifiedShortNameIsPreservedInCodeUnit() {
-        ProjectFile source = new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
+        ProjectFile source =
+                new ProjectFile(Paths.get(".").toAbsolutePath().normalize(), "src/main/java/com/example/MyClass.java");
         CodeUnit cu = CodeUnit.fn(source, "", "com.example.MyClass.myMethod");
 
         // When a function-style qualified token is provided as the short name, CodeUnit preserves it
