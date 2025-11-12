@@ -527,64 +527,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
+        // With keyword captures now in the query, this method is only called as a fallback
+        // for cases not covered by query patterns (e.g., class/interface member modifiers).
+        // The query handles export, default, declare, async, abstract, const, let, var at the top level.
         StringBuilder modifiers = new StringBuilder();
         TSNode nodeToCheck = node;
-        TSNode cachedParent = node.getParent();
-
-        if ("export_statement".equals(node.getType())) {
-            modifiers.append("export ");
-
-            if (node.getChildCount() > 1) {
-                TSNode secondChild = node.getChild(1);
-                if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
-                    modifiers.append("default ");
-                }
-            }
-
-            TSNode declaration = node.getChildByFieldName("declaration");
-            if (declaration != null && !declaration.isNull()) {
-                nodeToCheck = declaration;
-            }
-        } else {
-            if (cachedParent != null && !cachedParent.isNull() && "export_statement".equals(cachedParent.getType())) {
-                modifiers.append("export ");
-                if (cachedParent.getChildCount() > 1) {
-                    TSNode secondChild = cachedParent.getChild(1);
-                    if (secondChild != null && "default".equals(cachedTextSliceStripped(secondChild, src))) {
-                        modifiers.append("default ");
-                    }
-                }
-            }
-        }
-
-        if ("ambient_declaration".equals(nodeToCheck.getType())) {
-            modifiers.append("declare ");
-
-            for (int i = 0; i < nodeToCheck.getChildCount(); i++) {
-                TSNode child = nodeToCheck.getChild(i);
-                if (child != null && !child.isNull() && !"declare".equals(cachedTextSliceStripped(child, src))) {
-                    nodeToCheck = child;
-                    break;
-                }
-            }
-        } else {
-            if (cachedParent != null && !cachedParent.isNull()) {
-                if ("ambient_declaration".equals(cachedParent.getType())) {
-                    modifiers.append("declare ");
-                } else if (!("class_body".equals(cachedParent.getType())
-                        || "interface_body".equals(cachedParent.getType())
-                        || "enum_body".equals(cachedParent.getType())
-                        || "namespace_body".equals(cachedParent.getType()))) {
-                    // If parent is not a body and not ambient, check grandparent
-                    TSNode cachedGrandparent = cachedParent.getParent();
-                    if (cachedGrandparent != null
-                            && !cachedGrandparent.isNull()
-                            && "ambient_declaration".equals(cachedGrandparent.getType())) {
-                        modifiers.append("declare ");
-                    }
-                }
-            }
-        }
 
         // Check if the node or its unwrapped form is a variable declarator, check the parent declaration (lexical/var)
         TSNode parentDecl = nodeToCheck.getParent();
@@ -595,7 +542,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             nodeToCheck = parentDecl;
         }
 
-        // Look for modifier keywords in the first few children of the declaration
+        // Look for modifier keywords in the first few children (needed for class/interface members)
         for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {

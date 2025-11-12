@@ -24,39 +24,57 @@
 ; Export statements for class-like declarations
 ; Matches: export class Foo<T> { }, export default class Bar { }, etc.
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (class_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (abstract_class_declaration
+    "abstract" @keyword.modifier
     name: (type_identifier) @type.name
     type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (enum_declaration name: (identifier) @type.name)) @type.definition
 
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (interface_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters)) @type.definition
 
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (internal_module name: (_) @type.name)) @type.definition
 
 ; Export statements for functions
 ; Matches: export function foo() { }, export async function bar() { }, export default function baz() { }
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (function_declaration
+    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters)) @function.definition
 
 ; Export statements for function signatures (overloads)
 ; Matches: export function foo(x: string): void; (signature only, no body)
 (export_statement
+  "export" @keyword.modifier
   (function_signature
+    "async"? @keyword.modifier
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters)) @function.definition
 
 ; Export statements for type aliases
 ; Matches: export type MyType = string, export default type DefaultType<T> = T[]
 (export_statement
+  "export" @keyword.modifier
+  "default"? @keyword.modifier
   (type_alias_declaration
     name: (type_identifier) @typealias.name) @typealias.definition)
 
@@ -64,12 +82,16 @@
 ; Matches: export const myFunc = () => {}, export let PI = 3.14, export var x = 1
 ; Arrow functions will be reclassified as FUNCTION_LIKE by TypescriptAnalyzer.refineSkeletonType
 (export_statement
+  "export" @keyword.modifier
   (lexical_declaration
+    ["const" "let"] @keyword.modifier
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
 (export_statement
+  "export" @keyword.modifier
   (variable_declaration
+    "var" @keyword.modifier
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
@@ -77,13 +99,17 @@
 ; Matches: export const myFunc = () => {}, export let handler = async () => {}
 ; Note: Captures arrow functions with specific @arrow_function capture names (distinct from @value)
 (export_statement
+  "export" @keyword.modifier
   (lexical_declaration
+    ["const" "let"] @keyword.modifier
     (variable_declarator
       name: (identifier) @arrow_function.name
       value: (arrow_function))) @arrow_function.definition)
 
 (export_statement
+  "export" @keyword.modifier
   (variable_declaration
+    "var" @keyword.modifier
     (variable_declarator
       name: (identifier) @arrow_function.name
       value: (arrow_function))) @arrow_function.definition)
@@ -131,23 +157,27 @@
 ; Arrow functions will be reclassified as FUNCTION_LIKE by TypescriptAnalyzer.refineSkeletonType
 (program
   (lexical_declaration
+    ["const" "let"] @keyword.modifier
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
 (program
   (variable_declaration
+    "var" @keyword.modifier
     (variable_declarator
       name: (identifier) @value.name)) @value.definition)
 
 ; Top-level arrow function assignments (non-exported)
 (program
   (lexical_declaration
+    ["const" "let"] @keyword.modifier
     (variable_declarator
       name: (identifier) @arrow_function.name
       value: (arrow_function))) @arrow_function.definition)
 
 (program
   (variable_declaration
+    "var" @keyword.modifier
     (variable_declarator
       name: (identifier) @arrow_function.name
       value: (arrow_function))) @arrow_function.definition)
@@ -160,6 +190,7 @@
 ; Matches: declare var $: any, declare function fetch(): Promise<any>, declare namespace ThirdParty { }
 (program
   (ambient_declaration
+    "declare" @keyword.modifier
     [
       (class_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
       (interface_declaration name: (type_identifier) @type.name type_parameters: (_)? @class.type_parameters) @type.definition
@@ -167,6 +198,7 @@
       (internal_module name: (_) @type.name) @type.definition
       (function_signature name: (identifier) @function.name type_parameters: (_)? @function.type_parameters) @function.definition
       (variable_declaration
+        "var" @keyword.modifier
         (variable_declarator name: (identifier) @value.name) @value.definition)
     ]))
 
