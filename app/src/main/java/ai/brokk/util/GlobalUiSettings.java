@@ -53,6 +53,7 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
+    private static final String KEY_UI_EXPERIMENTAL_SPLIT_LAYOUT = "ui.experimentalSplitLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
 
     private static volatile @Nullable Properties cachedProps;
@@ -394,6 +395,14 @@ public final class GlobalUiSettings {
 
     public static void saveAdvancedMode(boolean advanced) {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
+    }
+
+    public static boolean isExperimentalSplitLayout() {
+        return getBoolean(KEY_UI_EXPERIMENTAL_SPLIT_LAYOUT, false);
+    }
+
+    public static void saveExperimentalSplitLayout(boolean enabled) {
+        setBoolean(KEY_UI_EXPERIMENTAL_SPLIT_LAYOUT, enabled);
     }
 
     // Instructions panel preferences
