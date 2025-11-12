@@ -11,6 +11,9 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCapture;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer {
@@ -493,44 +496,65 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, String src) {
-        // Java-specific extraction preserving [extends, implements...] order using AST fields
+        // Aggregate all @type.super captures for the same @type.decl across all matches.
+        // Previously only the first match was considered, which dropped additional interfaces.
         try {
-            List<String> result = new ArrayList<>();
+            var query = getThreadLocalQuery();
 
-            TSNode extendsNode = classNode.getChildByFieldName("superclass");
-            if (extendsNode != null && !extendsNode.isNull()) {
-                String raw = textSlice(extendsNode, src).strip();
-                if (!raw.isEmpty()) {
-                    // Strip the leading 'extends' keyword if present
-                    raw = raw.replaceFirst("^extends\\s+", "").strip();
-                    if (!raw.isEmpty()) {
-                        result.add(raw);
+            // Ascend to the root node for matching
+            TSNode root = classNode;
+            while (root.getParent() != null && !root.getParent().isNull()) {
+                root = root.getParent();
+            }
+
+            var cursor = new TSQueryCursor();
+            cursor.exec(query, root);
+
+            TSQueryMatch match = new TSQueryMatch();
+            List<TSNode> aggregateSuperNodes = new ArrayList<>();
+
+            final int targetStart = classNode.getStartByte();
+            final int targetEnd = classNode.getEndByte();
+
+            while (cursor.nextMatch(match)) {
+                TSNode declNode = null;
+                List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+                for (TSQueryCapture cap : match.getCaptures()) {
+                    String capName = query.getCaptureNameForId(cap.getIndex());
+                    TSNode n = cap.getNode();
+                    if (n == null || n.isNull()) continue;
+
+                    if ("type.decl".equals(capName)) {
+                        declNode = n;
+                    } else if ("type.super".equals(capName)) {
+                        superCapturesThisMatch.add(n);
                     }
+                }
+
+                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                    // Accumulate all type.super nodes for this declaration; do not break after first match.
+                    aggregateSuperNodes.addAll(superCapturesThisMatch);
                 }
             }
 
-            TSNode interfacesNode = classNode.getChildByFieldName("interfaces");
-            if (interfacesNode != null && !interfacesNode.isNull()) {
-                String rawList = textSlice(interfacesNode, src).strip();
-                if (!rawList.isEmpty()) {
-                    // For classes: implements A, B; interfaces: extends A, B
-                    rawList = rawList.replaceFirst("^(implements|extends)\\s+", "")
-                            .strip();
-                    if (!rawList.isEmpty()) {
-                        for (String t : splitTypeListRespectingGenericsJava(rawList)) {
-                            String tt = t.strip();
-                            if (!tt.isEmpty()) {
-                                result.add(tt);
-                            }
-                        }
-                    }
+            // Sort once to preserve source order: superclass first, then interfaces in declaration order
+            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+            for (TSNode s : aggregateSuperNodes) {
+                String text = textSlice(s, src).strip();
+                if (!text.isEmpty()) {
+                    supers.add(text);
                 }
             }
 
-            return result;
+            // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
+            LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+            return List.copyOf(unique);
         } catch (Throwable t) {
             log.debug(
-                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {}: {}",
+                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {} via query: {}",
                     cu.fqName(),
                     t.toString());
             return List.of();
