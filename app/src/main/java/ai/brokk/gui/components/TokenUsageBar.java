@@ -360,6 +360,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public String getToolTipText(MouseEvent event) {
+        Segment seg = findSegmentAt(event.getX());
+        if (seg != null) {
+            // Do not show tooltips over context blocks.
+            return null;
+        }
+
+        // Not over a segment, so we're over the unfilled area.
+        // Show the primary/warning tooltip.
         String primaryTooltip = computeWarningTooltip(
                 rateIsTested, modelConfig, warningLevel, lastSuccessRate, computeUsedTokens(), unfilledTooltipHtml);
 
@@ -367,20 +375,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return primaryTooltip;
         }
 
-        // Fallback: segment-based tooltips
-        try {
-            int width = getWidth();
-            // Ensure segments correspond to current size
-            var segs = computeSegments(width);
-            int x = Math.max(0, Math.min(event.getX(), width));
-            for (var s : segs) {
-                if (x >= s.startX && x < s.startX + s.widthPx) {
-                    return s.tooltipHtml;
-                }
-            }
-        } catch (Exception e) {
-            logger.trace("Failed to compute tooltip for token bar position", e);
-        }
+        // No segment and no primary tooltip. Fallback to default.
         return super.getToolTipText(event);
     }
 
@@ -388,7 +383,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public @Nullable Point getToolTipLocation(MouseEvent event) {
         try {
             String text = getToolTipText(event);
-            if (text.isEmpty()) {
+            if (text == null || text.isEmpty()) {
                 return null; // default behavior if no tooltip
             }
 
