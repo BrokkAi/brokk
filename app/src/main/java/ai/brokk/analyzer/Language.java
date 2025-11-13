@@ -14,8 +14,7 @@ import org.jetbrains.annotations.Nullable;
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
-    // TODO make this a Set
-    List<String> getExtensions();
+    Set<String> getExtensions();
 
     String name(); // Human-friendly
 
@@ -150,11 +149,11 @@ public interface Language {
         }
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return languages.stream()
                     .flatMap(l -> l.getExtensions().stream())
-                    .distinct()
-                    .toList();
+                    .map(ext -> ext.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
         }
 
         @Override

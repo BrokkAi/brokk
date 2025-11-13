@@ -22,12 +22,12 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class JavaLanguage implements Language {
-    private final List<String> extensions = List.of("java");
+    private final Set<String> extensions = Set.of("java");
 
     JavaLanguage() {}
 
     @Override
-    public List<String> getExtensions() {
+    public Set<String> getExtensions() {
         return extensions;
     }
 
