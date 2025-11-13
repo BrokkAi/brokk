@@ -1221,35 +1221,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
                     captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
                 }
-                if (notificationAreaPanel != null) {
-                    notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
-                    notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
-                    notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
-                }
+                notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
                 Dimension btnDim = new Dimension(btnSize, btnSize);
-                if (openWindowButton != null) {
-                    openWindowButton.setPreferredSize(btnDim);
-                    openWindowButton.setMinimumSize(btnDim);
-                    openWindowButton.setMaximumSize(btnDim);
-                }
-                if (notificationsButton != null) {
-                    notificationsButton.setPreferredSize(btnDim);
-                    notificationsButton.setMinimumSize(btnDim);
-                    notificationsButton.setMaximumSize(btnDim);
-                }
-            } else {
-                // Standard layout already has the correct working sizes set during construction.
-                // No changes needed; leave as-is.
+                openWindowButton.setPreferredSize(btnDim);
+                openWindowButton.setMinimumSize(btnDim);
+                openWindowButton.setMaximumSize(btnDim);
+                notificationsButton.setPreferredSize(btnDim);
+                notificationsButton.setMinimumSize(btnDim);
+                notificationsButton.setMaximumSize(btnDim);
             }
 
             if (captureOutputPanel != null) {
                 captureOutputPanel.revalidate();
                 captureOutputPanel.repaint();
             }
-            if (notificationAreaPanel != null) {
-                notificationAreaPanel.revalidate();
-                notificationAreaPanel.repaint();
-            }
+            notificationAreaPanel.revalidate();
+            notificationAreaPanel.repaint();
         });
     }
 
@@ -1271,9 +1260,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var nextToShow = notificationQueue.poll();
-        if (nextToShow == null) {
-            return;
-        }
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;

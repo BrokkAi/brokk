@@ -707,7 +707,6 @@ public class Chrome
             Component newFocusOwner = (Component) evt.getNewValue();
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
-                historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
                     if (newFocusOwner == instructionsPanel.getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
@@ -771,11 +770,9 @@ public class Chrome
                         }
                     });
                 }
-                return null;
+                return "";
             });
         }
-
-        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
@@ -1932,7 +1929,7 @@ public class Chrome
         int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         if (projectFilesTabIndex != -1) {
             leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
-            SwingUtilities.invokeLater(() -> projectFilesPanel.toggleDependencies());
+            SwingUtilities.invokeLater(projectFilesPanel::toggleDependencies);
         }
     }
 
@@ -2262,7 +2259,7 @@ public class Chrome
             var globalBounds = GlobalUiSettings.getMainWindowBounds();
             if (globalBounds.width > 0 && globalBounds.height > 0) {
                 // Calculate progressive DPI-aware offset based on number of open instances
-                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int instanceCount = openInstances.size(); // this instance not yet added
                 int step = UIScale.scale(20); // gentle, DPI-aware cascade step
                 int offsetX = globalBounds.x + (step * instanceCount);
                 int offsetY = globalBounds.y + (step * instanceCount);
@@ -3462,16 +3459,14 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
@@ -3977,9 +3972,6 @@ public class Chrome
     }
 
     private static void detachFromParent(Component component) {
-        if (component == null) {
-            return;
-        }
         Container parent = component.getParent();
         if (parent != null) {
             parent.remove(component);
@@ -3988,6 +3980,7 @@ public class Chrome
         }
     }
 
+    @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
