@@ -82,20 +82,6 @@ class BrokkConfigPathsTest {
     }
 
     @Test
-    void testLinuxConfigPathWithXDG() {
-        // Note: We can't easily mock environment variables in Java without native code or test frameworks
-        // This test documents the expected behavior when XDG_CONFIG_HOME is set
-        System.setProperty("os.name", "Linux");
-        System.setProperty("user.home", "/home/testuser");
-
-        Path result = BrokkConfigPaths.getGlobalConfigDir();
-
-        // If XDG_CONFIG_HOME environment variable is set, it should be used
-        // Otherwise falls back to ~/.config/Brokk
-        assertTrue(result.toString().endsWith("Brokk"), "Expected path to end with 'Brokk' (capital B)");
-    }
-
-    @Test
     void testConsistentCapitalization() {
         // Ensure all platform paths use capital 'Brokk'
         String[] osNames = {"Windows 10", "Mac OS X", "Linux"};
@@ -218,6 +204,12 @@ class BrokkConfigPathsTest {
             assertEquals(
                     "test.property=value",
                     Files.readString(newConfigDir.resolve("brokk.properties")).trim());
+
+            // Verify original was backed up
+            assertFalse(Files.exists(legacyFile), "Original file should not exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties.bak")),
+                    "Original should be backed up as .bak");
         }
 
         @Test
@@ -238,6 +230,12 @@ class BrokkConfigPathsTest {
             assertTrue(migrated, "Migration should succeed");
             assertTrue(Files.exists(newConfigDir), "New config dir should be created");
             assertTrue(Files.exists(newConfigDir.resolve("brokk.properties")), "File should be migrated");
+
+            // Verify original file was renamed to .bak
+            assertFalse(Files.exists(legacyFile), "Original file should no longer exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties.bak")),
+                    "Original file should be backed up as .bak");
 
             // Verify file contents
             Properties migratedProps = new Properties();
@@ -269,6 +267,22 @@ class BrokkConfigPathsTest {
                     "projects.properties should be migrated");
             assertTrue(Files.exists(newConfigDir.resolve("oom.flag")), "oom.flag should be migrated");
 
+            // Verify original files were renamed to .bak
+            assertFalse(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties")),
+                    "Original brokk.properties should not exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties.bak")),
+                    "brokk.properties should be backed up as .bak");
+            assertFalse(
+                    Files.exists(legacyConfigDir.resolve("projects.properties")),
+                    "Original projects.properties should not exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("projects.properties.bak")),
+                    "projects.properties should be backed up as .bak");
+            assertFalse(Files.exists(legacyConfigDir.resolve("oom.flag")), "Original oom.flag should not exist");
+            assertTrue(Files.exists(legacyConfigDir.resolve("oom.flag.bak")), "oom.flag should be backed up as .bak");
+
             // Verify contents
             assertEquals(
                     "key1=value1",
@@ -299,6 +313,19 @@ class BrokkConfigPathsTest {
             assertTrue(Files.exists(newConfigDir.resolve("brokk.properties")), "Expected file should be migrated");
             assertFalse(Files.exists(newConfigDir.resolve("unexpected.txt")), "Unexpected file should not be migrated");
             assertFalse(Files.exists(newConfigDir.resolve("other.config")), "Unexpected file should not be migrated");
+
+            // Verify only expected file was backed up
+            assertFalse(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties")),
+                    "Original brokk.properties should not exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties.bak")),
+                    "brokk.properties should be backed up as .bak");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("unexpected.txt")),
+                    "Unexpected files should remain untouched");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("other.config")), "Unexpected files should remain untouched");
         }
 
         @Test
@@ -317,6 +344,14 @@ class BrokkConfigPathsTest {
             assertTrue(Files.exists(newConfigDir.resolve("brokk.properties")), "Available file should be migrated");
             assertFalse(Files.exists(newConfigDir.resolve("projects.properties")), "Missing file should not appear");
             assertFalse(Files.exists(newConfigDir.resolve("oom.flag")), "Missing file should not appear");
+
+            // Verify available file was backed up
+            assertFalse(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties")),
+                    "Original brokk.properties should not exist");
+            assertTrue(
+                    Files.exists(legacyConfigDir.resolve("brokk.properties.bak")),
+                    "brokk.properties should be backed up as .bak");
         }
 
         @Test

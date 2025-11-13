@@ -1,6 +1,6 @@
 package ai.brokk.gui.util;
 
-import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.BrokkConfigPaths;
 import java.nio.file.Path;
 
 /**
@@ -9,6 +9,6 @@ import java.nio.file.Path;
 public class DefaultJDeployConfig implements JDeployConfig {
     @Override
     public Path getConfigDir() {
-        return GlobalUiSettings.getConfigDir();
+        return BrokkConfigPaths.getGlobalConfigDir();
     }
 }

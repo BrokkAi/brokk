@@ -59,12 +59,8 @@ public final class GlobalUiSettings {
 
     private GlobalUiSettings() {}
 
-    public static Path getConfigDir() {
-        return BrokkConfigPaths.getGlobalConfigDir();
-    }
-
     private static Path getUiPropertiesFile() {
-        return getConfigDir().resolve("ui.properties");
+        return BrokkConfigPaths.getGlobalConfigDir().resolve("ui.properties");
     }
 
     private static synchronized Properties loadProps() {
@@ -73,7 +69,7 @@ public final class GlobalUiSettings {
         }
         var props = new Properties();
         try {
-            var configDir = getConfigDir();
+            var configDir = BrokkConfigPaths.getGlobalConfigDir();
             Files.createDirectories(configDir);
             var file = getUiPropertiesFile();
             if (Files.exists(file)) {
@@ -90,7 +86,7 @@ public final class GlobalUiSettings {
 
     private static synchronized void saveProps(Properties props) {
         try {
-            var configDir = getConfigDir();
+            var configDir = BrokkConfigPaths.getGlobalConfigDir();
             Files.createDirectories(configDir);
             AtomicWrites.atomicSaveProperties(getUiPropertiesFile(), props, "Brokk global UI settings");
         } catch (IOException e) {
