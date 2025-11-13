@@ -137,8 +137,7 @@ public abstract class CodePrompts {
             var editableExtensions = fileContents.keySet().stream()
                     .map(f -> f.extension().toLowerCase(Locale.ROOT))
                     .collect(Collectors.toSet());
-            var allEditableAreJava = editableExtensions.stream()
-                    .allMatch(javaExtensions::contains);
+            var allEditableAreJava = editableExtensions.stream().allMatch(javaExtensions::contains);
 
             if (nonEmpty && allEditableAreJava) {
                 flags.add(InstructionsFlags.SYNTAX_AWARE);
