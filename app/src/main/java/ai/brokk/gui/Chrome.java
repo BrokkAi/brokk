@@ -1514,6 +1514,18 @@ public class Chrome
         im.put(stroke, actionKey);
     }
 
+    /**
+     * Applies advanced mode to the instructions panel with consistent error handling.
+     * Centralized helper to avoid duplication and ensure uniform logging.
+     */
+    private void applyAdvancedModeToInstructionsSafely(boolean advanced) {
+        try {
+            instructionsPanel.applyAdvancedModeForInstructions(advanced);
+        } catch (Exception ex) {
+            logger.warn("Failed to apply advanced mode to instructions panel", ex);
+        }
+    }
+
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
     public void refreshKeybindings() {
         // Unregister and re-register by rebuilding the maps for the keys we manage
@@ -2815,11 +2827,17 @@ public class Chrome
     /**
      * Hook to apply Advanced Mode UI visibility without restart.
      * Shows/hides tabs that are considered "advanced": Pull Requests, Issues, Log, Worktrees.
+     * Centralizes calls to update Instructions panel mode UI and refresh keybindings to avoid duplication.
      * Safe to call from any thread.
      */
     public void applyAdvancedModeVisibility() {
         Runnable r = () -> {
             boolean advanced = GlobalUiSettings.isAdvancedMode();
+
+            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
+            // Centralized here to avoid duplication in settings dialog and elsewhere
+            applyAdvancedModeToInstructionsSafely(advanced);
+
             // Ensure the small header above the right tab stack is updated immediately.
             try {
                 if (rightTabbedHeader != null) {
@@ -2834,20 +2852,6 @@ public class Chrome
             }
             // Update session management visibility in History panel
             historyOutputPanel.setAdvancedMode(advanced);
-
-            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
-            try {
-                instructionsPanel.applyAdvancedModeForInstructions(advanced);
-            } catch (Exception ex) {
-                logger.warn("Failed to apply advanced mode to instructions panel", ex);
-            }
-
-            // Refresh keybindings to update toggle-mode shortcut based on advanced mode
-            try {
-                refreshKeybindings();
-            } catch (Exception ex) {
-                logger.warn("Failed to refresh keybindings after advanced-mode toggle", ex);
-            }
 
             // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
@@ -3037,11 +3041,12 @@ public class Chrome
                 logger.debug("Failed to update rightTabbedHeader visibility", ex);
             }
 
-            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
+            // Refresh keybindings once after all UI updates to update toggle-mode shortcut
+            // Centralized here to ensure consistency and avoid duplicate calls
             try {
-                instructionsPanel.applyAdvancedModeForInstructions(advanced);
+                refreshKeybindings();
             } catch (Exception ex) {
-                logger.debug("Failed to apply advanced mode to instructions panel", ex);
+                logger.debug("Failed to refresh keybindings after advanced-mode toggle", ex);
             }
         };
 

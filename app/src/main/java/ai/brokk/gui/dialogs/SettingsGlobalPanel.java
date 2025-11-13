@@ -1565,13 +1565,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
 
         // General Tab - Advanced Mode
-        GlobalUiSettings.saveAdvancedMode(advancedModeCheckbox.isSelected());
-        try {
-            chrome.applyAdvancedModeVisibility();
-            chrome.getInstructionsPanel().applyAdvancedModeForInstructions(advancedModeCheckbox.isSelected());
-            chrome.refreshKeybindings();
-        } catch (Exception ex) {
-            // Non-fatal: hook will be implemented in follow-up tasks
+        // Only apply if the setting actually changed to avoid unnecessary UI refreshes
+        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        boolean newAdvancedMode = advancedModeCheckbox.isSelected();
+        if (previousAdvancedMode != newAdvancedMode) {
+            GlobalUiSettings.saveAdvancedMode(newAdvancedMode);
+            try {
+                // Chrome.applyAdvancedModeVisibility() handles instructions panel updates and keybinding refresh
+                // to avoid duplication and ensure consistent behavior
+                chrome.applyAdvancedModeVisibility();
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+            }
         }
 
         // General Tab - JVM Memory
