@@ -1499,15 +1499,10 @@ public class Chrome
     }
 
     /**
-     * Register standard redo keybindings in a single place so tests or other callers
-     * can reuse the same logic. Binds both the platform Shift+Cmd/Ctrl+Z redo and
-     * the Ctrl/Ctrl+Y variant to the "globalRedo" action key.
+     * Headless-safe helper to obtain the platform menu shortcut modifier mask.
+     * Falls back to CTRL mask in headless environments (CI).
      *
-     * Uses a headless-safe helper to obtain the platform menu shortcut mask so tests
-     * running in CI (headless) do not trigger HeadlessException when accessing Toolkit.
-     *
-     * @param rootPane  the root pane to attach the key strokes to
-     * @param redoAction the Action to put into the rootPane's action map under "globalRedo"
+     * @return the menu shortcut modifier mask for the current environment
      */
     private static int getMenuShortcutKeyMaskExSafe() {
         try {
@@ -1518,6 +1513,16 @@ public class Chrome
         }
     }
 
+    /**
+     * Register standard redo keybindings in a single place so tests or other callers
+     * can reuse the same logic. Binds both the platform Shift+Cmd/Ctrl+Z redo and
+     * the Ctrl/Ctrl+Y variant to the "globalRedo" action key.
+     *
+     * Uses {@link #getMenuShortcutKeyMaskExSafe()} to obtain a headless-safe menu mask.
+     *
+     * @param rootPane  the root pane to attach the key strokes to
+     * @param redoAction the Action to put into the rootPane's action map under "globalRedo"
+     */
     public static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
         int menuMask = getMenuShortcutKeyMaskExSafe();
 

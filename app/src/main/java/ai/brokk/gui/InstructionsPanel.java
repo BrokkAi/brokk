@@ -3061,13 +3061,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             setToolTipText(WAND_TOOLTIP);
             addActionListener(e -> {
                 // Record the snapshot before any assistant-driven overwrite begins
-                if (preExecuteHook != null) {
-                    try {
-                        preExecuteHook.run();
-                    } catch (Exception ex) {
-                        // Defensive: ensure the hook failure doesn't prevent the wand action
-                        logger.debug("Wand preExecuteHook threw an exception", ex);
-                    }
+                try {
+                    preExecuteHook.run();
+                } catch (Exception ex) {
+                    // Defensive: ensure the hook failure doesn't prevent the wand action
+                    logger.debug("Wand preExecuteHook threw an exception", ex);
                 }
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
