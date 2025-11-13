@@ -699,16 +699,25 @@ public class Context {
 
     /**
      * Retrieves the Discarded Context special fragment and returns a Map of description -> explanation.
-     * Uses SpecialTextType's modelExtractor for parsing; returns an empty map if absent or parse fails.
+     * Parses JSON directly; returns an empty map if absent or parse fails.
      */
     public Map<String, String> getDiscardedFragmentsNote() {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
-                .flatMap(ContextFragment.StringFragment::previewModel)
-                .map(model -> model.entrySet().stream().collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        e -> Objects.toString(e.getValue(), ""),
-                        (a, b) -> a,
-                        LinkedHashMap::new)))
+                .map(sf -> {
+                    try {
+                        var mapper = Json.getMapper();
+                        Map<String, Object> raw = mapper.readValue(sf.text(), new TypeReference<>() {});
+                        return raw.entrySet().stream()
+                                .collect(Collectors.toMap(
+                                        Map.Entry::getKey,
+                                        e -> Objects.toString(e.getValue(), ""),
+                                        (a, b) -> a,
+                                        LinkedHashMap::new));
+                    } catch (Exception e) {
+                        logger.warn("Failed to parse Discarded Context JSON", e);
+                        return new LinkedHashMap<String, String>();
+                    }
+                })
                 .orElseGet(LinkedHashMap::new);
     }
 
