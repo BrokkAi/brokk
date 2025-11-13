@@ -432,7 +432,7 @@ public class TreeSitterAnalyzerRustTest {
 
     @Test
     void testSearchDefinitions_Rust() {
-        List<CodeUnit> pointResults = rsAnalyzer.searchDefinitions("Point");
+        var pointResults = rsAnalyzer.searchDefinitions("Point");
         Set<String> pointFqNames = pointResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         // Expected: Point (struct), Point.x, Point.y (fields), Point.new, Point.translate, Point.draw (methods)
         // Point.ID, Point.area (from impl Shape for Point)
@@ -459,16 +459,16 @@ public class TreeSitterAnalyzerRustTest {
                 "Should find at least 2 symbols containing 'draw' (case-insensitive). Found: " + drawFqNames.size()
                         + " - " + drawFqNames);
 
-        List<CodeUnit> originResults = rsAnalyzer.searchDefinitions("ORIGIN");
+        var originResults = rsAnalyzer.searchDefinitions("ORIGIN");
         assertTrue(originResults.stream().anyMatch(cu -> "_module_.ORIGIN".equals(cu.fqName())));
         assertEquals(1, originResults.size());
 
         // Search for enum variant
-        List<CodeUnit> redResults = rsAnalyzer.searchDefinitions("Red");
+        var redResults = rsAnalyzer.searchDefinitions("Red");
         assertTrue(redResults.stream().anyMatch(cu -> "Color.Red".equals(cu.fqName())));
 
         // Search for associated const
-        List<CodeUnit> idResults = rsAnalyzer.searchDefinitions("ID"); // Will find Shape.ID, Point.ID, Circle.ID
+        var idResults = rsAnalyzer.searchDefinitions("ID"); // Will find Shape.ID, Point.ID, Circle.ID
         Set<String> idFqNames = idResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(idFqNames.contains("Shape.ID"));
         assertTrue(idFqNames.contains("Point.ID"));
@@ -476,7 +476,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(3, idFqNames.size());
 
         // Search for constructor-like patterns (Rust uses 'new' convention)
-        List<CodeUnit> newResults = rsAnalyzer.searchDefinitions("new");
+        var newResults = rsAnalyzer.searchDefinitions("new");
         Set<String> newFqNames = newResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         // Note: Rust doesn't have special constructor syntax like Java's <init>,
         // but 'new' is a common constructor pattern

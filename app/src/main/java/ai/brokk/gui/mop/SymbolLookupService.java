@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.TypeAliasProvider;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -453,7 +454,7 @@ public class SymbolLookupService {
 
     /** Find all classes with exact simple name match for the given search term. */
     private static List<CodeUnit> findAllClassMatches(
-            String searchTerm, List<CodeUnit> searchResults, IAnalyzer analyzer) {
+            String searchTerm, Collection<CodeUnit> searchResults, IAnalyzer analyzer) {
         var typeAliasProvider = analyzer.as(TypeAliasProvider.class);
         return searchResults.stream()
                 .filter(cu -> cu.isClass()

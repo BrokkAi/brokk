@@ -4,6 +4,7 @@ import ai.brokk.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -92,7 +93,7 @@ public interface IAnalyzer {
         return getDefinition(cu.fqName());
     }
 
-    default List<CodeUnit> searchDefinitions(String pattern) {
+    default Set<CodeUnit> searchDefinitions(String pattern) {
         return searchDefinitions(pattern, true);
     }
 
@@ -101,10 +102,10 @@ public interface IAnalyzer {
      * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
-    default List<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
+    default Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {
-            return List.of();
+            return Set.of();
         }
 
         // Prepare case-insensitive regex pattern
@@ -133,16 +134,16 @@ public interface IAnalyzer {
      * @param query the search query
      * @return a list of candidates where their fully qualified names may match the query.
      */
-    default List<CodeUnit> autocompleteDefinitions(String query) {
+    default Set<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
-            return List.of();
+            return Set.of();
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
-        List<CodeUnit> baseResults = searchDefinitions(".*" + query + ".*");
+        var baseResults = searchDefinitions(".*" + query + ".*");
 
         // Fuzzy: if short query, over-approximate by inserting ".*" between characters
-        List<CodeUnit> fuzzyResults = List.of();
+        Set<CodeUnit> fuzzyResults = Set.of();
         if (query.length() < 5) {
             StringBuilder sb = new StringBuilder("(?i)");
             sb.append(".*");
@@ -163,7 +164,7 @@ public interface IAnalyzer {
         for (CodeUnit cu : baseResults) byFqName.put(cu.fqName(), cu);
         for (CodeUnit cu : fuzzyResults) byFqName.putIfAbsent(cu.fqName(), cu);
 
-        return new ArrayList<>(byFqName.values());
+        return new HashSet<>(byFqName.values());
     }
 
     /**
@@ -179,21 +180,21 @@ public interface IAnalyzer {
      * @param compiledPattern The compiled regex pattern (null if using fallback)
      * @return List of matching CodeUnits
      */
-    default List<CodeUnit> searchDefinitionsImpl(
+    default Set<CodeUnit> searchDefinitionsImpl(
             String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // Default implementation using getAllDeclarations
         if (fallbackPattern != null) {
             return getAllDeclarations().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                    .toList();
+                    .collect(Collectors.toSet());
         } else if (compiledPattern != null) {
             return getAllDeclarations().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                    .toList();
+                    .collect(Collectors.toSet());
         } else {
             return getAllDeclarations().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
-                    .toList();
+                    .collect(Collectors.toSet());
         }
     }
 
