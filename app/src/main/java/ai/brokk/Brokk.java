@@ -17,6 +17,7 @@ import ai.brokk.gui.dialogs.OpenProjectDialog;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeBorderManager;
+import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.google.common.base.Splitter;
@@ -376,6 +377,11 @@ public class Brokk {
         Thread.setDefaultUncaughtExceptionHandler(new GlobalExceptionHandler());
         logBanner();
         logger.debug("Brokk starting");
+
+        // Migrate config files from legacy lowercase directory to unified directory (if needed)
+        // MUST happen before setupSystemPropertiesAndIcon() which reads config
+        BrokkConfigPaths.attemptMigration();
+
         setupSystemPropertiesAndIcon();
 
         if (MainProject.initializeOomFlag()) {

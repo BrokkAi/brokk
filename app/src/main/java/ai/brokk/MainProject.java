@@ -11,6 +11,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;
+import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -118,7 +119,7 @@ public final class MainProject extends AbstractProject {
     @Nullable
     private static Properties globalPropertiesCache = null; // protected by synchronized
 
-    private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
+    private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
     private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
@@ -188,7 +189,7 @@ public final class MainProject extends AbstractProject {
         }
 
         // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
-        boolean needsProjectSave = false;
+        // Note: We copy values to workspace.properties but do NOT modify project.properties on disk
         boolean migratedArchitectSettings = false;
 
         if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
@@ -200,8 +201,8 @@ public final class MainProject extends AbstractProject {
                         ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
                 migratedArchitectSettings = true;
             }
+            // Remove from in-memory props for backward compat, but don't save to disk
             projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
-            needsProjectSave = true;
         }
 
         // Migrate Live Dependencies from projectProps to workspace properties
@@ -211,8 +212,8 @@ public final class MainProject extends AbstractProject {
                 workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
                 migratedLiveDeps = true;
             }
+            // Remove from in-memory props for backward compat, but don't save to disk
             projectProps.remove(LIVE_DEPENDENCIES_KEY);
-            needsProjectSave = true;
         }
 
         if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspace properties
@@ -225,15 +226,6 @@ public final class MainProject extends AbstractProject {
             if (migratedLiveDeps) {
                 logger.info(
                         "Migrated Live Dependencies from project.properties to workspace.properties for {}",
-                        root.getFileName());
-            }
-        }
-        if (needsProjectSave) { // Keys were removed from projectProps
-            saveProjectProperties();
-            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in
-                // workspace)
-                logger.info(
-                        "Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}",
                         root.getFileName());
             }
         }

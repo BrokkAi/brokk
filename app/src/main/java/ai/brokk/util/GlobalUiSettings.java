@@ -60,33 +60,7 @@ public final class GlobalUiSettings {
     private GlobalUiSettings() {}
 
     public static Path getConfigDir() {
-        // Testability hook: allow tests to override the config directory to avoid touching real user config.
-        // If set, this takes precedence over OS-specific logic.
-        var override = System.getProperty("brokk.ui.config.dir");
-        if (override != null && !override.isBlank()) {
-            try {
-                return Path.of(override);
-            } catch (Exception e) {
-                logger.warn("Invalid system property brokk.ui.config.dir='{}': {}", override, e.getMessage());
-            }
-        }
-
-        var os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            var appData = System.getenv("APPDATA");
-            Path base = (appData != null && !appData.isBlank())
-                    ? Path.of(appData)
-                    : Path.of(System.getProperty("user.home"), "AppData", "Roaming");
-            return base.resolve("Brokk");
-        } else if (os.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Application Support", "Brokk");
-        } else {
-            var xdg = System.getenv("XDG_CONFIG_HOME");
-            Path base = (xdg != null && !xdg.isBlank())
-                    ? Path.of(xdg)
-                    : Path.of(System.getProperty("user.home"), ".config");
-            return base.resolve("Brokk");
-        }
+        return BrokkConfigPaths.getGlobalConfigDir();
     }
 
     private static Path getUiPropertiesFile() {

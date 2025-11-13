@@ -108,6 +108,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
+
     private final ActionSplitButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
