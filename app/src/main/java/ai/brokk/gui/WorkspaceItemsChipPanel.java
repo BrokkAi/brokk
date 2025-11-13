@@ -422,9 +422,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
                 // Subscribe for newly added summary ids
                 for (var f : summaries) {
-                    if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
-                        subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, (JLabel)
-                                syntheticSummaryChip.getClientProperty("brokk.chip.label"));
+                    if (!prevIds.contains(f.id())
+                            && f instanceof ContextFragment.ComputedFragment
+                            && syntheticSummaryChip.getClientProperty("brokk.chip.label") instanceof JLabel chipLabel) {
+                        subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, chipLabel);
                     }
                 }
                 syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
