@@ -26,8 +26,7 @@ application {
     applicationDefaultJvmArgs = listOf(
         // enable feature flags; JavaExec baseline supplies other args
         "-Dbrokk.servicetiers=true",
-        "-Dbrokk.architectshell=true",
-        "-Dwatch.service.polling=true"
+        "-Dbrokk.architectshell=true"
     )
 }
 
