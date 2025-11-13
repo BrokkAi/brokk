@@ -841,15 +841,6 @@ public interface ContextFragment {
         }
 
         /**
-         * Returns an optional structured model extracted from this fragment's text, based on its SpecialTextType.
-         * For non-special fragments or types without a model extractor, returns Optional.empty().
-         */
-        public Optional<Map<String, Object>> previewModel() {
-            var st = specialType();
-            return st.map(tt -> tt.modelExtractor().apply(text())).orElse(Optional.empty());
-        }
-
-        /**
          * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
          * content for the provided task type, a generic placeholder is returned. Otherwise the raw text is returned.
          * For non-special fragments, returns raw text.

@@ -1,8 +1,6 @@
 package ai.brokk.context;
 
 import ai.brokk.TaskResult;
-import ai.brokk.util.Json;
-import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,7 +29,6 @@ public final class SpecialTextType {
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
-    private final Function<String, Optional<Map<String, Object>>> modelExtractor;
     private final Predicate<TaskResult.Type> canViewContent;
 
     private SpecialTextType(
@@ -41,7 +38,6 @@ public final class SpecialTextType {
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
-            Function<String, Optional<Map<String, Object>>> modelExtractor,
             Predicate<TaskResult.Type> canViewContent) {
         this.description = description;
         this.internalSyntaxStyle = internalSyntaxStyle;
@@ -49,7 +45,6 @@ public final class SpecialTextType {
         this.droppable = droppable;
         this.singleton = singleton;
         this.previewRenderer = previewRenderer;
-        this.modelExtractor = modelExtractor;
         this.canViewContent = canViewContent;
     }
 
@@ -67,7 +62,6 @@ public final class SpecialTextType {
             true, // droppable
             true, // singleton
             Function.identity(), // raw preview is fine
-            s -> Optional.empty(), // no structured model by default
             t -> true // visible to all agents by default
             ));
 
@@ -78,7 +72,6 @@ public final class SpecialTextType {
             true, // droppable
             true, // singleton
             Function.identity(), // already Markdown
-            s -> Optional.empty(), // no structured model by default
             t -> true // visible to all
             ));
 
@@ -89,16 +82,6 @@ public final class SpecialTextType {
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
-            s -> {
-                try {
-                    var mapper = Json.getMapper();
-                    Map<String, Object> map = mapper.readValue(s, new TypeReference<>() {
-                    });
-                    return Optional.of(map);
-                } catch (Exception e) {
-                    return Optional.empty();
-                }
-            }, // structured model: parsed JSON map
             t -> true // visible to all
             ));
 
@@ -109,7 +92,6 @@ public final class SpecialTextType {
             false, // non-droppable
             true, // singleton
             Function.identity(), // preview already Markdown-friendly
-            s -> Optional.empty(), // model can be provided later (e.g., JSON->Map)
             t -> true // default visibility; callers may apply redaction policy
             ));
 
@@ -160,10 +142,6 @@ public final class SpecialTextType {
 
     public Function<String, String> previewRenderer() {
         return previewRenderer;
-    }
-
-    public Function<String, Optional<Map<String, Object>>> modelExtractor() {
-        return modelExtractor;
     }
 
     public Predicate<TaskResult.Type> canViewContent() {
