@@ -7,7 +7,6 @@ import com.google.errorprone.bugpatterns.BugChecker;
 import com.google.errorprone.matchers.Description;
 import com.google.errorprone.util.ASTHelpers;
 import com.sun.source.tree.IfTree;
-import com.sun.source.tree.MemberReferenceTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
@@ -30,8 +29,7 @@ import com.sun.tools.javac.code.Symbol.MethodSymbol;
                 "This call may perform analyzer work or I/O. Prefer using the corresponding computed*() "
                         + "non-blocking method (e.g., computedFiles(), computedSources(), computedText(), computedDescription(), computedSyntaxStyle()).",
         severity = BugPattern.SeverityLevel.WARNING)
-public final class BlockingOperationChecker extends BugChecker
-        implements BugChecker.MethodInvocationTreeMatcher, BugChecker.MemberReferenceTreeMatcher {
+public final class BlockingOperationChecker extends BugChecker implements BugChecker.MethodInvocationTreeMatcher {
 
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
@@ -64,24 +62,6 @@ public final class BlockingOperationChecker extends BugChecker
         return buildDescription(tree).setMessage(message).build();
     }
 
-    @Override
-    public Description matchMemberReference(MemberReferenceTree tree, VisitorState state) {
-        Symbol sym = ASTHelpers.getSymbol(tree);
-        if (!(sym instanceof MethodSymbol msym)) {
-            return Description.NO_MATCH;
-        }
-
-        if (!hasDirectAnnotation(msym, BLOCKING_ANN_FQCN, state)) {
-            return Description.NO_MATCH;
-        }
-
-        String message = String.format(
-                "Referencing potentially blocking %s; prefer the corresponding computed*() non-blocking method.",
-                msym.getSimpleName());
-
-        return buildDescription(tree).setMessage(message).build();
-    }
-
     private static boolean isWithinInvokeLaterArgument(VisitorState state) {
         // The node being analyzed (e.g., the @Blocking method invocation)
         Tree target = state.getPath().getLeaf();
@@ -102,9 +82,7 @@ public final class BlockingOperationChecker extends BugChecker
 
     private static boolean isSwingInvokeLater(MethodInvocationTree mit) {
         MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        return ms != null
-                && ms.getSimpleName().contentEquals("invokeLater")
-                && isSwingUtilitiesOwner(ms.owner);
+        return ms != null && ms.getSimpleName().contentEquals("invokeLater") && isSwingUtilitiesOwner(ms.owner);
     }
 
     private static boolean isSwingIsEventDispatchThread(MethodInvocationTree mit) {

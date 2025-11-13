@@ -5,6 +5,7 @@ plugins {
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.ADOPTIUM)
     }
 }
 
@@ -53,9 +54,10 @@ tasks.withType<Test>().configureEach {
     // Do not fail the build if no tests are discovered when running aggregate test tasks
     failOnNoDiscoveredTests = false
 
-    // Force tests to run on JDK 21 (full JDK with jdk.compiler)
+    // Force tests to run on Eclipse Temurin JDK 21 (full JDK with jdk.compiler)
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.ADOPTIUM)
     })
 
     // Keep assertions enabled and export javac internals for Error Prone test harness

@@ -1,10 +1,9 @@
 package ai.brokk.errorprone;
 
 import com.google.errorprone.CompilationTestHelper;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
-
 import java.util.List;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for BlockingOperationChecker using Error Prone's CompilationTestHelper.
@@ -131,8 +130,7 @@ public class BlockingOperationCheckerTest {
     }
 
     @Test
-    @Disabled("Temporarily disabled: member-reference detection under refinement")
-    public void warnsOnMemberReferenceToBlockingMethod() {
+    public void doesNotWarnOnMemberReferenceToBlockingMethod() {
         helper.addSourceLines(
                         "org/jetbrains/annotations/Blocking.java",
                         "package org.jetbrains.annotations;",
@@ -155,7 +153,6 @@ public class BlockingOperationCheckerTest {
                         "class Use {",
                         "  void f(CF cf) {",
                         "    SwingUtilities.invokeLater(() -> {",
-                        "      // BUG: Diagnostic contains: computed",
                         "      Supplier<Set<String>> s = cf::files;",
                         "    });",
                         "  }",
