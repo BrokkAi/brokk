@@ -755,9 +755,6 @@ public interface ContextFragment {
 
     record StringFragmentType(String description, String syntaxStyle) {}
 
-    StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    StringFragmentType DISCARDED_CONTEXT =
-            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
     StringFragmentType TASK_LIST = new StringFragmentType("Task List", SyntaxConstants.SYNTAX_STYLE_JSON);
 
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
@@ -866,6 +863,14 @@ public interface ContextFragment {
                 return "[%s content hidden for %s]".formatted(description, taskType.name());
             }
             return text();
+        }
+
+        /**
+         * Returns whether this fragment is droppable according to its SpecialTextType policy.
+         * Non-special fragments default to droppable.
+         */
+        public boolean droppable() {
+            return specialType().map(SpecialTextType::droppable).orElse(true);
         }
 
         @Override

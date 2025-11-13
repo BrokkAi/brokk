@@ -25,16 +25,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
@@ -707,29 +698,18 @@ public class Context {
     }
 
     /**
-     * Retrieves the DISCARDED_CONTEXT fragment and parses it as a Map of description -> explanation.
-     * Returns an empty map if no DISCARDED_CONTEXT fragment exists or if parsing fails.
+     * Retrieves the Discarded Context special fragment and returns a Map of description -> explanation.
+     * Uses SpecialTextType's modelExtractor for parsing; returns an empty map if absent or parse fails.
      */
     public Map<String, String> getDiscardedFragmentsNote() {
-        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
-        var existingDiscarded = virtualFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                .filter(vf -> vf instanceof ContextFragment.StringFragment)
-                .map(vf -> (ContextFragment.StringFragment) vf)
-                .filter(sf -> discardedDescription.equals(sf.description()))
-                .findFirst();
-
-        if (existingDiscarded.isEmpty()) {
-            return Map.of();
-        }
-
-        var mapper = Json.getMapper();
-        try {
-            return mapper.readValue(existingDiscarded.get().text(), new TypeReference<Map<String, String>>() {});
-        } catch (Exception e) {
-            logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
-            return Map.of();
-        }
+        return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
+                .flatMap(ContextFragment.StringFragment::previewModel)
+                .map(model -> model.entrySet().stream().collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> Objects.toString(e.getValue(), ""),
+                        (a, b) -> a,
+                        LinkedHashMap::new)))
+                .orElseGet(LinkedHashMap::new);
     }
 
     // --- SpecialTextType helpers ---

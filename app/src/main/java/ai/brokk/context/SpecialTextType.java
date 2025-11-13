@@ -1,6 +1,8 @@
 package ai.brokk.context;
 
 import ai.brokk.TaskResult;
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -87,7 +89,16 @@ public final class SpecialTextType {
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
-            s -> Optional.empty(), // no structured model by default
+            s -> {
+                try {
+                    var mapper = Json.getMapper();
+                    Map<String, Object> map = mapper.readValue(s, new TypeReference<>() {
+                    });
+                    return Optional.of(map);
+                } catch (Exception e) {
+                    return Optional.empty();
+                }
+            }, // structured model: parsed JSON map
             t -> true // visible to all
             ));
 
