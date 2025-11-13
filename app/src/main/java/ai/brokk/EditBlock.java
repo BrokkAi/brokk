@@ -2,20 +2,12 @@ package ai.brokk;
 
 import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.*;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -727,16 +719,6 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-
-        // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
-        var editableFiles = contextManager.getFilesInContext();
-        var javaOnly = !editableFiles.isEmpty()
-                && editableFiles.stream().allMatch(f -> "java".equalsIgnoreCase(f.extension()));
-        if (!javaOnly) {
-            throw new AssertionError(
-                    "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
-        }
-
         var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
@@ -744,13 +726,33 @@ public class EditBlock {
         }
         var scp = scpOpt.get();
 
+        // Only Java is supported right now
+        var supportedAnalyzer = analyzer.subAnalyzer(Languages.JAVA);
+        var supportedExt = Languages.JAVA.getExtensions();
+        var isSupportedExt = new Predicate<String>() {
+            @Override
+            public boolean test(String extension) {
+                return supportedExt.contains(extension.toLowerCase(Locale.ROOT));
+            }
+        };
+
+        // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
+        var editableFiles = contextManager.getFilesInContext();
+        var javaOnly = supportedAnalyzer.isPresent()
+                && !editableFiles.isEmpty()
+                && editableFiles.stream().allMatch(f -> isSupportedExt.test(f.extension()));
+        if (!javaOnly) {
+            throw new AssertionError(
+                    "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
+        }
+
         String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
             // Prefer exact definition lookup, then ensure it's a Java class.
             var def = analyzer.getDefinition(fqName);
             if (def.isPresent()) {
                 var cu = def.get();
-                if (!"java".equalsIgnoreCase(cu.source().extension())) {
+                if (!isSupportedExt.test(cu.source().extension())) {
                     throw new NoMatchException("BRK_CLASS is only supported for Java in this workspace. "
                             + "Found a non-Java symbol with that name. Use a line-based SEARCH instead.");
                 }
@@ -763,7 +765,7 @@ public class EditBlock {
 
             // No exact match; suggest up to 3 similarly named Java classes
             var suggestions = analyzer.searchDefinitions(shortName).stream()
-                    .filter(cu -> "java".equalsIgnoreCase(cu.source().extension()))
+                    .filter(cu -> isSupportedExt.test(cu.source().extension()))
                     .map(CodeUnit::fqName)
                     .filter(n -> {
                         int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
