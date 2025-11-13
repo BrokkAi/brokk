@@ -1494,7 +1494,6 @@ public class Chrome
         // The InputMap is cleared when refreshing keybindings, so duplicates are not a concern there.
         // Runtime assertion: callers are expected to provide a non-null KeyStroke (documented in method javadoc).
         // Enforce this invariant early to get a fast, clear failure if violated.
-        requireNonNull(stroke, "stroke");
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         im.put(stroke, actionKey);
     }
