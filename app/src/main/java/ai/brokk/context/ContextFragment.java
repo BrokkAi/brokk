@@ -755,8 +755,6 @@ public interface ContextFragment {
 
     record StringFragmentType(String description, String syntaxStyle) {}
 
-    StringFragmentType BUILD_RESULTS =
-            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
     StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
     StringFragmentType DISCARDED_CONTEXT =
             new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);

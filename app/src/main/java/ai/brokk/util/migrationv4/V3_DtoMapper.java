@@ -10,6 +10,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.FrozenFragment;
+import ai.brokk.context.SpecialTextType;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -281,8 +282,8 @@ public class V3_DtoMapper {
                         bfDto.id(),
                         mgr,
                         text,
-                        ContextFragment.BUILD_RESULTS.description(),
-                        ContextFragment.BUILD_RESULTS.syntaxStyle());
+                        SpecialTextType.BUILD_RESULTS.description(),
+                        SpecialTextType.BUILD_RESULTS.internalSyntaxStyle());
             }
             case V3_FragmentDtos.HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()

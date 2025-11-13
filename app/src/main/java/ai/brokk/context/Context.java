@@ -996,36 +996,25 @@ public class Context {
     }
 
     public Optional<ContextFragment.StringFragment> getBuildFragment() {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        return virtualFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
-                .map(ContextFragment.StringFragment.class::cast)
-                .findFirst();
+        return getSpecial(SpecialTextType.BUILD_RESULTS.description());
     }
 
     /**
-     * Returns a new Context reflecting the latest build result. Behavior mirrors ContextManager.updateBuildFragment: -
-     * Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment). - Adds a new
-     * "Latest Build Results" StringFragment only on failure; no fragment on success.
+     * Updates the Latest Build Results special fragment.
+     * - On success: remove existing BUILD_RESULTS StringFragment if present; no fragment otherwise.
+     * - On failure: upsert the BUILD_RESULTS StringFragment with the processed output.
      */
     public Context withBuildResult(boolean success, String processedOutput) {
-        var desc = SpecialTextType.BUILD_RESULTS.description();
-
-        // Collect legacy BuildFragment (BUILD_LOG) and any existing BUILD_RESULTS StringFragment
-        var idsToDrop = virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                        || (f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description())))
-                .map(ContextFragment::id)
-                .toList();
-
-        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
-
         if (success) {
-            return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+            var existing = getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            if (existing.isEmpty()) {
+                return withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+            }
+            return removeFragmentsByIds(List.of(existing.get().id()))
+                    .withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
         }
-
-        var updated = afterClear.putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput);
-        return updated.withAction(CompletableFuture.completedFuture("Build results updated (failure)"));
+        return putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput)
+                .withAction(CompletableFuture.completedFuture("Build results updated (failure)"));
     }
 
     /**
