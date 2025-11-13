@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
+import static ai.brokk.testutil.AssertionHelperUtil.*;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -230,9 +230,9 @@ public class PhpAnalyzerTest {
         assertTrue(sourceOpt.isPresent());
         final var classSource = sourceOpt.get();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";
-        assertTrue(classSource.startsWith(expectedSourceStart));
-        assertTrue(classSource.endsWith("}")); // Outer class brace
-        assertTrue(classSource.contains("private const MY_CONST = \"hello\";"));
-        assertTrue(classSource.contains("public function getValue(): int {"));
+        assertCodeStartsWith(classSource, expectedSourceStart);
+        assertCodeEndsWith(classSource, "}"); // Outer class brace
+        assertCodeContains(classSource, "private const MY_CONST = \"hello\";");
+        assertCodeContains(classSource, "public function getValue(): int {");
     }
 }

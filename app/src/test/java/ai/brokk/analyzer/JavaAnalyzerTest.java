@@ -70,10 +70,9 @@ public class JavaAnalyzerTest {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -87,10 +86,9 @@ public class JavaAnalyzerTest {
                 public void method7() {
                                 System.out.println("hello");
                             }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -104,10 +102,9 @@ public class JavaAnalyzerTest {
                         public B() {
                                 System.out.println("B constructor");
                             }
-                        """
-                        .trim();
+                        """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -136,8 +133,7 @@ public class JavaAnalyzerTest {
                             }
                         }
                     }
-                """
-                        .trim();
+                """;
         assertCodeEquals(expected, source);
     }
 
@@ -154,8 +150,7 @@ public class JavaAnalyzerTest {
                                 System.out.println("hello");
                             }
                         }
-                """
-                        .trim();
+                """;
         assertCodeEquals(expected, source);
     }
 
