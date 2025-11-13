@@ -66,12 +66,13 @@ class BrokkConfigPathsTest {
     @Test
     void testLinuxConfigPath() {
         System.setProperty("os.name", "Linux");
-        System.setProperty("user.home", "/home/testuser");
+        var testUserHome = "/home/testuser";
+        System.setProperty("user.home", testUserHome);
 
         Path result = BrokkConfigPaths.getGlobalConfigDir();
 
         // Without XDG_CONFIG_HOME, should fall back to ~/.config/Brokk
-        assertEquals(Path.of("/home/testuser/.config/Brokk"), result, "Expected Linux config path");
+        assertEquals(Path.of(testUserHome, ".config", "Brokk"), result, "Expected Linux config path");
     }
 
     @Test
@@ -118,16 +119,25 @@ class BrokkConfigPathsTest {
 
     @Test
     void testLegacyConfigDirDifferentFromGlobalOnLinux() {
+        // This test only makes sense on actual case-sensitive filesystems (Linux)
+        // On Windows, Path.of() will resolve both "Brokk" and "brokk" to the same path
+        String actualOs = System.getProperty("os.name");
+        if (actualOs == null || !actualOs.toLowerCase().contains("linux")) {
+            return; // Skip test on non-Linux systems
+        }
+
         // On Linux, legacy and global config dirs should be different (case-sensitive filesystem)
-        System.setProperty("os.name", "Linux");
-        System.setProperty("user.home", "/home/testuser");
+        var testUserHome = "/home/testuser";
+        System.setProperty("user.home", testUserHome);
 
         Path global = BrokkConfigPaths.getGlobalConfigDir();
         Path legacy = BrokkConfigPaths.getLegacyConfigDir();
 
         assertNotEquals(global, legacy, "Global and legacy config dirs should differ on case-sensitive filesystems");
-        assertEquals(Path.of("/home/testuser/.config/Brokk"), global, "Expected global dir with capital 'Brokk'");
-        assertEquals(Path.of("/home/testuser/.config/brokk"), legacy, "Expected legacy dir with lowercase 'brokk'");
+        assertEquals(
+                Path.of(testUserHome, ".config", "Brokk"), global, "Expected global dir with capital 'Brokk'");
+        assertEquals(
+                Path.of(testUserHome, ".config", "brokk"), legacy, "Expected legacy dir with lowercase 'brokk'");
     }
 
     @Test
