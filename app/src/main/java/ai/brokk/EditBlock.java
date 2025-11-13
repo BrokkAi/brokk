@@ -749,12 +749,7 @@ public class EditBlock {
         // Only Java is supported right now
         var supportedAnalyzer = analyzer.subAnalyzer(Languages.JAVA);
         var supportedExt = Languages.JAVA.getExtensions();
-        var isSupportedExt = new Predicate<String>() {
-            @Override
-            public boolean test(String extension) {
-                return supportedExt.contains(extension.toLowerCase(Locale.ROOT));
-            }
-        };
+        Predicate<String> isSupportedExt = extension -> supportedExt.contains(extension.toLowerCase(Locale.ROOT));
 
         // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
         var editableFiles = contextManager.getFilesInContext();
