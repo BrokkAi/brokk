@@ -98,6 +98,19 @@ public abstract class CodePrompts {
                 ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
+    private static <T extends Language> Optional<Language> filterLanguage(
+            Language possiblyMultiLanguage, Class<T> targetLanguage) {
+        if (targetLanguage.isInstance(possiblyMultiLanguage)) {
+            return Optional.of(targetLanguage.cast(possiblyMultiLanguage));
+        } else if (possiblyMultiLanguage instanceof Language.MultiLanguage multiLanguage) {
+            return multiLanguage.getLanguages().stream()
+                    .filter(targetLanguage::isInstance)
+                    .findFirst();
+        } else {
+            return Optional.empty();
+        }
+    }
+
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
         var languages = project.getAnalyzerLanguages();
@@ -106,17 +119,7 @@ public abstract class CodePrompts {
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
         var maybeJavaLanguage = languages.stream()
-                .map(lang -> {
-                    if (lang instanceof JavaLanguage javaLanguage) {
-                        return Optional.<Language>of(javaLanguage);
-                    } else if (lang instanceof Language.MultiLanguage multiLanguage) {
-                        return multiLanguage.getLanguages().stream()
-                                .filter(l -> l instanceof JavaLanguage)
-                                .findFirst();
-                    } else {
-                        return Optional.<Language>empty();
-                    }
-                })
+                .map(lang -> filterLanguage(lang, JavaLanguage.class))
                 .flatMap(Optional::stream)
                 .findFirst();
 
