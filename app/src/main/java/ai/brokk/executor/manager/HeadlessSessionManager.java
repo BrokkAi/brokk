@@ -70,9 +70,9 @@ public final class HeadlessSessionManager {
                 String value;
 
                 if (withoutPrefix.contains("=")) {
-                    var parts = withoutPrefix.split("=", 2);
-                    key = parts[0];
-                    value = parts.length > 1 ? parts[1] : "";
+                    var parts = Splitter.on('=').limit(2).splitToList(withoutPrefix);
+                    key = parts.get(0);
+                    value = parts.size() > 1 ? parts.get(1) : "";
                 } else {
                     key = withoutPrefix;
                     if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
@@ -361,8 +361,8 @@ public final class HeadlessSessionManager {
         }
 
         var path = exchange.getRequestURI().getPath();
-        var parts = path.split("/");
-        if (parts.length != 4 || !parts[2].equals("sessions")) {
+        var parts = Splitter.on('/').splitToList(path);
+        if (parts.size() != 4 || !parts.get(2).equals("sessions")) {
             var error = ErrorPayload.of(ErrorPayload.Code.BAD_REQUEST, "Invalid session path for DELETE");
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
             return;
@@ -370,7 +370,7 @@ public final class HeadlessSessionManager {
 
         UUID sessionId;
         try {
-            sessionId = UUID.fromString(parts[3]);
+            sessionId = UUID.fromString(parts.get(3));
         } catch (IllegalArgumentException e) {
             var error = ErrorPayload.validationError("Invalid session ID format");
             SimpleHttpServer.sendJsonResponse(exchange, 400, error);
@@ -446,14 +446,17 @@ public final class HeadlessSessionManager {
             var executorResponse = client.send(executorRequest, HttpResponse.BodyHandlers.ofString());
 
             if (executorResponse.statusCode() != 201) {
-                logger.error(
-                        "Executor session creation failed: status={}, body={}",
-                        executorResponse.statusCode(),
-                        executorResponse.body());
-                pool.shutdown(provisionId);
-                var error = ErrorPayload.internalError("Executor failed to create session", null);
-                SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-                return;
+            logger.error(
+            "Executor session creation failed: status={}, body={}",
+            executorResponse.statusCode(),
+            executorResponse.body());
+            pool.shutdown(provisionId);
+            var error = ErrorPayload.internalError(
+            "Executor failed to create session; status=" + executorResponse.statusCode(),
+            new IllegalStateException(
+            "executor responded " + executorResponse.statusCode() + ": " + executorResponse.body()));
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            return;
             }
 
             var executorBody =
