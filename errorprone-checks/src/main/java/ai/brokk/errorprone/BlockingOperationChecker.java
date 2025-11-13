@@ -33,9 +33,15 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
 
     private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
     private static final String SWING_UTILS_FQCN = "javax.swing.SwingUtilities";
+    private static final String EVENT_QUEUE_FQCN = "java.awt.EventQueue";
 
-    private static boolean hasDirectAnnotation(Symbol sym, String fqcn, VisitorState state) {
-        return ASTHelpers.hasAnnotation(sym, fqcn, state);
+    private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
+        for (var a : sym.getAnnotationMirrors()) {
+            if (a.getAnnotationType().toString().equals(fqcn)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -46,7 +52,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
         }
 
         // Only flag methods explicitly annotated as blocking on this symbol
-        if (!hasDirectAnnotation(sym, BLOCKING_ANN_FQCN, state)) {
+        if (!hasDirectAnnotation(sym, BLOCKING_ANN_FQCN)) {
             return Description.NO_MATCH;
         }
 
@@ -82,39 +88,57 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
 
     private static boolean isSwingInvokeLater(MethodInvocationTree mit) {
         MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        return ms != null && ms.getSimpleName().contentEquals("invokeLater") && isSwingUtilitiesOwner(ms.owner);
+        return ms != null && ms.getSimpleName().contentEquals("invokeLater") && isEdtOwner(ms.owner);
     }
 
     private static boolean isSwingIsEventDispatchThread(MethodInvocationTree mit) {
         MethodSymbol ms = ASTHelpers.getSymbol(mit);
-        return ms != null
-                && ms.getSimpleName().contentEquals("isEventDispatchThread")
-                && isSwingUtilitiesOwner(ms.owner);
-    }
-
-    private static boolean isSwingUtilitiesOwner(Symbol owner) {
+        if (ms == null) {
+            return false;
+        }
+        var name = ms.getSimpleName().toString();
+        // SwingUtilities: isEventDispatchThread(); EventQueue: isDispatchThread()
+        boolean edtMethod = name.equals("isEventDispatchThread") || name.equals("isDispatchThread");
+        if (!edtMethod) {
+            return false;
+        }
+        Symbol owner = ms.owner;
         if (!(owner instanceof Symbol.ClassSymbol cs)) {
             return false;
         }
-        return cs.getQualifiedName().contentEquals(SWING_UTILS_FQCN);
+        var qn = cs.getQualifiedName().toString();
+        if (qn.equals(SWING_UTILS_FQCN) || qn.equals(EVENT_QUEUE_FQCN)) {
+            return true;
+        }
+        // Fallback to simple-name match to be tolerant of unusual owner qualification scenarios
+        var sn = cs.getSimpleName().toString();
+        return sn.equals("SwingUtilities") || sn.equals("EventQueue");
+    }
+
+    private static boolean isEdtOwner(Symbol owner) {
+        if (!(owner instanceof Symbol.ClassSymbol cs)) {
+            return false;
+        }
+        var qn = cs.getQualifiedName().toString();
+        return qn.equals(SWING_UTILS_FQCN) || qn.equals(EVENT_QUEUE_FQCN);
     }
 
     private static boolean isWithinTrueBranchOfEdtCheck(VisitorState state) {
-        // The node being analyzed (e.g., the @Blocking method invocation)
-        Tree target = state.getPath().getLeaf();
-
+        // Walk up the TreePath, remembering the immediate child under each IfTree.
+        // When we see an IfTree whose condition calls an EDT check, return true if the previously
+        // visited node is the 'then' branch (or inside it).
+        Tree prev = null;
         for (TreePath path = state.getPath(); path != null; path = path.getParentPath()) {
             Tree node = path.getLeaf();
             if (node instanceof IfTree ift) {
-                // If the if-condition is SwingUtilities.isEventDispatchThread(), ensure the target node
-                // is within the 'then' branch subtree.
-                if (ift.getCondition() instanceof MethodInvocationTree cond && isSwingIsEventDispatchThread(cond)) {
+                if (conditionContainsEdtCheck(ift.getCondition())) {
                     Tree thenStmt = ift.getThenStatement();
-                    if (containsTree(thenStmt, target)) {
+                    if (prev == thenStmt || (prev != null && containsTree(thenStmt, prev))) {
                         return true;
                     }
                 }
             }
+            prev = node;
         }
         return false;
     }
@@ -137,6 +161,27 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
                 return Boolean.TRUE.equals(r1) || Boolean.TRUE.equals(r2);
             }
         }.scan(root, null);
+        return Boolean.TRUE.equals(found);
+    }
+
+    private static boolean conditionContainsEdtCheck(Tree condition) {
+        if (condition == null) {
+            return false;
+        }
+        Boolean found = new TreeScanner<Boolean, Void>() {
+            @Override
+            public Boolean visitMethodInvocation(MethodInvocationTree node, Void p) {
+                if (isSwingIsEventDispatchThread(node)) {
+                    return true;
+                }
+                return super.visitMethodInvocation(node, p);
+            }
+
+            @Override
+            public Boolean reduce(Boolean r1, Boolean r2) {
+                return Boolean.TRUE.equals(r1) || Boolean.TRUE.equals(r2);
+            }
+        }.scan(condition, null);
         return Boolean.TRUE.equals(found);
     }
 }
