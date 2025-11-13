@@ -22,13 +22,16 @@ public class TreeSitterAnalyzerQualifiedNameTest {
         assertTrue(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("obj->field"));
     }
 
+    /**
+     * Negative cases: simple identifiers and blank inputs should not be detected as qualified names.
+     * Null inputs are intentionally excluded here to align with the non-null test contract.
+     */
     @Test
-    public void negativeCases_simpleAndAnonymousNamesShouldNotBeDetected() {
+    public void negativeCases_simpleAndBlankNamesShouldNotBeDetected() {
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("Chrome"));
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("_Foo123"));
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("T"));
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName(""));
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("   "));
-        assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName(null));
     }
 }
