@@ -273,6 +273,8 @@ public class Chrome
     // Reference to the small header panel placed above the right tab stack (holds branch selector).
     // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
     private @Nullable JPanel rightTabbedHeader = null;
+    // Combined panel used when Vertical Activity Layout is enabled (Activity above, Output on the right)
+    private @Nullable JPanel verticalActivityCombinedPanel = null;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -738,6 +740,7 @@ public class Chrome
 
         // Complete all layout operations synchronously before showing window
         completeLayoutSynchronously();
+        applyVerticalActivityLayout();
 
         // Final validation and repaint before making window visible
         frame.validate();
@@ -3025,12 +3028,86 @@ public class Chrome
     }
 
     public void applyVerticalActivityLayout() {
-        SwingUtil.runOnEdt(() -> {
+        Runnable task = () -> {
+            if (rightTabbedContainer == null) {
+                return;
+            }
+
             boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
-            logger.debug("Vertical activity layout is currently {}", enabled ? "enabled" : "disabled");
+            var activityTabs = historyOutputPanel.getActivityTabs();
+            var outputTabs = historyOutputPanel.getOutputTabs();
+            var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
+            var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
+            outputTabsContainer.setVisible(!enabled);
+
+            if (enabled) {
+                if (verticalActivityCombinedPanel != null
+                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
+                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
+                } else {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+
+                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(null);
+                    }
+
+                    var combined = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+                    combined.add(activityTabs, BorderLayout.NORTH);
+                    combined.add(rightTabbedContainer, BorderLayout.CENTER);
+                    if (outputTabs != null) {
+                        combined.add(outputTabs, BorderLayout.EAST);
+                    }
+                    verticalActivityCombinedPanel = combined;
+                    bottomSplitPane.setRightComponent(combined);
+                    combined.revalidate();
+                    combined.repaint();
+                }
+            } else {
+                if (verticalActivityCombinedPanel != null) {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+
+                    if (activityTabs.getParent() != activityTabsContainer) {
+                        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
+                    }
+                    if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
+                        outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
+                    }
+                    if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(rightTabbedContainer);
+                    }
+
+                    verticalActivityCombinedPanel = null;
+                }
+                bottomSplitPane.setRightComponent(mainVerticalSplitPane);
+            }
+
+            activityTabsContainer.revalidate();
+            activityTabsContainer.repaint();
+            outputTabsContainer.revalidate();
+            outputTabsContainer.repaint();
+            topSplitPane.revalidate();
+            topSplitPane.repaint();
+            mainVerticalSplitPane.revalidate();
+            mainVerticalSplitPane.repaint();
+            bottomSplitPane.revalidate();
+            bottomSplitPane.repaint();
             frame.revalidate();
             frame.repaint();
-        });
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
@@ -3837,7 +3914,18 @@ public class Chrome
         return analyzerStatusStrip;
     }
 
-    @Override
+    private static void detachFromParent(Component component) {
+        if (component == null) {
+            return;
+        }
+        Container parent = component.getParent();
+        if (parent != null) {
+            parent.remove(component);
+            parent.revalidate();
+            parent.repaint();
+        }
+    }
+
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));

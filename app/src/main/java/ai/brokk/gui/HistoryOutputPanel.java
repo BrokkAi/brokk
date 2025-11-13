@@ -118,6 +118,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel outputTabsContainer;
+
     @Nullable
     private JPanel changesTabPlaceholder;
 
@@ -464,6 +467,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(tabs, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+        outputTabsContainer = centerContainer;
 
         return centerContainer;
     }
@@ -983,6 +987,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public JPanel getActivityTabsContainer() {
         return activityTabsContainer;
+    }
+
+    public JPanel getOutputTabsContainer() {
+        return outputTabsContainer;
     }
 
     /** Builds the LLM streaming area where markdown output is displayed */
