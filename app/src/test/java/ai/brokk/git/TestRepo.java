@@ -44,10 +44,8 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public synchronized void add(ProjectFile file) throws GitAPIException {
-        addedFiles.add(file);
-        removedFiles.remove(file);
-        trackedFiles.add(file);
+    public void add(Path path) throws GitAPIException {
+        add(List.of(new ProjectFile(root, path.getFileName())));
     }
 
     @Override

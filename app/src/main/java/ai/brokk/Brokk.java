@@ -755,8 +755,8 @@ public class Brokk {
                             }
 
                             // Chain initialTask execution to guiFuture's completion
-                            // NOTE: Migration prompt moved to Chrome.scheduleGitConfigurationAfterInit()
-                            // to avoid dialog stacking with build settings dialog
+                            // Handle style.md to AGENTS.md migration after data retention policy is confirmed
+                            attemptStyleMdToAgentsMdMigration(project);
 
                             guiFuture.whenCompleteAsync(
                                     (Void result, @Nullable Throwable guiEx) -> {
@@ -1010,6 +1010,76 @@ public class Brokk {
                     "Project Initialization Failed",
                     JOptionPane.ERROR_MESSAGE));
             return CompletableFuture.completedFuture(Optional.empty());
+        }
+    }
+
+    /**
+     * Attempts to migrate style.md to AGENTS.md if conditions are met:
+     * - style.md exists in .brokk/ directory
+     * - AGENTS.md does not exist
+     * - User has not previously declined the migration
+     *
+     * If migration is offered and user accepts, delegates to MainProject for the actual migration.
+     * If user declines, marks the decision as declined so the prompt is not shown again.
+     *
+     * @param project the project to check for migration
+     */
+    private static void attemptStyleMdToAgentsMdMigration(IProject project) {
+        if (!(project instanceof MainProject mainProject)) {
+            return; // Only main projects can be migrated
+        }
+
+        try {
+            Path brokkDir = mainProject.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR);
+            Path styleFile = brokkDir.resolve("style.md");
+            Path agentsFile = mainProject.getMasterRootPathForConfig().resolve("AGENTS.md");
+
+            // Check conditions: style.md exists, AGENTS.md doesn't, and user hasn't declined
+            if (!Files.exists(styleFile) || Files.exists(agentsFile) || mainProject.getMigrationDeclined()) {
+                return;
+            }
+
+            logger.debug(
+                    "Detected style.md without AGENTS.md in {}. Prompting user for migration.", brokkDir.getFileName());
+
+            // Get the Chrome instance for showing the dialog
+            Chrome chrome = findOpenProjectWindow(mainProject.getRoot());
+            if (chrome == null) {
+                logger.warn("No Chrome window found for project {}. Skipping migration prompt.", mainProject.getRoot());
+                return;
+            }
+
+            String message =
+                    """
+            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
+
+            Would you like to migrate `style.md` to `AGENTS.md`? This will:
+            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
+            - Stage the change in Git (if the project is a Git repository)
+            - You can then review and commit the changes
+            """;
+
+            int confirm = chrome.showConfirmDialog(
+                    chrome.getFrame(),
+                    message,
+                    "Migrate Style Guide to AGENTS.md",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                mainProject.performStyleMdToAgentsMdMigration(chrome);
+            } else {
+                mainProject.setMigrationDeclined(true);
+                logger.info(
+                        "User declined style.md to AGENTS.md migration for project {}. Decision stored.",
+                        mainProject.getRoot().getFileName());
+            }
+        } catch (Exception e) {
+            logger.error(
+                    "Error during style.md to AGENTS.md migration check for project {}: {}",
+                    project.getRoot().getFileName(),
+                    e.getMessage(),
+                    e);
         }
     }
 

@@ -111,10 +111,9 @@ public interface IGitRepo {
     void add(Collection<ProjectFile> files) throws GitAPIException;
 
     /**
-     * Adds a single file to the Git index. For files not under the project root, this method can still stage them
-     * relative to the Git repository root.
+     * for the rare case when you need to add a file (e.g. .gitignore) that is not necessarily under the project's root
      */
-    void add(ProjectFile file) throws GitAPIException;
+    void add(Path path) throws GitAPIException;
 
     void remove(ProjectFile file) throws GitAPIException;
 

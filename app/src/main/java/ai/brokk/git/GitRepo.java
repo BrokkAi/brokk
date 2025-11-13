@@ -431,9 +431,10 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void add(ProjectFile file) throws GitAPIException {
+    public synchronized void add(Path path) throws GitAPIException {
         var addCommand = git.add();
-        addCommand.addFilepattern(toRepoRelativePath(file));
+        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
+        addCommand.addFilepattern(repoRelativePath);
         addCommand.call();
     }
 
@@ -822,12 +823,9 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
-        // Normalize paths to forward slashes for JGit (required on all platforms)
-        String fromRepo = from.replace('\\', '/');
-        String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
-        git.rm().addFilepattern(fromRepo).call();
-        git.add().addFilepattern(toRepo).call();
+        git.rm().addFilepattern(from).call();
+        git.add().addFilepattern(to).call();
         invalidateCaches();
     }
 

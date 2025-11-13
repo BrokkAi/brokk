@@ -4,6 +4,7 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.*;
 import ai.brokk.AbstractProject;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
@@ -25,7 +26,7 @@ import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
-import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.git.*;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
@@ -48,13 +49,6 @@ import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.init.onboarding.BuildSettingsStep;
-import ai.brokk.init.onboarding.GitConfigStep;
-import ai.brokk.init.onboarding.GitIgnoreConfigurator;
-import ai.brokk.init.onboarding.MigrationStep;
-import ai.brokk.init.onboarding.OnboardingOrchestrator;
-import ai.brokk.init.onboarding.OnboardingStep;
-import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.Environment;
@@ -72,6 +66,7 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -759,10 +754,26 @@ public class Chrome
         // Now show the window with complete layout
         frame.setVisible(true);
 
-        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
+        // Possibly check if .gitignore is set
+        if (getProject().hasGit()) {
+            contextManager.submitBackgroundTask("Checking .gitignore", () -> {
+                if (!getProject().isGitIgnoreSet()) {
+                    SwingUtilities.invokeLater(() -> {
+                        int result = showConfirmDialog(
+                                "Update .gitignore and add .brokk project files to git?",
+                                "Git Configuration",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE);
+                        if (result == JOptionPane.YES_OPTION) {
+                            setupGitIgnore();
+                        }
+                    });
+                }
+                return null;
+            });
+        }
 
-        // Defer .gitignore check until initialization completes
-        scheduleGitConfigurationAfterInit();
+        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
@@ -800,53 +811,124 @@ public class Chrome
             logger.debug("setupGitIgnore called but project has no git repository; skipping.");
             return;
         }
-
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
-            var project = getProject();
-            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, this);
-
-            if (result.errorMessage().isPresent()) {
-                logger.error("Git setup failed: {}", result.errorMessage().get());
-                toolError(
-                        "Error setting up .gitignore: " + result.errorMessage().get(), "Error");
-                return;
-            }
-
-            // Refresh the commit panel to show the new files
-            updateCommitPanel();
-
-            // Open commit dialog with staged files
-            SwingUtilities.invokeLater(() -> {
-                var filesToCommit = new ArrayList<>(result.stagedFiles());
-
-                if (filesToCommit.isEmpty()) {
-                    logger.debug("No files to commit");
-                    return;
-                }
-
+            try {
+                var project = getProject();
                 var repo = project.getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
+                    // Defensive: project claims to have git but repo isn't a GitRepo instance.
+                    logger.warn(
+                            "setupGitIgnore: project {} reports git but repo is not a GitRepo instance. Skipping.",
+                            project.getRoot());
                     return;
                 }
+                var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
-                // Open commit dialog with prebaked message
-                var dialog = new CommitDialog(
-                        frame,
-                        this,
-                        contextManager,
-                        new GitWorkflow(contextManager),
-                        filesToCommit,
-                        "Add Brokk project files", // Pre-filled message
-                        commitResult -> {
-                            showNotification(
-                                    NotificationRole.INFO,
-                                    "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
-                                            + commitResult.firstLine());
-                            updateCommitPanel();
-                            updateLogTab();
-                        });
-                dialog.setVisible(true);
-            });
+                // Update .gitignore (located at gitTopLevel)
+                var gitignorePath = gitTopLevel.resolve(".gitignore");
+                String content = "";
+
+                if (Files.exists(gitignorePath)) {
+                    content = Files.readString(gitignorePath);
+                    if (!content.endsWith("\n")) {
+                        content += "\n";
+                    }
+                }
+
+                // Add entries to .gitignore if they don't exist
+                // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
+                if (!content.contains(".brokk/**") && !content.contains(".brokk/")) {
+                    content += "\n### BROKK'S CONFIGURATION ###\n";
+                    content += ".brokk/**\n"; // Ignore .brokk dir in sub-projects (worktrees)
+                    content +=
+                            "/.brokk/workspace.properties\n"; // Ignore workspace properties in main repo and worktrees
+                    content += "/.brokk/sessions/\n"; // Ignore sessions dir in main repo
+                    content += "/.brokk/dependencies/\n"; // Ignore dependencies dir in main repo
+                    content += "/.brokk/history.zip\n"; // Ignore legacy history zip
+                    content += "!AGENTS.md\n"; // DO track AGENTS.md at project root
+                    content += "!.brokk/style.md\n"; // DO track legacy style.md (for projects that haven't migrated)
+                    content += "!.brokk/review.md\n"; // DO track review.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
+
+                    Files.writeString(gitignorePath, content);
+                    showNotification(NotificationRole.INFO, "Updated .gitignore with .brokk entries");
+
+                    // Add .gitignore itself to git if it's not already in the index
+                    // The path for 'add' should be relative to the git repo's CWD, or absolute.
+                    // gitRepo.add() handles paths relative to its own root, or absolute paths.
+                    // Here, gitignorePath is absolute.
+                    gitRepo.add(gitignorePath);
+                }
+
+                // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
+                var sharedBrokkDir = gitTopLevel.resolve(".brokk");
+                Files.createDirectories(sharedBrokkDir);
+
+                // Add specific shared files to git
+                var agentsMdPath = gitTopLevel.resolve("AGENTS.md"); // AGENTS.md lives at project root
+                var reviewMdPath = sharedBrokkDir.resolve("review.md");
+                var projectPropsPath = sharedBrokkDir.resolve("project.properties");
+
+                // Create shared files if they don't exist (empty files)
+                if (!Files.exists(agentsMdPath)) {
+                    Files.writeString(agentsMdPath, "# Agents Guide\n");
+                }
+                if (!Files.exists(reviewMdPath)) {
+                    Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
+                }
+                if (!Files.exists(projectPropsPath)) {
+                    Files.writeString(projectPropsPath, "# Brokk project configuration\n");
+                }
+
+                // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
+                // Here, paths are relative to gitTopLevel.
+                var filesToAdd = new ArrayList<ProjectFile>();
+                filesToAdd.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
+                // The GitRepo instance is for the current project (which could be a worktree),
+                // but 'add' operations apply to the whole repository.
+                gitRepo.add(filesToAdd);
+                showNotification(
+                        NotificationRole.INFO,
+                        "Added shared project files (AGENTS.md, review.md, project.properties) to git");
+
+                // Refresh the commit panel to show the new files
+                updateCommitPanel();
+
+                // Open commit dialog with prebaked message for project files
+                SwingUtilities.invokeLater(() -> {
+                    // Get the files that were just staged (including .gitignore if it was added)
+                    var filesToCommit = new ArrayList<ProjectFile>();
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".gitignore"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, "AGENTS.md")); // AGENTS.md at project root
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+                    filesToCommit.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+                    // Open commit dialog with prebaked message
+                    var dialog = new CommitDialog(
+                            frame,
+                            this,
+                            contextManager,
+                            new GitWorkflow(contextManager),
+                            filesToCommit,
+                            "Add Brokk project files", // Pre-filled message
+                            commitResult -> {
+                                showNotification(
+                                        NotificationRole.INFO,
+                                        "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                                + commitResult.firstLine());
+                                updateCommitPanel();
+                                updateLogTab();
+                            });
+                    dialog.setVisible(true);
+                });
+            } catch (Exception e) {
+                logger.error(e);
+                toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
+            }
         });
     }
 
@@ -2963,229 +3045,6 @@ public class Chrome
             if (triggerAutoPlay && !GlobalUiSettings.isAdvancedMode()) {
                 SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
             }
-        });
-    }
-
-    /**
-     * Schedules the build settings dialog to show after initialization completes.
-     * Uses OnboardingOrchestrator to determine which dialogs are needed and
-     * shows them sequentially: Migration → Build Settings → Git Config (if needed).
-     */
-    private void scheduleGitConfigurationAfterInit() {
-        logger.debug("Scheduling onboarding after style guide and build details are ready");
-        var styleFuture = contextManager.getStyleGuideFuture();
-        var buildFuture = getProject().getBuildDetailsFuture();
-
-        // Wait for both futures to complete
-        CompletableFuture.allOf(styleFuture.thenApply(c -> null), buildFuture)
-                .thenAcceptAsync(v -> {
-                    logger.debug("Style guide and build details ready, building onboarding plan");
-
-                    // Build project state
-                    var styleSkipped = contextManager.wasStyleGenerationSkipped();
-                    var state = OnboardingOrchestrator.buildProjectState(
-                            getProject(), styleFuture, buildFuture, styleSkipped);
-
-                    // Build onboarding plan
-                    var orchestrator = new OnboardingOrchestrator();
-                    var plan = orchestrator.buildPlan(state);
-
-                    logger.info("Onboarding plan has {} steps", plan.size());
-
-                    // Execute all steps synchronously and collect results
-                    var results = plan.getSteps().stream()
-                            .map(step -> step.execute(state))
-                            .toList();
-
-                    // Show dialogs on EDT
-                    SwingUtilities.invokeLater(() -> processOnboardingResults(results, styleFuture));
-                })
-                .exceptionally(ex -> {
-                    logger.error("Error waiting for initialization", ex);
-                    SwingUtilities.invokeLater(() -> systemNotify(
-                            "Error during initialization: " + ex.getMessage(),
-                            "Initialization Error",
-                            javax.swing.JOptionPane.ERROR_MESSAGE));
-                    return null;
-                });
-    }
-
-    /**
-     * Processes onboarding step results and shows appropriate dialogs.
-     * Called on EDT after all onboarding steps have completed.
-     * <p>
-     * Shows dialogs in dependency order:
-     * 1. Migration dialog (if MigrationStep flagged)
-     * 2. Build settings dialog (if BuildSettingsStep flagged)
-     * 3. Git config dialog (if GitConfigStep flagged)
-     * 4. Post-git style regeneration offer (if applicable)
-     *
-     * @param results list of step results
-     * @param styleFuture future with style guide content
-     */
-    private void processOnboardingResults(
-            List<OnboardingStep.StepResult> results, CompletableFuture<String> styleFuture) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        logger.debug("Processing {} onboarding results", results.size());
-
-        for (var result : results) {
-            if (!result.success()) {
-                logger.warn("[{}] Step failed: {}", result.stepId(), result.message());
-                continue;
-            }
-
-            if (!result.requiresUserDialog()) {
-                logger.debug("[{}] Step completed without dialog: {}", result.stepId(), result.message());
-                continue;
-            }
-
-            var dialogData = result.data();
-            if (dialogData == null) {
-                logger.error("[{}] Step requires dialog but data is null", result.stepId());
-                continue;
-            }
-
-            // Handle steps that require user dialogs using pattern matching on typed data
-            switch (dialogData) {
-                case MigrationStep.MigrationDialogData ignored -> {
-                    logger.info("[{}] Showing migration dialog", result.stepId());
-                    showMigrationDialog();
-                }
-                case BuildSettingsStep.BuildSettingsDialogData buildData -> {
-                    logger.info("[{}] Showing build settings dialog", result.stepId());
-                    try {
-                        var styleContent = styleFuture.get();
-                        var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                        dlg.getProjectPanel().showBuildBanner();
-                    } catch (Exception e) {
-                        logger.error("[{}] Error getting style content for build dialog", result.stepId(), e);
-                        SettingsDialog.showSettingsDialog(this, "Build", Optional.empty());
-                    }
-                }
-                case GitConfigStep.GitConfigDialogData gitConfigData -> {
-                    logger.info("[{}] Showing git config dialog", result.stepId());
-                    showGitConfigDialog();
-                }
-                case PostGitStyleRegenerationStep.RegenerationOfferData regenData -> {
-                    logger.info("[{}] Showing post-git style regeneration offer", result.stepId());
-                    int confirm = showConfirmDialog(
-                            regenData.message(),
-                            "Regenerate Style Guide",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-
-                    if (confirm == JOptionPane.YES_OPTION) {
-                        logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
-                        showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
-
-                        var regenerationFuture = contextManager.ensureStyleGuide();
-                        regenerationFuture
-                                .thenAcceptAsync(styleContent -> {
-                                    SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            logger.info(
-                                                    "[{}] Style regeneration completed successfully", result.stepId());
-                                            showNotification(
-                                                    IConsoleIO.NotificationRole.INFO,
-                                                    "Style guide regenerated successfully");
-                                            SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                                        } catch (Exception ex) {
-                                            logger.error(
-                                                    "[{}] Error showing Build tab after regeneration",
-                                                    result.stepId(),
-                                                    ex);
-                                            showNotification(
-                                                    IConsoleIO.NotificationRole.ERROR,
-                                                    "Style guide regenerated but failed to open settings: "
-                                                            + ex.getMessage());
-                                        }
-                                    });
-                                })
-                                .exceptionally(ex -> {
-                                    SwingUtilities.invokeLater(() -> {
-                                        logger.error("[{}] Style regeneration failed", result.stepId(), ex);
-                                        toolError(
-                                                "Failed to regenerate style guide: " + ex.getMessage(),
-                                                "Style Regeneration Error");
-                                    });
-                                    return null;
-                                });
-                    } else {
-                        logger.info("[{}] User declined style regeneration", result.stepId());
-                    }
-                }
-            }
-        }
-
-        logger.info("Onboarding dialog sequence complete");
-    }
-
-    /**
-     * Shows the migration confirmation dialog and performs migration if user accepts.
-     */
-    private void showMigrationDialog() {
-        if (!(getProject() instanceof MainProject mainProject)) {
-            return; // Only main projects can be migrated
-        }
-
-        try {
-            // Check if user already declined
-            if (mainProject.getMigrationDeclined()) {
-                logger.debug("Migration previously declined by user");
-                return;
-            }
-
-            String message =
-                    """
-            This project uses the legacy `style.md` file for style guidance. The application now uses `AGENTS.md` instead.
-
-            Would you like to migrate `style.md` to `AGENTS.md`? This will:
-            - Rename `.brokk/style.md` to `AGENTS.md` (at the project root)
-            - Stage the change in Git (if the project is a Git repository)
-            - You can then review and commit the changes
-            """;
-
-            int confirm = showConfirmDialog(
-                    getFrame(),
-                    message,
-                    "Migrate Style Guide to AGENTS.md",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.QUESTION_MESSAGE);
-
-            if (confirm == JOptionPane.YES_OPTION) {
-                mainProject.performStyleMdToAgentsMdMigration(this);
-            } else {
-                mainProject.setMigrationDeclined(true);
-                logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
-            }
-        } catch (Exception e) {
-            logger.error("Error during migration dialog: {}", e.getMessage(), e);
-            systemNotify(
-                    "Error during migration: " + e.getMessage(),
-                    "Migration Error",
-                    javax.swing.JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    /**
-     * Shows the git configuration confirmation dialog and performs setup if user accepts.
-     */
-    private void showGitConfigDialog() {
-        contextManager.submitBackgroundTask("Checking .gitignore", () -> {
-            if (!getProject().isGitIgnoreSet()) {
-                SwingUtilities.invokeLater(() -> {
-                    int result = showConfirmDialog(
-                            "Update .gitignore and add .brokk project files to git?",
-                            "Git Configuration",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-                    if (result == JOptionPane.YES_OPTION) {
-                        setupGitIgnore();
-                    }
-                });
-            }
-            return null;
         });
     }
 
