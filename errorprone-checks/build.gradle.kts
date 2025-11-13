@@ -5,7 +5,6 @@ plugins {
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(org.gradle.jvm.toolchain.JvmVendorSpec.ADOPTIUM)
     }
 }
 
@@ -18,16 +17,21 @@ dependencies {
     compileOnly(files("${rootProject.projectDir}/app/libs/error_prone_core-brokk_build-with-dependencies.jar"))
 
     // AutoService for service registration
-    compileOnly("com.google.auto.service:auto-service-annotations:1.1.1")
-    annotationProcessor("com.google.auto.service:auto-service:1.1.1")
+    compileOnly(libs.auto.service.annotations)
+    annotationProcessor(libs.auto.service)
 
     // For @NullMarked package annotations (compileOnly is sufficient)
     compileOnly(libs.jspecify)
 
-    // Test dependencies: Error Prone test helpers and JUnit 4
+    // Test dependencies: Error Prone test helpers and JUnit 5
     testImplementation(files("${rootProject.projectDir}/app/libs/error_prone_core-brokk_build-with-dependencies.jar"))
-    testImplementation("com.google.errorprone:error_prone_test_helpers:2.27.1")
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.errorprone.test.helpers)
+
+    // Testing
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.bundles.junit)
+    testImplementation(libs.jupiter.iface)
+    testRuntimeOnly(libs.bundles.junit.runtime)
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -43,10 +47,15 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.withType<Test>().configureEach {
-    // Force tests to run on Eclipse Temurin JDK 21 (full JDK with jdk.compiler)
+    // Use JUnit 5 platform for test discovery
+    useJUnitPlatform()
+
+    // Do not fail the build if no tests are discovered when running aggregate test tasks
+    failOnNoDiscoveredTests = false
+
+    // Force tests to run on JDK 21 (full JDK with jdk.compiler)
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(org.gradle.jvm.toolchain.JvmVendorSpec.ADOPTIUM)
     })
 
     // Keep assertions enabled and export javac internals for Error Prone test harness

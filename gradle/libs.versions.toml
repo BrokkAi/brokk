@@ -46,6 +46,9 @@ nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
 checker-qual = "org.checkerframework:checker-qual:3.49.3"
 checker-util = "org.checkerframework:checker-util:3.49.3"
 dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
+auto-service-annotations = "com.google.auto.service:auto-service-annotations:1.1.1"
+auto-service = "com.google.auto.service:auto-service:1.1.1"
+errorprone-test-helpers = "com.google.errorprone:error_prone_test_helpers:2.27.1"
 
 # UI
 flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
