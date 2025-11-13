@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -188,7 +189,7 @@ public class TreeSitterAnalyzerRustTest {
     void testGetSkeletonHeader_Rust() {
         Optional<String> pointHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Point");
         assertTrue(pointHeader.isPresent(), "Skeleton header for Point should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub struct Point {
                 impl Point {
@@ -202,28 +203,26 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                pointHeader.get().trim()); // fixme: These seem to be the siblings not children
+                pointHeader.get()); // fixme: These seem to be the siblings not children
 
         Optional<String> drawableHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Drawable");
         assertTrue(drawableHeader.isPresent(), "Skeleton header for Drawable should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub trait Drawable {
                   [...]
                 }
                 """
                         .strip(),
-                drawableHeader.get().trim());
+                drawableHeader.get());
 
         Optional<String> originHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "_module_.ORIGIN");
         assertTrue(originHeader.isPresent(), "Skeleton header for _module_.ORIGIN should be found.");
-        assertEquals(
-                "pub const ORIGIN: Point = Point { x: 0, y: 0 };",
-                originHeader.get().trim());
+        assertCodeEquals("pub const ORIGIN: Point = Point { x: 0, y: 0 };", originHeader.get());
 
         Optional<String> colorHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Color");
         assertTrue(colorHeader.isPresent(), "Skeleton header for Color enum should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub enum Color {
                   Red
@@ -234,11 +233,11 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                colorHeader.get().trim());
+                colorHeader.get());
 
         Optional<String> shapeHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Shape");
         assertTrue(shapeHeader.isPresent(), "Skeleton header for Shape trait should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub trait Shape {
                   const ID: u32;
@@ -246,7 +245,7 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                shapeHeader.get().trim());
+                shapeHeader.get());
 
         Optional<String> nonExistentHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "NonExistent");
         assertFalse(nonExistentHeader.isPresent(), "Skeleton header for NonExistent should be empty.");

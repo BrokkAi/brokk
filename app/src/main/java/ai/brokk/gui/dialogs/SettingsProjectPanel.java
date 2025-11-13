@@ -101,17 +101,32 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
+    // Pre-generated style guide content (Optional.empty() means read from disk)
+    private final Optional<String> providedStyleGuide;
+
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
+        this(chrome, parentDialog, okButton, cancelButton, applyButton, Optional.empty());
+    }
+
+    public SettingsProjectPanel(
+            Chrome chrome,
+            SettingsDialog parentDialog,
+            JButton okButton,
+            JButton cancelButton,
+            JButton applyButton,
+            Optional<String> providedStyleGuide) {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
         this.cancelButtonParent = cancelButton;
         this.applyButtonParent = applyButton;
+        this.providedStyleGuide = providedStyleGuide;
 
         setLayout(new BorderLayout());
         initComponents();
-        loadSettings(); // Load settings after components are initialized
+        // NOTE: loadSettings() is now called explicitly after dialog construction
+        // to avoid race condition with background file writes
     }
 
     private void initComponents() {
@@ -961,7 +976,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
 
         // General Tab
-        styleGuideArea.setText(project.getStyleGuide());
+        // Use provided style guide if available (fresh generation), otherwise read from disk
+        String styleGuide = providedStyleGuide.orElseGet(() -> project.getStyleGuide());
+        styleGuideArea.setText(styleGuide);
         commitFormatArea.setText(project.getCommitMessageFormat());
         if (reviewGuideArea != null) {
             reviewGuideArea.setText(project.getReviewGuide());

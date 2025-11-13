@@ -26,7 +26,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
-import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
@@ -165,6 +164,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
+
+    // Style guide generation completion tracking
+    private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
+
+    // Track whether style guide generation was skipped due to missing Git
+    // Used by PostGitStyleRegenerationStep to offer regeneration after Git is configured
+    private volatile boolean styleGenerationSkipped = false;
 
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
@@ -355,6 +361,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
+        // Ensure style guide is initialized BEFORE creating Chrome
+        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the future)
+        styleGuideFuture = ensureStyleGuide();
+
         this.io = new Chrome(this);
         this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
@@ -401,8 +411,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextTask =
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
-        // Ensure style guide and build details are loaded/generated asynchronously
-        ensureStyleGuide();
+        // Ensure review guide and build details are loaded/generated asynchronously
+        // (style guide was initialized earlier, before Chrome creation)
         ensureReviewGuide();
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
@@ -1879,14 +1889,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
-
-            if (io instanceof Chrome chrome) {
-                SwingUtilities.invokeLater(() -> {
-                    var dlg = SettingsDialog.showSettingsDialog(chrome, "Build");
-                    dlg.getProjectPanel().showBuildBanner();
-                });
-            }
-
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             return inferredDetails;
         });
@@ -1944,19 +1946,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /** Ensure style guide exists, generating if needed */
-    private void ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty()) {
-            return;
+    /** Ensure style guide exists, generating if needed. */
+    public CompletableFuture<String> ensureStyleGuide() {
+        String existingStyleGuide = project.getStyleGuide();
+
+        if (!existingStyleGuide.isEmpty()) {
+            logger.info("Style guide already exists; skipping generation");
+            return CompletableFuture.completedFuture(existingStyleGuide);
         }
 
         if (!project.hasGit()) {
+            logger.info("No Git repository found, skipping style guide generation.");
+            styleGenerationSkipped = true;
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return;
+            return CompletableFuture.completedFuture("");
         }
 
-        submitBackgroundTask("Generating style guide", () -> {
+        return submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
@@ -1970,9 +1977,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "No classes found via PageRank for style guide generation.");
-                    project.saveStyleGuide(
-                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n");
-                    return null;
+                    String fallbackContent =
+                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var codeForLLM = new StringBuilder();
@@ -2016,7 +2024,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (codeForLLM.isEmpty()) {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var messages = List.of(
@@ -2038,16 +2048,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     String message =
                             "Failed to generate style guide: " + result.error().getMessage();
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 var styleGuide = result.text();
                 if (styleGuide.isBlank()) {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
-                    project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 project.saveStyleGuide(styleGuide);
+                styleGenerationSkipped = false; // Reset flag after successful generation
 
                 String savedFileName;
                 Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
@@ -2058,11 +2071,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+                return styleGuide;
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
+                String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
             }
-            return null;
         });
+    }
+
+    /**
+     * Returns the CompletableFuture tracking style guide generation completion.
+     * Never returns null; always initialized to a completed future.
+     */
+    public CompletableFuture<String> getStyleGuideFuture() {
+        return styleGuideFuture;
+    }
+
+    /**
+     * Checks if style guide generation was skipped due to missing Git repository.
+     * Used by onboarding to offer regeneration after Git is configured.
+     */
+    public boolean wasStyleGenerationSkipped() {
+        return styleGenerationSkipped;
     }
 
     /** Ensure review guide exists, generating if needed */

@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -58,7 +59,7 @@ public class JavaAnalyzerTest {
     public void extractMethodSource() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.method2", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
         final String expected =
                 """
                 public String method2(String input) {
@@ -69,44 +70,41 @@ public class JavaAnalyzerTest {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
     public void extractMethodSourceNested() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
 
         final var expected =
                 """
                 public void method7() {
                                 System.out.println("hello");
                             }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
     public void extractMethodSourceConstructor() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
 
         final var expected =
                 """
                         public B() {
                                 System.out.println("B constructor");
                             }
-                        """
-                        .trim();
+                        """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -135,9 +133,8 @@ public class JavaAnalyzerTest {
                             }
                         }
                     }
-                """
-                        .trim();
-        assertEquals(expected, source);
+                """;
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -153,9 +150,8 @@ public class JavaAnalyzerTest {
                                 System.out.println("hello");
                             }
                         }
-                """
-                        .trim();
-        assertEquals(expected, source);
+                """;
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -174,7 +170,7 @@ public class JavaAnalyzerTest {
     public void getSkeletonTestA() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "A");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -198,14 +194,14 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test
     public void getSkeletonTestD() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -221,14 +217,14 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test
     public void getSkeletonTestEnum() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "EnumClass");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -245,7 +241,7 @@ public class JavaAnalyzerTest {
     public void getGetSkeletonHeaderTest() {
         final var skeletonOpt = AnalyzerUtil.getSkeletonHeader(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -256,7 +252,7 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test

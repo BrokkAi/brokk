@@ -138,7 +138,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
-        loadSettings();
+        // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
+        // to ensure consistent timing with project panel
 
         // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
         parentDialog.addWindowListener(new WindowAdapter() {

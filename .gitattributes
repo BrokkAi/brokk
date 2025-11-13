@@ -39,4 +39,4 @@
 *.pptx   binary
 
 # Test source code
-app/src/test/resources/testcode-*/** text eol=lf
+app/src/test/resources/testcode-*/** text eol=native

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,35 +77,25 @@ public final class JavascriptAnalyzerTest {
           function render(): JSX.Element ...
         }
         """;
-        assertEquals(
-                expectedJsxClassSkeleton.trim(),
-                skelJsx.get(jsxClass).trim(),
-                "JsxClass skeleton mismatch in Hello.jsx.");
+        assertCodeEquals(expectedJsxClassSkeleton, skelJsx.get(jsxClass), "JsxClass skeleton mismatch in Hello.jsx.");
 
         String expectedExportedArrowFnSkeleton =
                 """
         export JsxArrowFnComponent({ name }): JSX.Element => ...
         """;
-        assertEquals(
-                expectedExportedArrowFnSkeleton.trim(),
-                skelJsx.get(jsxArrowFn).trim(),
-                "JsxArrowFnComponent skeleton mismatch");
+        assertCodeEquals(
+                expectedExportedArrowFnSkeleton, skelJsx.get(jsxArrowFn), "JsxArrowFnComponent skeleton mismatch");
 
         String expectedLocalArrowFnSkeleton = """
         LocalJsxArrowFn() => ...
         """;
-        assertEquals(
-                expectedLocalArrowFnSkeleton.trim(),
-                skelJsx.get(localJsxArrowFn).trim(),
-                "LocalJsxArrowFn skeleton mismatch");
+        assertCodeEquals(
+                expectedLocalArrowFnSkeleton, skelJsx.get(localJsxArrowFn), "LocalJsxArrowFn skeleton mismatch");
 
         String expectedPlainJsxFuncSkeleton = """
         function PlainJsxFunc() ...
         """;
-        assertEquals(
-                expectedPlainJsxFuncSkeleton.trim(),
-                skelJsx.get(plainJsxFunc).trim(),
-                "PlainJsxFunc skeleton mismatch");
+        assertCodeEquals(expectedPlainJsxFuncSkeleton, skelJsx.get(plainJsxFunc), "PlainJsxFunc skeleton mismatch");
 
         Set<CodeUnit> declarationsInJsx = jsAnalyzer.getDeclarations(helloJsxFile);
         assertTrue(
@@ -144,15 +135,13 @@ public final class JavascriptAnalyzerTest {
           function greet() ...
         }
         """;
-        assertEquals(
-                expectedHelloClassSkeleton.trim(),
-                skelJs.get(helloClass).trim(),
-                "Hello class skeleton mismatch in Hello.js.");
+        assertCodeEquals(
+                expectedHelloClassSkeleton, skelJs.get(helloClass), "Hello class skeleton mismatch in Hello.js.");
 
         String expectedUtilFuncSkeleton = """
         export function util() ...
         """;
-        assertEquals(expectedUtilFuncSkeleton.trim(), skelJs.get(utilFunc).trim());
+        assertCodeEquals(expectedUtilFuncSkeleton, skelJs.get(utilFunc));
     }
 
     @Test
@@ -224,7 +213,7 @@ public final class JavascriptAnalyzerTest {
         import * as AllThings from './all-the-things';
         import DefaultThing from './default-thing';
         """;
-        assertEquals(expectedImports.trim(), skeletons.get(moduleCU).trim(), "Module imports skeleton mismatch.");
+        assertCodeEquals(expectedImports, skeletons.get(moduleCU), "Module imports skeleton mismatch.");
 
         // MyExportedComponent: JSX inference + mutations
         CodeUnit mecCU = CodeUnit.fn(featuresFile, "", "MyExportedComponent");
@@ -234,7 +223,7 @@ public final class JavascriptAnalyzerTest {
         // mutates: counter, wasUpdated
         export function MyExportedComponent(props): JSX.Element ...
         """;
-        assertEquals(expectedMecSkeleton.trim(), skeletons.get(mecCU).trim(), "MyExportedComponent skeleton mismatch.");
+        assertCodeEquals(expectedMecSkeleton, skeletons.get(mecCU), "MyExportedComponent skeleton mismatch.");
 
         // MyExportedArrowComponent: JSX inference (arrow) + mutation
         CodeUnit meacCU = CodeUnit.fn(featuresFile, "", "MyExportedArrowComponent");
@@ -244,10 +233,7 @@ public final class JavascriptAnalyzerTest {
         // mutates: localStatus
         export MyExportedArrowComponent({ id }): JSX.Element => ...
         """;
-        assertEquals(
-                expectedMeacSkeleton.trim(),
-                skeletons.get(meacCU).trim(),
-                "MyExportedArrowComponent skeleton mismatch.");
+        assertCodeEquals(expectedMeacSkeleton, skeletons.get(meacCU), "MyExportedArrowComponent skeleton mismatch.");
 
         // internalProcessingUtil: No JSX inference (local) + mutation
         CodeUnit ipuCU = CodeUnit.fn(featuresFile, "", "internalProcessingUtil");
@@ -257,8 +243,7 @@ public final class JavascriptAnalyzerTest {
         // mutates: isValid
         function internalProcessingUtil(dataObject) ...
         """;
-        assertEquals(
-                expectedIpuSkeleton.trim(), skeletons.get(ipuCU).trim(), "internalProcessingUtil skeleton mismatch.");
+        assertCodeEquals(expectedIpuSkeleton, skeletons.get(ipuCU), "internalProcessingUtil skeleton mismatch.");
 
         // updateGlobalConfig: No JSX inference (lowercase) + mutation
         CodeUnit ugcCU = CodeUnit.fn(featuresFile, "", "updateGlobalConfig");
@@ -268,7 +253,7 @@ public final class JavascriptAnalyzerTest {
         // mutates: global_config_val
         export function updateGlobalConfig(newVal) ...
         """;
-        assertEquals(expectedUgcSkeleton.trim(), skeletons.get(ugcCU).trim(), "updateGlobalConfig skeleton mismatch.");
+        assertCodeEquals(expectedUgcSkeleton, skeletons.get(ugcCU), "updateGlobalConfig skeleton mismatch.");
 
         // ComponentWithComment: JSX inference (despite comment)
         CodeUnit cwcCU = CodeUnit.fn(featuresFile, "", "ComponentWithComment");
@@ -277,8 +262,7 @@ public final class JavascriptAnalyzerTest {
                 """
         export function ComponentWithComment(user /*: UserType */): JSX.Element ...
         """; // Mutations comment should not appear if no mutations
-        assertEquals(
-                expectedCwcSkeleton.trim(), skeletons.get(cwcCU).trim(), "ComponentWithComment skeleton mismatch.");
+        assertCodeEquals(expectedCwcSkeleton, skeletons.get(cwcCU), "ComponentWithComment skeleton mismatch.");
 
         // modifyUser: Mutations, no JSX
         CodeUnit muCU = CodeUnit.fn(featuresFile, "", "modifyUser");
@@ -288,15 +272,13 @@ public final class JavascriptAnalyzerTest {
         // mutates: age, name
         export function modifyUser(user) ...
         """;
-        assertEquals(expectedMuSkeleton.trim(), skeletons.get(muCU).trim(), "modifyUser skeleton mismatch.");
+        assertCodeEquals(expectedMuSkeleton, skeletons.get(muCU), "modifyUser skeleton mismatch.");
 
         // Verify getSkeleton for one of the CUs
         Optional<String> mecSkeletonOpt = jsAnalyzer.getSkeleton(mecCU);
         assertTrue(mecSkeletonOpt.isPresent(), "getSkeleton should find MyExportedComponent by FQ name.");
-        assertEquals(
-                expectedMecSkeleton.trim(),
-                mecSkeletonOpt.get().trim(),
-                "getSkeleton for MyExportedComponent FQ name mismatch.");
+        assertCodeEquals(
+                expectedMecSkeleton, mecSkeletonOpt.get(), "getSkeleton for MyExportedComponent FQ name mismatch.");
     }
 
     @Test
@@ -361,26 +343,23 @@ public final class JavascriptAnalyzerTest {
         // Test case 1: Class in JSX
         Optional<String> jsxClassHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "JsxClass");
         assertTrue(jsxClassHeader.isPresent(), "Skeleton header for JsxClass should be defined.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 export class JsxClass {
                   [...]
                 }
-                """
-                        .trim(),
-                jsxClassHeader.get().trim());
+                """,
+                jsxClassHeader.get());
 
         // Test case 2: Arrow function component in JSX
         Optional<String> jsxArrowFnHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "JsxArrowFnComponent");
         assertTrue(jsxArrowFnHeader.isPresent(), "Skeleton header for JsxArrowFnComponent should be defined.");
-        assertEquals(
-                "export JsxArrowFnComponent({ name }): JSX.Element => ...",
-                jsxArrowFnHeader.get().trim());
+        assertCodeEquals("export JsxArrowFnComponent({ name }): JSX.Element => ...", jsxArrowFnHeader.get());
 
         // Test case 3: Regular function in JS
         Optional<String> utilFuncHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "util"); // From Hello.js
         assertTrue(utilFuncHeader.isPresent(), "Skeleton header for util function should be defined.");
-        assertEquals("export function util() ...", utilFuncHeader.get().trim());
+        assertCodeEquals("export function util() ...", utilFuncHeader.get());
 
         // Test case 4: Non-existent FQ name
         Optional<String> nonExistentHeader = AnalyzerUtil.getSkeletonHeader(jsAnalyzer, "NonExistentSymbol");
@@ -595,7 +574,7 @@ public final class JavascriptAnalyzerTest {
         export class Hello {
             greet() { console.log("hi"); }
         }""";
-        assertEquals(expectedHelloClassSource.trim(), helloClassSource.trim());
+        assertCodeEquals(expectedHelloClassSource, helloClassSource);
 
         // Test case 2: Valid class from Hello.jsx
         final var jsxClassSourceOpt = AnalyzerUtil.getClassSource(jsAnalyzer, "JsxClass", true);
@@ -608,7 +587,7 @@ public final class JavascriptAnalyzerTest {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }
         }""";
-        assertEquals(expectedJsxClassSource.trim(), jsxClassSource.trim());
+        assertCodeEquals(expectedJsxClassSource, jsxClassSource);
 
         // Test case 3: Non-existent class
         assertTrue(
@@ -635,8 +614,7 @@ public final class JavascriptAnalyzerTest {
         assertTrue(greetMethodSourceOpt.isPresent(), "Source for 'Hello.greet' should be found.");
         String expectedGreetMethodSource = """
         greet() { console.log("hi"); }""";
-        assertEquals(
-                expectedGreetMethodSource.trim(), greetMethodSourceOpt.get().trim());
+        assertCodeEquals(expectedGreetMethodSource, greetMethodSourceOpt.get());
 
         // Test case 2: Method in Hello.jsx
         Optional<String> renderMethodSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "JsxClass.render", true);
@@ -646,15 +624,14 @@ public final class JavascriptAnalyzerTest {
         render() {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }"""; // Note: Indentation within the method body is preserved.
-        assertEquals(
-                expectedRenderMethodSource.trim(), renderMethodSourceOpt.get().trim());
+        assertCodeEquals(expectedRenderMethodSource, renderMethodSourceOpt.get());
 
         // Test case 3: Exported function in Hello.js
         Optional<String> utilFuncSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "util", true);
         assertTrue(utilFuncSourceOpt.isPresent(), "Source for 'util' function should be found.");
         String expectedUtilFuncSource = """
         export function util() { return 42; }""";
-        assertEquals(expectedUtilFuncSource.trim(), utilFuncSourceOpt.get().trim());
+        assertCodeEquals(expectedUtilFuncSource, utilFuncSourceOpt.get());
 
         // Test case 4: Exported arrow function in Hello.jsx
         Optional<String> jsxArrowFnSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "JsxArrowFnComponent", true);
@@ -669,16 +646,14 @@ public final class JavascriptAnalyzerTest {
                 </section>
             );
         }""";
-        assertEquals(expectedJsxArrowFnSource.trim(), jsxArrowFnSourceOpt.get().trim());
+        assertCodeEquals(expectedJsxArrowFnSource, jsxArrowFnSourceOpt.get());
 
         // Test case 5: Local (non-exported) arrow function in Hello.jsx
         Optional<String> localJsxArrowFnSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "LocalJsxArrowFn", true);
         assertTrue(localJsxArrowFnSourceOpt.isPresent(), "Source for 'LocalJsxArrowFn' should be found.");
         String expectedLocalJsxArrowFnSource = """
         () => <button>Click Me</button>""";
-        assertEquals(
-                expectedLocalJsxArrowFnSource.trim(),
-                localJsxArrowFnSourceOpt.get().trim());
+        assertCodeEquals(expectedLocalJsxArrowFnSource, localJsxArrowFnSourceOpt.get());
 
         // Test case 6: Local (non-exported) plain function in Hello.jsx
         Optional<String> plainJsxFuncSourceOpt = AnalyzerUtil.getMethodSource(jsAnalyzer, "PlainJsxFunc", true);
@@ -688,8 +663,7 @@ public final class JavascriptAnalyzerTest {
         function PlainJsxFunc() {
             return <article>Some article content</article>;
         }""";
-        assertEquals(
-                expectedPlainJsxFuncSource.trim(), plainJsxFuncSourceOpt.get().trim());
+        assertCodeEquals(expectedPlainJsxFuncSource, plainJsxFuncSourceOpt.get());
 
         // Test case 7: Non-existent method
         Optional<String> nonExistentMethodSourceOpt =
@@ -720,6 +694,6 @@ public final class JavascriptAnalyzerTest {
     - greet
 - util
 """.strip();
-        assertEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
+        assertCodeEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
     }
 }
