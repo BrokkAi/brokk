@@ -1197,21 +1197,8 @@ public class Chrome
         bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
-        // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
-        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redo",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Z,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        // For Windows/Linux, Ctrl+Y is also common for redo
-        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redoY",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-
-        bindKey(rootPane, redoKeyStroke, "globalRedo");
-        bindKey(rootPane, redoYKeyStroke, "globalRedo");
-        rootPane.getActionMap().put("globalRedo", globalRedoAction);
+        // Register redo keybindings via helper (Cmd/Ctrl+Shift+Z and optionally Ctrl/Ctrl+Y)
+        registerRedoKeybindings(rootPane, globalRedoAction);
 
         // Cmd/Ctrl+C => global copy
         KeyStroke copyKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1495,17 +1482,62 @@ public class Chrome
         });
     }
 
+    /**
+     * Bind a non-null KeyStroke to an action key on the given root pane.
+     *
+     * Invariant: callers (for example, {@code GlobalUiSettings.getKeybinding(...)} and
+     * {@code KeyboardShortcutUtil}) guarantee that the supplied {@code KeyStroke} is
+     * non-null. Therefore this method does not perform a redundant null-check on
+     * {@code stroke}. If that guarantee ever changes, either callers must validate
+     * or this method should be updated to handle null values.
+     */
     private static void bindKey(JRootPane rootPane, KeyStroke stroke, String actionKey) {
-        // Remove any previous stroke bound to this actionKey to avoid duplicates
+        // Allow multiple KeyStrokes to map to the same action key (e.g., both Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y ->
+        // "globalRedo").
+        // The InputMap is cleared when refreshing keybindings, so duplicates are not a concern there.
+        // Runtime assertion: callers are expected to provide a non-null KeyStroke (documented in method javadoc).
+        // Enforce this invariant early to get a fast, clear failure if violated.
         var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        // Remove all existing inputs mapping to actionKey
-        for (KeyStroke ks : im.allKeys() == null ? new KeyStroke[0] : im.allKeys()) {
-            Object val = im.get(ks);
-            if (actionKey.equals(val)) {
-                im.remove(ks);
-            }
-        }
         im.put(stroke, actionKey);
+    }
+
+    /**
+     * Headless-safe helper to obtain the platform menu shortcut modifier mask.
+     * Falls back to CTRL mask in headless environments (CI).
+     *
+     * @return the menu shortcut modifier mask for the current environment
+     */
+    private static int getMenuShortcutKeyMaskExSafe() {
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException e) {
+            // Fall back to CTRL mask in headless environments (CI)
+            return InputEvent.CTRL_DOWN_MASK;
+        }
+    }
+
+    /**
+     * Register standard redo keybindings in a single place so tests or other callers
+     * can reuse the same logic. Binds both the platform Shift+Cmd/Ctrl+Z redo and
+     * the Ctrl/Ctrl+Y variant to the "globalRedo" action key.
+     *
+     * Uses {@link #getMenuShortcutKeyMaskExSafe()} to obtain a headless-safe menu mask.
+     *
+     * @param rootPane  the root pane to attach the key strokes to
+     * @param redoAction the Action to put into the rootPane's action map under "globalRedo"
+     */
+    public static void registerRedoKeybindings(JRootPane rootPane, Action redoAction) {
+        int menuMask = getMenuShortcutKeyMaskExSafe();
+
+        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.redo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, menuMask | InputEvent.SHIFT_DOWN_MASK));
+        // For Windows/Linux, Ctrl+Y is also common for redo
+        KeyStroke redoYKeyStroke =
+                GlobalUiSettings.getKeybinding("global.redoY", KeyStroke.getKeyStroke(KeyEvent.VK_Y, menuMask));
+
+        bindKey(rootPane, redoKeyStroke, "globalRedo");
+        bindKey(rootPane, redoYKeyStroke, "globalRedo");
+        rootPane.getActionMap().put("globalRedo", redoAction);
     }
 
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */

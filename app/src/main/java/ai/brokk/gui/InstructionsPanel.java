@@ -51,6 +51,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
+import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -68,6 +69,9 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.text.*;
+import javax.swing.undo.AbstractUndoableEdit;
+import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -105,26 +109,106 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             """
                     .stripIndent();
 
-    private final Chrome chrome;
-    private final JTextArea instructionsArea;
-    private final VoiceInputButton micButton;
-    private final ActionSplitButton actionButton;
-    private final WandButton wandButton;
-    private final ModelSelector modelSelector;
-    private final TokenUsageBar tokenUsageBar;
+    private Chrome chrome;
+    private JTextArea instructionsArea;
+    private VoiceInputButton micButton;
+    private ActionSplitButton actionButton;
+    private WandButton wandButton;
+    private ModelSelector modelSelector;
+    private TokenUsageBar tokenUsageBar;
     private String storedAction;
     private SplitButton historyDropdown;
-    private final ModeBadge modeBadge;
-    private final ContextManager contextManager;
+    private ModeBadge modeBadge;
+    private ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
-    private final JPanel centerPanel;
+    private JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
-    private final Color defaultActionButtonBg;
-    private final Color secondaryActionButtonBg;
+    private Color defaultActionButtonBg;
+    private Color secondaryActionButtonBg;
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+
+    /**
+     * Package-private minimal constructor for tests.
+     *
+     * Creates a light-weight InstructionsPanel with only the pieces required by tests:
+     * - `instructionsArea`
+     * - `commandInputUndoManager`
+     * - small, safe defaults for other UI fields so methods like `populateInstructionsAreaFromAssistant`
+     *   and `getInstructionsArea()` can be exercised without the heavy UI wiring.
+     *
+     * This constructor is intentionally minimal and should be used only from tests in the same package.
+     */
+    InstructionsPanel(Chrome chrome, boolean minimalForTests) {
+        super(new BorderLayout(2, 2));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+        // Core references
+        this.chrome = chrome;
+        this.contextManager = chrome.getContextManager();
+
+        // Minimal undo manager and command input field (ensure UndoManager exists before building field)
+        this.commandInputUndoManager = new UndoManager();
+        // buildCommandInputField expects commandInputUndoManager to be present
+        this.instructionsArea = buildCommandInputField();
+        // Initialize autocomplete early so NullAway sees definite assignment on this constructor path.
+        this.instructionCompletionProvider = new InstructionsCompletionProvider();
+        this.instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
+        this.instructionAutoCompletion.setAutoActivationEnabled(false);
+        this.instructionAutoCompletion.setTriggerKey(
+                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
+        this.instructionAutoCompletion.install(instructionsArea);
+        // Ensure the document listens to our undo manager (buildCommandInputField already attempts this,
+        // but do it explicitly here to be robust in the minimal path).
+        this.instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+
+        // Autocomplete already initialized earlier in the minimal constructor path; no-op here to avoid duplicate
+        // install.
+
+        // Minimal overlay that does not perform activation (safe no-op)
+        this.commandInputOverlay = new OverlayPanel(overlay -> {}, ""); // no-op overlay for tests
+        this.commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
+
+        // Minimal UI placeholders so other code can safely interact with the panel in tests
+        this.storedAction = loadActionMode();
+        this.defaultActionButtonBg = UIManager.getColor("Button.default.background");
+        this.secondaryActionButtonBg = UIManager.getColor("Button.background");
+
+        this.centerPanel = new JPanel();
+        this.contextAreaContainer = new ContextAreaContainer();
+        this.modeBadge = new ModeBadge();
+        this.modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        // Lightweight components constructed with shields to avoid complex side effects
+        this.workspaceItemsChipPanel = new WorkspaceItemsChipPanel(chrome);
+        this.tokenUsageBar = new TokenUsageBar(chrome);
+        this.tokenUsageBar.setVisible(false);
+        this.tokenUsageBarPopupMenu = new JPopupMenu();
+
+        // Lightweight interactive controls (the concrete classes are reused with no-op callbacks).
+        this.micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {}, msg -> {});
+        this.actionButton = new ActionSplitButton(() -> false, ACTION_SEARCH);
+        this.wandButton =
+                new WandButton(contextManager, chrome, instructionsArea, this::getInstructions, () -> {}, s -> {});
+        this.modelSelector = new ModelSelector(chrome);
+        this.historyDropdown = createHistoryDropdown();
+
+        // Minimal layout: put instructionsArea into a scroll pane and make it available as layered pane
+        var commandScrollPane = new JScrollPane(instructionsArea);
+        commandScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        this.inputLayeredPane = commandScrollPane;
+        this.centerPanel.add(this.inputLayeredPane);
+
+        // Keep other optional fields null (test code should not rely on them)
+        this.statusStripComponent = null;
+        this.bottomToolbarPanel = null;
+        this.selectorStripPanel = null;
+
+        // Important: ensure the panel has the minimal child components expected by callers.
+        add(this.centerPanel, BorderLayout.CENTER);
+    }
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -258,6 +342,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
+    // Session-scoped assistant prompt trail snapshot and flag to mark AI-generated overwrites.
+    // `aiPromptTrailSnapshot` holds the user's input immediately before the assistant overwrites it.
+    private @Nullable String aiPromptTrailSnapshot = null;
+    // When true, indicates the current content was produced by the assistant in this session.
+    private boolean aiPromptIsAssistantGenerated = false;
+    // Client property key to mark the JTextArea as containing AI-generated prompt text.
+    private static final String PROMPT_AI_GENERATED_KEY = "prompt.aiGenerated";
+
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
     private JPopupMenu tokenUsageBarPopupMenu;
@@ -284,7 +376,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
         wandButton = new WandButton(
-                contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
+                contextManager,
+                chrome,
+                instructionsArea,
+                this::getInstructions,
+                this::recordAssistantPromptTrailSnapshot,
+                this::populateInstructionsAreaFromAssistant);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -294,6 +391,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
+
+        // Lightweight hardening: if the current content was produced by the assistant in this session,
+        // clear the assistant prompt trail as soon as the user begins typing so the AI tag/snapshot
+        // doesn't linger after manual edits. We use KeyEvents to avoid clearing during programmatic setText().
+        instructionsArea.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyTyped(KeyEvent e) {
+                if (aiPromptIsAssistantGenerated) {
+                    clearAssistantPromptTrail();
+                }
+            }
+        });
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(
@@ -1840,19 +1949,248 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    private void recordAssistantPromptTrailSnapshot() {
+        // Record the user's current input as the pre-assistant snapshot on the EDT.
+        // Do NOT mark the text as assistant-generated yet — the assistant tag is applied
+        // only when the assistant's final text is written (populateInstructionsAreaFromAssistant).
+        if (SwingUtilities.isEventDispatchThread()) {
+            aiPromptTrailSnapshot = getInstructions();
+        } else {
+            SwingUtilities.invokeLater(() -> aiPromptTrailSnapshot = getInstructions());
+        }
+    }
+
+    /**
+     * Clears the session-scoped assistant prompt trail state.
+     * This resets the stored user snapshot, the assistant-generated flag, and the
+     * client property on the instructions area. EDT-safe.
+     */
+    private void clearAssistantPromptTrail() {
+        if (SwingUtilities.isEventDispatchThread()) {
+            aiPromptTrailSnapshot = null;
+            aiPromptIsAssistantGenerated = false;
+            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, null);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                aiPromptTrailSnapshot = null;
+                aiPromptIsAssistantGenerated = false;
+                instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, null);
+            });
+        }
+    }
+
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
-            // If placeholder is active or area is disabled, activate input first
+            // If placeholder is active or area is disabled, activate input first.
+            // Note: activateCommandInput() will clear placeholder and may discard history
+            // via clearCommandInput(); that's intended only for the placeholder case.
+            boolean didActivate = false;
             if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
+                didActivate = true;
             }
+
             SwingUtilities.invokeLater(() -> {
-                instructionsArea.setText(text);
-                commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
-                instructionsArea.requestFocusInWindow(); // Ensure focus after text set
-                instructionsArea.setCaretPosition(text.length()); // Move caret to end
+                // Intentionally preserve undo history so users can press Ctrl/Cmd+Z to revert a refined prompt.
+                // Global undo/redo keybindings are wired in Chrome; we only create a single composite edit here.
+                // Capture previous content so we can provide a single undo/redo step.
+                String beforeText = instructionsArea.getText();
+                String afterText = text;
+
+                // Temporarily detach the UndoManager listener so the programmatic setText()
+                // doesn't produce low-level undoable edits. We'll add a single composite edit.
+                var doc = instructionsArea.getDocument();
+                doc.removeUndoableEditListener(commandInputUndoManager);
+                try {
+                    instructionsArea.setText(afterText);
+                } finally {
+                    // Reattach the listener regardless of what happened above.
+                    doc.addUndoableEditListener(commandInputUndoManager);
+                }
+
+                // Add a single undoable edit that knows how to restore previous/next text.
+                // If we activated due to placeholder, the previous text may be empty and
+                // clearing the undo history earlier is expected; still we add this edit
+                // so redo/undo behaves predictably.
+                commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+                    private static final long serialVersionUID = 1L;
+                    private final String before = beforeText;
+                    private final String after = afterText;
+
+                    @Override
+                    public void undo() throws CannotUndoException {
+                        super.undo();
+                        SwingUtilities.invokeLater(() -> {
+                            // Temporarily suppress listening while applying undo to avoid
+                            // creating additional undo edits.
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(before);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            before.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public void redo() throws CannotRedoException {
+                        super.redo();
+                        SwingUtilities.invokeLater(() -> {
+                            var d = instructionsArea.getDocument();
+                            d.removeUndoableEditListener(commandInputUndoManager);
+                            try {
+                                instructionsArea.setText(after);
+                            } finally {
+                                d.addUndoableEditListener(commandInputUndoManager);
+                            }
+                            instructionsArea.requestFocusInWindow();
+                            instructionsArea.setCaretPosition(Math.max(
+                                    0,
+                                    Math.min(
+                                            after.length(),
+                                            instructionsArea.getDocument().getLength())));
+                        });
+                    }
+
+                    @Override
+                    public String getPresentationName() {
+                        return "Refine Prompt";
+                    }
+                });
+
+                // Ensure focus and caret are placed at the end of the new text.
+                instructionsArea.requestFocusInWindow();
+                instructionsArea.setCaretPosition(afterText.length());
             });
         });
+    }
+
+    /**
+     * Populate the instructions area with text produced by the assistant (AI). This method uses the session-scoped
+     * `aiPromptTrailSnapshot` as the "before" text for a single composite undo edit so a single Ctrl+Z will restore the
+     * user's previous input. If the assistant text equals the snapshot, we delegate to the regular
+     * `populateInstructionsArea` and clear the assistant trail to avoid a no-op AI-marked edit.
+     */
+    public void populateInstructionsAreaFromAssistant(String text) {
+        Runnable applyAssistantText = () -> {
+            // Activate input if needed (clears placeholder but preserves undo history behavior)
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+
+            // Determine "before" text: prefer the stored snapshot, otherwise use current.
+            String beforeText = aiPromptTrailSnapshot != null ? aiPromptTrailSnapshot : instructionsArea.getText();
+            String afterText = text;
+
+            // If the assistant produced the same text as the snapshot, avoid creating an AI-marked no-op edit.
+            if (Objects.equals(afterText, beforeText)) {
+                // Use the regular path (which will create a normal undo edit) and clear the assistant trail.
+                populateInstructionsArea(afterText);
+                clearAssistantPromptTrail();
+                return;
+            }
+
+            // Mark as assistant generated before we set the text so listeners/UI can react.
+            aiPromptIsAssistantGenerated = true;
+            instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, true);
+
+            // Temporarily detach the UndoManager listener so setText() doesn't create many low-level edits.
+            var doc = instructionsArea.getDocument();
+            doc.removeUndoableEditListener(commandInputUndoManager);
+            try {
+                instructionsArea.setText(afterText);
+            } finally {
+                doc.addUndoableEditListener(commandInputUndoManager);
+            }
+
+            // Add a single composite undo edit that will restore the stored snapshot on undo,
+            // and will reapply the assistant text (and tag) on redo.
+            commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+                private static final long serialVersionUID = 1L;
+                private final String before = beforeText;
+                private final String after = afterText;
+
+                @Override
+                public void undo() throws CannotUndoException {
+                    super.undo();
+                    SwingUtilities.invokeLater(() -> {
+                        var d = instructionsArea.getDocument();
+                        d.removeUndoableEditListener(commandInputUndoManager);
+                        try {
+                            instructionsArea.setText(before);
+                        } finally {
+                            d.addUndoableEditListener(commandInputUndoManager);
+                        }
+                        // Clear assistant-trail state when user undoes the AI overwrite.
+                        clearAssistantPromptTrail();
+
+                        instructionsArea.requestFocusInWindow();
+                        instructionsArea.setCaretPosition(Math.max(
+                                0,
+                                Math.min(
+                                        before.length(),
+                                        instructionsArea.getDocument().getLength())));
+                    });
+                }
+
+                @Override
+                public void redo() throws CannotRedoException {
+                    super.redo();
+                    SwingUtilities.invokeLater(() -> {
+                        var d = instructionsArea.getDocument();
+                        d.removeUndoableEditListener(commandInputUndoManager);
+                        try {
+                            instructionsArea.setText(after);
+                        } finally {
+                            d.addUndoableEditListener(commandInputUndoManager);
+                        }
+                        // Reapply assistant-generated tag/state on redo.
+                        aiPromptIsAssistantGenerated = true;
+                        instructionsArea.putClientProperty(PROMPT_AI_GENERATED_KEY, true);
+
+                        instructionsArea.requestFocusInWindow();
+                        instructionsArea.setCaretPosition(Math.max(
+                                0,
+                                Math.min(
+                                        after.length(),
+                                        instructionsArea.getDocument().getLength())));
+                    });
+                }
+
+                @Override
+                public String getPresentationName() {
+                    return "Refine Prompt (AI)";
+                }
+            });
+
+            // Place caret at end of assistant text.
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(afterText.length());
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            // If caller is already on EDT, run synchronously so callers (tests or callers using invokeAndWait)
+            // observe the change immediately.
+            applyAssistantText.run();
+        } else {
+            try {
+                // Ensure callers from background threads block until the assistant text is applied so
+                // behavior is deterministic (important for tests and callers that expect immediate effect).
+                SwingUtilities.invokeAndWait(applyAssistantText);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while applying assistant text", e);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                logger.error("Error while applying assistant text", e);
+            }
+        }
     }
 
     /**
@@ -2125,7 +2463,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var toggleKs = GlobalUiSettings.getKeybinding(
                         "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
                 var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr == null || toggleStr.isBlank()) {
+                if (toggleStr.isBlank()) {
                     toggleStr = "(unbound)";
                 }
                 toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
@@ -2138,7 +2476,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var submitKs = GlobalUiSettings.getKeybinding(
                         "instructions.submit", KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0));
                 var submitStr = KeyboardShortcutUtil.formatKeyStroke(submitKs);
-                if (submitStr == null || submitStr.isBlank()) {
+                if (submitStr.isBlank()) {
                     submitStr = "(unbound)";
                 }
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
@@ -2697,16 +3035,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
 
+        /**
+         * @param contextManager the context manager used by WandAction
+         * @param consoleIO the console IO (for streaming feedback)
+         * @param instructionsArea the text area being edited (used by WandAction for streaming)
+         * @param promptSupplier supplies the current prompt text
+         * @param preExecuteHook optional Runnable that will be invoked synchronously on the EDT before the WandAction starts;
+         *                       used to record a snapshot of the user's input so a single undo can restore it.
+         * @param promptConsumer receives the final assistant-produced text
+         */
         public WandButton(
                 ContextManager contextManager,
                 IConsoleIO consoleIO,
                 JTextArea instructionsArea,
                 Supplier<String> promptSupplier,
+                Runnable preExecuteHook,
                 Consumer<String> promptConsumer) {
             super();
             SwingUtilities.invokeLater(() -> setIcon(Icons.WAND));
             setToolTipText(WAND_TOOLTIP);
             addActionListener(e -> {
+                // Record the snapshot before any assistant-driven overwrite begins
+                try {
+                    preExecuteHook.run();
+                } catch (Exception ex) {
+                    // Defensive: ensure the hook failure doesn't prevent the wand action
+                    logger.debug("Wand preExecuteHook threw an exception", ex);
+                }
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
             });
