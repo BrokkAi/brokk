@@ -35,8 +35,8 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> searchDefinitions(String pattern) {
-        return Collections.emptyList();
+    public Set<CodeUnit> searchDefinitions(String pattern) {
+        return Set.of();
     }
 
     @Override

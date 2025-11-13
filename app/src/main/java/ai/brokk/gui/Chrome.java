@@ -58,6 +58,7 @@ import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.Environment;
+import ai.brokk.util.FileUtil;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
@@ -1953,21 +1954,19 @@ public class Chrome
 
             // 5. Position the caret at the specified line if provided, after showing the frame
             if (startLine >= 0) {
+                // Convert line number to character offset using actual (CRLF/LF/CR) separators
+                var text = content.get();
+                var lineStarts = FileUtil.computeLineStarts(text);
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        // Convert line number to character offset
-                        var lines = content.get().split("\\r?\\n", -1); // -1 to include trailing empty lines
-                        if (startLine < lines.length) {
-                            var charOffset = 0;
-                            for (var i = 0; i < startLine; i++) {
-                                charOffset += lines[i].length() + 1; // +1 for line separator
-                            }
+                        if (startLine < lineStarts.length) {
+                            var charOffset = lineStarts[startLine];
                             panel.setCaretPositionAndCenter(charOffset);
                         } else {
                             logger.warn(
                                     "Start line {} exceeds file length {} for {}",
                                     startLine,
-                                    lines.length,
+                                    lineStarts.length,
                                     pf.absPath());
                         }
                     } catch (Exception e) {

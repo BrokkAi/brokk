@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -107,8 +108,7 @@ public final class PythonAnalyzerTest {
                 "getDeclarationsInFile mismatch for file A: missing funcA_CU. Found: " + declarationsInA);
         // Add other expected CUs if necessary for a more complete check, e.g., methods of classA_CU
         assertTrue(analyzer.getSkeleton(funcA_CU).isPresent(), "Skeleton for funcA_CU should be present");
-        assertEquals(
-                funcASummary.trim(), analyzer.getSkeleton(funcA_CU).get().trim(), "getSkeleton mismatch for funcA");
+        assertCodeEquals(funcASummary.trim(), analyzer.getSkeleton(funcA_CU).get(), "getSkeleton mismatch for funcA");
     }
 
     @Test

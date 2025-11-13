@@ -41,6 +41,13 @@ with try/catch is unnecessary and futile; don't do that.
 
 1. **Use ProjectFile to represent files**. String and File and Path all have issues that ProjectFile resolves. If you're dealing with files but you don't have the ProjectFile API available, stop and ask the user to provide it. DO NOT write code that reads from a File or Path unless explicitly instructed to do so.
 
+## Testing
+
+1. Prefer `ai.brokk.testutil.AssertionHelperUtil` methods when writing analyzer tests that compare multi-block code strings.
+   - Use `assertCodeEquals`/`assertCodeStartsWith`/`assertCodeEndsWith`/`assertCodeContains` for code string comparisons.
+   - These helpers normalize line endings and trim outer whitespace, making tests stable across platforms and editors.
+   - Avoid direct assertEquals on raw multi-line code output.
+
 ## GUI standards
 
 1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)

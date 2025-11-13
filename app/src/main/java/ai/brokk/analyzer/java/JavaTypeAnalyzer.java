@@ -22,7 +22,7 @@ public class JavaTypeAnalyzer {
             String currentPackage,
             Set<CodeUnit> resolvedImports,
             Function<String, Optional<CodeUnit>> getDefinition,
-            Function<String, List<CodeUnit>> searchDefinitions) {
+            Function<String, Set<CodeUnit>> searchDefinitions) {
 
         return rawSupertypeNames.stream()
                 .flatMap(rawName ->
@@ -45,7 +45,7 @@ public class JavaTypeAnalyzer {
             String currentPackage,
             Set<CodeUnit> resolvedImports,
             Function<String, Optional<CodeUnit>> getDefinition,
-            Function<String, List<CodeUnit>> searchDefinitions) {
+            Function<String, Set<CodeUnit>> searchDefinitions) {
         String name = JavaAnalyzer.stripGenericTypeArguments(rawName).trim();
         if (name.isEmpty()) {
             return Stream.empty();

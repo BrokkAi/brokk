@@ -389,7 +389,7 @@ public class ContextMenuBuilder {
         }
 
         // Fallback: search for candidates with the symbol name
-        List<CodeUnit> candidates;
+        Set<CodeUnit> candidates;
         try {
             candidates = analyzer.searchDefinitions(symbolName);
             if (candidates.isEmpty()) {
@@ -419,7 +419,7 @@ public class ContextMenuBuilder {
             context.chrome().systemNotify(message, "Multiple Definitions Found", JOptionPane.INFORMATION_MESSAGE);
         }
 
-        return Optional.of(candidates.getFirst());
+        return Optional.of(candidates.iterator().next());
     }
 
     private void openInPreview(SymbolMenuContext context) {
