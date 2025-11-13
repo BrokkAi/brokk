@@ -154,6 +154,7 @@ public final class V3_HistoryIo {
 
         var contentReader = new V3_HistoryIo.ContentReader(contentBytesMap);
         contentReader.setContentMetadata(contentMetadata);
+        contentReader.setImageBytes(imageBytesMap);
 
         if (rawGitStateDtos != null) {
             for (var e : rawGitStateDtos.entrySet()) {
@@ -183,7 +184,6 @@ public final class V3_HistoryIo {
                                 virtualDtosById,
                                 taskDtosById,
                                 mgr,
-                                imageBytesMap,
                                 fragmentCache,
                                 contentReader);
                     } catch (Exception e) {
@@ -261,6 +261,7 @@ public final class V3_HistoryIo {
         private final Map<String, byte[]> contentBytes;
         private Map<String, ContentDtos.ContentMetadataDto> contentMetadata = Map.of();
         private final Map<String, String> contentCache = new HashMap<>();
+        private Map<String, byte[]> imageBytes = Map.of();
 
         public ContentReader(Map<String, byte[]> contentBytes) {
             this.contentBytes = contentBytes;
@@ -268,6 +269,14 @@ public final class V3_HistoryIo {
 
         public void setContentMetadata(Map<String, ContentDtos.ContentMetadataDto> contentMetadata) {
             this.contentMetadata = contentMetadata;
+        }
+
+        public void setImageBytes(Map<String, byte[]> imageBytes) {
+            this.imageBytes = imageBytes;
+        }
+
+        public byte @Nullable [] readImageBytes(String fragmentId) {
+            return imageBytes.get(fragmentId);
         }
 
         public String readContent(String contentId) {

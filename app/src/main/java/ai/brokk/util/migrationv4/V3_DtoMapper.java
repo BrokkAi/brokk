@@ -90,7 +90,6 @@ public class V3_DtoMapper {
             Map<String, V3_FragmentDtos.VirtualFragmentDto> virtualDtos,
             Map<String, V3_FragmentDtos.TaskFragmentDto> taskDtos,
             IContextManager mgr,
-            @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             V3_HistoryIo.ContentReader contentReader) {
         if (referencedDtos.containsKey(idToResolve)) {
@@ -110,7 +109,6 @@ public class V3_DtoMapper {
             return _buildVirtualFragment(
                     castNonNull(dto),
                     mgr,
-                    imageBytesMap,
                     fragmentCacheForRecursion,
                     referencedDtos,
                     virtualDtos,
@@ -301,7 +299,6 @@ public class V3_DtoMapper {
     private static @Nullable ContextFragment.VirtualFragment _buildVirtualFragment(
             @Nullable V3_FragmentDtos.VirtualFragmentDto dto,
             IContextManager mgr,
-            @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             Map<String, V3_FragmentDtos.ReferencedFragmentDto> allReferencedDtos,
             Map<String, V3_FragmentDtos.VirtualFragmentDto> allVirtualDtos,
@@ -357,11 +354,7 @@ public class V3_DtoMapper {
                                 requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
             case V3_FragmentDtos.PasteImageFragmentDto pasteImageDto -> {
                 try {
-                    if (imageBytesMap == null) {
-                        logger.error("imageBytesMap is null, cannot load image for {}", pasteImageDto.id());
-                        yield null;
-                    }
-                    byte[] imageBytes = imageBytesMap.get(pasteImageDto.id());
+                    byte[] imageBytes = reader.readImageBytes(pasteImageDto.id());
                     if (imageBytes == null) {
                         logger.error("Image bytes not found for fragment: {}", pasteImageDto.id());
                         yield null;
@@ -474,7 +467,6 @@ public class V3_DtoMapper {
                             allVirtualDtos,
                             allTaskDtos,
                             mgr,
-                            null,
                             fragmentCacheForRecursion,
                             reader));
             return new TaskEntry(dto.sequence(), taskFragment, null);

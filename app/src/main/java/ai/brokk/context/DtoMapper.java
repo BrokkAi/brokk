@@ -292,11 +292,7 @@ public class DtoMapper {
                                 requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
-                    if (imageBytesMap == null) {
-                        logger.error("imageBytesMap is null, cannot load image for {}", pasteImageDto.id());
-                        yield null;
-                    }
-                    byte[] imageBytes = imageBytesMap.get(pasteImageDto.id());
+                    byte[] imageBytes = imageBytesMap != null ? imageBytesMap.get(pasteImageDto.id()) : null;
                     if (imageBytes == null) {
                         logger.error("Image bytes not found for fragment: {}", pasteImageDto.id());
                         yield null;
@@ -351,6 +347,7 @@ public class DtoMapper {
                                 allReferencedDtos,
                                 allVirtualDtos,
                                 allTaskDtos,
+                                imageBytesMap,
                                 reader))
                         .toList();
                 yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
@@ -551,6 +548,7 @@ public class DtoMapper {
             Map<String, ReferencedFragmentDto> allReferencedDtos,
             Map<String, VirtualFragmentDto> allVirtualDtos,
             Map<String, TaskFragmentDto> allTaskDtos,
+            @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
         if (dto.log() != null) {
             var taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
@@ -561,7 +559,7 @@ public class DtoMapper {
                             allVirtualDtos,
                             allTaskDtos,
                             mgr,
-                            null,
+                            imageBytesMap,
                             fragmentCacheForRecursion,
                             reader));
             return new TaskEntry(dto.sequence(), taskFragment, null);
