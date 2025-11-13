@@ -54,6 +54,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,7 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -563,9 +565,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Add focus listener to restore placeholder when focus is lost with empty text
-        area.addFocusListener(new java.awt.event.FocusAdapter() {
+        area.addFocusListener(new FocusAdapter() {
             @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
+            public void focusLost(FocusEvent e) {
                 // Restore placeholder state if text is empty
                 SwingUtilities.invokeLater(() -> deactivateCommandInput());
             }
@@ -1724,8 +1726,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         // Update chips from the selected context and toggle read-only
         workspaceItemsChipPanel.setFragmentsForContext(newCtx);
-        boolean readOnly =
-                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        boolean readOnly = !Objects.equals(newCtx, chrome.getContextManager().topContext());
         workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);
@@ -1813,7 +1814,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Border outerBorder;
             if (GlobalUiSettings.isAdvancedMode()) {
                 Color accent = modeBadge.getAccent();
-                outerBorder = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
+                outerBorder = new MatteBorder(0, 4, 0, 0, accent);
             } else {
                 outerBorder = BorderFactory.createEmptyBorder(0, 4, 0, 0);
             }
@@ -2108,7 +2109,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             });
 
             // Change cursor when hovering the dropdown area on the right
-            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            addMouseMotionListener(new MouseMotionAdapter() {
                 @Override
                 public void mouseMoved(MouseEvent e) {
                     boolean inDropdown = dropdownEnabled && e.getX() >= getWidth() - DROPDOWN_WIDTH;
