@@ -3041,82 +3041,86 @@ public class Chrome
             outputTabsContainer.setVisible(!enabled);
 
             if (enabled) {
-            if (verticalActivityCombinedPanel != null
-            && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
-            bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
-            } else {
-            detachFromParent(activityTabs);
-            if (outputTabs != null) {
-            detachFromParent(outputTabs);
-            }
-            detachFromParent(rightTabbedContainer);
-            var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
-            detachFromParent(sessionHeader);
-            
-            if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
-            topSplitPane.setBottomComponent(null);
-            }
-            
-            // Create top-left composite: Session header above Activity tabs
-            var leftTopPanel = new JPanel(new BorderLayout());
-            leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
-            leftTopPanel.add(activityTabs, BorderLayout.CENTER);
-            
-            // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
-            var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            leftSplitPane.setTopComponent(leftTopPanel);
-            leftSplitPane.setBottomComponent(rightTabbedContainer);
-            leftSplitPane.setResizeWeight(0.4);
-            
-            // Restore saved position or use default
-            int savedLeftPos = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
-            if (savedLeftPos > 0) {
-            leftSplitPane.setDividerLocation(savedLeftPos);
-            } else {
-            leftSplitPane.setDividerLocation(0.4);
-            }
-            
-            // Add listener to save position changes
-            leftSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (leftSplitPane.isShowing()) {
-            int newPos = leftSplitPane.getDividerLocation();
-            if (newPos > 0) {
-            GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
-            }
-            }
-            });
-            
-            // Create horizontal split: left split pane | output tabs
-            var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-            verticalSplit.setLeftComponent(leftSplitPane);
-            if (outputTabs != null) {
-            verticalSplit.setRightComponent(outputTabs);
-            }
-            verticalSplit.setResizeWeight(0.5);
-            
-            // Restore saved position or use default
-            int savedHorizPos = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
-            if (savedHorizPos > 0) {
-            verticalSplit.setDividerLocation(savedHorizPos);
-            } else {
-            verticalSplit.setDividerLocation(0.5);
-            }
-            
-            // Add listener to save position changes
-            verticalSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (verticalSplit.isShowing()) {
-            int newPos = verticalSplit.getDividerLocation();
-            if (newPos > 0) {
-            GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
-            }
-            }
-            });
-            
-            verticalActivityCombinedPanel = verticalSplit;
-            bottomSplitPane.setRightComponent(verticalSplit);
-            verticalSplit.revalidate();
-            verticalSplit.repaint();
-            }
+                if (verticalActivityCombinedPanel != null
+                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
+                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
+                } else {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+
+                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(null);
+                    }
+
+                    // Create top-left composite: Session header above Activity tabs
+                    var leftTopPanel = new JPanel(new BorderLayout());
+                    leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
+                    leftTopPanel.add(activityTabs, BorderLayout.CENTER);
+
+                    // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
+                    var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+                    leftSplitPane.setTopComponent(leftTopPanel);
+                    leftSplitPane.setBottomComponent(rightTabbedContainer);
+                    leftSplitPane.setResizeWeight(0.4);
+
+                    // Restore saved position or use default
+                    int savedLeftPos = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+                    if (savedLeftPos > 0) {
+                        leftSplitPane.setDividerLocation(savedLeftPos);
+                    } else {
+                        leftSplitPane.setDividerLocation(0.4);
+                    }
+
+                    // Add listener to save position changes
+                    leftSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (leftSplitPane.isShowing()) {
+                            int newPos = leftSplitPane.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    // Create horizontal split: left split pane | output tabs
+                    var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+                    verticalSplit.setLeftComponent(leftSplitPane);
+                    if (outputTabs != null) {
+                        verticalSplit.setRightComponent(outputTabs);
+                    }
+                    verticalSplit.setResizeWeight(0.5);
+
+                    // Restore saved position or use default
+                    int savedHorizPos = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+                    if (savedHorizPos > 0) {
+                        verticalSplit.setDividerLocation(savedHorizPos);
+                    } else {
+                        verticalSplit.setDividerLocation(0.5);
+                    }
+
+                    // Add listener to save position changes
+                    verticalSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (verticalSplit.isShowing()) {
+                            int newPos = verticalSplit.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    verticalActivityCombinedPanel = verticalSplit;
+                    bottomSplitPane.setRightComponent(verticalSplit);
+
+                    // Ensure the capture/notification bar under Output maintains fixed sizing in vertical layout
+                    historyOutputPanel.applyFixedCaptureBarSizing(true);
+
+                    verticalSplit.revalidate();
+                    verticalSplit.repaint();
+                }
             } else {
                 if (verticalActivityCombinedPanel != null) {
                     detachFromParent(activityTabs);
@@ -3125,6 +3129,9 @@ public class Chrome
                     }
                     detachFromParent(rightTabbedContainer);
 
+                    // Return to standard layout; the bar sizing is already correct there.
+                    historyOutputPanel.applyFixedCaptureBarSizing(false);
+
                     if (activityTabs.getParent() != activityTabsContainer) {
                         activityTabsContainer.add(activityTabs, BorderLayout.EAST);
                     }
@@ -3132,13 +3139,13 @@ public class Chrome
                         outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
                     }
                     if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
-                    topSplitPane.setBottomComponent(rightTabbedContainer);
+                        topSplitPane.setBottomComponent(rightTabbedContainer);
                     }
                     // Restore session header back to HistoryOutputPanel's top
                     var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                     detachFromParent(sessionHeader);
                     historyOutputPanel.add(sessionHeader, BorderLayout.NORTH);
-                    
+
                     verticalActivityCombinedPanel = null;
                 }
                 bottomSplitPane.setRightComponent(mainVerticalSplitPane);

@@ -133,6 +133,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private JTextArea captureDescriptionArea;
 
+    // Capture/notification bar container for fixed sizing in vertical layout
+    @Nullable
+    private JPanel captureOutputPanel;
+
     private final MaterialButton copyButton;
     private final MaterialButton clearButton;
     private final MaterialButton captureButton;
@@ -1129,6 +1133,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonsPanel.addMouseListener(popupListener);
         notificationAreaPanel.addMouseListener(popupListener);
 
+        this.captureOutputPanel = panel;
         return panel;
     }
 
@@ -1201,6 +1206,51 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } else {
             SwingUtilities.invokeLater(r);
         }
+    }
+
+    public void applyFixedCaptureBarSizing(boolean enabled) {
+        // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
+        // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
+        SwingUtilities.invokeLater(() -> {
+            final int barHeight = 38;
+            final int btnSize = 24;
+
+            if (enabled) {
+                if (captureOutputPanel != null) {
+                    captureOutputPanel.setPreferredSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                }
+                if (notificationAreaPanel != null) {
+                    notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
+                    notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
+                    notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                }
+                Dimension btnDim = new Dimension(btnSize, btnSize);
+                if (openWindowButton != null) {
+                    openWindowButton.setPreferredSize(btnDim);
+                    openWindowButton.setMinimumSize(btnDim);
+                    openWindowButton.setMaximumSize(btnDim);
+                }
+                if (notificationsButton != null) {
+                    notificationsButton.setPreferredSize(btnDim);
+                    notificationsButton.setMinimumSize(btnDim);
+                    notificationsButton.setMaximumSize(btnDim);
+                }
+            } else {
+                // Standard layout already has the correct working sizes set during construction.
+                // No changes needed; leave as-is.
+            }
+
+            if (captureOutputPanel != null) {
+                captureOutputPanel.revalidate();
+                captureOutputPanel.repaint();
+            }
+            if (notificationAreaPanel != null) {
+                notificationAreaPanel.revalidate();
+                notificationAreaPanel.repaint();
+            }
+        });
     }
 
     private JPanel buildNotificationAreaPanel() {
