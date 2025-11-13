@@ -1015,6 +1015,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+        // Fixed height for capture panel
+        panel.setPreferredSize(new Dimension(0, 38));
+        panel.setMinimumSize(new Dimension(0, 38));
 
         // Placeholder area in center - will get all extra space
         captureDescriptionArea = new JTextArea("");
@@ -1032,6 +1035,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // "Open in New Window" button
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+            openWindowButton.setPreferredSize(new Dimension(24, 24));
+            openWindowButton.setMinimumSize(new Dimension(24, 24));
+            openWindowButton.setMaximumSize(new Dimension(24, 24));
         });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
@@ -1047,8 +1053,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 openOutputWindowFromContext(context);
             }
         });
-        // Set minimum size
-        openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
         // Notifications button
@@ -1056,7 +1060,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsButton.addActionListener(e -> showNotificationsDialog());
         SwingUtilities.invokeLater(() -> {
             notificationsButton.setIcon(Icons.NOTIFICATIONS);
-            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+            notificationsButton.setPreferredSize(new Dimension(24, 24));
+            notificationsButton.setMinimumSize(new Dimension(24, 24));
+            notificationsButton.setMaximumSize(new Dimension(24, 24));
         });
         buttonsPanel.add(notificationsButton);
 
@@ -1195,8 +1201,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
         p.setOpaque(false);
         p.setBorder(new EmptyBorder(0, 5, 0, 0));
-        // Preferred width to allow message text and controls; height flexes with content
-        p.setPreferredSize(new Dimension(0, 0));
+        // Fixed height to match capture panel
+        p.setPreferredSize(new Dimension(0, 38));
+        p.setMinimumSize(new Dimension(0, 38));
         return p;
     }
 
