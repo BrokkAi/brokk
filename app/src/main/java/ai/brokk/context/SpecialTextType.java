@@ -27,20 +27,24 @@ public final class SpecialTextType {
 
     private final String description;
     private final String syntaxStyle;
+    private final String previewSyntaxStyle;
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
     private final Predicate<TaskResult.Type> canViewContent;
 
+
     private SpecialTextType(
             String description,
             String syntaxStyle,
+            String previewSyntaxStyle,
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
             Predicate<TaskResult.Type> canViewContent) {
         this.description = description;
         this.syntaxStyle = syntaxStyle;
+        this.previewSyntaxStyle = previewSyntaxStyle;
         this.droppable = droppable;
         this.singleton = singleton;
         this.previewRenderer = previewRenderer;
@@ -57,6 +61,7 @@ public final class SpecialTextType {
     public static final SpecialTextType BUILD_RESULTS = register(new SpecialTextType(
             "Latest Build Results",
             SyntaxConstants.SYNTAX_STYLE_NONE,
+            SyntaxConstants.SYNTAX_STYLE_NONE,
             true, // droppable
             true, // singleton
             Function.identity(), // raw preview is fine
@@ -65,6 +70,7 @@ public final class SpecialTextType {
 
     public static final SpecialTextType SEARCH_NOTES = register(new SpecialTextType(
             "Code Notes",
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
             true, // droppable
             true, // singleton
@@ -75,6 +81,7 @@ public final class SpecialTextType {
     public static final SpecialTextType DISCARDED_CONTEXT = register(new SpecialTextType(
             "Discarded Context",
             SyntaxConstants.SYNTAX_STYLE_JSON,
+            SyntaxConstants.SYNTAX_STYLE_JSON,
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
@@ -83,7 +90,8 @@ public final class SpecialTextType {
 
     public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
             "Task List",
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage is JSON
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
             false, // non-droppable
             true, // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
@@ -105,6 +113,10 @@ public final class SpecialTextType {
 
     public String syntaxStyle() {
         return syntaxStyle;
+    }
+
+    public String previewSyntaxStyle() {
+        return previewSyntaxStyle;
     }
 
     public boolean droppable() {

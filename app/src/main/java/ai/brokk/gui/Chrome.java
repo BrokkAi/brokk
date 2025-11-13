@@ -2209,10 +2209,11 @@ public class Chrome
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
             if (workingFragment instanceof ContextFragment.StringFragment sf) {
-                // Use SpecialTextType-driven preview for StringFragment; choose viewer based on syntax style only
-                var previewText = sf.previewText();
+                // Generic preview for StringFragment: delegate content and style to the fragment
+                String previewText = sf.previewText();
+                String previewStyle = sf.previewSyntaxStyle();
 
-                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(sf.syntaxStyle())) {
+                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(previewStyle)) {
                     var markdownPanel = MarkdownOutputPool.instance().borrow();
                     markdownPanel.updateTheme(MainProject.getTheme());
                     markdownPanel.setText(List.of(Messages.customSystem(previewText)));
@@ -2226,7 +2227,7 @@ public class Chrome
                             contextManager,
                             null,
                             previewText,
-                            sf.syntaxStyle(),
+                            previewStyle,
                             themeManager,
                             workingFragment);
                     showPreviewFrame(contextManager, title, previewPanel);
