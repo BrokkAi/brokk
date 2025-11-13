@@ -55,6 +55,8 @@ public final class GlobalUiSettings {
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
     private static final String KEY_UI_VERTICAL_ACTIVITY_LAYOUT = "ui.verticalActivityLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
+    private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
+    private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -412,6 +414,23 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
+
+    // Vertical layout split positions (pixels)
+    public static int getVerticalLayoutLeftSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT);
+    }
+
+    public static void saveVerticalLayoutLeftSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT, px);
+    }
+
+    public static int getVerticalLayoutHorizontalSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT);
+    }
+
+    public static void saveVerticalLayoutHorizontalSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT, px);
     }
 
     private static int getInt(String key) {
