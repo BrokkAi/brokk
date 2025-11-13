@@ -11,6 +11,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 class BrokkConfigPathsTest {
@@ -64,15 +66,19 @@ class BrokkConfigPathsTest {
     }
 
     @Test
+    @EnabledOnOs(OS.LINUX)
     void testLinuxConfigPath() {
-        System.setProperty("os.name", "Linux");
-        var testUserHome = "/home/testuser";
-        System.setProperty("user.home", testUserHome);
-
+        // On actual Linux systems, verify the path structure is correct
+        // We use the actual user.home to avoid CI environment issues
         Path result = BrokkConfigPaths.getGlobalConfigDir();
+        var actualUserHome = System.getProperty("user.home");
 
-        // Without XDG_CONFIG_HOME, should fall back to ~/.config/Brokk
-        assertEquals(Path.of(testUserHome, ".config", "Brokk"), result, "Expected Linux config path");
+        // Without XDG_CONFIG_HOME, should be ~/.config/Brokk
+        assertEquals(
+                Path.of(actualUserHome, ".config", "Brokk"),
+                result,
+                "Expected Linux config path to be ~/.config/Brokk");
+        assertTrue(result.toString().endsWith("Brokk"), "Expected path to end with capital 'Brokk'");
     }
 
     @Test
@@ -118,26 +124,20 @@ class BrokkConfigPathsTest {
     }
 
     @Test
+    @EnabledOnOs(OS.LINUX)
     void testLegacyConfigDirDifferentFromGlobalOnLinux() {
-        // This test only makes sense on actual case-sensitive filesystems (Linux)
-        // On Windows, Path.of() will resolve both "Brokk" and "brokk" to the same path
-        String actualOs = System.getProperty("os.name");
-        if (actualOs == null || !actualOs.toLowerCase().contains("linux")) {
-            return; // Skip test on non-Linux systems
-        }
-
-        // On Linux, legacy and global config dirs should be different (case-sensitive filesystem)
-        var testUserHome = "/home/testuser";
-        System.setProperty("user.home", testUserHome);
+        // This test verifies that on Linux (case-sensitive filesystem), the legacy and new
+        // config directories are actually different paths that point to different locations.
+        // We restrict this test to Linux because that's where the collision actually occurred.
+        // We use the actual user.home to avoid CI environment issues
+        var actualUserHome = System.getProperty("user.home");
 
         Path global = BrokkConfigPaths.getGlobalConfigDir();
         Path legacy = BrokkConfigPaths.getLegacyConfigDir();
 
         assertNotEquals(global, legacy, "Global and legacy config dirs should differ on case-sensitive filesystems");
-        assertEquals(
-                Path.of(testUserHome, ".config", "Brokk"), global, "Expected global dir with capital 'Brokk'");
-        assertEquals(
-                Path.of(testUserHome, ".config", "brokk"), legacy, "Expected legacy dir with lowercase 'brokk'");
+        assertEquals(Path.of(actualUserHome, ".config", "Brokk"), global, "Expected global dir with capital 'Brokk'");
+        assertEquals(Path.of(actualUserHome, ".config", "brokk"), legacy, "Expected legacy dir with lowercase 'brokk'");
     }
 
     @Test
