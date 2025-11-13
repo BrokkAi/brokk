@@ -9,6 +9,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CallSite;
@@ -813,6 +814,60 @@ public interface ContextFragment {
         @Override
         public String syntaxStyle() {
             return syntaxStyle;
+        }
+
+        /**
+         * Returns the SpecialTextType for this fragment if the description matches a registered special type.
+         */
+        public Optional<SpecialTextType> specialType() {
+            return SpecialTextType.fromDescription(description);
+        }
+
+        /**
+         * Returns a UI-friendly preview of the text using the SpecialTextType's previewRenderer when available.
+         * Falls back to the raw text for non-special fragments.
+         */
+        public String previewText() {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            return st.get().previewRenderer().apply(text());
+        }
+
+        /**
+         * Returns the syntax style to use for previews. For special types, this may differ from the internal storage
+         * style (e.g., Task List stored as JSON but previewed as Markdown).
+         * Falls back to this fragment's syntaxStyle() for non-special fragments.
+         */
+        public String previewSyntaxStyle() {
+            var st = specialType();
+            return st.map(SpecialTextType::previewSyntaxStyle).orElse(syntaxStyle());
+        }
+
+        /**
+         * Returns an optional structured model extracted from this fragment's text, based on its SpecialTextType.
+         * For non-special fragments or types without a model extractor, returns Optional.empty().
+         */
+        public Optional<Map<String, Object>> previewModel() {
+            var st = specialType();
+            return st.map(tt -> tt.modelExtractor().apply(text())).orElse(Optional.empty());
+        }
+
+        /**
+         * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
+         * content for the provided task type, a generic placeholder is returned. Otherwise the raw text is returned.
+         * For non-special fragments, returns raw text.
+         */
+        public String textForAgent(TaskResult.Type taskType) {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            if (!st.get().canViewContent().test(taskType)) {
+                return "[%s content hidden for %s]".formatted(description, taskType.name());
+            }
+            return text();
         }
 
         @Override

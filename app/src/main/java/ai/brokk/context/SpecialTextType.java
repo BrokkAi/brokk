@@ -25,23 +25,29 @@ public final class SpecialTextType {
 
     private final String description;
     private final String internalSyntaxStyle;
+    private final String previewSyntaxStyle;
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
+    private final Function<String, Optional<Map<String, Object>>> modelExtractor;
     private final Predicate<TaskResult.Type> canViewContent;
 
     private SpecialTextType(
             String description,
             String internalSyntaxStyle,
+            String previewSyntaxStyle,
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
+            Function<String, Optional<Map<String, Object>>> modelExtractor,
             Predicate<TaskResult.Type> canViewContent) {
         this.description = description;
         this.internalSyntaxStyle = internalSyntaxStyle;
+        this.previewSyntaxStyle = previewSyntaxStyle;
         this.droppable = droppable;
         this.singleton = singleton;
         this.previewRenderer = previewRenderer;
+        this.modelExtractor = modelExtractor;
         this.canViewContent = canViewContent;
     }
 
@@ -55,36 +61,44 @@ public final class SpecialTextType {
     public static final SpecialTextType BUILD_RESULTS = register(new SpecialTextType(
             "Latest Build Results",
             SyntaxConstants.SYNTAX_STYLE_NONE,
+            SyntaxConstants.SYNTAX_STYLE_NONE, // preview style
             true, // droppable
             true, // singleton
             Function.identity(), // raw preview is fine
+            s -> Optional.empty(), // no structured model by default
             t -> true // visible to all agents by default
             ));
 
     public static final SpecialTextType SEARCH_NOTES = register(new SpecialTextType(
             "Code Notes",
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview style
             true, // droppable
             true, // singleton
             Function.identity(), // already Markdown
+            s -> Optional.empty(), // no structured model by default
             t -> true // visible to all
             ));
 
     public static final SpecialTextType DISCARDED_CONTEXT = register(new SpecialTextType(
             "Discarded Context",
             SyntaxConstants.SYNTAX_STYLE_JSON,
+            SyntaxConstants.SYNTAX_STYLE_JSON, // preview style
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
+            s -> Optional.empty(), // no structured model by default
             t -> true // visible to all
             ));
 
     public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
             "Task List",
             SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage as JSON
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
             false, // non-droppable
             true, // singleton
-            Function.identity(), // preview may be upgraded to Markdown by callers
+            Function.identity(), // preview already Markdown-friendly
+            s -> Optional.empty(), // model can be provided later (e.g., JSON->Map)
             t -> true // default visibility; callers may apply redaction policy
             ));
 
@@ -121,6 +135,10 @@ public final class SpecialTextType {
         return internalSyntaxStyle;
     }
 
+    public String previewSyntaxStyle() {
+        return previewSyntaxStyle;
+    }
+
     public boolean droppable() {
         return droppable;
     }
@@ -131,6 +149,10 @@ public final class SpecialTextType {
 
     public Function<String, String> previewRenderer() {
         return previewRenderer;
+    }
+
+    public Function<String, Optional<Map<String, Object>>> modelExtractor() {
+        return modelExtractor;
     }
 
     public Predicate<TaskResult.Type> canViewContent() {
