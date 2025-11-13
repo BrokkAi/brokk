@@ -1,7 +1,7 @@
 package ai.brokk.context;
 
 import ai.brokk.TaskResult;
-import java.util.Collection;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -24,8 +24,7 @@ public final class SpecialTextType {
     private static final Map<String, SpecialTextType> BY_DESCRIPTION = new LinkedHashMap<>();
 
     private final String description;
-    private final String internalSyntaxStyle;
-    private final String previewSyntaxStyle;
+    private final String syntaxStyle;
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
@@ -34,14 +33,12 @@ public final class SpecialTextType {
     private SpecialTextType(
             String description,
             String internalSyntaxStyle,
-            String previewSyntaxStyle,
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
             Predicate<TaskResult.Type> canViewContent) {
         this.description = description;
-        this.internalSyntaxStyle = internalSyntaxStyle;
-        this.previewSyntaxStyle = previewSyntaxStyle;
+        this.syntaxStyle = internalSyntaxStyle;
         this.droppable = droppable;
         this.singleton = singleton;
         this.previewRenderer = previewRenderer;
@@ -58,7 +55,6 @@ public final class SpecialTextType {
     public static final SpecialTextType BUILD_RESULTS = register(new SpecialTextType(
             "Latest Build Results",
             SyntaxConstants.SYNTAX_STYLE_NONE,
-            SyntaxConstants.SYNTAX_STYLE_NONE, // preview style
             true, // droppable
             true, // singleton
             Function.identity(), // raw preview is fine
@@ -68,7 +64,6 @@ public final class SpecialTextType {
     public static final SpecialTextType SEARCH_NOTES = register(new SpecialTextType(
             "Code Notes",
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview style
             true, // droppable
             true, // singleton
             Function.identity(), // already Markdown
@@ -78,7 +73,6 @@ public final class SpecialTextType {
     public static final SpecialTextType DISCARDED_CONTEXT = register(new SpecialTextType(
             "Discarded Context",
             SyntaxConstants.SYNTAX_STYLE_JSON,
-            SyntaxConstants.SYNTAX_STYLE_JSON, // preview style
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
@@ -87,7 +81,6 @@ public final class SpecialTextType {
 
     public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
             "Task List",
-            SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage as JSON
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
             false, // non-droppable
             true, // singleton
@@ -102,34 +95,14 @@ public final class SpecialTextType {
         return Optional.ofNullable(BY_DESCRIPTION.get(description));
     }
 
-    public static boolean isSpecialDescription(String description) {
-        return fromDescription(description).isPresent();
-    }
-
-    public static boolean isDroppable(String description) {
-        return fromDescription(description).map(SpecialTextType::droppable).orElse(true);
-    }
-
-    public static boolean isSingleton(String description) {
-        return fromDescription(description).map(SpecialTextType::singleton).orElse(false);
-    }
-
-    public static Collection<SpecialTextType> values() {
-        return BY_DESCRIPTION.values();
-    }
-
     // --- Accessors ---
 
     public String description() {
         return description;
     }
 
-    public String internalSyntaxStyle() {
-        return internalSyntaxStyle;
-    }
-
-    public String previewSyntaxStyle() {
-        return previewSyntaxStyle;
+    public String syntaxStyle() {
+        return syntaxStyle;
     }
 
     public boolean droppable() {

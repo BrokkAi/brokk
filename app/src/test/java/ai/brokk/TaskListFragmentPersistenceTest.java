@@ -38,7 +38,7 @@ public class TaskListFragmentPersistenceTest {
 
         var frag = fragOpt.get();
         assertEquals("Task List", frag.description(), "Task List fragment description should match");
-        assertEquals(SpecialTextType.TASK_LIST.internalSyntaxStyle(), frag.syntaxStyle(), "Syntax style should be JSON");
+        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle(), "Syntax style should be JSON");
 
         var expectedJson = Json.getMapper().writeValueAsString(data);
         assertEquals(expectedJson, frag.text(), "Fragment JSON should match serialized TaskListData");

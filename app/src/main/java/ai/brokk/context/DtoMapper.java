@@ -329,7 +329,7 @@ public class DtoMapper {
                         mgr,
                         text,
                         SpecialTextType.BUILD_RESULTS.description(),
-                        SpecialTextType.BUILD_RESULTS.internalSyntaxStyle());
+                        SpecialTextType.BUILD_RESULTS.syntaxStyle());
             }
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()

@@ -831,16 +831,6 @@ public interface ContextFragment {
         }
 
         /**
-         * Returns the syntax style to use for previews. For special types, this may differ from the internal storage
-         * style (e.g., Task List stored as JSON but previewed as Markdown).
-         * Falls back to this fragment's syntaxStyle() for non-special fragments.
-         */
-        public String previewSyntaxStyle() {
-            var st = specialType();
-            return st.map(SpecialTextType::previewSyntaxStyle).orElse(syntaxStyle());
-        }
-
-        /**
          * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
          * content for the provided task type, a generic placeholder is returned. Otherwise the raw text is returned.
          * For non-special fragments, returns raw text.
