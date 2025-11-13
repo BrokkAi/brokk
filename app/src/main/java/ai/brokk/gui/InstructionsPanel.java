@@ -637,8 +637,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Always traverse focus from Instructions to the next component per focus policy
-                area.transferFocus();
+                // Respect user preference: insert indentation when enabled, otherwise traverse focus
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, true);
+                } else {
+                    area.transferFocus();
+                }
             }
         });
 
@@ -648,8 +652,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartShiftTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Always traverse focus backward to support reverse loop
-                area.transferFocusBackward();
+                // Respect user preference: unindent when enabled, otherwise traverse focus backward
+                if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    applyIndentation(area, false);
+                } else {
+                    area.transferFocusBackward();
+                }
             }
         });
 
