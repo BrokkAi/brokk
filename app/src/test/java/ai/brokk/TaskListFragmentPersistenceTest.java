@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.List;
@@ -37,7 +38,7 @@ public class TaskListFragmentPersistenceTest {
 
         var frag = fragOpt.get();
         assertEquals("Task List", frag.description(), "Task List fragment description should match");
-        assertEquals(ContextFragment.TASK_LIST.syntaxStyle(), frag.syntaxStyle(), "Syntax style should be JSON");
+        assertEquals(SpecialTextType.TASK_LIST.internalSyntaxStyle(), frag.syntaxStyle(), "Syntax style should be JSON");
 
         var expectedJson = Json.getMapper().writeValueAsString(data);
         assertEquals(expectedJson, frag.text(), "Fragment JSON should match serialized TaskListData");
