@@ -150,6 +150,19 @@ public class EditBlock {
                 var reason = (ex instanceof NoMatchException)
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
+
+                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent pre-lint
+                // style.
+                if (ex instanceof NoMatchException) {
+                    var marker = effectiveBefore.strip();
+                    var message = "Failed to resolve BRK snippet in edit block for "
+                            + rawFileName + ": "
+                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                    contextManager.reportException(
+                            new BrkSnippetNoMatchException(message, ex),
+                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                }
+
                 failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
                 continue;
             }
@@ -319,6 +332,13 @@ public class EditBlock {
     public static class AmbiguousMatchException extends Exception {
         public AmbiguousMatchException(String message) {
             super(message);
+        }
+    }
+
+    /** Exception type used to report BRK snippet NoMatch telemetry with context. */
+    static class BrkSnippetNoMatchException extends RuntimeException {
+        BrkSnippetNoMatchException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
