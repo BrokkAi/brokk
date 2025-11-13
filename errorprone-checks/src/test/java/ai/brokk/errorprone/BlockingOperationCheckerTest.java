@@ -19,19 +19,15 @@ public class BlockingOperationCheckerTest {
     @Test
     public void warnsOnBlockingMethodInvocation() {
         helper.addSourceLines(
-                        "ai/brokk/annotations/BlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface BlockingOperation { String nonBlocking(); }")
-                .addSourceLines(
-                        "ai/brokk/annotations/NonBlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface NonBlockingOperation {}")
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
                 .addSourceLines(
                         "test/CF.java",
                         "package test;",
-                        "import ai.brokk.annotations.BlockingOperation;",
+                        "import org.jetbrains.annotations.Blocking;",
                         "public interface CF {",
-                        "  @BlockingOperation(nonBlocking = \"computedFiles\")",
+                        "  @Blocking",
                         "  java.util.Set<String> files();",
                         "}")
                 .addSourceLines(
@@ -47,21 +43,11 @@ public class BlockingOperationCheckerTest {
     }
 
     @Test
-    public void doesNotWarnOnNonBlockingAnnotatedMethod() {
+    public void doesNotWarnOnUnannotatedMethod() {
         helper.addSourceLines(
-                        "ai/brokk/annotations/BlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface BlockingOperation { String nonBlocking(); }")
-                .addSourceLines(
-                        "ai/brokk/annotations/NonBlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface NonBlockingOperation {}")
-                .addSourceLines(
                         "test/CF.java",
                         "package test;",
-                        "import ai.brokk.annotations.NonBlockingOperation;",
                         "public class CF {",
-                        "  @NonBlockingOperation",
                         "  java.util.Set<String> computedFiles() { return java.util.Collections.emptySet(); }",
                         "}")
                 .addSourceLines(
@@ -78,19 +64,15 @@ public class BlockingOperationCheckerTest {
     @Test
     public void doesNotWarnWhenOverrideOmitsBlockingAnnotation() {
         helper.addSourceLines(
-                        "ai/brokk/annotations/BlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface BlockingOperation { String nonBlocking(); }")
-                .addSourceLines(
-                        "ai/brokk/annotations/NonBlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface NonBlockingOperation {}")
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
                 .addSourceLines(
                         "test/Base.java",
                         "package test;",
-                        "import ai.brokk.annotations.BlockingOperation;",
+                        "import org.jetbrains.annotations.Blocking;",
                         "public interface Base {",
-                        "  @BlockingOperation(nonBlocking = \"computedFiles\")",
+                        "  @Blocking",
                         "  java.util.Set<String> files();",
                         "}")
                 .addSourceLines(
@@ -115,17 +97,17 @@ public class BlockingOperationCheckerTest {
     @Test
     public void warnsOnMemberReferenceToBlockingMethod() {
         helper.addSourceLines(
-                        "ai/brokk/annotations/BlockingOperation.java",
-                        "package ai.brokk.annotations;",
-                        "public @interface BlockingOperation { String nonBlocking(); }")
+                        "org/jetbrains/annotations/Blocking.java",
+                        "package org.jetbrains.annotations;",
+                        "public @interface Blocking {}")
                 .addSourceLines(
                         "test/CF.java",
                         "package test;",
-                        "import ai.brokk.annotations.BlockingOperation;",
+                        "import org.jetbrains.annotations.Blocking;",
                         "import java.util.Set;",
                         "import java.util.function.Supplier;",
                         "public class CF {",
-                        "  @BlockingOperation(nonBlocking = \"computedFiles\")",
+                        "  @Blocking",
                         "  public Set<String> files() { return java.util.Collections.emptySet(); }",
                         "  Supplier<Set<String>> supplier() {",
                         "    // BUG: Diagnostic contains: computed",

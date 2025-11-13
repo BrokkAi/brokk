@@ -12,12 +12,11 @@ import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symbol.MethodSymbol;
 
 /**
- * Flags invocations of methods annotated with ai.brokk.annotations.BlockingOperation
+ * Flags invocations of methods annotated with ai.brokk.annotations.Blocking
  * and recommends the corresponding computed (non-blocking) alternative.
  *
  * Safe calls:
- * - Invocations of methods annotated @NonBlockingOperation.
- * - Calls that resolve to an override that is not annotated @BlockingOperation (typically cheap overrides).
+ * - Calls that resolve to an override that is not annotated @Blocking (typically cheap overrides).
  */
 @AutoService(BugChecker.class)
 @BugPattern(
@@ -30,9 +29,7 @@ import com.sun.tools.javac.code.Symbol.MethodSymbol;
 public final class BlockingOperationChecker extends BugChecker
         implements BugChecker.MethodInvocationTreeMatcher, BugChecker.MemberReferenceTreeMatcher {
 
-    private static final String BLOCKING_ANN_FQCN = "ai.brokk.annotations.BlockingOperation";
-    private static final String NONBLOCKING_ANN_FQCN = "ai.brokk.annotations.NonBlockingOperation";
-    private static final String CHEAP_ANN_FQCN = "ai.brokk.annotations.CheapOperation";
+    private static final String BLOCKING_ANN_FQCN = "org.jetbrains.annotations.Blocking";
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
         for (var mirror : sym.getAnnotationMirrors()) {
@@ -51,15 +48,6 @@ public final class BlockingOperationChecker extends BugChecker
     public Description matchMethodInvocation(MethodInvocationTree tree, VisitorState state) {
         MethodSymbol sym = ASTHelpers.getSymbol(tree);
         if (sym == null) {
-            return Description.NO_MATCH;
-        }
-
-        // Skip non-blocking/computed methods
-        if (hasDirectAnnotation(sym, NONBLOCKING_ANN_FQCN)) {
-            return Description.NO_MATCH;
-        }
-        // Skip methods explicitly marked cheap on this override
-        if (hasDirectAnnotation(sym, CHEAP_ANN_FQCN)) {
             return Description.NO_MATCH;
         }
 
@@ -82,12 +70,6 @@ public final class BlockingOperationChecker extends BugChecker
             return Description.NO_MATCH;
         }
 
-        if (hasDirectAnnotation(msym, NONBLOCKING_ANN_FQCN)) {
-            return Description.NO_MATCH;
-        }
-        if (hasDirectAnnotation(msym, CHEAP_ANN_FQCN)) {
-            return Description.NO_MATCH;
-        }
         if (!hasDirectAnnotation(msym, BLOCKING_ANN_FQCN)) {
             return Description.NO_MATCH;
         }
