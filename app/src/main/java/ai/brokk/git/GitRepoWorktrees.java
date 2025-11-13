@@ -19,6 +19,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Repository;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Helper class extracted from GitRepo to encapsulate worktree operations.
@@ -127,6 +128,7 @@ public class GitRepoWorktrees {
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
+            logger.debug("git worktree add failed output: {}", e.getOutput());
             throw new GitRepo.GitRepoException(
                     "Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
         } catch (InterruptedException e) {
@@ -370,5 +372,57 @@ public class GitRepoWorktrees {
             Thread.currentThread().interrupt();
             throw new GitRepo.GitRepoException("Checking worktree lock status was interrupted", e);
         }
+    }
+
+    // Visible for tests and runtime detection.
+    @TestOnly
+    public static boolean isLfsMissingForTest(String output) {
+        return isLfsMissing(output);
+    }
+
+    /**
+     * Heuristic predicate to detect common CLI output patterns when git-lfs is missing.
+     * Keep this conservative and localized to avoid false positives. Tests should call
+     * the package-visible {@code isLfsMissingForTest} method.
+     */
+    private static boolean isLfsMissing(String output) {
+        if (output == null) return false;
+        String o = output.toLowerCase();
+
+        // Common explicit messages observed on various platforms
+        if (o.contains("git: 'lfs' is not a git command")
+                || o.contains("git-lfs: command not found")
+                || o.contains("git lfs is not installed")
+                || o.contains("this repository is configured for git lfs")
+                || o.contains("smudge filter lfs failed")
+                || o.contains("filter-process: git-lfs")
+                || o.contains("git-lfs filter-process") // matches "git-lfs filter-process"
+                || o.contains("git-lfs: not found")
+                || o.contains("git lfs: command not found")
+                // Windows-specific pattern: "'git-lfs' is not recognized as an internal or external command"
+                || (o.contains("git-lfs") && o.contains("is not recognized"))) {
+            return true;
+        }
+
+        // Detect cases where git-lfs and filter-process are both mentioned in the output
+        if (o.contains("git-lfs") && o.contains("filter-process")) {
+            return true;
+        }
+
+        // Detect generic filter-process failures (e.g. "filter-process ... failed") which often indicate LFS issues
+        if (o.contains("filter-process") && o.contains("failed")) {
+            return true;
+        }
+
+        // More generic fallback: mention of git-lfs along with "not found"/"no such file"/"can't find"/"not recognized"
+        if (o.contains("git-lfs")
+                && (o.contains("not found")
+                        || o.contains("no such file")
+                        || o.contains("can't find")
+                        || o.contains("not recognized"))) {
+            return true;
+        }
+
+        return false;
     }
 }
