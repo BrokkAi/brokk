@@ -2204,8 +2204,7 @@ public class Chrome
             ContextFragment.PathFragment pf, String initialTitle, @Nullable String computedDescNow) {
         var brokkFile = pf.file();
         var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, (ContextFragment)
-                        pf);
+                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, pf);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {
