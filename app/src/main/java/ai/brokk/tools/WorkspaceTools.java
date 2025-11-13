@@ -9,6 +9,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
@@ -405,35 +406,18 @@ public class WorkspaceTools {
             return "Ignoring empty Note";
         }
 
-        final var description = ContextFragment.SEARCH_NOTES.description();
-        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
+        var existed = context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
 
-        var existing = context.virtualFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                .filter(vf -> description.equals(vf.description()))
-                .findFirst();
+        context = context.updateSpecial(
+                SpecialTextType.SEARCH_NOTES,
+                prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
 
-        if (existing.isPresent()) {
-            var prev = existing.get();
-            String prevText = prev.text();
-            String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
+        logger.debug(
+                "appendNote: {} Task Notes fragment ({} chars).",
+                existed ? "updated existing" : "created new",
+                markdown.length());
 
-            var next = context.removeFragmentsByIds(List.of(prev.id()));
-            var newFrag =
-                    new ContextFragment.StringFragment(context.getContextManager(), combined, description, syntax);
-            logger.debug(
-                    "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
-                    prev.id(),
-                    combined.length());
-            context = next.addVirtualFragment(newFrag);
-            return "Appended note to Task Notes.";
-        } else {
-            var newFrag =
-                    new ContextFragment.StringFragment(context.getContextManager(), markdown, description, syntax);
-            logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
-            context = context.addVirtualFragment(newFrag);
-            return "Created Task Notes and added the note.";
-        }
+        return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 
     @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
