@@ -151,7 +151,7 @@ public class EditBlock {
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
 
-                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent pre-lint
+                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent prelint
                 // style.
                 if (ex instanceof NoMatchException) {
                     var marker = effectiveBefore.strip();
