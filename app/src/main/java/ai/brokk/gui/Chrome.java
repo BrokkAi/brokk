@@ -2036,11 +2036,11 @@ public class Chrome
 
             // 5. Position the caret at the specified line if provided, after showing the frame
             if (startLine >= 0) {
+                // Convert line number to character offset using actual (CRLF/LF/CR) separators
+                var text = content.get();
+                var lineStarts = FileUtil.computeLineStarts(text);
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        // Convert line number to character offset using actual (CRLF/LF/CR) separators
-                        var text = content.get();
-                        var lineStarts = FileUtil.computeLineStarts(text);
                         if (startLine < lineStarts.length) {
                             var charOffset = lineStarts[startLine];
                             panel.setCaretPositionAndCenter(charOffset);
