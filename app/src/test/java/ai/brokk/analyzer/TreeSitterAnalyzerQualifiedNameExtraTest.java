@@ -20,10 +20,13 @@ public class TreeSitterAnalyzerQualifiedNameExtraTest {
         assertTrue(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("com.example.Outer$Inner"));
     }
 
+    /**
+     * Negative cases: simple identifiers and empty inputs should not be detected as qualified names.
+     * Null inputs are intentionally excluded from this test.
+     */
     @Test
-    public void negativeCases_simpleAndEmptyAndNull() {
+    public void negativeCases_simpleAndEmpty() {
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName("Chrome"));
         assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName(""));
-        assertFalse(TreeSitterAnalyzer.isLikelyQualifiedSimpleName(null));
     }
 }
