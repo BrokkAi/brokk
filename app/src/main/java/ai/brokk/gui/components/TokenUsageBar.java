@@ -10,6 +10,7 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -17,6 +18,7 @@ import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -70,6 +72,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
     private volatile boolean readOnly = false;
 
+    // Subscriptions to ComputedValue completions so we can repaint when values become available
+    private final List<ComputedValue.Subscription> cvSubscriptions = Collections.synchronizedList(new ArrayList<>());
+
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
     private volatile String unfilledTooltipHtml = null;
@@ -99,7 +104,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                         if (seg.isSummaryGroup) {
                             // Open combined preview for all summaries (mirrors synthetic chip behavior)
                             int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f -> f.files().stream())
+                                    .flatMap(f -> {
+                                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                                            var files = cf.computedFiles().renderNowOr(Set.of());
+                                            return files.stream();
+                                        }
+                                        return f.files().stream();
+                                    })
                                     .map(ProjectFile::toString)
                                     .distinct()
                                     .count();
@@ -108,7 +119,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             StringBuilder combinedText = new StringBuilder();
                             for (var f : seg.fragments) {
                                 try {
-                                    combinedText.append(f.text()).append("\n\n");
+                                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                                        combinedText
+                                                .append(cf.computedText().renderNowOr("(Loading summary...)"))
+                                                .append("\n\n");
+                                    } else {
+                                        combinedText.append(f.text()).append("\n\n");
+                                    }
                                 } catch (Exception ex) {
                                     logger.debug("Failed reading summary text for preview", ex);
                                 }
@@ -255,10 +272,35 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
      * Provide the current fragments so the bar can paint per-fragment segments and compute tooltips.
      */
     public void setFragments(List<ContextFragment> fragments) {
+        // Dispose prior subscriptions
+        clearCvSubscriptions();
+
         this.fragments = List.copyOf(fragments);
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
+
+        // Dispose any previous owner-level ComputedFragment bindings to avoid accumulation
+        var subsObj = getClientProperty("brokk.cv.subs");
+        if (subsObj instanceof java.util.List<?> subs) {
+            for (var sObj : subs) {
+                if (sObj instanceof ComputedValue.Subscription sub) {
+                    sub.dispose();
+                }
+            }
+            putClientProperty("brokk.cv.subs", null);
+        }
+
+        // Bind fragments to a single repaint/token-cache invalidation runnable
+        for (var f : this.fragments) {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                cf.bind(TokenUsageBar.this, () -> {
+                    tokenCache.remove(f.id());
+                    repaint();
+                });
+            }
+        }
+
         repaint();
     }
 
@@ -271,7 +313,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     public void setFragmentsForContext(Context context) {
         List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
 
-        // Update UI on EDT
+        // Update UI on EDT (and attach listeners)
         SwingUtilities.invokeLater(() -> setFragments(frags));
 
         // Precompute token counts off-EDT to avoid jank during paint and tooltips
@@ -280,8 +322,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             protected Void doInBackground() {
                 for (var f : frags) {
                     try {
+                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                            // Kick off computations eagerly
+                            cf.computedText().start();
+                            cf.computedDescription().start();
+                            cf.computedFiles().start();
+                        }
                         if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment
+                            // This will compute and cache the token count for the fragment (non-blocking text path)
                             tokensForFragment(f);
                         }
                     } catch (Exception ignore) {
@@ -618,7 +666,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         return WordUtils.abbreviate(text, maxChars, maxChars, ellipsis);
     }
 
-    /** Pick a readable text color (white or dark) against the given background color. */
+    /**
+     * Pick a readable text color (white or dark) against the given background color.
+     */
     private static Color readableTextForBackground(Color background) {
         double r = background.getRed() / 255.0;
         double g = background.getGreen() / 255.0;
@@ -873,7 +923,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return tokenCache.computeIfAbsent(f.id(), id -> {
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        return Messages.getApproximateTokens(f.text());
+                        String text;
+                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                            text = cf.computedText().renderNowOr("(Loading)");
+                        } else {
+                            text = f.text();
+                        }
+                        return Messages.getApproximateTokens(text);
                     } catch (Exception e) {
                         logger.trace("Failed to compute token count for fragment", e);
                         return 0;
@@ -942,6 +998,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private Color getOkColor(boolean dark) {
         return dark ? new Color(0x2EA043) : new Color(0x1F883D);
+    }
+
+    private void clearCvSubscriptions() {
+        synchronized (cvSubscriptions) {
+            for (var s : cvSubscriptions) {
+                try {
+                    s.dispose();
+                } catch (CancellationException executionException) {
+                    logger.warn("Failed to cancel the ComputedValue subscription", executionException);
+                }
+            }
+            cvSubscriptions.clear();
+        }
     }
 
     @Override

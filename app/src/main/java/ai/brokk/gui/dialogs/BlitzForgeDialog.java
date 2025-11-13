@@ -921,7 +921,7 @@ public class BlitzForgeDialog extends JDialog {
 
         long workspaceTokens = includeWorkspaceCheckbox.isSelected()
                 ? Messages.getApproximateMessageTokens(
-                        CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()))
+                        CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()))
                 : 0;
         long workspaceAdd = includeWorkspaceCheckbox.isSelected() ? workspaceTokens * n : 0;
 
@@ -997,7 +997,7 @@ public class BlitzForgeDialog extends JDialog {
         var maxTokens = service.getMaxInputTokens(model);
 
         var workspaceTokens = Messages.getApproximateMessageTokens(
-                CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
+                CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
         var historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
 
         long remaining = (long) maxTokens - workspaceTokens - historyTokens;
@@ -1291,7 +1291,7 @@ public class BlitzForgeDialog extends JDialog {
                     if (!fIncludeWorkspaceForSupplier) {
                         return "";
                     }
-                    var ctx = cm.topContext();
+                    var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(ctx));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
@@ -1444,7 +1444,7 @@ public class BlitzForgeDialog extends JDialog {
             String contextFilter) {
         var cm = chrome.getContextManager();
         var service = cm.getService();
-        var frozenContext = cm.topContext();
+        var context = cm.liveContext();
         var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
         var model = requireNonNull(service.getModel(selectedFavorite.config()));
 
@@ -1463,8 +1463,8 @@ public class BlitzForgeDialog extends JDialog {
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
+                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
+                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
@@ -1532,7 +1532,7 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             // Run the task
-            var initialContext = cm.topContext();
+            var initialContext = cm.liveContext();
             TaskResult tr;
             if (engineAction == Action.ASK) {
                 var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
@@ -1557,7 +1557,7 @@ public class BlitzForgeDialog extends JDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = !tr.context().freeze().getDiff(initialContext).isEmpty();
+            boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

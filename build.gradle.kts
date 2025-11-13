@@ -126,6 +126,7 @@ tasks.register("tidy") {
     )
 }
 
+
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "com.autonomousapps.dependency-analysis")

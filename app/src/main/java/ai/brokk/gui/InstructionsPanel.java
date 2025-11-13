@@ -1239,7 +1239,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
         return contextManager
-                .topContext()
+                .liveContext()
                 .allFragments()
                 .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
@@ -1435,7 +1435,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // If Workspace is empty, ask the user how to proceed
-        if (chrome.getContextManager().topContext().isEmpty()) {
+        if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
             Object[] options = {"Code", "Search", "Cancel"};
@@ -1697,8 +1697,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         // Update chips from the selected context and toggle read-only
         workspaceItemsChipPanel.setFragmentsForContext(newCtx);
-        boolean readOnly =
-                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        boolean readOnly = !Objects.equals(newCtx, chrome.getContextManager().liveContext());
         workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);

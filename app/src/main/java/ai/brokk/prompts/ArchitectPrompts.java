@@ -29,7 +29,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     @Override
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = resolveAggregatedStyleGuide(cm, cm.topContext());
+        var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
 
         var text =
                 """

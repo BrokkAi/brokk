@@ -713,7 +713,7 @@ public class MergeAgent {
 
     private TaskResult interruptedResult(String message) {
         // Build resulting context that contains all conflict files
-        var top = cm.topContext();
+        var top = cm.liveContext();
         var conflictFiles = allConflictFilesInWorkspace();
         var existingEditableFiles = top.fileFragments()
                 .filter(cf -> cf.getType().isEditable())

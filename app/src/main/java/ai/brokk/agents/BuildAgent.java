@@ -438,9 +438,9 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
+    /** Backwards-compatible shim using CM.liveContext(). Prefer the Context-based overload. */
     public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
-        return determineVerificationCommand(cm.topContext());
+        return determineVerificationCommand(cm.liveContext());
     }
 
     /**

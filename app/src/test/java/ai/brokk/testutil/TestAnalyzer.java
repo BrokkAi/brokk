@@ -111,7 +111,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        return Optional.empty(); // Return empty for test purposes
+        return allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).findFirst();
     }
 
     @Override

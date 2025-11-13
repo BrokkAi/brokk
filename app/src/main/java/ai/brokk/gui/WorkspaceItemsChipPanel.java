@@ -54,9 +54,128 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, RoundedChipPanel> chipById = new ConcurrentHashMap<>();
+    private @Nullable JComponent syntheticSummaryChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private boolean readOnly = false;
+
+    // Recompute label/tooltip for a chip based on current computed values and restyle
+    private void refreshChipLabelAndTooltip(JComponent chip, JLabel label, ContextFragment fragment) {
+        var kind = classify(fragment);
+        String newLabelText;
+        if (kind == ChipKind.SUMMARY) {
+            newLabelText = buildSummaryLabel(fragment);
+        } else if (kind == ChipKind.OTHER) {
+            // Guard shortDescription()
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = capitalizeFirst(sd);
+        } else {
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = sd.isBlank() ? label.getText() : sd;
+        }
+        label.setText(newLabelText);
+
+        try {
+            if (kind == ChipKind.SUMMARY) {
+                label.setToolTipText(buildSummaryTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            } else {
+                label.setToolTipText(buildDefaultTooltip(fragment));
+                label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            }
+        } catch (Exception ex) {
+            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+        }
+
+        // Restyle to account for label size/separator height
+        styleChip((JPanel) chip, label, fragment);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to computed values to update the chip asynchronously; also set initial placeholder
+    private void subscribeToComputedUpdates(ContextFragment fragment, JComponent chip, JLabel label) {
+        if (!(fragment instanceof ContextFragment.ComputedFragment cf)) {
+            return;
+        }
+        logger.debug("subscribeToComputedUpdates: attaching listeners for fragment {}", fragment);
+
+        // Initial placeholder for summaries if files are not yet known
+        if (classify(fragment) == ChipKind.SUMMARY) {
+            var filesOpt = cf.computedFiles().tryGet();
+            if (filesOpt.isEmpty()) {
+                label.setText("Summary (Loading...)");
+            }
+        }
+
+        // Bind all relevant computed updates to a single UI refresh (runs on EDT and auto-disposes with the chip)
+        cf.bind(chip, () -> refreshChipLabelAndTooltip(chip, label, fragment));
+    }
+
+    // Update synthetic summary chip label/tooltip from current computed values
+    private void refreshSyntheticSummaryChip(JComponent chip, JLabel label, List<ContextFragment> summaries) {
+        // Chip presence check
+        boolean present = false;
+        for (var c : getComponents()) {
+            if (c == chip) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) return;
+
+        int totalFiles = (int) summaries.stream()
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String text = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+        label.setText(text);
+
+        try {
+            label.setToolTipText(buildAggregateSummaryTooltip(summaries));
+        } catch (Exception ex) {
+            logger.warn("Failed to build aggregate summary tooltip", ex);
+        }
+
+        try {
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+        } catch (Exception ex) {
+            logger.warn("Failed to set accessibility description for synthetic chip", ex);
+        }
+
+        styleChip((JPanel) chip, label, null);
+        chip.revalidate();
+        chip.repaint();
+    }
+
+    // Subscribe to each summary's computed values to keep the synthetic chip updated
+    private void subscribeSummaryGroupUpdates(List<ContextFragment> summaries, JComponent chip, JLabel label) {
+        for (var f : summaries) {
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                // Bind per-summary computed updates to refresh the aggregate synthetic chip
+                cf.bind((JComponent) chip, () -> refreshSyntheticSummaryChip(chip, label, summaries));
+            }
+        }
+    }
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -196,11 +315,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        removeAll();
-        chipById.clear();
+        logger.debug(
+                "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
+                fragments.size(),
+                MainProject.getForceToolEmulation(),
+                readOnly);
 
         // Filter out visually-empty fragments unless dev-mode override is enabled.
-        // The helper hasRenderableContent() encodes the conservative visibility rules.
         var visibleFragments = fragments.stream()
                 .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
                 .toList();
@@ -213,38 +334,125 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 .filter(f -> classify(f) != ChipKind.SUMMARY)
                 .toList();
 
-        // Add individual chips for non-summaries (createChip may return null if fragment lacks renderable content)
-        for (var fragment : others) {
-            // Final cheap guard before invoking potentially heavier createChip(...). This avoids creating
-            // UI for fragments that became visually-empty between the earlier filter and creation.
-            if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-                logger.debug(
-                        "Skipping creation of chip for fragment (filtered by final hasRenderableContent): {}",
-                        fragment);
-                continue;
-            }
+        logger.debug(
+                "updateChips: {} visible ({} summaries, {} others) out of {}",
+                visibleFragments.size(),
+                summaries.size(),
+                others.size(),
+                fragments.size());
 
-            Component c = createChip(fragment);
-            if (c != null) {
-                add(c);
+        // Build a new map for others (non-summaries) by id, preserving order
+        Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
+        for (var f : others) {
+            newOthersById.put(f.id(), f);
+        }
+
+        // 1) Remove chips that are no longer present
+        var toRemove = chipById.keySet().stream()
+                .filter(oldId -> !newOthersById.containsKey(oldId))
+                .toList();
+        for (var id : toRemove) {
+            var chip = chipById.remove(id);
+            if (chip != null) {
+                remove(chip);
             }
         }
 
-        // Add synthetic summary chip if we have summaries that are renderable (or dev override)
+        // 2) Add chips that are new
+        for (var entry : newOthersById.entrySet()) {
+            var id = entry.getKey();
+            var frag = entry.getValue();
+            if (!chipById.containsKey(id)) {
+                // Final guard before creating UI
+                if (!MainProject.getForceToolEmulation() && !hasRenderableContent(frag)) {
+                    logger.debug("Skipping creation for newly-added fragment filtered by renderability: {}", frag);
+                    continue;
+                }
+                var comp = createChip(frag);
+                if (comp != null) {
+                    add(comp);
+                    chipById.put(id, (RoundedChipPanel) comp);
+                }
+            }
+        }
+
+        // 3) Reorder chips to match 'others' order
+        int z = 0;
+        for (var f : others) {
+            var chip = chipById.get(f.id());
+            if (chip != null) {
+                try {
+                    setComponentZOrder(chip, z++);
+                } catch (Exception ex) {
+                    logger.debug("Failed to set component z-order for fragment: {}", f.id(), ex);
+                }
+            }
+        }
+
+        // 4) Synthetic "Summaries" chip incremental management
         boolean anyRenderableSummary =
                 summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
-        if (anyRenderableSummary) {
-            Component synthetic = createSyntheticSummaryChip(summaries);
-            if (synthetic != null) {
-                add(synthetic);
+
+        if (!anyRenderableSummary) {
+            // Remove synthetic chip if present
+            if (syntheticSummaryChip != null) {
+                remove(syntheticSummaryChip);
+                syntheticSummaryChip = null;
+            }
+        } else {
+            if (syntheticSummaryChip == null) {
+                var synthetic = createSyntheticSummaryChip(summaries);
+                if (synthetic != null) {
+                    syntheticSummaryChip = (JComponent) synthetic;
+                    add(syntheticSummaryChip);
+                }
+            } else {
+                // Update label/tooltip
+                var labelObj = syntheticSummaryChip.getClientProperty("brokk.chip.label");
+                if (labelObj instanceof JLabel lbl) {
+                    refreshSyntheticSummaryChip(syntheticSummaryChip, lbl, summaries);
+                }
+
+                // Subscribe to new summary ids if needed
+                @SuppressWarnings("unchecked")
+                Set<String> prevIds = (Set<String>) syntheticSummaryChip.getClientProperty("brokk.summary.ids");
+                if (prevIds == null) prevIds = Set.of();
+                Set<String> nowIds =
+                        summaries.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet());
+
+                // Subscribe for newly added summary ids
+                for (var f : summaries) {
+                    if (!prevIds.contains(f.id()) && f instanceof ContextFragment.ComputedFragment) {
+                        var rawChipLabel = syntheticSummaryChip.getClientProperty("brokk.chip.label");
+                        if (rawChipLabel instanceof JLabel chipLabel) {
+                            subscribeSummaryGroupUpdates(List.of(f), syntheticSummaryChip, chipLabel);
+                        } else {
+                            logger.warn(
+                                    "Expected JLabel for 'brokk.chip.label' but found: {}",
+                                    rawChipLabel == null
+                                            ? "null"
+                                            : rawChipLabel.getClass().getName());
+                        }
+                    }
+                }
+                syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
+            }
+
+            // Keep synthetic at end
+            if (syntheticSummaryChip != null) {
+                try {
+                    setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
+                } catch (Exception ex) {
+                    logger.debug("Failed to set component z-order for synthetic summary chip", ex);
+                }
             }
         }
 
-        // Re-layout this panel
+        // Re-layout this panel minimally
         revalidate();
         repaint();
 
-        // Also nudge ancestors so containers like BoxLayout recompute heights
+        // Also nudge ancestors so containers like BoxLayout recompute heights (rarely needed but safe)
         Container p = getParent();
         while (p != null) {
             if (p instanceof JComponent jc) {
@@ -359,30 +567,36 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     /**
      * Conservative predicate deciding whether a fragment has visible/renderable content.
-     *
+     * <p>
      * Rules:
+     * - Immediately return true for ComputedFragment or any dynamic fragment (isDynamic()).
      * - Always keep output fragments (history / outputs).
-     * - For text fragments: require non-null and non-blank text.
-     * - For non-text fragments: require at least an image, at least one file, or a non-empty description.
-     *
+     * - For static non-computed text fragments: require non-blank text.
+     * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
+     * <p>
      * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
+            // Immediately render any computed or dynamic fragment to avoid hiding chips while content is computing.
+            if (f instanceof ContextFragment.ComputedFragment) {
+                return true;
+            }
+
+            // Always keep output fragments visible
             if (f.getType().isOutput()) {
                 return true;
             }
+
+            // Static, non-computed fragments: check current content
             if (f.isText()) {
                 String txt = f.text();
                 return !txt.trim().isEmpty();
             } else {
-                // image() returns non-null Image or throws UnsupportedOperationException
-                f.image(); // Call to check if image is supported; if not, exception is caught below
-                boolean hasImage = true; // If we get here, image exists
-                boolean hasFiles = !f.files().isEmpty();
+                boolean hasImage = f instanceof ContextFragment.ImageFragment;
+                Set<ProjectFile> files = f.files();
                 String desc = f.description();
-                boolean hasDesc = !desc.trim().isEmpty();
-                return hasImage || hasFiles || hasDesc;
+                return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {
             // Be conservative: if we cannot decide, render the fragment to avoid hiding useful info.
@@ -475,8 +689,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryLabel(ContextFragment fragment) {
-        int n = (int)
-                fragment.files().stream().map(ProjectFile::toString).distinct().count();
+        Set<ProjectFile> files;
+        if (fragment instanceof ContextFragment.ComputedFragment cff) {
+            files = cff.computedFiles().renderNowOr(Set.of());
+        } else {
+            files = fragment.files();
+        }
+        int n = (int) files.stream().map(ProjectFile::toString).distinct().count();
         return "Summary" + (n > 0 ? " (" + n + ")" : "");
     }
 
@@ -495,20 +714,31 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         try {
             // Only compute for text-like fragments; non-text (e.g., images) do not have meaningful text metrics
             if (fragment.isText() || fragment.getType().isOutput()) {
-                String text = fragment.text();
+                String text;
+                if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = fragment.text();
+                }
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
             }
-        } catch (Exception ignored) {
-            // Best effort; if anything goes wrong, just return no metrics
+        } catch (Exception ex) {
+            logger.trace("Failed to compute metrics for fragment {}", fragment, ex);
         }
         return "";
     }
 
     private static String buildAggregateSummaryTooltip(List<ContextFragment> summaries) {
         var allFiles = summaries.stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
                 .map(ProjectFile::toString)
                 .distinct()
                 .sorted()
@@ -521,7 +751,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         int totalTokens = 0;
         try {
             for (var summary : summaries) {
-                String text = summary.text();
+                String text;
+                if (summary instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = summary.text();
+                }
                 totalLoc += text.split("\\r?\\n", -1).length;
                 totalTokens += Messages.getApproximateTokens(text);
             }
@@ -553,11 +788,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildSummaryTooltip(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(ProjectFile::toString)
-                .distinct()
-                .sorted()
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream().map(ProjectFile::toString).distinct().sorted().toList();
 
         StringBuilder body = new StringBuilder();
 
@@ -573,7 +807,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         if (files.isEmpty()) {
             // Fallback: if no files are available, show any description as a last resort
-            String d = fragment.description();
+            String d;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                d = cf.computedDescription().renderNowOr("");
+            } else {
+                d = fragment.description();
+            }
             body.append(StringEscapeUtils.escapeHtml4(d));
         } else {
             body.append("<ul style='margin:0;padding-left:16px'>");
@@ -588,7 +827,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.description();
+        String d;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            d = cf.computedDescription().renderNowOr("");
+        } else {
+            d = fragment.description();
+        }
 
         // Preserve existing newlines as line breaks for readability
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
@@ -789,8 +1033,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             JMenuItem dropOther = new JMenuItem("Drop Others");
             try {
                 dropOther.getAccessibleContext().setAccessibleName("Drop Others");
-            } catch (Exception ignored) {
-                // Accessibility support is optional, failure is non-fatal
+            } catch (Exception ex) {
+                logger.trace("Failed to set accessible name for 'Drop Others' menu item", ex);
             }
 
             // Determine enabled state at menu construction time
@@ -815,7 +1059,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, READ_ONLY_TIP);
                     return;
                 }
-                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
                 if (!onLatest) {
                     chrome.systemNotify(
                             "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
@@ -865,13 +1109,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private String buildIndividualDropLabel(ContextFragment fragment) {
-        var files = fragment.files().stream()
-                .map(pf -> {
-                    String path = pf.toString();
-                    int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                    return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                })
-                .toList();
+        var files = ((fragment instanceof ContextFragment.ComputedFragment cff)
+                        ? cff.computedFiles().renderNowOr(Set.of())
+                        : fragment.files())
+                .stream()
+                        .map(pf -> {
+                            String path = pf.toString();
+                            int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                            return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                        })
+                        .toList();
 
         if (files.isEmpty()) {
             return "Drop: no files";
@@ -961,7 +1208,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             return;
         }
         // Enforce latest-context gating (read-only when viewing historical context)
-        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
         if (!onLatest) {
             chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
             return;
@@ -1018,10 +1265,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Use a compact label for SUMMARY chips; otherwise use the fragment's shortDescription
+        // Use a default "Loading..." label for any ComputedFragment; otherwise derive from fragment kind
         ChipKind kindForLabel = classify(fragment);
         String labelText;
-        if (kindForLabel == ChipKind.SUMMARY) {
+        if (fragment instanceof ContextFragment.ComputedFragment) {
+            labelText = "Loading...";
+        } else if (kindForLabel == ChipKind.SUMMARY) {
             labelText = buildSummaryLabel(fragment);
         } else if (kindForLabel == ChipKind.OTHER) {
             labelText = capitalizeFirst(safeShortDescription);
@@ -1086,6 +1335,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
+        // Subscribe to computed updates to refresh label/tooltip asynchronously (non-blocking)
+        subscribeToComputedUpdates(fragment, chip, label);
+
         // MaterialButton does not provide a constructor that accepts an Icon on this classpath.
         // Construct with an empty label. Icon will be set by styleChip() after background color is determined.
         var close = new MaterialButton("");
@@ -1098,10 +1350,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         close.setMargin(new Insets(0, 0, 0, 0));
         close.setPreferredSize(new Dimension(14, 14));
         close.setToolTipText("Remove from Workspace");
+
         try {
             close.getAccessibleContext().setAccessibleName("Remove " + safeShortDescription);
-        } catch (Exception ignored) {
-            // best-effort accessibility improvements
+        } catch (Exception ex) {
+            logger.trace("Failed to set accessibility name for close button", ex);
         }
         close.addMouseListener(new MouseAdapter() {
             @Override
@@ -1165,8 +1418,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Track by id for grouped-segment multi-highlight
         try {
             chipById.put(fragment.id(), chip);
-        } catch (Exception ignored) {
-            // best-effort; id() should be stable, but guard against any exceptions
+        } catch (Exception ex) {
+            logger.error("Failed to index chip by fragment id for {}", fragment, ex);
         }
         styleChip(chip, label, fragment);
 
@@ -1265,13 +1518,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private @Nullable Component createSyntheticSummaryChip(List<ContextFragment> summaries) {
         if (summaries.isEmpty()) return null;
 
-        // Filter summaries to only those that are renderable unless developer override is enabled.
         var renderableSummaries = summaries.stream()
                 .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
                 .toList();
 
         if (renderableSummaries.isEmpty()) {
-            // Nothing to show (defensive): avoid creating an empty synthetic chip.
             logger.debug("No renderable summaries for synthetic chip; skipping creation.");
             return null;
         }
@@ -1280,24 +1531,135 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.setLayout(new FlowLayout(FlowLayout.LEFT, 4, 0));
         chip.setOpaque(false);
 
-        // Label: aggregate count across only renderable summaries
-        int totalFiles = (int) renderableSummaries.stream()
-                .flatMap(f -> f.files().stream())
-                .map(ProjectFile::toString)
-                .distinct()
-                .count();
-        String labelText = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-        var label = new JLabel(labelText);
+        var label = new JLabel();
+        refreshSyntheticSummaryChip(chip, label, renderableSummaries);
 
-        // Aggregated tooltip
-        try {
-            label.setToolTipText(buildAggregateSummaryTooltip(renderableSummaries));
-            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
-        } catch (Exception ex) {
-            logger.debug("Failed to set synthetic chip tooltip", ex);
+        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        subscribeSummaryGroupUpdates(renderableSummaries, chip, label);
+
+        var close = createStandardCloseButton(() -> executeSyntheticChipDrop(renderableSummaries));
+        var sep = createStandardDivider(label);
+
+        chip.add(label);
+        chip.add(sep);
+        chip.add(close);
+
+        chip.putClientProperty("brokk.fragments", Set.copyOf(renderableSummaries));
+        chip.putClientProperty("brokk.chip.closeButton", close);
+        chip.putClientProperty("brokk.chip.label", label);
+        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
+        styleChip(chip, label, null);
+
+        attachSyntheticChipMouseListeners(chip, label, sep, renderableSummaries);
+
+        return chip;
+    }
+
+    private MaterialButton createStandardCloseButton(Runnable onClickAction) {
+        var close = new MaterialButton("");
+        close.setFocusable(false);
+        close.setOpaque(false);
+        close.setContentAreaFilled(false);
+        close.setBorderPainted(false);
+        close.setFocusPainted(false);
+        close.setMargin(new Insets(0, 0, 0, 0));
+        close.setPreferredSize(new Dimension(14, 14));
+        close.setToolTipText("Remove all summaries from Workspace");
+        close.getAccessibleContext().setAccessibleName("Remove all summaries");
+
+        close.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleContextMenuTrigger(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    handleContextMenuTrigger(e);
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (readOnly) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                if (!Objects.equals(contextManager.selectedContext(), contextManager.liveContext())) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                onClickAction.run();
+            }
+        });
+
+        return close;
+    }
+
+    private JPanel createStandardDivider(JLabel label) {
+        var sep = new JPanel();
+        sep.putClientProperty("brokk.chip.separator", true);
+        sep.setOpaque(true);
+        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
+        sep.setMinimumSize(new Dimension(1, 10));
+        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
+        return sep;
+    }
+
+    private void handleContextMenuTrigger(MouseEvent e) {
+        if (readOnly) {
+            chrome.systemNotify("Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            e.consume();
         }
+    }
 
-        // Click to preview all summaries
+    private void attachSyntheticChipMouseListeners(
+            JPanel chip, JLabel label, JPanel sep, List<ContextFragment> renderableSummaries) {
+        final int[] hoverCounter = {0};
+        MouseAdapter hoverAdapter = new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (hoverCounter[0]++ == 0 && onHover != null) {
+                    for (var summary : renderableSummaries) {
+                        try {
+                            onHover.accept(summary, true);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
+                    for (var summary : renderableSummaries) {
+                        try {
+                            onHover.accept(summary, false);
+                        } catch (Exception ex) {
+                            logger.trace("onHover callback threw", ex);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Attach hover listeners to all components
+        chip.addMouseListener(hoverAdapter);
+        label.addMouseListener(hoverAdapter);
+        var close = (MaterialButton) chip.getClientProperty("brokk.chip.closeButton");
+        if (close != null) {
+            close.addMouseListener(hoverAdapter);
+        }
+        sep.addMouseListener(hoverAdapter);
+
+        // Label: click to preview or right-click for context menu
         label.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -1332,156 +1694,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                    int totalFiles = (int) renderableSummaries.stream()
-                            .flatMap(f -> f.files().stream())
-                            .map(ProjectFile::toString)
-                            .distinct()
-                            .count();
-                    String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-
-                    // Concatenate all summary text like the copy operation does
-                    StringBuilder combinedText = new StringBuilder();
-                    for (var summary : renderableSummaries) {
-                        try {
-                            combinedText.append(summary.text()).append("\n\n");
-                        } catch (Exception ex) {
-                            logger.debug("Error reading summary text for preview", ex);
-                        }
-                    }
-
-                    // Display in a regular PreviewTextPanel like other text content
-                    var previewPanel = new PreviewTextPanel(
-                            chrome.getContextManager(),
-                            null,
-                            combinedText.toString(),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                            chrome.getTheme(),
-                            null);
-                    chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                    previewSyntheticChip(renderableSummaries);
                 }
             }
         });
 
-        chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-
-        var close = new MaterialButton("");
-        close.setFocusable(false);
-        close.setOpaque(false);
-        close.setContentAreaFilled(false);
-        close.setBorderPainted(false);
-        close.setFocusPainted(false);
-        close.setMargin(new Insets(0, 0, 0, 0));
-        close.setPreferredSize(new Dimension(14, 14));
-        close.setToolTipText("Remove all summaries from Workspace");
-        try {
-            close.getAccessibleContext().setAccessibleName("Remove all summaries");
-        } catch (Exception e) {
-            logger.error(e);
-        }
-        close.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    if (readOnly) {
-                        chrome.systemNotify(
-                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                        e.consume();
-                        return;
-                    }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
-                    menu.show(close, e.getX(), e.getY());
-                    e.consume();
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    if (readOnly) {
-                        chrome.systemNotify(
-                                "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                        e.consume();
-                        return;
-                    }
-                    JPopupMenu menu = buildSyntheticChipContextMenu(renderableSummaries);
-                    menu.show(close, e.getX(), e.getY());
-                    e.consume();
-                }
-            }
-
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (readOnly) {
-                    chrome.systemNotify(
-                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                    return;
-                }
-                boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-                if (!onLatest) {
-                    chrome.systemNotify(
-                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-                    return;
-                }
-
-                contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(renderableSummaries);
-                });
-            }
-        });
-
-        chip.add(label);
-
-        // Add a slim vertical divider between label and close button
-        var sep = new JPanel();
-        sep.putClientProperty("brokk.chip.separator", true);
-        sep.setOpaque(true);
-        sep.setPreferredSize(new Dimension(1, Math.max(label.getPreferredSize().height - 6, 10)));
-        sep.setMinimumSize(new Dimension(1, 10));
-        sep.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
-        chip.add(sep);
-
-        chip.add(close);
-
-        chip.putClientProperty("brokk.fragments", Set.copyOf(renderableSummaries));
-        chip.putClientProperty("brokk.chip.closeButton", close);
-        chip.putClientProperty("brokk.chip.label", label);
-        chip.putClientProperty("brokk.chip.kind", ChipKind.SUMMARY);
-        styleChip(chip, label, null);
-
-        // Hover handlers for the synthetic chip
-        final int[] hoverCounter = {0};
-        MouseAdapter hoverAdapter = new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                if (hoverCounter[0]++ == 0 && onHover != null) {
-                    for (var summary : renderableSummaries) {
-                        try {
-                            onHover.accept(summary, true);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                if (hoverCounter[0] > 0 && --hoverCounter[0] == 0 && onHover != null) {
-                    for (var summary : renderableSummaries) {
-                        try {
-                            onHover.accept(summary, false);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
-                    }
-                }
-            }
-        };
-        chip.addMouseListener(hoverAdapter);
-        label.addMouseListener(hoverAdapter);
-        close.addMouseListener(hoverAdapter);
-        sep.addMouseListener(hoverAdapter);
-
+        // Chip background: right-click for context menu, left-click on label area for preview
         chip.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -1519,55 +1737,64 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 int clickX = e.getX();
                 int separatorEndX = sep.getX() + sep.getWidth();
                 if (clickX > separatorEndX) {
+                    // Click on close button area
                     if (readOnly) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
-                    boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.topContext());
-                    if (!onLatest) {
+                    if (!Objects.equals(contextManager.selectedContext(), contextManager.liveContext())) {
                         chrome.systemNotify(
                                 "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
-
-                    contextManager.submitContextTask(() -> {
-                        contextManager.dropWithHistorySemantics(renderableSummaries);
-                    });
+                    executeSyntheticChipDrop(renderableSummaries);
                 } else {
+                    // Click on label area
                     if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
-                        int totalFiles = (int) renderableSummaries.stream()
-                                .flatMap(f -> f.files().stream())
-                                .map(ProjectFile::toString)
-                                .distinct()
-                                .count();
-                        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-
-                        // Concatenate all summary text like the copy operation does
-                        StringBuilder combinedText = new StringBuilder();
-                        for (var summary : renderableSummaries) {
-                            try {
-                                combinedText.append(summary.text()).append("\n\n");
-                            } catch (Exception ex) {
-                                logger.debug("Error reading summary text for preview", ex);
-                            }
-                        }
-
-                        // Display in a regular PreviewTextPanel like other text content
-                        var previewPanel = new PreviewTextPanel(
-                                chrome.getContextManager(),
-                                null,
-                                combinedText.toString(),
-                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                                chrome.getTheme(),
-                                null);
-                        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                        previewSyntheticChip(renderableSummaries);
                     }
                 }
             }
         });
+    }
 
-        return chip;
+    private void previewSyntheticChip(List<ContextFragment> renderableSummaries) {
+        int totalFiles = (int) renderableSummaries.stream()
+                .flatMap(f -> {
+                    if (f instanceof ContextFragment.ComputedFragment cff) {
+                        return cff.computedFiles().renderNowOr(Set.of()).stream();
+                    } else {
+                        return f.files().stream();
+                    }
+                })
+                .map(ProjectFile::toString)
+                .distinct()
+                .count();
+        String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+        StringBuilder combinedText = new StringBuilder();
+        for (var summary : renderableSummaries) {
+            String txt = (summary instanceof ContextFragment.ComputedFragment cf)
+                    ? cf.computedText().renderNowOr("")
+                    : summary.text();
+            combinedText.append(txt).append("\n\n");
+        }
+
+        var previewPanel = new PreviewTextPanel(
+                chrome.getContextManager(),
+                null,
+                combinedText.toString(),
+                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                chrome.getTheme(),
+                null);
+        chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+    }
+
+    private void executeSyntheticChipDrop(List<ContextFragment> renderableSummaries) {
+        contextManager.submitContextTask(() -> {
+            contextManager.dropWithHistorySemantics(renderableSummaries);
+        });
     }
 
     @Override
