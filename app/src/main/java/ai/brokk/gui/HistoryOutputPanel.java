@@ -121,6 +121,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel outputTabsContainer;
 
+    // Session header panel (exposed so Chrome can reparent in vertical layout)
+    private JPanel sessionHeaderPanel;
+
     @Nullable
     private JPanel changesTabPlaceholder;
 
@@ -366,17 +369,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         updateSessionComboBox();
 
         // Create header panel with all controls in a simple horizontal layout
-        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        headerPanel.setOpaque(true);
+        this.sessionHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        sessionHeaderPanel.setOpaque(true);
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
-        headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
+        sessionHeaderPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
 
-        headerPanel.add(newSessionButton);
-        headerPanel.add(new VerticalDivider());
+        sessionHeaderPanel.add(newSessionButton);
+        sessionHeaderPanel.add(new VerticalDivider());
 
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        headerPanel.add(sessionNameLabel);
+        sessionHeaderPanel.add(sessionNameLabel);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         activityTabs = new JTabbedPane(JTabbedPane.TOP);
@@ -390,7 +393,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
         // Main layout: header at top, center container in center
-        add(headerPanel, BorderLayout.NORTH);
+        add(sessionHeaderPanel, BorderLayout.NORTH);
         add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
@@ -991,6 +994,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public JPanel getOutputTabsContainer() {
         return outputTabsContainer;
+    }
+
+    public JPanel getSessionHeaderPanel() {
+        return sessionHeaderPanel;
     }
 
     /** Builds the LLM streaming area where markdown output is displayed */

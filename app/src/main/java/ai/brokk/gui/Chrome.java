@@ -3050,14 +3050,21 @@ public class Chrome
             detachFromParent(outputTabs);
             }
             detachFromParent(rightTabbedContainer);
+            var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+            detachFromParent(sessionHeader);
             
             if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
             topSplitPane.setBottomComponent(null);
             }
             
-            // Create left panel: Activity (top) | Instructions (bottom) with resizable divider
+            // Create top-left composite: Session header above Activity tabs
+            var leftTopPanel = new JPanel(new BorderLayout());
+            leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
+            leftTopPanel.add(activityTabs, BorderLayout.CENTER);
+            
+            // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
             var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            leftSplitPane.setTopComponent(activityTabs);
+            leftSplitPane.setTopComponent(leftTopPanel);
             leftSplitPane.setBottomComponent(rightTabbedContainer);
             leftSplitPane.setResizeWeight(0.4);
             
@@ -3125,9 +3132,13 @@ public class Chrome
                         outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
                     }
                     if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
-                        topSplitPane.setBottomComponent(rightTabbedContainer);
+                    topSplitPane.setBottomComponent(rightTabbedContainer);
                     }
-
+                    // Restore session header back to HistoryOutputPanel's top
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+                    historyOutputPanel.add(sessionHeader, BorderLayout.NORTH);
+                    
                     verticalActivityCombinedPanel = null;
                 }
                 bottomSplitPane.setRightComponent(mainVerticalSplitPane);

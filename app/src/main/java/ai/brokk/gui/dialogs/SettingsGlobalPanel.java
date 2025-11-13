@@ -1639,8 +1639,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean newVerticalLayout = verticalActivityLayoutCheckbox.isSelected();
         if (previousVerticalLayout != newVerticalLayout) {
             GlobalUiSettings.saveVerticalActivityLayout(newVerticalLayout);
-            // Ensure UI reparenting occurs on the EDT
-            SwingUtilities.invokeLater(chrome::applyVerticalActivityLayout);
+            if (newVerticalLayout) {
+                // Turning ON vertical activity layout: apply immediately.
+                SwingUtilities.invokeLater(chrome::applyVerticalActivityLayout);
+            } else {
+                // Turning OFF (back to standard layout) requires restart to fully restore original layout.
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Restart required: Turning off Vertical Activity Layout will take effect after restarting Brokk.",
+                        "Restart Required",
+                        JOptionPane.INFORMATION_MESSAGE);
+                // Do not re-layout now; keep current layout until restart.
+            }
         }
 
         // UI Scale preference (if present; hidden on macOS)
