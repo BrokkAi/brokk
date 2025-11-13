@@ -2208,16 +2208,29 @@ public class Chrome
             }
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
-            if (workingFragment.isText()
-                    && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
-                var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(MainProject.getTheme());
-                markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
+            if (workingFragment instanceof ContextFragment.StringFragment sf) {
+                // Use SpecialTextType-driven preview for StringFragment; choose viewer based on syntax style only
+                var previewText = sf.previewText();
 
-                // Use shared utility method to create searchable content panel without scroll pane
-                JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(sf.syntaxStyle())) {
+                    var markdownPanel = MarkdownOutputPool.instance().borrow();
+                    markdownPanel.updateTheme(MainProject.getTheme());
+                    markdownPanel.setText(List.of(Messages.customSystem(previewText)));
 
-                showPreviewFrame(contextManager, title, previewContentPanel);
+                    // Use shared utility method to create searchable content panel without scroll pane
+                    JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+
+                    showPreviewFrame(contextManager, title, previewContentPanel);
+                } else {
+                    var previewPanel = new PreviewTextPanel(
+                            contextManager,
+                            null,
+                            previewText,
+                            sf.syntaxStyle(),
+                            themeManager,
+                            workingFragment);
+                    showPreviewFrame(contextManager, title, previewPanel);
+                }
             } else {
                 var previewPanel = new PreviewTextPanel(
                         contextManager,

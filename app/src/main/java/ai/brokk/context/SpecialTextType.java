@@ -1,6 +1,8 @@
 package ai.brokk.context;
 
 import ai.brokk.TaskResult;
+import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Json;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -12,7 +14,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 /**
  * Registry for special text fragments with centralized policy:
  * - description: human-readable type label used in existing contexts
- * - internalSyntaxStyle: how raw content is stored for serialization/highlighting
+ * - syntaxStyle: how raw content is stored for serialization/highlighting
  * - droppable: whether WorkspaceTools may remove this fragment
  * - singleton: ensure only one instance exists across the context
  * - previewRenderer: transforms raw content into a UI-friendly preview (e.g., Markdown)
@@ -32,13 +34,13 @@ public final class SpecialTextType {
 
     private SpecialTextType(
             String description,
-            String internalSyntaxStyle,
+            String syntaxStyle,
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
             Predicate<TaskResult.Type> canViewContent) {
         this.description = description;
-        this.syntaxStyle = internalSyntaxStyle;
+        this.syntaxStyle = syntaxStyle;
         this.droppable = droppable;
         this.singleton = singleton;
         this.previewRenderer = previewRenderer;
@@ -81,10 +83,10 @@ public final class SpecialTextType {
 
     public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
             "Task List",
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
             false, // non-droppable
             true, // singleton
-            Function.identity(), // preview already Markdown-friendly
+            SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
             t -> true // default visibility; callers may apply redaction policy
             ));
 
@@ -134,5 +136,54 @@ public final class SpecialTextType {
     @Override
     public boolean equals(Object obj) {
         return (obj instanceof SpecialTextType other) && description.equals(other.description);
+    }
+
+    /**
+     * Renders Task List JSON content as Markdown for UI preview.
+     * Modern, clean formatting:
+     * - Header
+     * - Progress summary
+     * - GitHub-style checkbox list with strikethrough for completed items
+     *
+     * On parse error, falls back to a readable Markdown message with a block-quoted raw payload (no code fences).
+     */
+    private static String renderTaskListMarkdown(String json) {
+        try {
+            var data = Json.getMapper().readValue(json, TaskList.TaskListData.class);
+            int total = (data.tasks() == null) ? 0 : data.tasks().size();
+            int completed = (data.tasks() == null) ? 0 : (int) data.tasks().stream().filter(TaskList.TaskItem::done).count();
+
+            var sb = new StringBuilder();
+            sb.append("# Task List\n\n");
+            sb.append("> Progress: ").append(completed).append("/").append(total).append("\n\n");
+
+            if (total == 0) {
+                sb.append("_No tasks yet._");
+                return sb.toString();
+            }
+
+            for (var item : data.tasks()) {
+                boolean done = item.done();
+                String label = item.text();
+
+                if (done) {
+                    sb.append("- [x] ~~").append(label).append("~~\n");
+                } else {
+                    sb.append("- [ ] ").append(label).append("\n");
+                }
+            }
+
+            return sb.toString().stripTrailing();
+        } catch (Exception e) {
+            // No JSON code fence per requirement; show a readable note and block-quoted raw text.
+            String quoted = json.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\n> ");
+            return """
+                    ### Task List
+
+                    _Unable to parse saved task list. Showing raw content below for reference._
+
+                    > %s
+                    """.stripIndent().formatted(quoted);
+        }
     }
 }
