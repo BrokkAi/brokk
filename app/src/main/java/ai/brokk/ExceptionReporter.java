@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +47,17 @@ public class ExceptionReporter {
      * @param throwable The exception to report (must not be null)
      */
     public void reportException(Throwable throwable) {
+        reportException(throwable, Map.of());
+    }
+
+    /**
+     * Reports an exception to the Brokk server asynchronously with optional context fields. This method never throws
+     * exceptions - failures are logged but do not propagate.
+     *
+     * @param throwable The exception to report (must not be null)
+     * @param optionalFields Optional context fields to include with the report
+     */
+    public void reportException(Throwable throwable, Map<String, String> optionalFields) {
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
 
@@ -78,7 +90,7 @@ public class ExceptionReporter {
                     try {
                         String clientVersion = BuildInfo.version;
                         ReportingService service = serviceSupplier.get();
-                        service.reportClientException(stacktrace, clientVersion);
+                        service.reportClientException(stacktrace, clientVersion, optionalFields);
                         logger.debug(
                                 "Successfully reported exception: {} - {}",
                                 throwable.getClass().getSimpleName(),
@@ -194,7 +206,7 @@ public class ExceptionReporter {
      * Interface for services that can report client exceptions.
      * This interface allows for testing without requiring full Service initialization.
      */
-    public static interface ReportingService {
+    public interface ReportingService {
         /**
          * Reports a client exception to the server.
          *
@@ -203,6 +215,20 @@ public class ExceptionReporter {
          * @return JsonNode response from the server
          * @throws IOException if the HTTP request fails
          */
-        JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException;
+        default JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
+            return reportClientException(stacktrace, clientVersion, Map.of());
+        }
+
+        /**
+         * Reports a client exception to the server with optional context fields.
+         *
+         * @param stacktrace The formatted stack trace of the exception
+         * @param clientVersion The version of the client application
+         * @param optionalFields Optional context fields to include in the report
+         * @return JsonNode response from the server
+         * @throws IOException if the HTTP request fails
+         */
+        JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
+                throws IOException;
     }
 }

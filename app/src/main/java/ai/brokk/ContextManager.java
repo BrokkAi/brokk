@@ -767,6 +767,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
+    public void reportException(Throwable th, Map<String, String> optionalFields) {
+        CompletableFuture.runAsync(() -> {
+            exceptionReporter.reportException(th, optionalFields);
+        });
+    }
+
     /**
      * "Exclusive actions" are short-lived, local actions that prevent new LLM actions from being started while they
      * run; only one will run at a time. These will NOT be wired up to cancellation mechanics.

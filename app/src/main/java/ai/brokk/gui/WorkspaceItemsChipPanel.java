@@ -13,7 +13,6 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -60,52 +59,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private Set<ContextFragment> hoveredFragments = Set.of();
     private boolean readOnly = false;
 
-    // Key for storing ComputedValue subscription list on a chip
-    private static final String CV_SUBSCRIPTIONS_KEY = "brokk.cv.subs";
-
-    // Register a ComputedValue subscription on a chip for later disposal
-    @SuppressWarnings("unchecked")
-    private void registerCvSubscription(JComponent chip, ComputedValue.Subscription sub) {
-        var existing = (List<ComputedValue.Subscription>) chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
-        if (existing == null) {
-            existing = new ArrayList<>();
-            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, existing);
-        }
-        existing.add(sub);
-    }
-
-    // Dispose all subscriptions associated with a chip (best-effort)
-    private void disposeChipSubscriptions(JComponent chip) {
-        var existing = chip.getClientProperty(CV_SUBSCRIPTIONS_KEY);
-        if (existing instanceof List<?> subs) {
-            for (var sObj : subs) {
-                try {
-                    if (sObj instanceof ComputedValue.Subscription subscription) {
-                        subscription.dispose();
-                    }
-                } catch (Exception ex) {
-                    logger.error("Error disposing ComputedValue subscription!", ex);
-                }
-            }
-            chip.putClientProperty(CV_SUBSCRIPTIONS_KEY, null);
-        }
-    }
-
-    // Ensure the chip still represents this fragment and is still attached
-    private boolean isChipCurrent(ContextFragment fragment, JComponent chip) {
-        var current = chipById.get(fragment.id());
-        if (current != chip) return false;
-        // Also ensure the chip hasn't been removed from this panel
-        for (var c : getComponents()) {
-            if (c == chip) return true;
-        }
-        return false;
-    }
-
     // Recompute label/tooltip for a chip based on current computed values and restyle
     private void refreshChipLabelAndTooltip(JComponent chip, JLabel label, ContextFragment fragment) {
-        if (!isChipCurrent(fragment, chip)) return;
-
         var kind = classify(fragment);
         String newLabelText;
         if (kind == ChipKind.SUMMARY) {
@@ -157,11 +112,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         }
         logger.debug("subscribeToComputedUpdates: attaching listeners for fragment {}", fragment);
 
-        // Kick off background computations (exceptions logged by ComputedValue framework)
-        cf.computedText().start();
-        cf.computedDescription().start();
-        cf.computedFiles().start();
-
         // Initial placeholder for summaries if files are not yet known
         if (classify(fragment) == ChipKind.SUMMARY) {
             var filesOpt = cf.computedFiles().tryGet();
@@ -170,59 +120,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
         }
 
-        // Files completion => update label and tooltip (affects Summary count)
-        var s1 = cf.computedFiles().onComplete((v, ex) -> {
-            logger.debug(
-                    "subscribeToComputedUpdates: computedFiles completed for fragment {} (success={})",
-                    fragment,
-                    ex == null);
-            SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) {
-                    logger.debug(
-                            "subscribeToComputedUpdates: skipping stale chip after files completion for fragment {}",
-                            fragment);
-                    return;
-                }
-                refreshChipLabelAndTooltip(chip, label, fragment);
-            });
-        });
-        registerCvSubscription(chip, s1);
-
-        // Description completion => update tooltip
-        var s2 = cf.computedDescription().onComplete((v, ex) -> {
-            logger.debug(
-                    "subscribeToComputedUpdates: computedDescription completed for fragment {} (success={})",
-                    fragment,
-                    ex == null);
-            SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, chip)) {
-                    logger.debug(
-                            "subscribeToComputedUpdates: skipping stale chip after description completion for fragment {}",
-                            fragment);
-                    return;
-                }
-                refreshChipLabelAndTooltip(chip, label, fragment);
-            });
-        });
-        registerCvSubscription((JComponent) chip, s2);
-
-        // Text completion => metrics/tooltips update
-        var s3 = cf.computedText().onComplete((v, ex) -> {
-            logger.debug(
-                    "subscribeToComputedUpdates: computedText completed for fragment {} (success={})",
-                    fragment,
-                    ex == null);
-            SwingUtilities.invokeLater(() -> {
-                if (!isChipCurrent(fragment, (JComponent) chip)) {
-                    logger.debug(
-                            "subscribeToComputedUpdates: skipping stale chip after text completion for fragment {}",
-                            fragment);
-                    return;
-                }
-                refreshChipLabelAndTooltip(chip, label, fragment);
-            });
-        });
-        registerCvSubscription((JComponent) chip, s3);
+        // Bind all relevant computed updates to a single UI refresh (runs on EDT and auto-disposes with the chip)
+        cf.bind(chip, () -> refreshChipLabelAndTooltip(chip, label, fragment));
     }
 
     // Update synthetic summary chip label/tooltip from current computed values
@@ -272,25 +171,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     private void subscribeSummaryGroupUpdates(List<ContextFragment> summaries, JComponent chip, JLabel label) {
         for (var f : summaries) {
             if (f instanceof ContextFragment.ComputedFragment cf) {
-                // Start computed value computations; exceptions are non-fatal (logged by ComputedValue framework)
-                cf.computedFiles().start();
-                var s = cf.computedFiles().onComplete((v, ex) -> {
-                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
-                });
-                registerCvSubscription(chip, s);
-
-                // Also update on description/text changes to improve tooltips
-                cf.computedDescription().start();
-                var sDesc = cf.computedDescription().onComplete((v, ex) -> {
-                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
-                });
-                registerCvSubscription(chip, sDesc);
-
-                cf.computedText().start();
-                var sText = cf.computedText().onComplete((v, ex) -> {
-                    SwingUtilities.invokeLater(() -> refreshSyntheticSummaryChip(chip, label, summaries));
-                });
-                registerCvSubscription(chip, sText);
+                // Bind per-summary computed updates to refresh the aggregate synthetic chip
+                cf.bind((JComponent) chip, () -> refreshSyntheticSummaryChip(chip, label, summaries));
             }
         }
     }
@@ -472,7 +354,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (var id : toRemove) {
             var chip = chipById.remove(id);
             if (chip != null) {
-                disposeChipSubscriptions(chip);
                 remove(chip);
             }
         }
@@ -515,7 +396,6 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (!anyRenderableSummary) {
             // Remove synthetic chip if present
             if (syntheticSummaryChip != null) {
-                disposeChipSubscriptions(syntheticSummaryChip);
                 remove(syntheticSummaryChip);
                 syntheticSummaryChip = null;
             }

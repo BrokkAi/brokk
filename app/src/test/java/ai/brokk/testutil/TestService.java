@@ -13,6 +13,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.File;
 import java.io.IOException;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public final class TestService extends AbstractService {
@@ -66,7 +67,8 @@ public final class TestService extends AbstractService {
     }
 
     @Override
-    public JsonNode reportClientException(String stacktrace, String clientVersion) throws IOException {
+    public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
+            throws IOException {
         return objectMapper.createObjectNode();
     }
 
