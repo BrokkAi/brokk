@@ -44,11 +44,6 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language JAVA = new JavaLanguage();
     public static final Language JAVASCRIPT = new Language() {
@@ -145,11 +140,6 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language GO = new Language() {
         private final List<String> extensions = List.of("go");
@@ -183,12 +173,6 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        // TODO
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return List.of();
-        }
     };
     public static final Language CPP_TREESITTER = new Language() {
         private final List<String> extensions = List.of("c", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
@@ -221,11 +205,6 @@ public class Languages {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
-        }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
         }
     };
     public static final Language RUST = new RustLanguage();
@@ -295,12 +274,6 @@ public class Languages {
             return createAnalyzer(project);
         }
 
-        // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return List.of();
-        }
-
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
@@ -351,11 +324,6 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
-        }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
         }
     };
     public static final Language TYPESCRIPT = new Language() {
