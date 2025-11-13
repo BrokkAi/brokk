@@ -35,10 +35,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -1115,24 +1112,40 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */
     private void setupWindowCloseHandler() {
-        SwingUtilities.invokeLater(() -> {
-            var ancestor = SwingUtilities.getWindowAncestor(this);
-            // Set default close operation to DO_NOTHING_ON_CLOSE so we can handle it
-            if (ancestor instanceof JFrame frame) {
-                frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-            } else if (ancestor instanceof JDialog dialog) {
-                dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-            }
+        var listener = new HierarchyListener() {
+            @Override
+            public void hierarchyChanged(HierarchyEvent e) {
+                if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+                    var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                    if (ancestor != null) {
+                        logger.debug(
+                                "Setting up window close handler for {}",
+                                ancestor.getClass().getSimpleName());
 
-            ancestor.addWindowListener(new WindowAdapter() {
-                @Override
-                public void windowClosing(WindowEvent e) {
-                    if (confirmClose()) {
-                        ancestor.dispose();
+                        // Set default close operation to DO_NOTHING_ON_CLOSE so we can handle it
+                        if (ancestor instanceof JFrame frame) {
+                            frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+                        } else if (ancestor instanceof JDialog dialog) {
+                            dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+                        }
+
+                        ancestor.addWindowListener(new WindowAdapter() {
+                            @Override
+                            public void windowClosing(WindowEvent e) {
+                                logger.debug("Window closing event triggered, calling confirmClose()");
+                                if (confirmClose()) {
+                                    ancestor.dispose();
+                                }
+                            }
+                        });
+
+                        // One-time setup, remove listener after event processing completes
+                        SwingUtilities.invokeLater(() -> removeHierarchyListener(this));
                     }
                 }
-            });
-        });
+            }
+        };
+        addHierarchyListener(listener);
     }
 
     /**
