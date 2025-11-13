@@ -188,50 +188,7 @@ public final class MainProject extends AbstractProject {
             projectProps.clear();
         }
 
-        // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
-        // Note: We copy values to workspace.properties but do NOT modify project.properties on disk
-        boolean migratedArchitectSettings = false;
-
-        if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
-            if (!workspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
-                    || !workspaceProps
-                            .getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY)
-                            .equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
-                workspaceProps.setProperty(
-                        ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
-                migratedArchitectSettings = true;
-            }
-            // Remove from in-memory props for backward compat, but don't save to disk
-            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
-        }
-
-        // Migrate Live Dependencies from projectProps to workspace properties
-        boolean migratedLiveDeps = false;
-        if (projectProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-            if (!workspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-                workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
-                migratedLiveDeps = true;
-            }
-            // Remove from in-memory props for backward compat, but don't save to disk
-            projectProps.remove(LIVE_DEPENDENCIES_KEY);
-        }
-
-        if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspace properties
-            saveWorkspaceProperties();
-            if (migratedArchitectSettings) {
-                logger.info(
-                        "Migrated Architect options from project.properties to workspace.properties for {}",
-                        root.getFileName());
-            }
-            if (migratedLiveDeps) {
-                logger.info(
-                        "Migrated Live Dependencies from project.properties to workspace.properties for {}",
-                        root.getFileName());
-            }
-        }
-
-        // Load build details AFTER projectProps might have been modified by migration (though build details keys are
-        // not affected here)
+        // Load build details
         var bd = loadBuildDetailsInternal(); // Uses projectProps
         if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             this.detailsFuture.complete(bd);
