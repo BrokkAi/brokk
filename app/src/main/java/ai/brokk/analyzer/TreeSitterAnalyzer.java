@@ -173,39 +173,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
-            long snapshotEpochNanos,
-            Set<CodeUnit> allCodeUnits) {
-
-        /**
-         * Convenience constructor that automatically computes allCodeUnits from codeUnitState.
-         * Materializes the set of all code units (top-level and children) for efficient reuse.
-         */
-        public AnalyzerState(
-                PMap<String, List<CodeUnit>> symbolIndex,
-                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
-                PMap<ProjectFile, FileProperties> fileState,
-                SymbolKeyIndex symbolKeyIndex,
-                long snapshotEpochNanos) {
-            this(
-                    symbolIndex,
-                    codeUnitState,
-                    fileState,
-                    symbolKeyIndex,
-                    snapshotEpochNanos,
-                    computeAllCodeUnits(codeUnitState));
-        }
-
-        /**
-         * Materializes all CodeUnits (top-level + children) into a deduplicated set.
-         */
-        private static Set<CodeUnit> computeAllCodeUnits(PMap<CodeUnit, CodeUnitProperties> codeUnitState) {
-            Set<CodeUnit> allCodeUnitsSet = new HashSet<>(codeUnitState.keySet());
-            codeUnitState.values().stream()
-                    .flatMap(props -> props.children().stream())
-                    .forEach(allCodeUnitsSet::add);
-            return Collections.unmodifiableSet(allCodeUnitsSet);
-        }
-    }
+            long snapshotEpochNanos) {}
 
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
@@ -612,7 +580,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         final String normalizedFqName = normalizeFullName(fqName);
 
         // First try exact match on fqName
-        List<CodeUnit> matches = this.state.allCodeUnits().stream()
+        List<CodeUnit> matches = this.state.codeUnitState.keySet().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
                 .toList();
 
@@ -624,7 +592,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String searchSignature = normalizedFqName.substring(parenIndex);
 
             // Try exact signature match first
-            matches = this.state.allCodeUnits().stream()
+            matches = this.state.codeUnitState.keySet().stream()
                     .filter(cu -> cu.fqName().equals(baseName))
                     .filter(cu -> {
                         String cuSig = cu.signature();
@@ -634,7 +602,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
             // If no exact signature match, return any CodeUnit with matching baseName
             if (matches.isEmpty()) {
-                matches = this.state.allCodeUnits().stream()
+                matches = this.state.codeUnitState.keySet().stream()
                         .filter(cu -> cu.fqName().equals(baseName))
                         .toList();
             }
@@ -650,7 +618,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public List<CodeUnit> getAllDeclarations() {
-        return this.state.allCodeUnits().stream().filter(CodeUnit::isClass).toList();
+        return this.state.codeUnitState.keySet().stream()
+                .filter(CodeUnit::isClass)
+                .toList();
     }
 
     @Override
@@ -658,7 +628,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
         // an explicit search for everything should return everything, not just classes
         if (originalPattern.equals(".*")) {
-            return this.state.allCodeUnits();
+            return this.state.codeUnitState.keySet();
         }
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
@@ -669,18 +639,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
-            return this.state.allCodeUnits().stream()
+            return this.state.codeUnitState.keySet().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
                     .filter(anonPredicate)
                     .collect(Collectors.toSet());
         } else if (compiledPattern != null) {
             // Primary search using compiled regex pattern
-            return this.state.allCodeUnits().stream()
+            return this.state.codeUnitState.keySet().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
                     .filter(anonPredicate)
                     .collect(Collectors.toSet());
         } else {
-            return this.state.allCodeUnits().stream()
+            return this.state.codeUnitState.keySet().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
                     .filter(anonPredicate)
                     .collect(Collectors.toSet());
@@ -753,7 +723,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Fallback for very short queries (single letter): include any declarations with FQNs containing the query.
         if (query.length() == 1) {
-            this.state.allCodeUnits().stream()
+            this.state.codeUnitState.keySet().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
                     .forEach(results::add);
         }
