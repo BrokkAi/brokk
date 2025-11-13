@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,11 +93,11 @@ class SqlAnalyzerTest {
 
         Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "my_table");
         assertTrue(skeletonOpt.isPresent());
-        assertEquals(sqlContent, skeletonOpt.get().trim());
+        assertCodeEquals(sqlContent, skeletonOpt.get());
 
         Optional<String> skeletonHeaderOpt = AnalyzerUtil.getSkeletonHeader(analyzer, "my_table");
         assertTrue(skeletonHeaderOpt.isPresent());
-        assertEquals(sqlContent, skeletonHeaderOpt.get().trim());
+        assertCodeEquals(sqlContent, skeletonHeaderOpt.get());
     }
 
     @Test
@@ -120,7 +121,7 @@ class SqlAnalyzerTest {
 
         Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "my_schema.my_view");
         assertTrue(skeletonOpt.isPresent());
-        assertEquals(sqlContent, skeletonOpt.get().trim());
+        assertCodeEquals(sqlContent, skeletonOpt.get());
     }
 
     @Test
@@ -209,11 +210,11 @@ class SqlAnalyzerTest {
         // Test skeleton extraction based on these ranges
         Optional<String> skel1 = AnalyzerUtil.getSkeleton(analyzer, "tbl_one");
         assertTrue(skel1.isPresent());
-        assertEquals(line1, skel1.get().trim());
+        assertCodeEquals(line1, skel1.get());
 
         Optional<String> skel2 = AnalyzerUtil.getSkeleton(analyzer, "v_two");
         assertTrue(skel2.isPresent());
-        assertEquals(line2, skel2.get().trim());
+        assertCodeEquals(line2, skel2.get());
     }
 
     @Test
