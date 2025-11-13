@@ -1639,7 +1639,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean newVerticalLayout = verticalActivityLayoutCheckbox.isSelected();
         if (previousVerticalLayout != newVerticalLayout) {
             GlobalUiSettings.saveVerticalActivityLayout(newVerticalLayout);
-            chrome.applyVerticalActivityLayout();
+            // Ensure UI reparenting occurs on the EDT
+            SwingUtilities.invokeLater(chrome::applyVerticalActivityLayout);
         }
 
         // UI Scale preference (if present; hidden on macOS)
