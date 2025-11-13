@@ -159,6 +159,15 @@ public final class BrokkConfigPaths {
                     Files.copy(legacyFile, newFile, StandardCopyOption.COPY_ATTRIBUTES);
                     logger.info("Migrated config file: {}", fileName);
                     migratedCount++;
+
+                    // Backup the original file
+                    try {
+                        Path backupFile = legacyFile.resolveSibling(fileName + ".bak");
+                        Files.move(legacyFile, backupFile, StandardCopyOption.REPLACE_EXISTING);
+                        logger.info("Backed up original config file to: {}", backupFile);
+                    } catch (IOException e) {
+                        logger.warn("Failed to backup original file {}: {}", fileName, e.getMessage());
+                    }
                 } else if (Files.exists(legacyFile) && Files.exists(newFile)) {
                     logger.debug("Skipping {}, already exists in target directory", fileName);
                 }
