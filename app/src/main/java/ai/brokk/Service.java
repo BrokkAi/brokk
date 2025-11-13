@@ -58,7 +58,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         } catch (IOException e) {
             LogManager.getLogger(Service.class)
                     .error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
-            // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
+            // tempModelLocations and tempModelInfoMap will be cleared by
+            // fetchAvailableModels in this case
         }
 
         if (tempModelLocations.isEmpty()) {
@@ -93,7 +94,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             quickEditModel = qe == null ? quickModel : qe;
         }
 
-        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
+        // hard‑code quickest temperature to 0 so that Quick Context inference is
+        // reproducible
         var qqm = getModel(
                 new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
                 OpenAiChatRequestParameters.builder().temperature(0.0));
@@ -152,7 +154,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Checks if data sharing is allowed for the organization associated with the given Brokk API key. Defaults to true.
+     * Checks if data sharing is allowed for the organization associated with the
+     * given Brokk API key. Defaults to true.
      */
     public static boolean getDataShareAllowed(String key) {
         try {
@@ -211,7 +214,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches available models from the LLM proxy, populates the provided maps, and applies filters.
+     * Fetches available models from the LLM proxy, populates the provided maps, and
+     * applies filters.
      */
     protected void fetchAvailableModels(
             MainProject.DataRetentionPolicy policy,
@@ -226,6 +230,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
+        String userId = "unknown";
         if (isBrokk) {
             String brokkKey = MainProject.getBrokkKey();
             if (brokkKey.isEmpty()) {
@@ -235,9 +240,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
             var kp = parseKey(brokkKey);
             authHeader = "Bearer " + kp.token();
+            userId = kp.userId().toString();
+        }
+        String url = baseUrl + "/model/info";
+        if (userId != null) {
+            url += "?user_id=" + URLEncoder.encode(userId, StandardCharsets.UTF_8);
         }
         Request request = new Request.Builder()
-                .url(baseUrl + "/model/info")
+                .url(url)
                 .header("Authorization", authHeader)
                 .get()
                 .build();
@@ -278,8 +288,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
             for (JsonNode modelInfoNode : dataNode) {
                 String modelName = modelInfoNode.path("model_name").asText();
-                String modelLocation =
-                        modelInfoNode.path("litellm_params").path("model").asText();
+                String modelLocation = modelInfoNode.path("litellm_params").path("model").asText();
 
                 JsonNode modelInfoData = modelInfoNode.path("model_info");
 
@@ -370,7 +379,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are attached with the multipart field name
+     * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are
+     * attached with the multipart field name
      * "attachment".
      */
     @Override
@@ -386,8 +396,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 .addFormDataPart("user_id", kp.userId().toString());
 
         if (includeDebugLog) {
-            var debugLogPath =
-                    Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
+            var debugLogPath = Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR,
+                    AbstractProject.DEBUG_LOG_FILE);
             var debugFile = debugLogPath.toFile();
             if (debugFile.exists()) {
                 try {
@@ -433,7 +443,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Reports a client exception to the Brokk server for monitoring and debugging purposes, with optional context
+     * Reports a client exception to the Brokk server for monitoring and debugging
+     * purposes, with optional context
      * fields.
      */
     @Override
@@ -475,7 +486,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses OkHttp for multipart/form-data upload.
+     * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses
+     * OkHttp for multipart/form-data upload.
      */
     public class OpenAIStt implements SpeechToTextModel {
         private final Logger logger = LogManager.getLogger(OpenAIStt.class);
