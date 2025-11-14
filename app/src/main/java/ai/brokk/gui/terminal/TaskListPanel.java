@@ -575,8 +575,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                String provisionalTitle = makeProvisionalTitle(text);
-                model.addElement(new TaskList.TaskItem(provisionalTitle, text, false));
+                model.addElement(new TaskList.TaskItem("", text, false));
                 added++;
             }
         }
@@ -914,11 +913,17 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearExpansionOnStructureChange();
             updateButtonStates();
             
-            // Kick off async summarization for tasks with blank titles
+            // Kick off async summarization for tasks needing a summary:
+            // - title is blank, OR
+            // - title equals body for a long task (common for imported/lutz tasks)
             for (int i = 0; i < model.getSize(); i++) {
                 var task = requireNonNull(model.get(i));
-                if (task.title() == null || task.title().isBlank()) {
-                    summarizeAndUpdateTaskTitle(task.text(), i);
+                var tTitle = task.title();
+                var tText = task.text();
+                boolean needsSummary = (tTitle == null || tTitle.isBlank())
+                        || (!isShortTaskText(tText) && tTitle != null && tTitle.strip().equals(tText.strip()));
+                if (needsSummary) {
+                    summarizeAndUpdateTaskTitle(tText, i);
                 }
             }
         } finally {
