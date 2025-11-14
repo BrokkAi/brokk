@@ -1370,7 +1370,7 @@ public class ContextSerializationTest {
                 .map(f -> (ContextFragment.ProjectPathFragment) f)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(loadedPpf.isReadOnly(), "Loaded ProjectPathFragment should be read-only");
+        assertTrue(loadedCtx.isReadOnly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
 
         var loadedCode = loadedCtx
                 .virtualFragments()
@@ -1378,7 +1378,7 @@ public class ContextSerializationTest {
                 .map(f -> (ContextFragment.CodeFragment) f)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(loadedCode.isReadOnly(), "Loaded CodeFragment should be read-only");
+        assertTrue(loadedCtx.isReadOnly(loadedCode), "Loaded CodeFragment should be read-only");
     }
 
     @Test
@@ -1429,7 +1429,7 @@ public class ContextSerializationTest {
         // Since original readonly list was empty, and we only added ids (including non-editable), ProjectPath remains
         // not read-only
         assertFalse(
-                loadedPpf.isReadOnly(),
+                loadedLonger.getHistory().getFirst().isReadOnly(loadedPpf),
                 "Editable fragment should remain not read-only when list contains unknown/non-editable ids only");
 
         // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
@@ -1462,7 +1462,9 @@ public class ContextSerializationTest {
                 .map(f -> (ContextFragment.ProjectPathFragment) f)
                 .findFirst()
                 .orElseThrow();
-        assertFalse(loadedPpf2.isReadOnly(), "Editable fragment should default to not read-only when id absent");
+        assertFalse(
+                loadedShorter.getHistory().getFirst().isReadOnly(loadedPpf2),
+                "Editable fragment should default to not read-only when id absent");
     }
 
     // Helper: read readonly IDs from contexts.jsonl inside zip
