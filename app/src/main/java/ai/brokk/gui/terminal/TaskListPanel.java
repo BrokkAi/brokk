@@ -50,7 +50,6 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -104,7 +103,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
     private final JList<TaskList.TaskItem> list = new JList<>(model);
-    private final Set<Integer> expandedRows = new HashSet<>();
     private final JTextField input = new JTextField();
     private final MaterialButton removeBtn = new MaterialButton();
     private final MaterialButton toggleDoneBtn = new MaterialButton();
@@ -526,7 +524,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Single-click toggles expansion; double-click opens modal edit dialog
+        // Double-click opens modal edit dialog
         list.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -540,20 +538,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (e.getClickCount() == 2) {
                     list.setSelectedIndex(index);
                     editSelected();
-                } else if (e.getClickCount() == 1) {
-                // Toggle expansion on single click
-                if (expandedRows.contains(index)) {
-                expandedRows.remove(index);
-                } else {
-                expandedRows.add(index);
-                }
-                // Force height recomputation for this row
-                if (index >= 0 && index < model.getSize()) {
-                var it = model.get(index);
-                model.set(index, it);
-                }
-                list.revalidate();
-                list.repaint(cell);
                 }
             }
         });
@@ -1918,7 +1902,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     private void clearExpansionOnStructureChange() {
         assert SwingUtilities.isEventDispatchThread();
-        expandedRows.clear();
         list.revalidate();
         list.repaint();
     }
@@ -2293,10 +2276,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelected(value.done());
             }
             
-            // Determine if this row is expanded
-            boolean isExpanded = TaskListPanel.this.expandedRows.contains(index);
-            view.setExpanded(isExpanded);
-
             // Font and strike-through first (affects metrics)
             Font base = list.getFont();
             view.setFont(base.deriveFont(Font.PLAIN));
@@ -2321,22 +2300,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Apply width before text so measurement uses the correct wrap width immediately
             view.setAvailableWidth(available);
 
-            // Set text based on expansion state: show title when collapsed, full text when expanded
-            if (isExpanded) {
-                view.setText(value.text());
-                view.setMaxVisibleLines(Integer.MAX_VALUE);
-            } else {
-                // Show title when collapsed; fallback to first line of text if title is empty
-                String displayText = value.title();
-                if (displayText == null || displayText.isBlank()) {
-                    // Fallback: use first line of text
-                    String fullText = value.text();
-                    int newlineIndex = fullText.indexOf('\n');
-                    displayText = newlineIndex > 0 ? fullText.substring(0, newlineIndex) : fullText;
-                }
-                view.setText(displayText);
-                view.setMaxVisibleLines(1);
+            // Always show title; fallback to first line of text if title is empty
+            String displayText = value.title();
+            if (displayText == null || displayText.isBlank()) {
+                // Fallback: use first line of text
+                String fullText = value.text();
+                int newlineIndex = fullText.indexOf('\n');
+                displayText = newlineIndex > 0 ? fullText.substring(0, newlineIndex) : fullText;
             }
+            view.setText(displayText);
+            view.setMaxVisibleLines(1);
             view.setVisible(true);
 
             // Measure content height for the width and compute minHeight invariant
