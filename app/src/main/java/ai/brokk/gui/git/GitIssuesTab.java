@@ -45,7 +45,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -57,27 +60,35 @@ import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.HttpException;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
+    private static final int DEFAULT_ROW_HEIGHT = 48;
 
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final GitTabUiStateManager uiStateManager = new GitTabUiStateManager();
 
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
     private JTextPane issueBodyTextPane;
+    private TableCellRenderer defaultIssueTitleRenderer;
+    private TableCellRenderer richIssueTitleRenderer;
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
 
     private MaterialButton copyIssueDescriptionButton;
     private MaterialButton openInBrowserButton;
     private MaterialButton captureButton;
+    private MaterialButton refreshButton;
 
     private FilterBox statusFilter;
 
@@ -112,6 +123,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
     private List<IssueHeader> displayedIssues = new ArrayList<>();
+
+    private boolean isShowingError = false;
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
@@ -160,8 +173,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         });
         trackCancellableFuture(future);
 
-        // Issue Description panel will be added below the issues table; no split pane is needed
-
         // --- Left side - Issues table and filters ---
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
         mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
@@ -185,8 +196,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
         // ── Refresh button ──────────────────────────────────────────────────────
-        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
+        refreshButton = new MaterialButton();
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
@@ -198,7 +208,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         refreshButton.addActionListener(e -> updateIssueList());
         searchPanel.add(refreshButton, BorderLayout.EAST);
 
-        // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
@@ -363,7 +372,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueTable = new JTable(issueTableModel);
         issueTable.setTableHeader(null); // hide headers
         issueTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        issueTable.setRowHeight(48); // give breathing room
+        issueTable.setRowHeight(DEFAULT_ROW_HEIGHT); // give breathing room
         issueTable.setIntercellSpacing(new Dimension(0, Constants.V_GAP));
 
         // Hide helper columns (ID, Author, Updated)
@@ -375,7 +384,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
 
         // Title renderer
-        issueTable.getColumnModel().getColumn(1).setCellRenderer(new IssueHeaderCellRenderer());
+        richIssueTitleRenderer = new IssueHeaderCellRenderer();
+        defaultIssueTitleRenderer = new DefaultTableCellRenderer();
+        issueTable.getColumnModel().getColumn(1).setCellRenderer(richIssueTitleRenderer);
 
         ToolTipManager.sharedInstance().registerComponent(issueTable);
 
@@ -448,8 +459,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
-        // No separate bottom-button panel needed after redesign
-
         copyIssueDescriptionButton = new MaterialButton();
         copyIssueDescriptionButton.setAction(copyDescriptionAction);
         openInBrowserButton = new MaterialButton();
@@ -507,8 +516,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         // place the bar at the bottom of the description area
         issueDetailPanel.add(actionScrollPane, BorderLayout.SOUTH);
 
-        // Add the Issue-Description panel under the table and hide it until a row is chosen
-        /* issueDetailPanel is now managed by the JSplitPane; no direct add() here */
         issueDetailPanel.setVisible(false);
 
         add(mainIssueAreaPanel, BorderLayout.CENTER);
@@ -524,6 +531,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         // Add mouse listener for context menu on issue table
         issueTable.addMouseListener(new MouseAdapter() {
             private void showPopup(MouseEvent e) {
+                if (isShowingError) return;
                 if (e.isPopupTrigger()) {
                     int row = issueTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
@@ -589,14 +597,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     @Override
     public void issueProviderChanged() {
-        SwingUtilities.invokeLater(() -> {
-            logger.debug(
-                    "Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
-            cancelActiveFutures();
-            // Ask GitPanel to recreate this tab.
-            // GitPanel is final and assigned in constructor, so it won't be null here.
-            chrome.recreateIssuesPanel();
-        });
+        logger.debug("Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
+        uiStateManager.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                },
+                this::cancelActiveFutures,
+                () -> chrome.recreateIssuesPanel());
     }
 
     private void cancelActiveFutures() {
@@ -638,22 +645,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     @Override
     public void gitHubTokenChanged() {
-        SwingUtilities.invokeLater(() -> {
-            logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
-
-            if (searchDebounceTimer.isRunning()) {
-                searchDebounceTimer.stop();
-            }
-            if (descriptionDebounceTimer.isRunning()) {
-                descriptionDebounceTimer.stop();
-            }
-            pendingHeaderForDescription = null;
-
-            // This stops timers and clears activeFutures set
-            cancelActiveFutures();
-
-            updateIssueList();
-        });
+        logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
+        uiStateManager.handleProviderOrTokenChange(
+                () -> {
+                    isShowingError = false;
+                },
+                this::cancelActiveFutures,
+                this::updateIssueList);
     }
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager) {
@@ -719,6 +717,43 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
         issueDetailPanel.setVisible(false);
+    }
+
+    /** Enable or disable every widget that can trigger a new reload. Must be called on the EDT. */
+    private void setReloadUiEnabled(boolean enabled) {
+        GitTabUiStateManager.setReloadControlsEnabled(
+                enabled,
+                refreshButton,
+                statusFilter,
+                authorFilter,
+                labelFilter,
+                assigneeFilter,
+                resolutionFilter,
+                searchBox);
+    }
+
+    /** Toggle between simple and rich renderers for the issue title column. */
+    private void setIssueTitleRenderer(boolean rich) {
+        GitTabUiStateManager.setTitleRenderer(issueTable, 1, richIssueTitleRenderer, defaultIssueTitleRenderer, rich);
+    }
+
+    /** Display an error message in the issue table and disable UI controls. */
+    private void showErrorInTable(String message) {
+        isShowingError = true;
+        GitTabUiStateManager.setErrorState(
+                issueTable,
+                issueTableModel,
+                1,
+                richIssueTitleRenderer,
+                defaultIssueTitleRenderer,
+                true,
+                message,
+                new Object[] {"", message, "", ""},
+                () -> {
+                    disableIssueActionsAndClearDetails();
+                    setReloadUiEnabled(false);
+                    searchBox.setLoading(false, "");
+                });
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
@@ -839,18 +874,63 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
+            } catch (HttpException httpEx) {
+                logger.error(
+                        "HTTP error while fetching issues: {} (status {})",
+                        httpEx.getMessage(),
+                        httpEx.getResponseCode());
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(httpEx);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (UnknownHostException ex) {
+                logger.error("Network error while fetching issues: unknown host", ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (SocketTimeoutException ex) {
+                logger.error("Timeout while fetching issues", ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (ConnectException ex) {
+                logger.error("Connection error while fetching issues", ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
+            } catch (IOException ex) {
+                logger.error("I/O error while fetching issues", ex);
+                String errorMessage = uiStateManager.mapExceptionToUserMessage(ex);
+                SwingUtilities.invokeLater(() -> {
+                    allIssuesFromApi.clear();
+                    displayedIssues.clear();
+                    showErrorInTable(errorMessage);
+                });
+                return null;
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
-                    // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
                     SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
-                    logger.error("Failed to fetch issues via IssueService", ex);
+                    logger.error("Unexpected error while fetching issues", ex);
                     SwingUtilities.invokeLater(() -> {
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
-                        issueTableModel.setRowCount(0);
-                        disableIssueActionsAndClearDetails();
-                        searchBox.setLoading(false, ""); // Stop loading on error
+                        showErrorInTable("Unexpected error: " + ex.getMessage());
                     });
                 }
                 return null;
@@ -946,6 +1026,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
             if (isFullUpdate) {
+                isShowingError = false;
+                issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
                 allIssuesFromApi = new ArrayList<>(sourceList);
                 logger.debug(
                         "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
@@ -959,8 +1041,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // Update table model
             issueTableModel.setRowCount(0);
             if (displayedIssues.isEmpty()) {
+                setIssueTitleRenderer(false);
                 disableIssueActions();
             } else {
+                setIssueTitleRenderer(true);
                 var today = LocalDate.now(ZoneId.systemDefault());
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
@@ -973,6 +1057,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             // Manage button states based on selection
             if (issueTable.getSelectedRow() == -1) {
                 disableIssueActions();
+            }
+
+            if (isFullUpdate) {
+                setReloadUiEnabled(true);
             }
             searchBox.setLoading(false, ""); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");

@@ -67,7 +67,7 @@ public class ActionGroupPanel extends JPanel {
             borderColor = Color.GRAY;
         }
         setBorder(BorderFactory.createCompoundBorder(
-                new RoundedLineBorder(borderColor, 1, -1), BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+                new RoundedLineBorder(borderColor, 1, -1, 0), BorderFactory.createEmptyBorder(2, 6, 2, 6)));
         setOpaque(false);
 
         // Add listeners to panel and children to preserve hover across children
@@ -127,7 +127,7 @@ public class ActionGroupPanel extends JPanel {
     /** Update the accent border color applied around the pill. */
     public void setAccentColor(Color accent) {
         setBorder(BorderFactory.createCompoundBorder(
-                new RoundedLineBorder(accent, 1, -1), BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+                new RoundedLineBorder(accent, 1, -1, 0), BorderFactory.createEmptyBorder(2, 6, 2, 6)));
         repaint();
     }
 }
