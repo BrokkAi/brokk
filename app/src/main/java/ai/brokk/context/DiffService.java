@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ImageUtil;
 import java.io.IOException;
@@ -114,6 +115,23 @@ public final class DiffService {
         cache.keySet().retainAll(currentIds);
     }
 
+    @Blocking
+    private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
+        if (!(fragment instanceof ContextFragment.PathFragment)) {
+            return false;
+        }
+        Set<ProjectFile> files;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            files = cf.computedFiles().future().join();
+        } else {
+            files = fragment.files();
+        }
+        if (files.isEmpty()) {
+            return false;
+        }
+        return !repo.getTrackedFiles().contains(files.iterator().next());
+    }
+
     /**
      * Compute per-fragment diffs between curr (new/right) and other (old/left) contexts.
      * Triggers async computations and awaits their completion.
@@ -151,29 +169,34 @@ public final class DiffService {
                 .orElse(null);
 
         if (otherFragment == null) {
-            // New fragment (no match in other) - diff against empty
-            return extractFragmentContentAsync(thisFragment, true)
-                    .thenApply(newContent -> {
-                        var result = ContentDiffUtils.computeDiffResult(
-                                "",
-                                newContent,
-                                "old/" + thisFragment.shortDescription(),
-                                "new/" + thisFragment.shortDescription());
-                        if (result.diff().isEmpty()) {
-                            return null;
-                        }
-                        return new Context.DiffEntry(
-                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
-                    })
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing diff for new fragment '{}': {}",
-                                thisFragment.shortDescription(),
-                                ex.getMessage(),
-                                ex);
-                        return new Context.DiffEntry(
-                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                    });
+            // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff against empty
+            var repo = curr.getContextManager().getRepo();
+            if (thisFragment.isText() && isNewFileInGit(thisFragment, repo)) {
+                return extractFragmentContentAsync(thisFragment, true)
+                        .thenApply(newContent -> {
+                            var result = ContentDiffUtils.computeDiffResult(
+                                    "",
+                                    newContent,
+                                    "old/" + thisFragment.shortDescription(),
+                                    "new/" + thisFragment.shortDescription());
+                            if (result.diff().isEmpty()) {
+                                return null;
+                            }
+                            return new Context.DiffEntry(
+                                    thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                        })
+                        .exceptionally(ex -> {
+                            logger.warn(
+                                    "Error computing diff for new fragment '{}': {}",
+                                    thisFragment.shortDescription(),
+                                    ex.getMessage(),
+                                    ex);
+                            return new Context.DiffEntry(
+                                    thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
+                        });
+            }
+            // The file is not shown as a diff
+            return CompletableFuture.completedFuture(null);
         }
 
         // Extract content asynchronously for both sides
