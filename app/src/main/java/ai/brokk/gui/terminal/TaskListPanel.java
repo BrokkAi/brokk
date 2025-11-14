@@ -590,7 +590,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Kick off async summarization for each newly added task
             for (int i = startIndex; i < model.getSize(); i++) {
-                summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text(), i);
+                summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text());
             }
         }
     }
@@ -925,7 +925,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                                 && tTitle != null
                                 && tTitle.strip().equals(tText.strip()));
                 if (needsSummary) {
-                    summarizeAndUpdateTaskTitle(tText, i);
+                    summarizeAndUpdateTaskTitle(tText);
                 }
             }
         } finally {
@@ -1591,7 +1591,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * the same list.
      */
     private final class TaskReorderTransferHandler extends TransferHandler {
-        private @Nullable int[] indices = null;
+        private int @Nullable [] indices = null;
         private int addIndex = -1;
         private int addCount = 0;
 
@@ -1664,7 +1664,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
-                    if (i == runningIndex.intValue()) {
+                    if (i == runningIndex) {
                         return false; // cannot drop a running task
                     }
                 }
@@ -2045,15 +2045,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private static boolean isShortTaskText(String text) {
-        if (text == null) {
-            return true;
-        }
         String trimmed = text.strip();
         return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD;
     }
 
-    private void summarizeAndUpdateTaskTitle(String taskText, int originalIndex) {
-        if (taskText == null || taskText.isBlank()) {
+    private void summarizeAndUpdateTaskTitle(String taskText) {
+        if (taskText.isBlank()) {
             return;
         }
 
@@ -2062,7 +2059,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 try {
                     for (int i = 0; i < model.getSize(); i++) {
                         var task = model.get(i);
-                        if (task != null && task.text().equals(taskText)) {
+                        if (task.text().equals(taskText)) {
                             model.set(i, new TaskList.TaskItem(taskText.strip(), task.text(), task.done()));
                             saveTasksForCurrentSession();
                             list.repaint();
@@ -2093,7 +2090,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     // Find the task by matching text (since it may have moved)
                     for (int i = 0; i < model.getSize(); i++) {
                         var task = model.get(i);
-                        if (task != null && task.text().equals(taskText)) {
+                        if (task.text().equals(taskText)) {
                             // Update with the summarized title
                             model.set(i, new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
                             saveTasksForCurrentSession();
@@ -2516,7 +2513,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int count = 0;
         for (int i = 0; i < model.getSize(); i++) {
             var task = model.get(i);
-            if (task != null && !task.done()) {
+            if (!task.done()) {
                 count++;
             }
         }
@@ -2534,7 +2531,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int removed = 0;
         for (int i = model.getSize() - 1; i >= 0; i--) {
             var task = model.get(i);
-            if (task != null && !task.done()) {
+            if (!task.done()) {
                 var t = task.text().strip();
                 if (textsToRemove.contains(t)) {
                     model.remove(i);

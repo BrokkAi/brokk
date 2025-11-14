@@ -2747,7 +2747,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void summarizeAndUpdateTaskTitle(String taskText) {
-        if (taskText == null || taskText.isBlank()) {
+        if (taskText.isBlank()) {
             return;
         }
 
@@ -2785,13 +2785,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         project.getSessionManager().writeTaskList(currentSessionId, newData);
 
                         if (io instanceof Chrome chrome) {
-                            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI());
+                            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
                         }
                     }
                 } catch (Exception e) {
                     logger.debug("Error updating task title after summarization", e);
                 }
-                return null;
+                return "";
             });
         });
     }
