@@ -120,6 +120,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             """
                     .stripIndent();
 
+    private static final ImageIcon BROKK_ICON_16 = loadBrokkIcon();
+
+    private static ImageIcon loadBrokkIcon() {
+        var iconUrl = InstructionsPanel.class.getResource("/brokk-icon.png");
+        if (iconUrl != null) {
+            var baseIcon = new ImageIcon(iconUrl);
+            var scaledImage = baseIcon.getImage().getScaledInstance(16, 16, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaledImage);
+        }
+        return null;
+    }
+
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
@@ -350,14 +362,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.brokkRankingLabel.setFocusable(false);
         this.brokkRankingLabel.setOpaque(false);
         this.brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        SwingUtilities.invokeLater(() -> {
-            var iconUrl = InstructionsPanel.class.getResource("/brokk-icon.png");
-            if (iconUrl != null) {
-                var baseIcon = new ImageIcon(iconUrl);
-                var scaledImage = baseIcon.getImage().getScaledInstance(16, 16, Image.SCALE_SMOOTH);
-                this.brokkRankingLabel.setIcon(new ImageIcon(scaledImage));
-            }
-        });
+        if (BROKK_ICON_16 != null) {
+            this.brokkRankingLabel.setIcon(BROKK_ICON_16);
+        }
 
         // Initialize mode indicator
         refreshModeIndicator();
@@ -1089,8 +1096,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static String buildBrokkRankingOnlyTooltip(int successRate) {
         StringBuilder body = new StringBuilder();
-        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
-                .append("Brokk Power Ranking</a></b></div>");
+        body.append("<div><b>Brokk Power Ranking</b></div>");
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
@@ -1136,8 +1142,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
-        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
-                .append("Brokk Power Ranking</a></b></div>");
+        body.append("<div><b>Brokk Power Ranking</b></div>");
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
