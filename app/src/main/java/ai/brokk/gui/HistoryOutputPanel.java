@@ -4,10 +4,10 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -811,7 +811,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         logger.debug(
                 "Updating context history table with context {}",
                 contextToSelect != null ? contextToSelect.getAction() : "null");
-        assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
@@ -2069,7 +2068,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
         var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-        var history = contextManager.topContext().getTaskHistory();
+        var history = contextManager.liveContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
         OutputWindow newStreamingWindow =
@@ -2680,12 +2679,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 for (var de : cachedOpt.get()) {
                     String bareName;
                     try {
-                        var files = de.fragment().files();
+                        var fragment = de.fragment();
+                        // Try non-blocking access for ComputedFragments
+                        Set<ProjectFile> files = Set.of();
+                        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                            // Use tryGet() for non-blocking access; won't block EDT
+                            var computedFilesOpt = cf.computedFiles();
+                            var filesOpt = computedFilesOpt.tryGet();
+                            if (filesOpt.isPresent()) {
+                                files = filesOpt.get();
+                            }
+                            // Ensure table repaints when files become available/computed
+                            cf.bind(
+                                    HistoryOutputPanel.this.historyTable,
+                                    HistoryOutputPanel.this.historyTable::repaint);
+                        } else {
+                            // Non-computed fragments: safe to call files() directly
+                            files = fragment.files();
+                        }
                         if (!files.isEmpty()) {
                             var pf = files.iterator().next();
                             bareName = pf.getRelPath().getFileName().toString();
                         } else {
-                            bareName = de.fragment().shortDescription();
+                            bareName = fragment.shortDescription();
                         }
                     } catch (Exception ex) {
                         bareName = de.fragment().shortDescription();
@@ -2811,24 +2827,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         try {
                             var list = f.get();
                             allDiffEntries.addAll(list);
-                        } catch (Exception ignore) {
-                            // skip failed computations; best-effort aggregation
+                        } catch (Exception ex) {
+                            // Log and continue: best-effort aggregation should not fail the whole computation
+                            logger.debug("Skipping failed diff computation while aggregating cumulative changes", ex);
                         }
                     }
 
-                    // Step 2: Identify unique frozen fragments by source matching
-                    var uniqueFragments = new ArrayList<FrozenFragment>();
+                    // Step 2: Identify unique fragments by source matching
+                    var uniqueFragments = new ArrayList<ContextFragment>();
                     for (var de : allDiffEntries) {
-                        FrozenFragment ff = de.fragment();
+                        ContextFragment frag = de.fragment();
                         boolean found = false;
                         for (var existing : uniqueFragments) {
-                            if (ff.hasSameSource(existing)) {
+                            if (frag.hasSameSource(existing)) {
                                 found = true;
                                 break;
                             }
                         }
                         if (!found) {
-                            uniqueFragments.add(ff);
+                            uniqueFragments.add(frag);
                         }
                     }
 
@@ -2959,8 +2976,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (root.getFileName() != null) {
                 projectName = root.getFileName().toString();
             }
-        } catch (Exception ignored) {
-            // fallback to default projectName
+        } catch (Exception e) {
+            logger.debug("Unable to resolve project name for aggregated Changes panel; using default", e);
         }
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)

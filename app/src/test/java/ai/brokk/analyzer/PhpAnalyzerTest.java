@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.*;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,10 +114,7 @@ public class PhpAnalyzerTest {
         // Assuming PHP grammar order: visibility, static, abstract/final. So "protected abstract".
         // Test code has `abstract protected`. Let's stick to test file for now.
 
-        assertEquals(
-                expectedSkeleton.trim(),
-                skeletonOpt.get().replace(System.lineSeparator(), "\n").trim(),
-                "Foo class skeleton mismatch.");
+        assertCodeEquals(expectedSkeleton.trim(), skeletonOpt.get(), "Foo class skeleton mismatch.");
     }
 
     @Test
@@ -126,7 +124,7 @@ public class PhpAnalyzerTest {
         Optional<String> skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, utilFuncCU.fqName());
         assertTrue(skeletonOpt.isPresent(), "Skeleton for util_func should exist.");
         String expectedSkeleton = "function util_func(): void { ... }"; // Return type was missing.
-        assertEquals(expectedSkeleton.trim(), skeletonOpt.get().trim(), "util_func skeleton mismatch.");
+        assertCodeEquals(expectedSkeleton.trim(), skeletonOpt.get(), "util_func skeleton mismatch.");
     }
 
     @Test
@@ -155,7 +153,7 @@ public class PhpAnalyzerTest {
         // If @field.definition is (const_declaration ...), textSlice(const_declaration) is correct.
         // Query: (const_declaration (const_element name: (name_identifier) @field.name ) @field.definition)
         // So nodeForContent is const_declaration.
-        assertEquals(expectedSkeleton.trim(), skeletonOpt.get().trim(), "TOP_LEVEL_CONST skeleton mismatch.");
+        assertCodeEquals(expectedSkeleton.trim(), skeletonOpt.get(), "TOP_LEVEL_CONST skeleton mismatch.");
     }
 
     @Test
@@ -165,8 +163,7 @@ public class PhpAnalyzerTest {
         CodeUnit interfaceCU = CodeUnit.cls(fooFile, "My.Lib", "IFoo");
         Optional<String> iFooOpt = AnalyzerUtil.getSkeleton(analyzer, interfaceCU.fqName());
         assertTrue(iFooOpt.isPresent(), "Skeleton for IFoo interface should exist.");
-        assertEquals(
-                "interface IFoo { }", iFooOpt.get().trim()); // Adjusted PhpAnalyzer to output this for empty bodies
+        assertCodeEquals("interface IFoo { }", iFooOpt.get()); // Adjusted PhpAnalyzer to output this for empty bodies
 
         CodeUnit traitCU = CodeUnit.cls(fooFile, "My.Lib", "MyTrait");
         Optional<String> traitOpt = AnalyzerUtil.getSkeleton(analyzer, traitCU.fqName());
@@ -177,7 +174,7 @@ public class PhpAnalyzerTest {
           public function traitMethod() { ... }
         }
         """;
-        assertEquals(expectedTraitSkeleton.trim(), traitOpt.get().trim());
+        assertCodeEquals(expectedTraitSkeleton.trim(), traitOpt.get());
     }
 
     @Test
@@ -233,9 +230,9 @@ public class PhpAnalyzerTest {
         assertTrue(sourceOpt.isPresent());
         final var classSource = sourceOpt.get();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";
-        assertTrue(classSource.startsWith(expectedSourceStart));
-        assertTrue(classSource.endsWith("}")); // Outer class brace
-        assertTrue(classSource.contains("private const MY_CONST = \"hello\";"));
-        assertTrue(classSource.contains("public function getValue(): int {"));
+        assertCodeStartsWith(classSource, expectedSourceStart);
+        assertCodeEndsWith(classSource, "}"); // Outer class brace
+        assertCodeContains(classSource, "private const MY_CONST = \"hello\";");
+        assertCodeContains(classSource, "public function getValue(): int {");
     }
 }

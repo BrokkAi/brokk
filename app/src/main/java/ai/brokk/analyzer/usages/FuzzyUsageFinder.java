@@ -12,6 +12,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -211,14 +212,10 @@ public final class FuzzyUsageFinder {
                     return;
                 }
 
-                // Precompute line starts for fast offset->line mapping
+                // Precompute line starts using actual separators (CRLF/LF/CR).
                 var lines = content.split("\\R", -1); // keep trailing empty lines if present
-                int[] lineStarts = new int[lines.length];
-                int running = 0;
-                for (int i = 0; i < lines.length; i++) {
-                    lineStarts[i] = running;
-                    running += lines[i].length() + 1; // +1 for the '\n' separator
-                }
+                var lineStarts = FileUtil.computeLineStarts(content);
+                assert lineStarts.length == lines.length : "lineStarts/lines length mismatch";
 
                 for (var pattern : patterns) {
                     var matcher = pattern.matcher(content);
@@ -230,17 +227,8 @@ public final class FuzzyUsageFinder {
                         int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
                         int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
 
-                        // Binary search for the line index such that lineStarts[idx] <= start < next
-                        int lo = 0, hi = lineStarts.length - 1, lineIdx = 0;
-                        while (lo <= hi) {
-                            int mid = (lo + hi) >>> 1;
-                            if (lineStarts[mid] <= start) {
-                                lineIdx = mid;
-                                lo = mid + 1;
-                            } else {
-                                hi = mid - 1;
-                            }
-                        }
+                        // Map char offset -> 0-based line index using precomputed starts
+                        int lineIdx = FileUtil.findLineIndexForOffset(lineStarts, start);
 
                         int startLine = Math.max(0, lineIdx - 3);
                         int endLine = Math.min(lines.length - 1, lineIdx + 3);

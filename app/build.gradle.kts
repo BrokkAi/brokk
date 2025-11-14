@@ -137,6 +137,7 @@ dependencies {
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
     "errorprone"(libs.dataflow.errorprone)
+    "errorprone"(project(":errorprone-checks"))
     compileOnly(libs.checker.qual)
 }
 
@@ -313,6 +314,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         // Always enable NullAway in this task
         error("NullAway")
         enable("RedundantNullCheck")
+
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "ai.brokk")

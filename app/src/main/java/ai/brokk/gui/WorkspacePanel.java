@@ -23,10 +23,7 @@ import ai.brokk.gui.util.ContextMenuUtils;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.prompts.CopyExternalPrompts;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.HtmlToMarkdown;
-import ai.brokk.util.ImageUtil;
-import ai.brokk.util.Messages;
-import ai.brokk.util.StackTrace;
+import ai.brokk.util.*;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -37,6 +34,7 @@ import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -512,7 +510,27 @@ public class WorkspacePanel extends JPanel {
             DescriptionWithReferences data = (DescriptionWithReferences) value;
 
             String description = data.description();
+            ContextFragment fragment = data.fragment();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
+
+            // For dynamic fragments, use computed description (non-blocking)
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                var descOpt = cf.computedDescription().tryGet();
+                if (descOpt.isPresent()) {
+                    description = descOpt.get();
+                } else {
+                    description = "(Loading...)";
+                    // Register for repaint when description completes; log failures
+                    cf.computedDescription().onComplete((desc, ex) -> {
+                        if (ex == null) {
+                            SwingUtilities.invokeLater(table::repaint);
+                        } else {
+                            logger.debug(
+                                    "Error computing fragment description for {}", fragment.shortDescription(), ex);
+                        }
+                    });
+                }
+            }
 
             // Calculate available width for description after reserving space for badges
             int colWidth = table.getColumnModel().getColumn(column).getWidth();
@@ -1046,8 +1064,8 @@ public class WorkspacePanel extends JPanel {
                         if (pi != null) {
                             pointer = pi.getLocation();
                         }
-                    } catch (Exception ignore) {
-                        // ignore
+                    } catch (Exception ex) {
+                        logger.debug("Could not access pointer info to position DropAction dialog", ex);
                     }
                     var selection = DropActionDialog.show(chrome.getFrame(), canSummarize, pointer);
                     if (selection == null) {
@@ -1399,7 +1417,25 @@ public class WorkspacePanel extends JPanel {
         for (var frag : allFragments) {
             String locText;
             if (frag.isText() || frag.getType().isOutput()) {
-                var text = frag.text();
+                String text;
+                if (frag instanceof ContextFragment.ComputedFragment cf) {
+                    // Non-blocking access for dynamic fragments
+                    var textOpt = cf.computedText().tryGet();
+                    text = textOpt.orElse("");
+                    // Register repaint when computation completes
+                    if (textOpt.isEmpty()) {
+                        cf.computedText().onComplete((value, ex) -> {
+                            if (ex == null && value != null) {
+                                SwingUtilities.invokeLater(this::updateContextTable);
+                            } else if (ex != null) {
+                                logger.debug("Error computing fragment text for {}", frag.shortDescription(), ex);
+                            }
+                        });
+                    }
+                } else {
+                    // Blocking access safe for non-dynamic fragments
+                    text = frag.text();
+                }
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
                 totalLines += loc;
@@ -1415,20 +1451,68 @@ public class WorkspacePanel extends JPanel {
                 desc = "✏️ " + desc;
             }
 
-            // Build file references for the record
+            // Build file references for the record (supports async ComputedFileFragment)
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
+            ComputedValue<Set<ProjectFile>> filesCv = null;
+            boolean filesReady = true;
+
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                fileReferences = frag.files().stream()
-                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
-                                file.getFileName(), file.toString(), file))
-                        .distinct()
-                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                        .toList();
+                try {
+                    Set<ProjectFile> fragmentFiles;
+                    if (frag instanceof ContextFragment.ComputedFragment cff) {
+                        filesCv = cff.computedFiles();
+                        var filesOpt = filesCv.tryGet();
+                        if (filesOpt.isPresent()) {
+                            fragmentFiles = filesOpt.get();
+                        } else {
+                            fragmentFiles = Set.of();
+                            filesReady = false;
+                        }
+                    } else {
+                        fragmentFiles = frag.files();
+                    }
+                    fileReferences = fragmentFiles.stream()
+                            .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
+                                    file.getFileName(), file.toString(), file))
+                            .distinct()
+                            .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                            .toList();
+                } catch (UncheckedIOException | CancellationException ex) {
+                    // Fragment computation failed or was cancelled; use empty file list
+                    fileReferences = List.of();
+                }
             }
 
             // Create rich description object
             var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
             tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
+
+            // If files were not ready, update the row once they are computed
+            if (filesCv != null && !filesReady) {
+                final int rowIndex = tableModel.getRowCount() - 1;
+                final String frozenDesc = desc;
+                final ContextFragment frozenFrag = frag;
+                filesCv.onComplete((files, ex) -> {
+                    if (ex == null && files != null) {
+                        var refs = files.stream()
+                                .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
+                                        file.getFileName(), file.toString(), file))
+                                .distinct()
+                                .sorted(Comparator.comparing(
+                                        TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                                .toList();
+                        SwingUtilities.invokeLater(() -> {
+                            if (rowIndex < contextTable.getRowCount()) {
+                                var updated = new DescriptionWithReferences(frozenDesc, refs, frozenFrag);
+                                tableModel.setValueAt(updated, rowIndex, DESCRIPTION_COLUMN);
+                                contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
+                            }
+                        });
+                    } else if (ex != null) {
+                        logger.debug("Error computing associated files for {}", frozenFrag.shortDescription(), ex);
+                    }
+                });
+            }
         }
 
         var innerLabel = safeGetLabel(0);
@@ -1531,7 +1615,7 @@ public class WorkspacePanel extends JPanel {
      * historical context and should be read-only.
      */
     private boolean isOnLatestContext() {
-        return Objects.equals(contextManager.selectedContext(), contextManager.topContext());
+        return Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */
@@ -2086,8 +2170,8 @@ public class WorkspacePanel extends JPanel {
         for (var l : bottomControlsListeners) {
             try {
                 l.bottomControlsHeightChanged(h);
-            } catch (Exception ignore) {
-                // Listener exceptions should not affect UI flow
+            } catch (Exception e) {
+                logger.debug("BottomControlsListener threw an exception; continuing", e);
             }
         }
     }

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -10,13 +11,9 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 public final class CSharpAnalyzerTest {
-    private static final Function<String, String> normalizeSource =
-            (String s) -> s.lines().map(String::strip).collect(Collectors.joining("\n"));
 
     @Test
     void testCSharpInitializationAndSkeletons() {
@@ -55,10 +52,7 @@ public final class CSharpAnalyzerTest {
                   public A() { … }
                 }
                 """;
-        Function<String, String> normalize =
-                (String s) -> s.lines().map(String::strip).collect(Collectors.joining("\n"));
-        assertEquals(
-                normalize.apply(expectedClassASkeleton), normalize.apply(classASkeleton), "Class A skeleton mismatch.");
+        assertCodeEquals(expectedClassASkeleton, classASkeleton, "Class A skeleton mismatch.");
 
         // Check that attribute_list capture does not result in top-level CodeUnits or signatures
         boolean hasAnnotationSignature = analyzer.withCodeUnitProperties(Map::keySet).stream()
@@ -79,10 +73,7 @@ public final class CSharpAnalyzerTest {
         assertTrue(
                 classASkeletonOpt.isPresent(),
                 "Skeleton for classA fqName '" + classA_CU.fqName() + "' should be found.");
-        assertEquals(
-                normalize.apply(classASkeleton),
-                normalize.apply(classASkeletonOpt.get()),
-                "getSkeleton for classA fqName mismatch.");
+        assertCodeEquals(classASkeleton, classASkeletonOpt.get(), "getSkeleton for classA fqName mismatch.");
     }
 
     @Test
@@ -169,16 +160,14 @@ public final class CSharpAnalyzerTest {
         assertTrue(constructorSourceOpt.isPresent(), "Source for constructor A.<init> should be present.");
         String expectedConstructorSource =
                 """
-                // Constructor
-                public A()
-                {
-                    MyField = 0;
-                    MyProperty = "default";
-                }""";
-        assertEquals(
-                normalizeSource.apply(expectedConstructorSource),
-                normalizeSource.apply(constructorSourceOpt.get()),
-                "Constructor A.<init> source mismatch.");
+                        // Constructor
+                                public A()\s
+                                {
+                                    MyField = 0;
+                                    MyProperty = "default";
+                                }""";
+        assertCodeEquals(
+                expectedConstructorSource, constructorSourceOpt.get(), "Constructor A.<init> source mismatch.");
 
         // Case 2: Multiple overloads for TestNamespace.A.MethodA
         Optional<String> methodASourcesOpt = AnalyzerUtil.getMethodSource(analyzer, "TestNamespace.A.MethodA", true);
@@ -186,25 +175,24 @@ public final class CSharpAnalyzerTest {
 
         String expectedMethodAOverload1Source =
                 """
-                // Method
-                public void MethodA()
-                {
-                    // Method body
-                }""";
+                        // Method
+                                public void MethodA()\s
+                                {
+                                    // Method body
+                                }""";
         String expectedMethodAOverload2Source =
                 """
-                // Overloaded Method
-                public void MethodA(int param)
-                {
-                    // Overloaded method body
-                    int x = param + 1;
-                }""";
-        String expectedCombinedMethodASource = normalizeSource.apply(expectedMethodAOverload1Source) + "\n\n"
-                + normalizeSource.apply(expectedMethodAOverload2Source);
+                        // Overloaded Method
+                                public void MethodA(int param)
+                                {
+                                    // Overloaded method body
+                                    int x = param + 1;
+                                }""";
+        String expectedCombinedMethodASource = expectedMethodAOverload1Source + "\n\n" + expectedMethodAOverload2Source;
 
-        assertEquals(
+        assertCodeEquals(
                 expectedCombinedMethodASource,
-                normalizeSource.apply(methodASourcesOpt.get()),
+                methodASourcesOpt.get(),
                 "Combined sources for TestNamespace.A.MethodA mismatch.");
 
         // Case 3: Non-existent method
@@ -222,10 +210,7 @@ public final class CSharpAnalyzerTest {
                 """
                 public void NestedMethod() {}"""; // This is the exact content from
         // NestedNamespaces.cs
-        assertEquals(
-                normalizeSource.apply(expectedNestedMethodSource),
-                normalizeSource.apply(nestedMethodSourceOpt.get()),
-                "NestedMethod source mismatch.");
+        assertCodeEquals(expectedNestedMethodSource, nestedMethodSourceOpt.get(), "NestedMethod source mismatch.");
     }
 
     @Test
@@ -272,18 +257,13 @@ public final class CSharpAnalyzerTest {
                   public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId) { … }
                 }
                 """;
-        assertEquals(
-                normalizeSource.apply(expectedIfaceSkeleton),
-                normalizeSource.apply(skels.get(ifaceCU)),
-                "Interface skeleton mismatch.");
+        assertCodeEquals(expectedIfaceSkeleton, skels.get(ifaceCU), "Interface skeleton mismatch.");
 
         // Verify getSkeleton for the interface FQ name
         Optional<String> ifaceSkeletonOpt = AnalyzerUtil.getSkeleton(analyzer, ifaceCU.fqName());
         assertTrue(ifaceSkeletonOpt.isPresent(), "Skeleton for IAssetRegistrySA FQ name should be found.");
-        assertEquals(
-                normalizeSource.apply(expectedIfaceSkeleton),
-                normalizeSource.apply(ifaceSkeletonOpt.get()),
-                "getSkeleton for IAssetRegistrySA FQ name mismatch.");
+        assertCodeEquals(
+                expectedIfaceSkeleton, ifaceSkeletonOpt.get(), "getSkeleton for IAssetRegistrySA FQ name mismatch.");
 
         // Create SkeletonFragment and assert its properties
         // We pass null for IContextManager as it's not used by the description() method,
@@ -307,23 +287,21 @@ public final class CSharpAnalyzerTest {
         // Method source extraction for interface methods
         Optional<String> validateSourceOpt = AnalyzerUtil.getMethodSource(analyzer, validateCU.fqName(), true);
         assertTrue(validateSourceOpt.isPresent(), "Source for ValidateExistenceAsync should be present.");
-        assertEquals(
-                normalizeSource.apply("public Task<Message> ValidateExistenceAsync(Guid assetId);"),
-                normalizeSource.apply(validateSourceOpt.get()),
+        assertCodeEquals(
+                "public Task<Message> ValidateExistenceAsync(Guid assetId);",
+                validateSourceOpt.get(),
                 "ValidateExistenceAsync source mismatch.");
 
         Optional<String> canConnectSourceOpt = AnalyzerUtil.getMethodSource(analyzer, canConnectCU.fqName(), true);
         assertTrue(canConnectSourceOpt.isPresent(), "Source for CanConnectAsync should be present.");
-        assertEquals(
-                normalizeSource.apply("public Task<bool> CanConnectAsync();"),
-                normalizeSource.apply(canConnectSourceOpt.get()),
-                "CanConnectAsync source mismatch.");
+        assertCodeEquals(
+                "public Task<bool> CanConnectAsync();", canConnectSourceOpt.get(), "CanConnectAsync source mismatch.");
 
         Optional<String> getDescSourceOpt = AnalyzerUtil.getMethodSource(analyzer, getDescCU.fqName(), true);
         assertTrue(getDescSourceOpt.isPresent(), "Source for GetDeliveryPointDescriptionAsync should be present.");
-        assertEquals(
-                normalizeSource.apply("public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId);"),
-                normalizeSource.apply(getDescSourceOpt.get()),
+        assertCodeEquals(
+                "public Task<string> GetDeliveryPointDescriptionAsync(Guid deliveryPointId);",
+                getDescSourceOpt.get(),
                 "GetDeliveryPointDescriptionAsync source mismatch.");
     }
 

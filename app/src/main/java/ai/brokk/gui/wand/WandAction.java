@@ -62,7 +62,7 @@ public class WandAction {
 
     public @Nullable String refinePrompt(String originalPrompt, IConsoleIO consoleIO) throws InterruptedException {
         var model = contextManager.getCodeModel();
-        var ctx = contextManager.topContext();
+        var ctx = contextManager.liveContext();
 
         String instruction =
                 """

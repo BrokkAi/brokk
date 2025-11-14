@@ -481,3 +481,47 @@ Brokk aggregates nested AGENTS.md files to build the style guide used in prompts
 - Limits: to protect prompt budget, aggregation caps at 8 sections and ~20k characters by default. Override via system properties:
   - -Dbrokk.style.guide.maxSections=NN
   - -Dbrokk.style.guide.maxChars=NNNNN
+
+### Blocking policy and non-blocking usage
+
+To prevent UI stalls and unintended analyzer/I/O work on hot paths, we now use JetBrains annotations and the computed API:
+
+- Annotate concrete synchronous methods that may block or be expensive with `@org.jetbrains.annotations.Blocking` (for example, `ContextFragment.files()`, `ContextFragment.sources()`, `PathFragment.text()`).
+- Do not annotate overrides that are trivially cheap (in-memory only). If an override does no I/O and no analysis, leave it unannotated.
+- Prefer the non-blocking accessors on `ContextFragment.ComputedFragment`:
+  - `computedText()`, `computedDescription()`, `computedSyntaxStyle()`
+  - `computedFiles()`, `computedSources()`
+  These return `ComputedValue<T>` and are safe to use from the UI or other latency-sensitive code.
+
+Implementation notes:
+- Default implementations in `ComputedFragment` bridge existing code by returning a completed `ComputedValue` based on the current blocking methods (`files()/sources()/text()`), preserving backward compatibility while enabling incremental adoption of true async implementations.
+- There is no Brokk-specific Error Prone checker anymore. We rely on standard Error Prone + NullAway, code review, and the `@Blocking` signal to guide call sites away from blocking the EDT.
+
+Usage guidelines:
+- Use `ComputedValue` helpers:
+  - Non-blocking probes via `tryGet()` or `renderNowOr(placeholder)`
+  - Bounded waits via `await(Duration)` that never block the Swing EDT
+  - Asynchronous callbacks via `onComplete(...)`
+- If the fragment type is not known at compile time, gate computed usage with `instanceof ContextFragment.ComputedFragment`.
+
+Example (safe usage from UI):
+```java
+void showFilesLabel(ContextFragment cf, javax.swing.JLabel label) {
+    if (cf instanceof ContextFragment.ComputedFragment cc) {
+        cc.computedFiles().onComplete((files, error) -> {
+            if (error == null && files != null) {
+                javax.swing.SwingUtilities.invokeLater(() ->
+                    label.setText("Files: " + files.size()));
+            }
+        });
+    } else {
+        // Fallback, avoid blocking UI: show placeholder
+        label.setText("Files: …");
+    }
+}
+```
+
+Notes:
+- Do not block the Swing EDT. `ComputedValue.await` returns empty immediately if called from the EDT.
+- For quick rendering paths, use `renderNowOr("…")` to avoid stalls and update later via `onComplete`.
+- When migrating legacy call sites, prefer `computed*()` accessors first; if the fragment type is not known to be a `ComputedFragment`, gate the call with an `instanceof` check, as shown above.

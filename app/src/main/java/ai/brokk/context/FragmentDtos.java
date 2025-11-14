@@ -219,8 +219,9 @@ public class FragmentDtos {
         }
     }
 
-    /** DTO for CodeFragment - contains the referenced code unit. */
-    public record CodeFragmentDto(String id, CodeUnitDto unit) implements VirtualFragmentDto { // id changed to String
+    /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
+    public record CodeFragmentDto(String id, String fullyQualifiedName)
+            implements VirtualFragmentDto { // id changed to String
     }
 
     /** DTO for HistoryFragment - contains task history entries. */

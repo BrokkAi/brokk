@@ -21,10 +21,6 @@ public record TaskResult(
         StopDetails stopDetails,
         @Nullable TaskMeta meta) {
 
-    public TaskResult {
-        assert !context.containsFrozenFragments();
-    }
-
     public TaskResult(
             IContextManager contextManager,
             String actionDescription,
