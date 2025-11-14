@@ -44,8 +44,8 @@ public class Service {
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
-    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
+    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 5L * 60L; // 2 minutes
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 2 * 60L; // 1 minute
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
