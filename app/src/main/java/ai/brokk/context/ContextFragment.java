@@ -753,10 +753,6 @@ public interface ContextFragment {
         }
     }
 
-    record StringFragmentType(String description, String syntaxStyle) {}
-
-    StringFragmentType TASK_LIST = new StringFragmentType("Task List", SyntaxConstants.SYNTAX_STYLE_JSON);
-
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
         private final String description;
