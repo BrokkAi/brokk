@@ -22,9 +22,6 @@ import org.apache.logging.log4j.Logger;
  * <p>All global configuration files (ui.properties, brokk.properties, projects.properties)
  * should reside in this directory to ensure consistency across the application.
  *
- * <p>For testing, the system property "brokk.global.config.dir" can override the
- * platform-specific logic.
- *
  * <p>This class also handles one-time migration of config files from the legacy lowercase
  * "brokk" directory to the unified platform-appropriate "Brokk" directory. This migration
  * is necessary because MainProject previously used a hardcoded ~/.config/brokk directory
@@ -145,7 +142,7 @@ public final class BrokkConfigPaths {
 
         // Proceed with file-by-file migration
         try {
-            logger.info("Migrating config files from {} to {}", legacyConfigDir, newConfigDir);
+            logger.debug("Migrating config files from {} to {}", legacyConfigDir, newConfigDir);
 
             // Create new directory if it doesn't exist
             Files.createDirectories(newConfigDir);
@@ -157,14 +154,15 @@ public final class BrokkConfigPaths {
 
                 if (Files.exists(legacyFile) && !Files.exists(newFile)) {
                     Files.copy(legacyFile, newFile, StandardCopyOption.COPY_ATTRIBUTES);
-                    logger.info("Migrated config file: {}", fileName);
+                    logger.debug("Migrated config file: {}", fileName);
                     migratedCount++;
 
                     // Backup the original file
                     try {
                         Path backupFile = legacyFile.resolveSibling(fileName + ".bak");
+                        // Move on the same file system is safe
                         Files.move(legacyFile, backupFile, StandardCopyOption.REPLACE_EXISTING);
-                        logger.info("Backed up original config file to: {}", backupFile);
+                        logger.debug("Backed up original config file to: {}", backupFile);
                     } catch (IOException e) {
                         logger.warn("Failed to backup original file {}: {}", fileName, e.getMessage());
                     }
@@ -174,14 +172,14 @@ public final class BrokkConfigPaths {
             }
 
             if (migratedCount > 0) {
-                logger.info(
+                logger.debug(
                         "Config migration completed: {} file(s) migrated from {} to {}",
                         migratedCount,
                         legacyConfigDir,
                         newConfigDir);
                 return true;
             } else {
-                logger.info("No config files found to migrate in {}", legacyConfigDir);
+                logger.debug("No config files found to migrate in {}", legacyConfigDir);
                 return false;
             }
         } catch (IOException e) {
