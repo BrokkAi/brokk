@@ -105,8 +105,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private JLayeredPane historyLayeredPane;
 
-    private static final int MAX_FILES_BEFORE_CONFIRM = 200;
-
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JScrollPane historyScrollPane;
 
@@ -1140,33 +1138,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             persistNotificationsAsync();
             refreshLatestNotificationCard();
             refreshNotificationsDialog();
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
-    }
-
-    public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
-        Runnable r = () -> {
-            var entry = new NotificationEntry(IConsoleIO.NotificationRole.CONFIRM, message, System.currentTimeMillis());
-            notifications.add(entry);
-            updateNotificationsButton();
-            persistNotificationsAsync();
-            refreshNotificationsDialog();
-
-            if (isDisplayingNotification) {
-                notificationQueue.offer(entry);
-            } else {
-                notificationAreaPanel.removeAll();
-                isDisplayingNotification = true;
-                JPanel card = createNotificationCard(IConsoleIO.NotificationRole.CONFIRM, message, onAccept, onReject);
-                notificationAreaPanel.add(card);
-                animateNotificationCard(card);
-                notificationAreaPanel.revalidate();
-                notificationAreaPanel.repaint();
-            }
         };
         if (SwingUtilities.isEventDispatchThread()) {
             r.run();
@@ -3076,16 +3047,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Check if file count exceeds threshold and show warning if needed
-        if (res.filesChanged() > MAX_FILES_BEFORE_CONFIRM) {
-            var warningPanel = buildLargeDiffWarningPanel(res);
-            container.setLayout(new BorderLayout());
-            container.add(warningPanel, BorderLayout.CENTER);
-            container.revalidate();
-            container.repaint();
-            return;
-        }
-
         try {
             var aggregatedPanel = buildAggregatedChangesPanel(res);
             container.setLayout(new BorderLayout());
@@ -3101,109 +3062,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
         container.revalidate();
         container.repaint();
-    }
-
-    private JPanel buildLargeDiffWarningPanel(CumulativeChanges res) {
-        var panel = new JPanel(new BorderLayout());
-        panel.setBorder(new EmptyBorder(20, 20, 20, 20));
-
-        var messagePanel = new JPanel();
-        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
-        messagePanel.setOpaque(false);
-
-        var countLabel = new JLabel(
-                String.format("This diff contains %d files, which may be slow to display.", res.filesChanged()));
-        countLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        countLabel.setFont(countLabel.getFont().deriveFont(Font.BOLD));
-
-        var promptLabel = new JLabel("Do you want to show it anyway?");
-        promptLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        messagePanel.add(countLabel);
-        messagePanel.add(Box.createVerticalStrut(10));
-        messagePanel.add(promptLabel);
-
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-        buttonPanel.setOpaque(false);
-
-        var showAnywayButton = new MaterialButton("Show anyway");
-        showAnywayButton.addActionListener(e -> {
-            var container = changesTabPlaceholder;
-            if (container == null) return;
-
-            container.removeAll();
-            try {
-                var aggregatedPanel = buildAggregatedChangesPanel(res);
-                container.setLayout(new BorderLayout());
-                container.add(aggregatedPanel, BorderLayout.CENTER);
-            } catch (Throwable t) {
-                logger.warn("Failed to build aggregated Changes panel", t);
-                var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-                err.setBorder(new EmptyBorder(20, 0, 20, 0));
-                container.add(err, BorderLayout.CENTER);
-                aggregatedChangesPanel = null;
-            }
-            container.revalidate();
-            container.repaint();
-        });
-
-        var cancelButton = new MaterialButton("Cancel");
-        cancelButton.addActionListener(e -> {
-            var container = changesTabPlaceholder;
-            if (container == null) return;
-
-            container.removeAll();
-            container.setLayout(new BorderLayout());
-
-            var hiddenPanel = new JPanel();
-            hiddenPanel.setLayout(new BoxLayout(hiddenPanel, BoxLayout.Y_AXIS));
-            hiddenPanel.setOpaque(false);
-            hiddenPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
-
-            var hiddenLabel = new JLabel(String.format("Diff hidden (%d files). ", res.filesChanged()));
-            hiddenLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-            var showLink = new JLabel("<html><a href='#'>Show anyway</a></html>");
-            showLink.setAlignmentX(Component.CENTER_ALIGNMENT);
-            showLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            showLink.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent evt) {
-                    container.removeAll();
-                    try {
-                        var aggregatedPanel = buildAggregatedChangesPanel(res);
-                        container.setLayout(new BorderLayout());
-                        container.add(aggregatedPanel, BorderLayout.CENTER);
-                    } catch (Throwable t) {
-                        logger.warn("Failed to build aggregated Changes panel", t);
-                        var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-                        err.setBorder(new EmptyBorder(20, 0, 20, 0));
-                        container.add(err, BorderLayout.CENTER);
-                        aggregatedChangesPanel = null;
-                    }
-                    container.revalidate();
-                    container.repaint();
-                }
-            });
-
-            hiddenPanel.add(hiddenLabel);
-            hiddenPanel.add(Box.createVerticalStrut(5));
-            hiddenPanel.add(showLink);
-
-            container.add(hiddenPanel, BorderLayout.CENTER);
-            container.revalidate();
-            container.repaint();
-        });
-
-        buttonPanel.add(showAnywayButton);
-        buttonPanel.add(cancelButton);
-
-        messagePanel.add(Box.createVerticalStrut(15));
-        messagePanel.add(buttonPanel);
-
-        panel.add(messagePanel, BorderLayout.CENTER);
-
-        return panel;
     }
 
     // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
