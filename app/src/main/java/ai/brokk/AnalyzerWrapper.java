@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
@@ -497,6 +498,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     /** Get the analyzer, showing a spinner UI while waiting if requested. */
     @Override
+    @Blocking
     public IAnalyzer get() throws InterruptedException {
         // Prevent calling blocking get() from the EDT.
         if (SwingUtilities.isEventDispatchThread()) {
