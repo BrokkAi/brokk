@@ -2746,17 +2746,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-    private String makeProvisionalTaskTitle(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        String firstLine = text.lines().findFirst().orElse(text);
-        int maxLen = 80;
-        if (firstLine.length() <= maxLen) {
-            return firstLine.strip();
-        }
-        return firstLine.substring(0, maxLen).strip() + "...";
-    }
 
     private void summarizeAndUpdateTaskTitle(String taskText) {
         if (taskText == null || taskText.isBlank()) {

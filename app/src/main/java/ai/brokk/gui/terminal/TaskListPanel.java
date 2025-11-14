@@ -2042,18 +2042,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    private String makeProvisionalTitle(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        String firstLine = text.lines().findFirst().orElse(text);
-        int maxLen = 80;
-        if (firstLine.length() <= maxLen) {
-            return firstLine.strip();
-        }
-        return firstLine.substring(0, maxLen).strip() + "...";
-    }
-
     private static boolean isShortTaskText(String text) {
         if (text == null) {
             return true;
