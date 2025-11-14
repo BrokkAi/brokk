@@ -142,7 +142,7 @@ public interface ContextFragment {
      * Forcefully shuts down the dedicated ContextFragment executor. Safe to call multiple times.
      * Intended for application shutdown to ensure no lingering threads keep the JVM alive.
      */
-    static void shutdownFragmentExecutor() {
+    public static void shutdownFragmentExecutor() {
         try {
             FRAGMENT_EXECUTOR.shutdownNow();
         } catch (Throwable t) {
