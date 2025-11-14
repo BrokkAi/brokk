@@ -30,12 +30,12 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class RustLanguage implements Language {
-    private final List<String> extensions = List.of("rs");
+    private final Set<String> extensions = Set.of("rs");
 
     RustLanguage() {}
 
     @Override
-    public List<String> getExtensions() {
+    public Set<String> getExtensions() {
         return extensions;
     }
 

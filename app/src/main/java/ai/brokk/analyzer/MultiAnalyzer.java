@@ -268,8 +268,17 @@ public class MultiAnalyzer
         return false;
     }
 
-    /** @return a copy of the delegates of this analyzer. */
+    /**
+     * @return a copy of the delegates of this analyzer.
+     */
     public Map<Language, IAnalyzer> getDelegates() {
         return Collections.unmodifiableMap(delegates);
+    }
+
+    @Override
+    public Optional<IAnalyzer> subAnalyzer(Language language) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.subAnalyzer(language).stream())
+                .findAny();
     }
 }

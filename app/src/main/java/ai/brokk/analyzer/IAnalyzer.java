@@ -16,7 +16,9 @@ import org.jetbrains.annotations.Nullable;
  * convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
-    /** Record representing a code unit relevance result with a code unit and its score. */
+    /**
+     * Record representing a code unit relevance result with a code unit and its score.
+     */
     record FileRelevance(ProjectFile file, double score) implements Comparable<FileRelevance> {
         @Override
         public int compareTo(FileRelevance other) {
@@ -36,7 +38,9 @@ public interface IAnalyzer {
 
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
-    /** Returns the set of languages this analyzer understands. */
+    /**
+     * Returns the set of languages this analyzer understands.
+     */
     Set<Language> languages();
 
     /**
@@ -55,24 +59,32 @@ public interface IAnalyzer {
 
     // Summarization
 
-    /** The project this analyzer targets */
+    /**
+     * The project this analyzer targets
+     */
     IProject getProject();
 
     default List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
         return getDirectChildren(classUnit);
     }
 
-    /** All top-level declarations in the project. */
+    /**
+     * All top-level declarations in the project.
+     */
     List<CodeUnit> getAllDeclarations();
 
-    /** The metrics around the codebase as determined by the analyzer. */
+    /**
+     * The metrics around the codebase as determined by the analyzer.
+     */
     default CodeBaseMetrics getMetrics() {
         final var declarations = getAllDeclarations();
         final var codeUnits = declarations.stream().map(CodeUnit::source).distinct();
         return new CodeBaseMetrics((int) codeUnits.count(), declarations.size());
     }
 
-    /** Gets all declarations in a given file. */
+    /**
+     * Gets all declarations in a given file.
+     */
     Set<CodeUnit> getDeclarations(ProjectFile file);
 
     default Optional<ProjectFile> getFileFor(CodeUnit cu) {
@@ -84,7 +96,7 @@ public interface IAnalyzer {
      * For overloaded methods, returns a single CodeUnit representing all overloads.
      *
      * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
-     *     order, so if you have a field and a method with the same name, the method will be returned.
+     *               order, so if you have a field and a method with the same name, the method will be returned.
      * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
      */
     Optional<CodeUnit> getDefinition(String fqName);
@@ -220,14 +232,16 @@ public interface IAnalyzer {
      *   <li>The returned list should contain only immediate children, not recursive descendants
      *   <li>Implementations should handle null input gracefully by returning an empty list
      * </ul>
-     *
+     * <p>
      * See getSymbols(java.util.Set) for how this method is used in symbol collection.
      */
     default List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return List.of();
     }
 
-    /** Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set. */
+    /**
+     * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
+     */
     private static void addShort(String full, Set<String> out) {
         if (full.isEmpty()) return;
 
@@ -286,12 +300,14 @@ public interface IAnalyzer {
         return Optional.empty();
     }
 
-    /** @return the import snippets for the given file where other code units may be referred to by. */
+    /**
+     * @return the import snippets for the given file where other code units may be referred to by.
+     */
     List<String> importStatementsOf(ProjectFile file);
 
     /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
-     *     invalid.
+     * invalid.
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
 
@@ -320,7 +336,7 @@ public interface IAnalyzer {
      * - Direct ancestors are listed first, followed by their ancestors in discovery order (BFS).
      * - Duplicates are removed by fqName.
      * - Cycles are handled gracefully via a visited set.
-     *
+     * <p>
      * Implementations should override {@link #getDirectAncestors(CodeUnit)} to provide language-specific direct
      * ancestor resolution. This method composes those results into a transitive closure.
      */
@@ -358,5 +374,21 @@ public interface IAnalyzer {
         }
 
         return result;
+    }
+
+    /**
+     * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
+     * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
+     *
+     * @param language the language to return a supporting analyzer for.
+     * @return the analyzer that targets the given language, empty otherwise.
+     */
+    default Optional<IAnalyzer> subAnalyzer(Language language) {
+        // Default behaviour lends itself to single-analyzers. MultiAnalyzer overrides this as it has delegates.
+        if (languages().contains(language)) {
+            return Optional.of(this);
+        } else {
+            return Optional.empty();
+        }
     }
 }
