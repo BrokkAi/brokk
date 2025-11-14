@@ -995,7 +995,13 @@ public class WorkspacePanel extends JPanel {
             @Override
             @Nullable
             protected Transferable createTransferable(JComponent c) {
-                String contentToCopy = getSelectedContent(getSelectedFragments());
+                // Prefer native fragment copy when exactly one fragment is selected; include plain-text fallback
+                var selected = getSelectedFragments();
+                String contentToCopy = getSelectedContent(selected);
+                if (selected.size() == 1) {
+                    var frag = selected.getFirst();
+                    return new ai.brokk.gui.util.FragmentTransferable(frag, contentToCopy.isEmpty() ? null : contentToCopy);
+                }
                 if (!contentToCopy.isEmpty()) {
                     return new StringSelection(contentToCopy);
                 }
@@ -1921,6 +1927,30 @@ public class WorkspacePanel extends JPanel {
                     return;
                 }
                 logger.error("Failed to process image flavor: {}", flavor.getMimeType(), e);
+            }
+        }
+
+        // Brokk Fragment Flavor (native)
+        if (contents.isDataFlavorSupported(ai.brokk.gui.util.FragmentTransferable.FRAGMENT_FLAVOR)) {
+            try {
+                Object data = contents.getTransferData(ai.brokk.gui.util.FragmentTransferable.FRAGMENT_FLAVOR);
+                if (data instanceof ai.brokk.context.ContextFragment fragment) {
+                    if (fragment.getType().isPath() && fragment instanceof ai.brokk.context.ContextFragment.PathFragment pf) {
+                        contextManager.pushContext(ctx -> ctx.addPathFragments(java.util.List.of(pf)));
+                    } else if (fragment.getType().isVirtual()
+                            && fragment instanceof ai.brokk.context.ContextFragment.VirtualFragment vf) {
+                        contextManager.addVirtualFragment(vf);
+                    } else {
+                        logger.warn("Unsupported fragment type for native paste: {}", fragment.getClass().getName());
+                        chrome.toolError("Unsupported fragment type for paste", "Paste error");
+                        return;
+                    }
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Fragment pasted to context");
+                    return;
+                }
+            } catch (Exception ex) {
+                logger.warn("Failed to paste native fragment from clipboard", ex);
+                // fall through to other flavors
             }
         }
 
