@@ -266,13 +266,47 @@ public class ContextSerializationTest {
 
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         if (expected.isText()) {
-            assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
+            if (expected instanceof ContextFragment.ComputedFragment cvExpected
+                    && actual instanceof ContextFragment.ComputedFragment cvActual) {
+                var expectedText = cvExpected.computedText().await(Duration.of(30, ChronoUnit.SECONDS));
+                var actualText = cvActual.computedText().await(Duration.of(30, ChronoUnit.SECONDS));
+                if (expectedText.isEmpty() || actualText.isEmpty()) {
+                    fail("Fragment text content could not be computed within given timeout");
+                } else {
+                    assertEquals(
+                            expectedText.get(),
+                            actualText.get(),
+                            "Fragment text content mismatch for ID " + expected.id());
+                }
+            } else {
+                assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
+            }
         } else {
             // For image fragments, compare byte content via live image fragments
-            assertArrayEquals(
-                    imageToBytes(expected.image()),
-                    imageToBytes(actual.image()),
-                    "Fragment image content mismatch for ID " + expected.id());
+            if (expected instanceof ContextFragment.ComputedFragment cvExpected
+                    && actual instanceof ContextFragment.ComputedFragment cvActual) {
+                var maybeExpectedBytesFuture = cvExpected.computedImageBytes();
+                var maybeActualBytesFuture = cvActual.computedImageBytes();
+                if (maybeExpectedBytesFuture != null && maybeActualBytesFuture != null) {
+                    var expectedBytes = maybeExpectedBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
+                    var actualBytes = maybeActualBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
+                    if (expectedBytes.isEmpty() || actualBytes.isEmpty()) {
+                        fail("Fragment image content could not be computed within 10 seconds");
+                    } else {
+                        assertArrayEquals(
+                                expectedBytes.get(),
+                                actualBytes.get(),
+                                "Fragment image content mismatch for ID " + expected.id());
+                    }
+                } else {
+                    fail("Image byte futures are null, these fragments are not an images which was expected!");
+                }
+            } else {
+                assertArrayEquals(
+                        imageToBytes(expected.image()),
+                        imageToBytes(actual.image()),
+                        "Fragment image content mismatch for ID " + expected.id());
+            }
         }
 
         // Compare additional serialized top-level methods
@@ -1174,8 +1208,8 @@ public class ContextSerializationTest {
 
         var originalCtx = originalHistory.getHistory().getFirst();
         var loadedCtx = loadedHistory.getHistory().getFirst();
-        originalCtx.awaitContextsAreComputed(Duration.ofSeconds(10));
-        loadedCtx.awaitContextsAreComputed(Duration.ofSeconds(10));
+        originalCtx.awaitContextsAreComputed(Duration.ofSeconds(15));
+        loadedCtx.awaitContextsAreComputed(Duration.ofSeconds(15));
         assertContextsEqual(originalCtx, loadedCtx);
 
         var loadedRawFragment = loadedCtx

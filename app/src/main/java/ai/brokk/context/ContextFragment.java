@@ -1889,12 +1889,14 @@ public interface ContextFragment {
             super(contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            getComputedUnit(); // begin task eagerly
         }
 
         public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
             super(existingId, contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            getComputedUnit(); // begin task eagerly
         }
 
         /**
@@ -1940,10 +1942,6 @@ public interface ContextFragment {
 
         @Override
         public String shortDescription() {
-            var unit = getComputedUnit().renderNowOrNull();
-            if (unit != null) {
-                return unit.shortName();
-            }
             return fullyQualifiedName.substring(fullyQualifiedName.lastIndexOf('.') + 1);
         }
 
@@ -1951,10 +1949,7 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
-            var unit = getComputedUnit().renderNowOrNull();
-            if (unit == null) {
-                return "Code Intelligence is loading the code unit for: " + fullyQualifiedName;
-            }
+            var unit = getComputedUnit().future().join(); // block on future
 
             var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
             if (maybeSourceCodeProvider.isEmpty()) {

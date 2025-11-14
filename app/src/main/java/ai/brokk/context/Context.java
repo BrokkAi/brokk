@@ -978,13 +978,9 @@ public class Context {
                 cf.computedSyntaxStyle().await(timeout);
                 cf.computedText().await(timeout);
                 cf.computedFiles().await(timeout);
-                cf.computedText().await(timeout);
-                // Only await image bytes for non-path fragments (e.g., paste images).
-                if (!(fragment instanceof ContextFragment.PathFragment)) {
-                    var futureBytes = cf.computedImageBytes();
-                    if (futureBytes != null) {
-                        futureBytes.await(timeout);
-                    }
+                var futureBytes = cf.computedImageBytes();
+                if (futureBytes != null) {
+                    futureBytes.await(timeout);
                 }
             }
         }
