@@ -283,8 +283,8 @@ class FragmentEqualityTest {
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(sf1, sf2);
-            // But they have the same source (text and style match)
-            assertTrue(sf1.hasSameSource(sf2));
+            // Different descriptions => different source
+            assertFalse(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -314,8 +314,8 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragment.StringFragment(
                     contextManager, "text", "desc2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // hasSameSource compares text and syntaxStyle
-            assertTrue(sf1.hasSameSource(sf2));
+            // hasSameSource now compares description (and syntax style), not text
+            assertFalse(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -325,7 +325,8 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragment.StringFragment(
                     contextManager, "text2", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            assertFalse(sf1.hasSameSource(sf2));
+            // Text differs, but description and style are the same => same source
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -400,27 +401,26 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceBothRegularFragments() {
-            // Both have non-system descriptions with same text
+            // Both have non-system content but different descriptions => different source
             var sf1 = new ContextFragment.StringFragment(
-                    contextManager, "custom text", "Custom Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+                    contextManager, "custom text", "Desc A", SyntaxConstants.SYNTAX_STYLE_NONE);
             var sf2 = new ContextFragment.StringFragment(
-                    contextManager, "custom text", "Different Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+                    contextManager, "custom text", "Desc B", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Both are regular (non-system) fragments, so they fall back to text+style comparison
-            // Same text and style means same source
-            assertTrue(sf1.hasSameSource(sf2));
+            // Description is treated as the source; different descriptions => not same source
+            assertFalse(sf1.hasSameSource(sf2));
         }
 
         @Test
         void testHasSameSourceNullDescription() {
-            // Test with null descriptions (edge case)
+            // Test with empty descriptions (edge case): both empty => same description
             var sf1 =
                     new ContextFragment.StringFragment(contextManager, "text1", "", SyntaxConstants.SYNTAX_STYLE_NONE);
             var sf2 =
                     new ContextFragment.StringFragment(contextManager, "text2", "", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Both have empty descriptions (no system fragment match), so compare text+style
-            assertFalse(sf1.hasSameSource(sf2));
+            // Both have empty descriptions; hasSameSource compares description (and syntax style), not text
+            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test

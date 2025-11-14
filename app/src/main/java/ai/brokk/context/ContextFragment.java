@@ -1375,7 +1375,7 @@ public interface ContextFragment {
             }
 
             // Default behavior: compare text and syntax style for non-system fragments
-            return text.equals(that.text) && syntaxStyle.equals(that.syntaxStyle);
+            return description.equals(that.description) && syntaxStyle.equals(that.syntaxStyle);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
