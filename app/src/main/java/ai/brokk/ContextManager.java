@@ -540,19 +540,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Classify the changes using helper
                 var trackedFiles = project.getRepo().getTrackedFiles();
                 var classification = helper.classifyChanges(batch, trackedFiles);
-
+                
                 // 1) Handle git metadata changes
                 if (classification.gitMetadataChanged) {
-                    logger.debug("Git metadata changes detected by ContextManager");
-                    handleGitMetadataChange();
+                logger.debug("Git metadata changes detected by ContextManager");
+                handleGitMetadataChange();
                 }
-
-                // 2) Handle tracked file changes
-                if (classification.trackedFilesChanged) {
-                    logger.debug(
-                            "Tracked file changes detected by ContextManager ({} files)",
-                            classification.changedTrackedFiles.size());
-                    handleTrackedFileChange(classification.changedTrackedFiles);
+                
+                // 2) Handle context file changes (union of tracked and in-context files)
+                Set<ProjectFile> contextFiles = getContextFiles();
+                Set<ProjectFile> changedInContext = batch.files.stream()
+                .filter(contextFiles::contains)
+                .collect(Collectors.toSet());
+                
+                // Union with tracked file changes from classification
+                Set<ProjectFile> changed = new HashSet<>(classification.changedTrackedFiles);
+                changed.addAll(changedInContext);
+                
+                boolean overflow = batch.isOverflowed;
+                if (!changed.isEmpty() || overflow) {
+                logger.debug(
+                "File changes detected by ContextManager: {} in union (context/tracked), overflow={}",
+                changed.size(),
+                overflow);
+                handleTrackedFileChange(changed);
+                } else {
+                logger.trace("No context/tracked file changes in this batch; overflow=false");
                 }
             }
 
