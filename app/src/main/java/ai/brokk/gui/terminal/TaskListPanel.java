@@ -734,18 +734,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 ? new JDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL)
                 : new JDialog((Window) null, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
-        JTextArea ta = new JTextArea(current.text());
-        ta.setLineWrap(true);
-        ta.setWrapStyleWord(true);
-        ta.setFont(list.getFont());
-
-        JScrollPane sp =
-                new JScrollPane(ta, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        sp.setPreferredSize(new Dimension(520, 220));
-
         JPanel content = new JPanel(new BorderLayout(6, 6));
-        content.add(new JLabel("Edit task:"), BorderLayout.NORTH);
-        content.add(sp, BorderLayout.CENTER);
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JPanel fieldsPanel = new JPanel();
+        fieldsPanel.setLayout(new BoxLayout(fieldsPanel, BoxLayout.PAGE_AXIS));
+
+        JLabel titleLabel = new JLabel("Title:");
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleLabel);
+
+        JTextField titleField = new JTextField(current.title());
+        titleField.setFont(list.getFont());
+        titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleField);
+
+        fieldsPanel.add(Box.createVerticalStrut(8));
+
+        JLabel bodyLabel = new JLabel("Body:");
+        bodyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyLabel);
+
+        JTextArea bodyArea = new JTextArea(current.text());
+        bodyArea.setLineWrap(true);
+        bodyArea.setWrapStyleWord(true);
+        bodyArea.setFont(list.getFont());
+        bodyArea.setRows(8);
+
+        JScrollPane bodyScroll = new JScrollPane(
+                bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        bodyScroll.setPreferredSize(new Dimension(520, 180));
+        bodyScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyScroll);
+
+        content.add(fieldsPanel, BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton saveBtn = new MaterialButton("Save");
@@ -753,15 +775,24 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         MaterialButton cancelBtn = new MaterialButton("Cancel");
 
         saveBtn.addActionListener(e -> {
-            String newText = ta.getText();
+            String newTitle = titleField.getText();
+            String newText = bodyArea.getText();
+            if (newTitle != null) {
+                newTitle = newTitle.strip();
+            } else {
+                newTitle = "";
+            }
             if (newText != null) {
                 newText = newText.strip();
-                if (!newText.isEmpty() && !newText.equals(current.text())) {
-                    model.set(index, new TaskList.TaskItem(current.title(), newText, current.done()));
-                    saveTasksForCurrentSession();
-                    list.revalidate();
-                    list.repaint();
-                }
+            } else {
+                newText = "";
+            }
+
+            if (!newText.isEmpty() && (!newText.equals(current.text()) || !newTitle.equals(current.title()))) {
+                model.set(index, new TaskList.TaskItem(newTitle, newText, current.done()));
+                saveTasksForCurrentSession();
+                list.revalidate();
+                list.repaint();
             }
             dialog.dispose();
         });
@@ -777,8 +808,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
 
-        ta.requestFocusInWindow();
-        ta.selectAll();
+        titleField.requestFocusInWindow();
+        titleField.selectAll();
 
         dialog.setVisible(true);
     }
