@@ -283,6 +283,14 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         this.onHover = listener;
     }
 
+    private boolean isFragmentReadOnly(ContextFragment fragment) {
+        var ctx = contextManager.selectedContext();
+        if (ctx == null) {
+            return false;
+        }
+        return ctx.isReadOnly(fragment);
+    }
+
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         // Suppress hover highlighting in read-only mode
         this.hoveredFragments = readOnly ? Set.of() : targets;
@@ -1018,9 +1026,9 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         JPopupMenu menu = new JPopupMenu();
 
         // Add Read-Only toggle for editable fragments
-        if (fragment instanceof ContextFragment.EditableFragment editable) {
+        if (fragment instanceof ContextFragment.EditableFragment) {
             boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
-            String label = editable.isReadOnly() ? "Unset Read-Only" : "Set Read-Only";
+            String label = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
             JMenuItem toggleRo = new JMenuItem(label);
             toggleRo.setEnabled(onLatest && !readOnly);
             toggleRo.addActionListener(e -> {
@@ -1032,8 +1040,8 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 // Execute on EDT as requested; push a new context entry with a new fragment ID.
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        contextManager.pushContext(
-                                curr -> curr.toggleReadOnlyForFragmentId(fragment.id(), !editable.isReadOnly()));
+                        contextManager.pushContext(curr ->
+                                curr.toggleReadOnlyForFragmentId(fragment.id(), !curr.isReadOnly(fragment.id())));
                     } catch (Exception ex) {
                         logger.error("Failed to toggle read-only for fragment {}", fragment, ex);
                         chrome.systemNotify(
@@ -1311,7 +1319,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Read-only indicator icon (left of text)
         var roIcon = new JLabel();
         roIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
-        if (fragment instanceof ContextFragment.EditableFragment editable && editable.isReadOnly()) {
+        if (fragment instanceof ContextFragment.EditableFragment && isFragmentReadOnly(fragment)) {
             // Defer icon sizing until after label is created and styled; updateReadOnlyIcon() will set it.
             roIcon.setVisible(true);
         } else {
@@ -1907,7 +1915,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (!(iconObj instanceof JLabel roIcon)) {
             return;
         }
-        boolean show = fragment instanceof ContextFragment.EditableFragment editable && editable.isReadOnly();
+        boolean show = fragment instanceof ContextFragment.EditableFragment && isFragmentReadOnly(fragment);
 
         if (show) {
             Object lblObj = chip.getClientProperty("brokk.chip.label");
