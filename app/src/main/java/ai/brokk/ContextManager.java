@@ -1189,10 +1189,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
-        String sourceCode = analyzer
-                    .as(SourceCodeProvider.class)
-                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
-                    .orElse(null);
+        String sourceCode = analyzer.as(SourceCodeProvider.class)
+                .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
+                .orElse(null);
 
         if (sourceCode != null) {
             var fragment = new ContextFragment.StringFragment(
