@@ -417,6 +417,14 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.debug("GitRepo refresh");
         // TODO probably we should split ".git changed" apart from "tracked files changed"
         repository.getRefDatabase().refresh();
+
+        // Refresh the index cache to ensure git.status() sees current working tree state
+        try {
+            repository.readDirCache();
+        } catch (IOException e) {
+            logger.warn("Failed to refresh DirCache", e);
+        }
+
         trackedFilesCache = null;
     }
 
