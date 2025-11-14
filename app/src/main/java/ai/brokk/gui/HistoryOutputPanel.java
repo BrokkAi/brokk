@@ -2921,34 +2921,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             String displayFile = file.getRelPath().toString();
                             
                             // Compute left content based on baseline
-                            String leftContent;
-                            if (leftCommitSha != null) {
-                                try {
-                                    leftContent = gitRepo.getFileContent(leftCommitSha, file);
-                                    if (leftContent == null || leftContent.isEmpty()) {
-                                        leftContent = "";
-                                    }
-                                } catch (Exception e) {
-                                    logger.debug("Failed to get file content for {} at {}", file, leftCommitSha, e);
-                                    leftContent = "";
-                                }
-                            } else {
-                                leftContent = "";
-                            }
+                            String leftContent = (leftCommitSha != null)
+                                    ? safeGetFileContent(gitRepo, leftCommitSha, file)
+                                    : "";
                             
                             // Compute right content (working tree)
-                            String rightContent;
-                            try {
-                                if (Files.exists(file.absPath())) {
-                                    rightContent = Files.readString(file.absPath(), StandardCharsets.UTF_8);
-                                } else {
-                                    // File was deleted
-                                    rightContent = "";
-                                }
-                            } catch (Exception e) {
-                                logger.debug("Failed to read working tree file {}", file, e);
-                                rightContent = "";
-                            }
+                            String rightContent = safeReadWorkingTree(file);
                             
                             // Compute line counts
                             int[] netCounts = computeNetLineCounts(leftContent, rightContent);
@@ -3202,6 +3180,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         try {
             return de.fragment().text();
         } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String safeReadWorkingTree(ProjectFile file) {
+        try {
+            if (Files.exists(file.absPath())) {
+                return Files.readString(file.absPath(), StandardCharsets.UTF_8);
+            } else {
+                return "";
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to read working tree file {}", file, e);
+            return "";
+        }
+    }
+
+    private static String safeGetFileContent(IGitRepo repo, String commitId, ProjectFile file) {
+        try {
+            String content = repo.getFileContent(commitId, file);
+            return (content == null || content.isEmpty()) ? "" : content;
+        } catch (Exception e) {
+            logger.debug("Failed to get file content for {} at {}", file, commitId, e);
             return "";
         }
     }
