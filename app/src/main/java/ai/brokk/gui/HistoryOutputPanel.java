@@ -2805,109 +2805,126 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         panel.showInFrame("Diff: " + ctx.getAction());
     }
 
-    // Compute the net changes across the entire session history in the background,
-    // reusing cached diffs where possible. Updates the "Changes" tab title and content on the EDT.
-    // Net changes = earliest version -> latest version for each file (matches the unified diff visual).
+    // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
+    // Shows changes relative to the baseline branch (or uncommitted changes on default branch).
     private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
-                .submitBackgroundTask("Aggregate session changes", () -> {
-                    var contexts = contextManager.getContextHistoryList();
-                    var ch = contextManager.getContextHistory();
-                    var ds = ch.getDiffService();
-
-                    // Step 1: Collect all DiffEntry objects across all contexts (compute in parallel via cache)
-                    var futures = new ArrayList<CompletableFuture<List<Context.DiffEntry>>>();
-                    for (var ctx : contexts) {
-                        if (ch.previousOf(ctx) != null) {
-                            futures.add(ds.diff(ctx));
-                        }
-                    }
-                    CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                            .join();
-
-                    var allDiffEntries = new ArrayList<Context.DiffEntry>();
-                    for (var f : futures) {
-                        try {
-                            var list = f.get();
-                            allDiffEntries.addAll(list);
-                        } catch (Exception ex) {
-                            // Log and continue: best-effort aggregation should not fail the whole computation
-                            logger.debug("Skipping failed diff computation while aggregating cumulative changes", ex);
-                        }
+                .submitBackgroundTask("Compute branch-based changes", () -> {
+                    var repoOpt = repo();
+                    if (repoOpt.isEmpty()) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
                     }
 
-                    // Step 2: Identify unique fragments by source matching
-                    var uniqueFragments = new ArrayList<ContextFragment>();
-                    for (var de : allDiffEntries) {
-                        ContextFragment frag = de.fragment();
-                        boolean found = false;
-                        for (var existing : uniqueFragments) {
-                            if (frag.hasSameSource(existing)) {
-                                found = true;
-                                break;
+                    var repo = repoOpt.get();
+                    
+                    // Branch-specific methods require GitRepo, not just IGitRepo
+                    if (!(repo instanceof GitRepo gitRepo)) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
+
+                    var baseline = computeBaselineForChanges();
+
+                    // Handle cases with no baseline
+                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
+
+                    try {
+                        Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
+                        String leftCommitSha = null;
+
+                        switch (baseline.mode()) {
+                            case NON_DEFAULT_BRANCH -> {
+                                String currentBranch = gitRepo.getCurrentBranch();
+                                String defaultBranch = baseline.baselineRef();
+                                
+                                // Get files changed between branches
+                                var branchChanges = gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                fileSet.addAll(branchChanges);
+                                
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                
+                                // Get merge base for left content
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
                             }
-                        }
-                        if (!found) {
-                            uniqueFragments.add(frag);
-                        }
-                    }
-
-                    // Step 3: For each unique fragment, find earliest and latest versions and compute net diff
-                    List<PerFileChange> perFileChanges = new ArrayList<>();
-                    int totalAdded = 0;
-                    int totalDeleted = 0;
-
-                    for (var uniqueFrag : uniqueFragments) {
-                        String earliestContent = null;
-                        String latestContent = null;
-
-                        // Forward loop: find first occurrence (earliest)
-                        for (var de : allDiffEntries) {
-                            if (uniqueFrag.hasSameSource(de.fragment())) {
-                                earliestContent = de.oldContent();
-                                break;
+                            case DEFAULT_WITH_UPSTREAM -> {
+                                String upstreamRef = baseline.baselineRef();
+                                leftCommitSha = gitRepo.resolveToCommit(upstreamRef).getName();
+                                
+                                // Get files changed between HEAD and upstream
+                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
+                                fileSet.addAll(upstreamChanges);
+                                
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
                             }
-                        }
-
-                        // Backward loop: find last occurrence (latest)
-                        for (int i = allDiffEntries.size() - 1; i >= 0; i--) {
-                            var de = allDiffEntries.get(i);
-                            if (uniqueFrag.hasSameSource(de.fragment())) {
-                                latestContent = safeFragmentText(de);
-                                break;
+                            case DEFAULT_LOCAL_ONLY -> {
+                                // Only working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                leftCommitSha = "HEAD";
                             }
                         }
 
-                        if (earliestContent != null && latestContent != null) {
-                            // Compute net diff for this fragment
-                            int[] netCounts = computeNetLineCounts(earliestContent, latestContent);
+                        // Build per-file changes
+                        List<PerFileChange> perFileChanges = new ArrayList<>();
+                        int totalAdded = 0;
+                        int totalDeleted = 0;
+
+                        for (var modFile : fileSet) {
+                            var file = modFile.file();
+                            String displayFile = file.getRelPath().toString();
+                            
+                            // Compute left content based on baseline
+                            String leftContent;
+                            if (leftCommitSha != null) {
+                                try {
+                                    leftContent = gitRepo.getFileContent(leftCommitSha, file);
+                                    if (leftContent == null || leftContent.isEmpty()) {
+                                        leftContent = "";
+                                    }
+                                } catch (Exception e) {
+                                    logger.debug("Failed to get file content for {} at {}", file, leftCommitSha, e);
+                                    leftContent = "";
+                                }
+                            } else {
+                                leftContent = "";
+                            }
+                            
+                            // Compute right content (working tree)
+                            String rightContent;
+                            try {
+                                if (Files.exists(file.absPath())) {
+                                    rightContent = Files.readString(file.absPath(), StandardCharsets.UTF_8);
+                                } else {
+                                    // File was deleted
+                                    rightContent = "";
+                                }
+                            } catch (Exception e) {
+                                logger.debug("Failed to read working tree file {}", file, e);
+                                rightContent = "";
+                            }
+                            
+                            // Compute line counts
+                            int[] netCounts = computeNetLineCounts(leftContent, rightContent);
                             totalAdded += netCounts[0];
                             totalDeleted += netCounts[1];
-
-                            // Derive a display file name for the diff view; keep extension for syntax highlighting
-                            String displayFile;
-                            var files = uniqueFrag.files();
-                            if (files.size() == 1) {
-                                var pf = files.iterator().next();
-                                displayFile = pf.getRelPath().toString();
-                            } else {
-                                displayFile = uniqueFrag.shortDescription();
-                            }
-
-                            perFileChanges.add(new PerFileChange(displayFile, earliestContent, latestContent));
+                            
+                            perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
                         }
-                    }
 
-                    return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+                        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+                        
+                    } catch (Exception e) {
+                        logger.warn("Failed to compute branch-based changes", e);
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
                 })
                 .thenApply(result -> {
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
-
                         setChangesTabTitleAndTooltip(result);
-
-                        // Render or update the Changes tab content
                         updateChangesTabContent(result);
                     });
                     return result;
