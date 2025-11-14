@@ -493,27 +493,49 @@ public class Context {
             logger.warn("Setting read-only is only applicable to editable fragment types, not {}", fragment.getClass());
             return this;
         }
-        var fragmentId = fragment.id();
-        // Duplicate target with a fresh dynamic ID based on its type
-        ContextFragment replacement = fragment.copy();
 
-        // Rebuild fragments with replacement
-        var newFragments = new ArrayList<ContextFragment>(fragments.size());
-        for (var f : fragments) {
-            if (!f.id().equals(fragmentId)) {
-                newFragments.add(f);
-            } else {
-                newFragments.add(replacement);
+        // Try to locate an existing fragment: first by ID, then by semantic source.
+        int idx = -1;
+        for (int i = 0; i < fragments.size(); i++) {
+            if (fragments.get(i).id().equals(fragment.id())) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            for (int i = 0; i < fragments.size(); i++) {
+                var f = fragments.get(i);
+                if (f.getType().isEditable() && f.hasSameSource(fragment)) {
+                    idx = i;
+                    break;
+                }
             }
         }
 
-        // Update Context-level read-only tracking
-        var newReadOnly = new LinkedHashSet<>(this.readOnlyFragmentIds);
-        newReadOnly.remove(fragmentId);
-        if (setReadOnly) {
-            newReadOnly.add(replacement.id());
+        var newFragments = new ArrayList<>(fragments);
+        String targetId;
+
+        if (idx >= 0) {
+            // Fragment already present; do not replace or change its ID.
+            targetId = newFragments.get(idx).id();
         } else {
-            newReadOnly.remove(replacement.id());
+            // Fragment not present in this Context.
+            if (!setReadOnly) {
+                // Nothing to unset if it's not here.
+                logger.warn("Could not find fragment {} in this context", fragment);
+                return this;
+            }
+            // Add the provided fragment and mark it read-only.
+            newFragments.add(fragment);
+            targetId = fragment.id();
+        }
+
+        // Update Context-level read-only tracking using the stable target ID
+        var newReadOnly = new LinkedHashSet<>(this.readOnlyFragmentIds);
+        if (setReadOnly) {
+            newReadOnly.add(targetId);
+        } else {
+            newReadOnly.remove(targetId);
         }
 
         // Build action message (non-blocking where possible)

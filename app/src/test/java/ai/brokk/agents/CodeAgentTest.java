@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -25,6 +26,8 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -859,10 +862,11 @@ class CodeAgentTest {
         var roFile = contextManager.toFile("ro.txt");
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
-        var roFrag = new ai.brokk.context.ContextFragment.ProjectPathFragment(roFile, contextManager);
-        roFrag.setReadOnly(true);
-        var initialCtx = new ai.brokk.context.Context(contextManager, null).addPathFragments(List.of(roFrag));
+        var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
+        var ctx = contextManager.liveContext();
+        ctx = ctx.setReadOnly(roFrag, true);
 
+        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
         // Scripted model proposes an edit to the read-only file
         var response =
                 """
@@ -880,7 +884,7 @@ class CodeAgentTest {
         var agent = new CodeAgent(contextManager, stubModel, consoleIO);
 
         // Act
-        var result = agent.runTask(initialCtx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
+        var result = agent.runTask(ctx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
 
         // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
         assertEquals(
