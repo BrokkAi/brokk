@@ -920,8 +920,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 var task = requireNonNull(model.get(i));
                 var tTitle = task.title();
                 var tText = task.text();
-                boolean needsSummary = tTitle.isBlank()
-                        || (!isShortTaskText(tText) && tTitle.strip().equals(tText.strip()));
+                boolean needsSummary = (tTitle == null || tTitle.isBlank())
+                        || (!isShortTaskText(tText)
+                                && tTitle != null
+                                && tTitle.strip().equals(tText.strip()));
                 if (needsSummary) {
                     summarizeAndUpdateTaskTitle(tText);
                 }

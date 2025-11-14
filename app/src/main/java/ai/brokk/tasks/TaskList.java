@@ -6,7 +6,8 @@ import java.util.List;
 public class TaskList {
 
     public record TaskItem(
-            @JsonProperty(value = "title", required = false, defaultValue = "") String title,
+            @JsonProperty(value = "title", required = false, defaultValue = "") @org.jetbrains.annotations.Nullable
+                    String title,
             String text,
             boolean done) {}
 
