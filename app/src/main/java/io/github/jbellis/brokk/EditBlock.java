@@ -117,7 +117,11 @@ public class EditBlock {
         for (SearchReplaceBlock block : blocks) {
             // 1. Resolve the rawFileName
             ProjectFile file;
-            final String rawFileName = block.rawFileName();
+            var rawFileName = block.rawFileName();
+            // Strip comment prefixes (// or #) that may have been included by the LLM
+            if (rawFileName != null) {
+                rawFileName = rawFileName.replaceFirst("^\\s*(?://|#)\\s*", "");
+            }
             try {
                 file = resolveProjectFile(contextManager, rawFileName);
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
