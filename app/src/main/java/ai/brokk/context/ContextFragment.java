@@ -818,7 +818,6 @@ public interface ContextFragment {
             return SpecialTextType.fromDescription(description);
         }
 
-
         /**
          * Returns the syntax style to use when rendering the preview. Delegates to SpecialTextType when present;
          * falls back to this fragment's internal syntaxStyle() otherwise.

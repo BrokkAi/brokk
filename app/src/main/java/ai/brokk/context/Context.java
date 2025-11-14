@@ -743,8 +743,7 @@ public class Context {
 
         var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
 
-        var sf = new ContextFragment.StringFragment(
-                getContextManager(), content, desc, type.syntaxStyle());
+        var sf = new ContextFragment.StringFragment(getContextManager(), content, desc, type.syntaxStyle());
 
         var newFragments = new ArrayList<>(afterClear.fragments);
         newFragments.add(sf);
@@ -762,7 +761,9 @@ public class Context {
     }
 
     public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
-        var current = getSpecial(type.description()).map(ContextFragment.StringFragment::text).orElse("");
+        var current = getSpecial(type.description())
+                .map(ContextFragment.StringFragment::text)
+                .orElse("");
         var updated = updater.apply(current);
         return putSpecial(type, updated);
     }

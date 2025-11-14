@@ -587,7 +587,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void addTask() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         var raw = input.getText();
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
@@ -611,7 +614,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void removeSelected() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             // Determine how many tasks can actually be removed (exclude running/queued)
@@ -674,7 +680,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void toggleSelectedDone() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             boolean changed = false;
@@ -701,7 +710,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void onGoStopButtonPressed() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         var contextManager = chrome.getContextManager();
         if (contextManager.isLlmTaskInProgress()) {
             contextManager.interruptLlmAction();
@@ -711,7 +723,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void editSelected() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int idx = list.getSelectedIndex();
         if (idx < 0) return;
         if (runningIndex != null && idx == runningIndex.intValue()) {
@@ -830,8 +845,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
 
-        
-
         // Remove/Toggle disabled if no selection OR selection includes running/pending
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
         removeBtn.setEnabled(hasSelection && !blockEdits);
@@ -930,7 +943,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             var cm = chrome.getContextManager();
             Context sel = cm.selectedContext();
             Context baseCtx = (sel != null) ? sel : cm.topContext();
-            lastTaskListFragmentId = baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
+            lastTaskListFragmentId =
+                    baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
             clearExpansionOnStructureChange();
             // Ensure the Tasks tab badge reflects the freshly loaded model.
@@ -1006,7 +1020,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnSelected() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (chrome.getContextManager().isLlmTaskInProgress() || queueActive) {
             // A run is already in progress, do not start another.
             // The UI should prevent this, but this is a safeguard for the keyboard shortcut.
@@ -1024,7 +1041,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnAll() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (model.getSize() == 0) {
             return;
         }
@@ -1800,7 +1820,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void combineSelectedTasks() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length < 2) {
             JOptionPane.showMessageDialog(
@@ -1877,7 +1900,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void splitSelectedTask() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length != 1) {
             JOptionPane.showMessageDialog(
@@ -2034,7 +2060,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void clearCompletedTasks() {
-        if (!taskListEditable) { Toolkit.getDefaultToolkit().beep(); return; }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (model.isEmpty()) {
             return;
         }

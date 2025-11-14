@@ -207,11 +207,14 @@ public class WorkspaceTools {
         var idsToDropSet = new HashSet<>(idToExplanation.keySet());
 
         // Separate found vs unknown IDs
-        var foundFragments = idsToDropSet.stream().filter(byId::containsKey).map(byId::get).toList();
-        var unknownIds = idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
+        var foundFragments =
+                idsToDropSet.stream().filter(byId::containsKey).map(byId::get).toList();
+        var unknownIds =
+                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
 
         // Partition found into droppable vs protected based on SpecialTextType policy
-        var partitioned = foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
+        var partitioned =
+                foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
         var toDrop = partitioned.get(true);
         var protectedFragments = partitioned.get(false);
 
@@ -235,8 +238,8 @@ public class WorkspaceTools {
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
-        var next = context.removeFragmentsByIds(droppedIds)
-                .putSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+        var next =
+                context.removeFragmentsByIds(droppedIds).putSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
         context = next;
 
         logger.debug(
@@ -255,8 +258,9 @@ public class WorkspaceTools {
                         mergedDiscarded.size() == 1 ? "y" : "ies");
 
         if (!protectedFragments.isEmpty()) {
-            var protectedDescriptions =
-                    protectedFragments.stream().map(ContextFragment::description).collect(Collectors.joining(", "));
+            var protectedDescriptions = protectedFragments.stream()
+                    .map(ContextFragment::description)
+                    .collect(Collectors.joining(", "));
             baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
         }
 
@@ -375,11 +379,11 @@ public class WorkspaceTools {
             return "Ignoring empty Note";
         }
 
-        var existed = context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
+        var existed =
+                context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
 
         context = context.updateSpecial(
-                SpecialTextType.SEARCH_NOTES,
-                prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
+                SpecialTextType.SEARCH_NOTES, prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
 
         logger.debug(
                 "appendNote: {} Task Notes fragment ({} chars).",

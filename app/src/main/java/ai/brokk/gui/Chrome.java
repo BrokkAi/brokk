@@ -2224,12 +2224,7 @@ public class Chrome
                     showPreviewFrame(contextManager, title, previewContentPanel);
                 } else {
                     var previewPanel = new PreviewTextPanel(
-                            contextManager,
-                            null,
-                            previewText,
-                            previewStyle,
-                            themeManager,
-                            workingFragment);
+                            contextManager, null, previewText, previewStyle, themeManager, workingFragment);
                     showPreviewFrame(contextManager, title, previewPanel);
                 }
             } else {

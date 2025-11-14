@@ -779,7 +779,8 @@ public class SearchAgent {
             var summaries = ContextFragment.describe(recommendation.fragments());
             context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
                     cm,
-                    "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n" + summaries,
+                    "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
+                            + summaries,
                     "Summary of ContextAgent Findings",
                     recommendation.fragments().stream()
                             .findFirst()

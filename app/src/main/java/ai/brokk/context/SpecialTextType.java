@@ -3,7 +3,6 @@ package ai.brokk.context;
 import ai.brokk.TaskResult;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -32,7 +31,6 @@ public final class SpecialTextType {
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
     private final Predicate<TaskResult.Type> canViewContent;
-
 
     private SpecialTextType(
             String description,
@@ -163,11 +161,19 @@ public final class SpecialTextType {
         try {
             var data = Json.getMapper().readValue(json, TaskList.TaskListData.class);
             int total = (data.tasks() == null) ? 0 : data.tasks().size();
-            int completed = (data.tasks() == null) ? 0 : (int) data.tasks().stream().filter(TaskList.TaskItem::done).count();
+            int completed = (data.tasks() == null)
+                    ? 0
+                    : (int) data.tasks().stream()
+                            .filter(TaskList.TaskItem::done)
+                            .count();
 
             var sb = new StringBuilder();
             sb.append("# Task List\n\n");
-            sb.append("> Progress: ").append(completed).append("/").append(total).append("\n\n");
+            sb.append("> Progress: ")
+                    .append(completed)
+                    .append("/")
+                    .append(total)
+                    .append("\n\n");
 
             if (total == 0) {
                 sb.append("_No tasks yet._");
@@ -195,7 +201,9 @@ public final class SpecialTextType {
                     _Unable to parse saved task list. Showing raw content below for reference._
 
                     > %s
-                    """.stripIndent().formatted(quoted);
+                    """
+                    .stripIndent()
+                    .formatted(quoted);
         }
     }
 }

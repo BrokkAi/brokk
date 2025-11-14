@@ -150,7 +150,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Current session tracking
     private UUID currentSessionId;
 
-
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
@@ -1468,7 +1467,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * is created with done=false.
      */
     @Override
-    public Context appendTasksToTaskList(Context context,List<String> tasks) {
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
@@ -1542,8 +1541,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .filter(s -> s.id().equals(sessionId))
                     .findFirst();
             if (infoOpt.isEmpty()) {
-                logger.debug(
-                        "Skipping task list migration: no SessionInfo found for session {}", sessionId);
+                logger.debug("Skipping task list migration: no SessionInfo found for session {}", sessionId);
                 return;
             }
             long modified = infoOpt.get().modified();
@@ -2475,11 +2473,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
-        updateActiveSession(sessionId); // Mark as active
-        contextHistory = loadedCh;
-        
-        // Activate session: migrate legacy tasks then notify UI on EDT
-        finalizeSessionActivation(sessionId);
+            updateActiveSession(sessionId); // Mark as active
+            contextHistory = loadedCh;
+
+            // Activate session: migrate legacy tasks then notify UI on EDT
+            finalizeSessionActivation(sessionId);
         }
     }
 

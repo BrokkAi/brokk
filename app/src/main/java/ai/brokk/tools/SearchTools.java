@@ -41,7 +41,6 @@ public class SearchTools {
 
     private final IContextManager contextManager; // Needed for file operations
 
-
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
     }
@@ -717,5 +716,4 @@ public class SearchTools {
 
         return "Files in " + directoryPath + ": " + files;
     }
-
 }
