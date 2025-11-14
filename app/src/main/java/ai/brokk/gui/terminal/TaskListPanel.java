@@ -2054,7 +2054,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return true;
         }
         String trimmed = text.strip();
-        return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD || !trimmed.contains("\n");
+        return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD;
     }
 
     private void summarizeAndUpdateTaskTitle(String taskText, int originalIndex) {
