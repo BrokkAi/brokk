@@ -541,13 +541,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     list.setSelectedIndex(index);
                     editSelected();
                 } else if (e.getClickCount() == 1) {
-                    // Toggle expansion on single click
-                    if (expandedRows.contains(index)) {
-                        expandedRows.remove(index);
-                    } else {
-                        expandedRows.add(index);
-                    }
-                    list.repaint(cell);
+                // Toggle expansion on single click
+                if (expandedRows.contains(index)) {
+                expandedRows.remove(index);
+                } else {
+                expandedRows.add(index);
+                }
+                // Force height recomputation for this row
+                if (index >= 0 && index < model.getSize()) {
+                var it = model.get(index);
+                model.set(index, it);
+                }
+                list.revalidate();
+                list.repaint(cell);
                 }
             }
         });
