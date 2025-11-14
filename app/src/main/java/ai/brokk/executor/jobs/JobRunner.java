@@ -3,14 +3,19 @@ package ai.brokk.executor.jobs;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -44,7 +49,8 @@ public final class JobRunner {
     private enum Mode {
         ARCHITECT,
         CODE,
-        ASK
+        ASK,
+        REVIEW
     }
 
     private static Mode parseMode(JobSpec spec) {
@@ -121,15 +127,24 @@ public final class JobRunner {
 
         runner.execute(() -> {
             try {
+
+                // Determine execution mode (default ARCHITECT)
+                Mode mode = parseMode(spec);
                 // Parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
-                List<TaskList.TaskItem> tasks = parseTasks(spec.taskInput());
+                List<TaskList.TaskItem> tasks;
+                if (mode == Mode.REVIEW) {
+                    // For REVIEW mode, create a single synthetic task
+                    tasks = List.of(new TaskList.TaskItem("Review PR", false));
+                } else {
+                    // For other modes, parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
+                    tasks = parseTasks(spec.taskInput());
+                }
+                
                 int total = tasks.size();
                 var completed = new java.util.concurrent.atomic.AtomicInteger(0);
 
                 logger.info("Job {} parsed {} task(s)", jobId, total);
 
-                // Determine execution mode (default ARCHITECT)
-                Mode mode = parseMode(spec);
                 var rawCodeModelName = spec.codeModel();
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
@@ -141,6 +156,13 @@ public final class JobRunner {
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
                                 : defaultCodeModel())
                         : null;
+                final StreamingChatModel reviewPlannerModel =
+                        mode == Mode.REVIEW ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel reviewCodeModel = mode == Mode.REVIEW
+                        ? (hasCodeModelOverride
+                            ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                            : defaultCodeModel())
+                        : null;                    
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
@@ -159,18 +181,21 @@ public final class JobRunner {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
+                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
                         };
                 String codeModelNameForLog =
                         switch (mode) {
                             case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT -> !hasCodeModelOverride;
                             case ASK -> true;
                             case CODE -> !hasCodeModelOverride;
+                            case REVIEW -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
@@ -232,6 +257,35 @@ public final class JobRunner {
                                                     false,
                                                     spec.autoCompress());
                                         }
+                                        case REVIEW -> {
+                                            // Parse PR data from taskInput
+                                            Map<String, Object> prData = new ObjectMapper()
+                                                .readValue(spec.taskInput(), new TypeReference<Map<String, Object>>() {});
+                                            
+                                            // Prepare context with PR data
+                                            preparePRContext(prData);
+                                            
+                                            // Create review prompt
+                                            String reviewPrompt = formatReviewPrompt(prData);
+                                            
+                                            // Execute review using CodeAgent
+                                            var agent = new CodeAgent(
+                                                    cm,
+                                                    Objects.requireNonNull(reviewPlannerModel, "plannel model unavailable for REVIEW jobs"));
+
+                                            TaskResult result;
+                                            try (var scope = cm.beginTask("Review PR", false)) {
+                                                result = agent.runTask(reviewPrompt, Set.of());
+                                                scope.append(result);
+                                            }
+                                            JobStatus status = store.loadStatus(jobId);
+                                            String jsonString = result.stopDetails().explanation();
+                                            Map<String, Object> reviewOutput;
+                                            if (jsonString != null && !jsonString.isBlank()) {
+                                                reviewOutput = new ObjectMapper().readValue(jsonString, new TypeReference<>() {});
+                                                status = status.withMetadata("review_output", new ObjectMapper().writeValueAsString(reviewOutput));
+                                            }     
+                                        }
                                     }
 
                                     completed.incrementAndGet();
@@ -259,7 +313,7 @@ public final class JobRunner {
 
                 // Optional compress after execution:
                 // - For ARCHITECT: per-task compression already honored via spec.autoCompress().
-                // - For CODE/ASK: run a single compression pass if requested.
+                // - For CODE/ASK/REVIEW: run a single compression pass if requested.
                 if (mode != Mode.ARCHITECT && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
                     try {
@@ -276,7 +330,18 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        current = current.completed(null);
+                        Object completionResult = null;
+                        if (mode == Mode.REVIEW) {
+                            String reviewJson = current.metadata().get("review_output");
+                            if (reviewJson != null) {
+                                try {
+                                    completionResult = new ObjectMapper().readValue(reviewJson, new TypeReference<Map<String, Object>>() {});
+                                } catch (Exception e) {
+                                    logger.warn("Failed to deserialize review output for completion", e);
+                                }
+                            }
+                        }
+                        current = current.completed(completionResult);
                         logger.info("Job {} completed successfully", jobId);
                     }
                     if (console != null) {
@@ -448,4 +513,140 @@ public final class JobRunner {
 
         return list;
     }
+    /**
+     * Format the review prompt with PR data and project review guidelines.
+     * 
+     * @param prData Map containing PR metadata
+     * @return Formatted review prompt string with JSON output instructions
+     */
+    private String formatReviewPrompt(Map<String, Object> prData) {
+        Object prNumberObj = prData.getOrDefault("pr_number", 0);
+        int prNumber;
+        if (prNumberObj instanceof Number) {
+            prNumber = ((Number) prNumberObj).intValue();
+        } else if (prNumberObj instanceof String) {
+            try {
+                prNumber = Integer.parseInt((String) prNumberObj);
+            } catch (NumberFormatException e) {
+                prNumber = 0;
+            }
+        } else {
+            prNumber = 0;
+        }
+        String prTitle = (String) prData.getOrDefault("title", "(untitled)");
+        String author = String.valueOf(prData.get("author"));
+        String description = (String) prData.get("body");
+        String descriptionSection = (description != null && !description.isBlank())
+            ? "Description:\n" + description + "\n\n"
+            : "";
+
+        String reviewGuide = cm.getProject().getReviewGuide();
+
+        return String.format("""
+            Please review the following Pull Request:
+            PR #%d: %s
+            Author: %s
+            %s
+            Review Guidelines:
+            %s
+
+            Please provide a thorough code review based on the diff and files in context.
+            IMPORTANT: You must output ONLY valid JSON with this exact schema (no markdown fences, no extra text):
+            {
+              "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+              "comments": [
+                {
+                  "file": "relative/path/to/file",
+                  "line": 123,
+                  "comment": "Specific issue description"
+                }
+              ],
+              "summary": "Overall review summary"
+            }
+
+            For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
+            Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
+            """,
+            prNumber, prTitle, author, descriptionSection, reviewGuide
+        );
+    }
+    /**
+     * Prepare context with PR data by adding diff and description as virtual fragments.
+     * 
+     * @param prData Map containing PR metadata including number, title, body, branches, and changed files
+     */
+    private void preparePRContext(Map<String, Object> prData) {
+        // Validate required fields upfront
+        Object prNumberObj = prData.get("pr_number");
+        if (!(prNumberObj instanceof Number)) {
+            throw new IllegalArgumentException("PR number is missing or invalid");
+        }
+        int prNumber = ((Number) prNumberObj).intValue();
+
+        String prTitle = (String) prData.get("title");
+        if (prTitle == null || prTitle.isBlank()) {
+            throw new IllegalArgumentException("PR title is missing or blank");
+        }
+
+        String baseBranch = (String) prData.get("base_branch");
+        String headBranch = (String) prData.get("head_branch");
+        if (baseBranch == null || baseBranch.isBlank() || headBranch == null || headBranch.isBlank()) {
+            throw new IllegalArgumentException("PR branches are missing");
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> changedFilesData =
+            (List<Map<String, String>>) prData.get("changed_files");
+        if (changedFilesData == null || changedFilesData.isEmpty()) {
+            throw new IllegalArgumentException("PR has no changed files");
+        }
+
+        String descriptionText = (String) prData.getOrDefault("body", "");
+
+        StringBuilder diffBuilder = new StringBuilder();
+        List<String> filenames = new ArrayList<>();
+
+        for (Map<String, String> fileData : changedFilesData) {
+            String filename = fileData.get("filename");
+            String patch = fileData.get("patch");
+
+            if (filename != null) filenames.add(filename);
+            if (filename != null && patch != null && !patch.isEmpty()) {
+                diffBuilder
+                    .append("diff --git a/").append(filename).append(" b/").append(filename).append("\n")
+                    .append("--- a/").append(filename).append("\n")
+                    .append("+++ b/").append(filename).append("\n")
+                    .append(patch);
+                if (!patch.endsWith("\n")) diffBuilder.append("\n");
+                diffBuilder.append("\n");
+            }
+        }
+
+        // Add diff fragment to context
+        String diff = diffBuilder.toString();
+        if (!diff.isEmpty()) {
+            String fileNamesSummary = filenames.isEmpty()
+                ? "(no files)"
+                : String.join(", ", filenames);
+
+            String description = String.format(
+                "Diff of PR #%d (%s): %s [BASE: %s ← HEAD: %s]",
+                prNumber, prTitle, fileNamesSummary, baseBranch, headBranch
+            );
+
+            var fragment = new ai.brokk.context.ContextFragment.StringFragment(
+                cm, diff, description, "text/x-diff"
+            );
+            cm.addVirtualFragment(fragment);
+        }
+
+        // Add PR description fragment
+        if (descriptionText != null && !descriptionText.isBlank()) {
+            var descriptionFragment = new ai.brokk.context.ContextFragment.StringFragment(
+                cm, descriptionText, "PR Description", "markdown"
+            );
+            cm.addVirtualFragment(descriptionFragment);
+        }
+    }
+
 }
