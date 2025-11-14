@@ -132,6 +132,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final ModeBadge modeBadge;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
+    private JLabel brokkRankingLabel;
     private final JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
@@ -342,6 +343,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.modeBadge = new ModeBadge();
         modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         modeBadge.setFocusable(false);
+
+        // Initialize Brokk Power Ranking indicator
+        this.brokkRankingLabel = new JLabel("Brokk Power Ranking: Unknown");
+        this.brokkRankingLabel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
+        this.brokkRankingLabel.setFocusable(false);
+        this.brokkRankingLabel.setOpaque(false);
+        this.brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        SwingUtilities.invokeLater(() -> {
+            var iconUrl = InstructionsPanel.class.getResource("/brokk-icon.png");
+            if (iconUrl != null) {
+                var baseIcon = new ImageIcon(iconUrl);
+                var scaledImage = baseIcon.getImage().getScaledInstance(16, 16, Image.SCALE_SMOOTH);
+                this.brokkRankingLabel.setIcon(new ImageIcon(scaledImage));
+            }
+        });
 
         // Initialize mode indicator
         refreshModeIndicator();
@@ -685,15 +701,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.add(leftCluster);
 
         // Centered mode badge with symmetric spacing:
-        // glue (flex) + modeBadge + glue (flex) + right filler matching left cluster width
+        // glue (flex) + modeBadge + glue (flex) + rightCluster
         topBarPanel.add(Box.createHorizontalGlue());
         modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         topBarPanel.add(modeBadge);
         topBarPanel.add(Box.createHorizontalGlue());
 
-        // Right filler to balance left cluster width for true centering
-        int leftWidth = leftCluster.getPreferredSize().width;
-        topBarPanel.add(Box.createRigidArea(new Dimension(leftWidth, 0)));
+        // Right cluster with Brokk Power Ranking indicator
+        var rightCluster = new JPanel();
+        rightCluster.setOpaque(false);
+        rightCluster.setLayout(new BoxLayout(rightCluster, BoxLayout.X_AXIS));
+        brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        rightCluster.add(brokkRankingLabel);
+        topBarPanel.add(rightCluster);
 
         return topBarPanel;
     }
@@ -1022,6 +1042,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         contextAreaContainer.setToolTipText(sharedTooltip);
                         modelSelector.getComponent().setToolTipText(sharedTooltip);
                         tokenUsageBar.setVisible(true);
+
+                        // Update Brokk Power Ranking indicator
+                        if (stat.successRate == -1) {
+                            brokkRankingLabel.setText("Brokk Power Ranking: Unknown");
+                        } else {
+                            brokkRankingLabel.setText("Brokk Power Ranking: " + stat.successRate + "%");
+                        }
+                        brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
+                        brokkRankingLabel.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
                         tokenUsageBar.setVisible(false);
@@ -1056,6 +1085,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             return String.format("$%.2f", estimatedCost);
         }
+    }
+
+    private static String buildBrokkRankingOnlyTooltip(int successRate) {
+        StringBuilder body = new StringBuilder();
+        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
+                .append("Brokk Power Ranking</a></b></div>");
+        if (successRate == -1) {
+            body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Untested model reasoning combination.</div>");
+        } else {
+            body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
+                    .append(successRate)
+                    .append("%</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Based on benchmark data for model performance across token ranges.</div>");
+        }
+        return wrapTooltipHtml(body.toString(), 420);
     }
 
     // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
