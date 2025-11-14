@@ -553,7 +553,7 @@ public class ContextAgent {
                 .toList();
         int promptTokens = Messages.getApproximateTokens(messages);
         debug("Invoking LLM to prune filenames (prompt size ~{} tokens)", promptTokens);
-        var result = llm.sendRequest(messages);
+        var result = llm.sendRequest(messages, true);
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
             // litellm does an inconsistent job translating into ContextWindowExceededError.
@@ -763,7 +763,7 @@ public class ContextAgent {
         debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
         // *** Execute LLM call with required tool ***
-        var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+        var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, true);
         var tokenUsage = result.tokenUsage();
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
@@ -978,7 +978,7 @@ public class ContextAgent {
                 "Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)",
                 inputType.itemTypePlural,
                 promptTokens);
-        var result = llm.sendRequest(messages); // No tools
+        var result = llm.sendRequest(messages, true); // No tools
 
         if (result.error() != null || result.isEmpty()) {
             logger.warn(
