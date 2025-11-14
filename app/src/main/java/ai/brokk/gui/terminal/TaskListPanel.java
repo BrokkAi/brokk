@@ -118,6 +118,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     // panels.
     private static final int ACTION_BUTTON_WIDTH = 140;
     private static final int ACTION_BUTTON_MIN_HEIGHT = 36;
+    private static final int SHORT_TITLE_CHAR_THRESHOLD = 20;
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
@@ -524,7 +525,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         });
 
-        // Double-click opens modal edit dialog; single-click only selects.
+        // Double-click opens modal edit dialog
         list.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -570,10 +571,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
         int added = 0;
+        int startIndex = model.getSize();
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                model.addElement(new TaskList.TaskItem(text, false));
+                model.addElement(new TaskList.TaskItem("", text, false));
                 added++;
             }
         }
@@ -585,6 +587,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
             // Ensure the Tasks tab badge updates to reflect newly added tasks.
             SwingUtilities.invokeLater(this::updateTasksTabBadge);
+
+            // Kick off async summarization for each newly added task
+            for (int i = startIndex; i < model.getSize(); i++) {
+                summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text());
+            }
         }
     }
 
@@ -664,7 +671,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
                 if (idx >= 0 && idx < model.getSize()) {
                     var it = requireNonNull(model.get(idx));
-                    model.set(idx, new TaskList.TaskItem(it.text(), !it.done()));
+                    model.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
                     changed = true;
                 }
             }
@@ -718,18 +725,40 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 ? new JDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL)
                 : new JDialog((Window) null, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
-        JTextArea ta = new JTextArea(current.text());
-        ta.setLineWrap(true);
-        ta.setWrapStyleWord(true);
-        ta.setFont(list.getFont());
-
-        JScrollPane sp =
-                new JScrollPane(ta, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        sp.setPreferredSize(new Dimension(520, 220));
-
         JPanel content = new JPanel(new BorderLayout(6, 6));
-        content.add(new JLabel("Edit task:"), BorderLayout.NORTH);
-        content.add(sp, BorderLayout.CENTER);
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JPanel fieldsPanel = new JPanel();
+        fieldsPanel.setLayout(new BoxLayout(fieldsPanel, BoxLayout.PAGE_AXIS));
+
+        JLabel titleLabel = new JLabel("Title:");
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleLabel);
+
+        JTextField titleField = new JTextField(current.title());
+        titleField.setFont(list.getFont());
+        titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleField);
+
+        fieldsPanel.add(Box.createVerticalStrut(8));
+
+        JLabel bodyLabel = new JLabel("Body:");
+        bodyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyLabel);
+
+        JTextArea bodyArea = new JTextArea(current.text());
+        bodyArea.setLineWrap(true);
+        bodyArea.setWrapStyleWord(true);
+        bodyArea.setFont(list.getFont());
+        bodyArea.setRows(8);
+
+        JScrollPane bodyScroll = new JScrollPane(
+                bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        bodyScroll.setPreferredSize(new Dimension(520, 180));
+        bodyScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyScroll);
+
+        content.add(fieldsPanel, BorderLayout.CENTER);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton saveBtn = new MaterialButton("Save");
@@ -737,15 +766,24 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         MaterialButton cancelBtn = new MaterialButton("Cancel");
 
         saveBtn.addActionListener(e -> {
-            String newText = ta.getText();
+            String newTitle = titleField.getText();
+            String newText = bodyArea.getText();
+            if (newTitle != null) {
+                newTitle = newTitle.strip();
+            } else {
+                newTitle = "";
+            }
             if (newText != null) {
                 newText = newText.strip();
-                if (!newText.isEmpty() && !newText.equals(current.text())) {
-                    model.set(index, new TaskList.TaskItem(newText, current.done()));
-                    saveTasksForCurrentSession();
-                    list.revalidate();
-                    list.repaint();
-                }
+            } else {
+                newText = "";
+            }
+
+            if (!newText.isEmpty() && (!newText.equals(current.text()) || !newTitle.equals(current.title()))) {
+                model.set(index, new TaskList.TaskItem(newTitle, newText, current.done()));
+                saveTasksForCurrentSession();
+                list.revalidate();
+                list.repaint();
             }
             dialog.dispose();
         });
@@ -761,8 +799,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
 
-        ta.requestFocusInWindow();
-        ta.selectAll();
+        titleField.requestFocusInWindow();
+        titleField.selectAll();
 
         dialog.setVisible(true);
     }
@@ -874,6 +912,22 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             clearExpansionOnStructureChange();
             updateButtonStates();
+
+            // Kick off async summarization for tasks needing a summary:
+            // - title is blank, OR
+            // - title equals body for a long task (common for imported/lutz tasks)
+            for (int i = 0; i < model.getSize(); i++) {
+                var task = requireNonNull(model.get(i));
+                var tTitle = task.title();
+                var tText = task.text();
+                boolean needsSummary = (tTitle == null || tTitle.isBlank())
+                        || (!isShortTaskText(tText)
+                                && tTitle != null
+                                && tTitle.strip().equals(tText.strip()));
+                if (needsSummary) {
+                    summarizeAndUpdateTaskTitle(tText);
+                }
+            }
         } finally {
             isLoadingTasks = false;
             clearExpansionOnStructureChange();
@@ -890,7 +944,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             var it = requireNonNull(model.get(i));
             if (!it.text().isBlank()) {
                 // it is already the domain type, but copy defensively
-                dtos.add(new TaskList.TaskItem(it.text(), it.done()));
+                dtos.add(new TaskList.TaskItem(it.title(), it.text(), it.done()));
             }
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
@@ -1139,7 +1193,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
                         var it = requireNonNull(model.get(idx));
-                        model.set(idx, new TaskList.TaskItem(it.text(), true));
+                        model.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
                         saveTasksForCurrentSession();
                         // Task was marked done as part of a successful run; update tab badge immediately.
                         updateTasksTabBadge();
@@ -1537,7 +1591,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * the same list.
      */
     private final class TaskReorderTransferHandler extends TransferHandler {
-        private @Nullable int[] indices = null;
+        private int @Nullable [] indices = null;
         private int addIndex = -1;
         private int addCount = 0;
 
@@ -1610,7 +1664,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
-                    if (i == runningIndex.intValue()) {
+                    if (i == runningIndex) {
                         return false; // cannot drop a running task
                     }
                 }
@@ -1733,7 +1787,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String combinedText = String.join(" | ", taskTexts);
 
         // Create the new combined task (always marked as not done)
-        TaskList.TaskItem combinedTask = new TaskList.TaskItem(combinedText, false);
+        TaskList.TaskItem combinedTask = new TaskList.TaskItem("", combinedText, false);
 
         // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
@@ -1825,9 +1879,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         // Replace the original with the first line; insert remaining lines after; mark all as not done
-        model.set(idx, new TaskList.TaskItem(lines.getFirst(), false));
+        model.set(idx, new TaskList.TaskItem("", lines.getFirst(), false));
         for (int i = 1; i < lines.size(); i++) {
-            model.add(idx + i, new TaskList.TaskItem(lines.get(i), false));
+            model.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
         }
 
         // Select the new block
@@ -1988,6 +2042,67 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             StringSelection selection = new StringSelection(clipboardText);
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
         }
+    }
+
+    private static boolean isShortTaskText(String text) {
+        String trimmed = text.strip();
+        return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD;
+    }
+
+    private void summarizeAndUpdateTaskTitle(String taskText) {
+        if (taskText.isBlank()) {
+            return;
+        }
+
+        if (isShortTaskText(taskText)) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    for (int i = 0; i < model.getSize(); i++) {
+                        var task = model.get(i);
+                        if (task.text().equals(taskText)) {
+                            model.set(i, new TaskList.TaskItem(taskText.strip(), task.text(), task.done()));
+                            saveTasksForCurrentSession();
+                            list.repaint();
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title for short task", e);
+                }
+            });
+            return;
+        }
+
+        var cm = chrome.getContextManager();
+        var summaryFuture = cm.summarizeTaskForConversation(taskText);
+
+        summaryFuture.whenComplete((summary, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed to summarize task title", ex);
+                return;
+            }
+            if (summary == null || summary.isBlank()) {
+                return;
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Find the task by matching text (since it may have moved)
+                    for (int i = 0; i < model.getSize(); i++) {
+                        var task = model.get(i);
+                        if (task.text().equals(taskText)) {
+                            // Update with the summarized title
+                            model.set(i, new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
+                            saveTasksForCurrentSession();
+                            list.repaint();
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title after summarization", e);
+                }
+            });
+        });
     }
 
     @Override
@@ -2180,8 +2295,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            view.setExpanded(false);
-            view.setMaxVisibleLines(3);
 
             // Font and strike-through first (affects metrics)
             Font base = list.getFont();
@@ -2207,8 +2320,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Apply width before text so measurement uses the correct wrap width immediately
             view.setAvailableWidth(available);
 
-            // Set text after width so measure() reflects current width and font
-            view.setText(value.text());
+            // Always show title; fallback to first line of text if title is empty
+            String displayText = value.title();
+            if (displayText == null || displayText.isBlank()) {
+                // Fallback: use first line of text
+                String fullText = value.text();
+                int newlineIndex = fullText.indexOf('\n');
+                displayText = newlineIndex > 0 ? fullText.substring(0, newlineIndex) : fullText;
+            }
+            view.setText(displayText);
+            view.setMaxVisibleLines(1);
             view.setVisible(true);
 
             // Measure content height for the width and compute minHeight invariant
@@ -2392,7 +2513,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int count = 0;
         for (int i = 0; i < model.getSize(); i++) {
             var task = model.get(i);
-            if (task != null && !task.done()) {
+            if (!task.done()) {
                 count++;
             }
         }
@@ -2410,7 +2531,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int removed = 0;
         for (int i = model.getSize() - 1; i >= 0; i--) {
             var task = model.get(i);
-            if (task != null && !task.done()) {
+            if (!task.done()) {
                 var t = task.text().strip();
                 if (textsToRemove.contains(t)) {
                     model.remove(i);
