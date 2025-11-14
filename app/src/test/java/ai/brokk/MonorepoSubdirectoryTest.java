@@ -1,11 +1,11 @@
-package io.github.jbellis.brokk;
+package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitTestCleanupUtil;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitTestCleanupUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -82,8 +82,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests where the config directory is placed when opening a subdirectory. Expected: Should be at git root (like
-     * worktrees), not in subdirectory. Current behavior: May be in subdirectory (bug).
+     * Tests where the config directory is placed when opening a subdirectory. Expected: Should be at the subdirectory
+     * (unlike worktrees, which store config at git root).
      */
     @Test
     void testSubdirectoryProject_WhereIsConfig() throws Exception {
@@ -93,15 +93,15 @@ public class MonorepoSubdirectoryTest {
         Path masterConfigPath = subdirProject.getMasterRootPathForConfig();
         Path projectRoot = subdirProject.getRoot();
 
-        // Expected behavior: config should be at git root for subdirectory projects
+        // Expected behavior: config should be at the subdirectory for subdirectory projects
         assertEquals(
-                repoRoot.toAbsolutePath().normalize(),
+                subdirPath.toAbsolutePath().normalize(),
                 masterConfigPath,
-                "Config should be stored at git repository root, not in subdirectory");
+                "Config should be stored at the subdirectory, not git repository root");
     }
 
     /**
-     * Tests that saving properties creates .brokk directory at git root, not subdirectory. This test ensures physical
+     * Tests that saving properties creates .brokk directory at the subdirectory, not git root. This test ensures physical
      * files are created in the correct location.
      */
     @Test
@@ -110,25 +110,25 @@ public class MonorepoSubdirectoryTest {
         var mainProj = (MainProject) AbstractProject.createProject(subdirPath, null);
         subdirProject = mainProj;
 
-        // Trigger creation of config files by saving properties
+        // Set a configuration property to trigger file creation, then save
+        mainProj.setCommitMessageFormat("test: {message}");
         mainProj.saveProjectProperties();
 
-        Path expectedBrokkDir = repoRoot.resolve(".brokk");
-        Path wrongBrokkDir = subdirPath.resolve(".brokk");
+        Path expectedBrokkDir = subdirPath.resolve(".brokk");
+        Path wrongBrokkDir = repoRoot.resolve(".brokk");
 
-        // Config files should be created at git root
-        assertTrue(Files.exists(expectedBrokkDir), ".brokk should exist at git root");
+        // Config files should be created at subdirectory
+        assertTrue(Files.exists(expectedBrokkDir), ".brokk should exist at subdirectory");
         assertTrue(
                 Files.exists(expectedBrokkDir.resolve("project.properties")),
-                "project.properties should exist at git root");
+                "project.properties should exist at subdirectory");
 
-        // Config files should NOT be created at subdirectory
-        assertFalse(Files.exists(wrongBrokkDir), ".brokk should NOT exist at subdirectory");
+        // Config files should NOT be created at git root
+        assertFalse(Files.exists(wrongBrokkDir), ".brokk should NOT exist at git root");
     }
 
     /**
-     * Regression test for llm-history being created at git root, not subdirectory. This was a bug where Llm.java used
-     * getRoot() instead of getMasterRootPathForConfig().
+     * Tests that llm-history is created at the subdirectory, using getMasterRootPathForConfig().
      */
     @Test
     void testSubdirectoryProject_LlmHistoryLocation() throws Exception {
@@ -137,19 +137,19 @@ public class MonorepoSubdirectoryTest {
         subdirProject = mainProj;
 
         // Simulate what happens when Llm creates history directory
-        Path historyDir = io.github.jbellis.brokk.Llm.getHistoryBaseDir(mainProj.getMasterRootPathForConfig());
+        Path historyDir = ai.brokk.Llm.getHistoryBaseDir(mainProj.getMasterRootPathForConfig());
 
-        Path expectedHistoryDir = repoRoot.resolve(".brokk").resolve("llm-history");
-        Path wrongHistoryDir = subdirPath.resolve(".brokk").resolve("llm-history");
+        Path expectedHistoryDir = subdirPath.resolve(".brokk").resolve("llm-history");
+        Path wrongHistoryDir = repoRoot.resolve(".brokk").resolve("llm-history");
 
-        // LLM history should be at git root
-        assertEquals(expectedHistoryDir, historyDir, "llm-history should be at git repository root");
+        // LLM history should be at subdirectory
+        assertEquals(expectedHistoryDir, historyDir, "llm-history should be at subdirectory");
 
         // Create the directory to verify physical location
         Files.createDirectories(historyDir);
 
-        assertTrue(Files.exists(expectedHistoryDir), "llm-history should exist at git root");
-        assertFalse(Files.exists(wrongHistoryDir), "llm-history should NOT exist at subdirectory");
+        assertTrue(Files.exists(expectedHistoryDir), "llm-history should exist at subdirectory");
+        assertFalse(Files.exists(wrongHistoryDir), "llm-history should NOT exist at git root");
     }
 
     /**
@@ -204,8 +204,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that two subdirectories opened as separate projects share the same config location. Expected: Both should
-     * use git root for config.
+     * Tests that two subdirectories opened as separate projects have independent config locations. Expected: Each
+     * subdirectory should use its own directory for config, not shared at git root.
      */
     @Test
     void testSubdirectoryProject_ConfigSharing() throws Exception {
@@ -222,9 +222,10 @@ public class MonorepoSubdirectoryTest {
             Path config1 = project1.getMasterRootPathForConfig();
             Path config2 = project2.getMasterRootPathForConfig();
 
-            // Both should share the same config location (git root)
-            assertEquals(config1, config2, "Both subdirectories should share the same config location");
-            assertEquals(repoRoot.toAbsolutePath().normalize(), config1, "Config should be at git repository root");
+            // Each subdirectory should have its own config location
+            assertNotEquals(config1, config2, "Each subdirectory should have its own config location");
+            assertEquals(subdir1Path.toAbsolutePath().normalize(), config1, "Config should be at first subdirectory");
+            assertEquals(subdir2Path.toAbsolutePath().normalize(), config2, "Config should be at second subdirectory");
         } finally {
             if (project1 != null) project1.close();
             if (project2 != null) project2.close();
@@ -390,8 +391,45 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Compares the behavior of subdirectory projects vs worktree projects. Both should behave similarly for config
-     * storage (at git root).
+     * Tests that worktrees opened at a subdirectory path store config at that subdirectory, not at git root.
+     * This ensures consistent behavior: subdirectory projects always have independent config, whether regular or worktree.
+     */
+    @Test
+    void testWorktreeSubdirectory_ConfigLocation() throws Exception {
+        assumeTrue(gitRepo.supportsWorktrees(), "Worktrees not supported, skipping test");
+
+        // Create a worktree
+        String worktreeBranch = "worktree-subdir-branch";
+        Path worktreePath = tempDir.resolve("worktree-subdir");
+        gitRepo.addWorktree(worktreeBranch, worktreePath);
+
+        // Open the worktree at a subdirectory path
+        Path worktreeSubdirPath = worktreePath.resolve("subproject");
+        Files.createDirectories(worktreeSubdirPath);
+
+        AbstractProject worktreeSubdirProject = null;
+        try {
+            worktreeSubdirProject = AbstractProject.createProject(worktreeSubdirPath, null);
+
+            Path masterConfigPath = worktreeSubdirProject.getMasterRootPathForConfig();
+
+            // Worktree subdirectory should use subdirectory for config, not git root
+            // Normalize paths to handle macOS /private/var vs /var symlinks
+            assertEquals(
+                    worktreeSubdirPath.toRealPath(),
+                    masterConfigPath.toRealPath(),
+                    "Worktree subdirectory should use subdirectory for config, not git root");
+        } finally {
+            if (worktreeSubdirProject != null) {
+                worktreeSubdirProject.close();
+            }
+            gitRepo.removeWorktree(worktreePath, true);
+        }
+    }
+
+    /**
+     * Compares the behavior of subdirectory projects vs worktree projects. They have different config storage behavior:
+     * subdirectories store config at the subdirectory, worktrees store config at git root.
      */
     @Test
     void testSubdirectoryVsWorktree_Comparison() throws Exception {
@@ -411,14 +449,16 @@ public class MonorepoSubdirectoryTest {
             Path subdirConfig = subdirProj.getMasterRootPathForConfig();
             Path worktreeConfig = worktreeProj.getMasterRootPathForConfig();
 
-            // Both subdirectory and worktree should use git root for config
+            // Subdirectory and worktree have DIFFERENT config storage behavior
             // Normalize paths to handle macOS /private/var vs /var symlinks
-            assertEquals(
+            assertNotEquals(
                     worktreeConfig.toRealPath(),
                     subdirConfig.toRealPath(),
-                    "Subdirectory and worktree should use same config location (git root)");
+                    "Subdirectory and worktree should have different config locations");
             assertEquals(
-                    repoRoot.toRealPath(), subdirConfig.toRealPath(), "Both should use git repository root for config");
+                    subdirPath.toRealPath(), subdirConfig.toRealPath(), "Subdirectory should use subdirectory for config");
+            assertEquals(
+                    repoRoot.toRealPath(), worktreeConfig.toRealPath(), "Worktree should use git repository root for config");
         } finally {
             subdirProj.close();
             worktreeProj.close();

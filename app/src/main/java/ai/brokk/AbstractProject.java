@@ -77,9 +77,29 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            Path workTreeRoot = gitRepoInstance.getWorkTreeRoot();
+            // Check if opened at a subdirectory (project root != working tree root)
+            // Use toRealPath() to handle macOS /var vs /private/var symlink differences
+            boolean isSubdirectory;
+            try {
+                isSubdirectory = !this.root.toRealPath().equals(workTreeRoot.toRealPath());
+            } catch (IOException e) {
+                // Fallback to string comparison if toRealPath() fails
+                isSubdirectory = !this.root.normalize().equals(workTreeRoot.normalize());
+            }
+            boolean isWorktree = gitRepoInstance.isWorktree();
+
+            if (isWorktree && !isSubdirectory) {
+                // Worktree opened at root → share config with main repo
+                this.masterRootPathForConfig =
+                        gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+            } else {
+                // All other cases: use project root for config
+                // - Regular projects (worktree or not)
+                // - Worktrees opened at subdirectory
+                this.masterRootPathForConfig = this.root;
+            }
         } else {
             this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
         }
