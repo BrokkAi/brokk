@@ -922,7 +922,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             var selected = cm.selectedContext();
             TaskList.TaskListData data = (selected != null)
                     ? selected.getTaskListDataOrEmpty()
-                    : cm.topContext().getTaskListDataOrEmpty();
+                    : cm.liveContext().getTaskListDataOrEmpty();
 
             // Only populate if still the same sessionId
             if (!sid.equals(this.sessionIdAtLoad)) {
@@ -942,7 +942,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Update the last-seen fragment ID after successful load (respecting selected context)
             var cm = chrome.getContextManager();
             Context sel = cm.selectedContext();
-            Context baseCtx = (sel != null) ? sel : cm.topContext();
+            Context baseCtx = (sel != null) ? sel : cm.liveContext();
             lastTaskListFragmentId =
                     baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
@@ -2277,7 +2277,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         var cm = chrome.getContextManager();
         Context selected = cm.selectedContext();
-        boolean onLatest = (selected == null) || selected.equals(cm.topContext());
+        boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
 
         // Toggle read-only state based on whether we're viewing history
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));

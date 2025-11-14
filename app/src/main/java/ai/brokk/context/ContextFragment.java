@@ -1236,6 +1236,7 @@ public interface ContextFragment {
         }
         return null;
     }
+
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
         private final String description;

@@ -1498,7 +1498,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private void migrateLegacyTaskLists(UUID sessionId) {
         try {
             // Prefer fragment-backed Task List if present
-            var maybeFragment = topContext().getTaskListFragment();
+            var maybeFragment = liveContext().getTaskListFragment();
             if (maybeFragment.isPresent()) {
                 return;
             }

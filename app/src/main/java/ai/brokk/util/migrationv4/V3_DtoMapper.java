@@ -10,7 +10,6 @@ import ai.brokk.context.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.ImageUtil;
 import com.google.common.collect.Streams;

@@ -2190,8 +2190,8 @@ public class Chrome
 
                     showPreviewFrame(contextManager, initialTitle, previewContentPanel);
                 } else {
-                    var previewPanel = new PreviewTextPanel(
-                            contextManager, null, previewText, previewStyle, themeManager, sf);
+                    var previewPanel =
+                            new PreviewTextPanel(contextManager, null, previewText, previewStyle, themeManager, sf);
                     showPreviewFrame(contextManager, initialTitle, previewPanel);
                 }
                 // Update title asynchronously if needed (for computed descriptions)
