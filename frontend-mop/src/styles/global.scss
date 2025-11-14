@@ -48,6 +48,17 @@ body {
   --diff-del-bg: rgba(220, 53, 69, 0.1);
 }
 
+.theme-high-contrast {
+  --scrollbar-thumb: #e6e6e6;
+  --scrollbar-thumb-hover: #ffffff;
+
+  /* Global diff color tokens - vibrant high contrast colors */
+  --diff-add: #00e61f;
+  --diff-del: #ff3633;
+  --diff-add-bg: #003300;
+  --diff-del-bg: #330000;
+}
+
 * {
   /* Firefox (Gecko) */
   scrollbar-width: thin;
@@ -77,5 +88,3 @@ body {
 *::-webkit-scrollbar-corner {
   background: var(--scrollbar-track);
 }
-
-

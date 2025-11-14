@@ -1,0 +1,20 @@
+Issue: Spin Tool Imprecise at High Step Count #148890
+
+System Information
+Operating system: Windows-10-10.0.26100-SP0 64 Bits
+Graphics card: NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2 NVIDIA Corporation 4.6.0 NVIDIA 576.52 Opengl Backend
+
+Blender Version
+Broken: version: 5.1.0 Alpha, branch: main, commit date: 2025-10-26 13:52, hash: 7f0c6ad28334
+
+Short description of error
+The spin tool becomes increasingly inaccurate as the number of steps goes up.
+image.png
+
+The spin tool seems to calculate one segment of the resulting arc and then repeat that displacement by the number of steps, rather than calculating the position of each new vertex along the arc individually. This results in rounding errors being magnified by the number of steps as the arc propagates, leading to increasing discrepancies at higher step counts.
+
+Exact steps for others to reproduce the error
+
+- Create a vertex at a distance from the 3D cursor
+- Use the spin tool with a known angle, for example 30 degrees, and a high number of Steps (200+)
+- Duplicate the original vertex and rotate by the same amount. Zoom in to see the discrepancy.

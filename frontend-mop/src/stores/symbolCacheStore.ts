@@ -1,3 +1,4 @@
+import { writable } from 'svelte/store';
 import { createLogger } from '../lib/logging';
 import { createBatchedCache, type CacheEntry } from './batchedCache';
 import { mockExtractSymbol } from '../dev/mockSymbolExtractor';
@@ -21,6 +22,9 @@ export interface SymbolLookupResult {
 export type SymbolCacheEntry = CacheEntry<SymbolLookupResult>;
 
 const log = createLogger('symbol-cache-store');
+
+// Refresh trigger store - increment to signal all components to re-detect symbols
+export const symbolRefreshTrigger = writable(0);
 
 const CONFIG = {
   immediateThreshold: 100,
@@ -105,10 +109,14 @@ export function getSymbolCacheEntry(symbol: string, contextId: string = 'main-co
 
 export function clearContextCache(contextId: string): void {
   cache.clearContextCache(contextId);
+  // Trigger refresh for all components
+  symbolRefreshTrigger.update(n => n + 1);
 }
 
 export function clearSymbolCache(): void {
   cache.clearAll();
+  // Trigger refresh for all components
+  symbolRefreshTrigger.update(n => n + 1);
 }
 
 export function getCacheStats() {

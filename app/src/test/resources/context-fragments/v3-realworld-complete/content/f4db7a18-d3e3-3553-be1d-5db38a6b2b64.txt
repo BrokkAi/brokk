@@ -1,0 +1,24 @@
+Reasoning:
+
+
+**Analyzing rotation calculations**
+
+I'm looking into how the operator uses certain functions, like BMO_slot_vec_get and axis_angle_normalized_to_mat3, and how those fit into the rotate operation. It seems the rotate function expects the 'matrix' in object space and the 'space' to convert it, but I'm not entirely sure. The test uses an identity space, leaving some bugs unnoticed, especially with axis transformations in non-identity spaces. This might be a crucial issue that needs to be flagged, particularly regarding correctness.
+
+**Examining delta computations**
+
+I'm analyzing how they compute delta for each step using rmat_i. The formula for t_accum sets delta to dvec_space, multiplying by rmat_i and adding to the accumulator at each step. This approach yields a sum of R_i * dvec_space. However, the correct accumulation formula depends on whether translation occurs after each rotation. The previous code used incremental rotation, mutating dvec in place, leading to dvec_k = R * dvec_{k-1}. But the new method uses R_i as rotation by i*(angle/steps), which raises some questions about correctness.
+
+**Investigating angle computations**
+
+I'm looking into the total angle calculations, where phi per step is angle_total divided by steps. The original method for t_accum would sum R^k * dvec for each step, while the new method uses rmat_i with angle_i set to i * phi. This does result in the same accumulation. They compute p_space by applying a 4x4 matrix as expected. However, there seems to be an axis mismatch in the approach. Also, I note that computing rmat_i per step incurs a performance cost of O(steps).
+
+**Evaluating vertex transformations**
+
+I'm noticing that they iterate over newly created vertices while avoiding repeated BMO rotate/translate calls. They compute p_space by multiplying each vertex by a 4x4 matrix every step. However, it seems they could pre-transform the original coordinates into space to reduce repeated computations, which currently incurs an overhead of O(verts*steps). There's a similarity to the previous method, which also multiplied each vertex by space. Precomputing co_orig_space could offer a slight performance boost, with only the memory overhead being a consideration. They use a double precision accumulator for t_accum, which is efficient.
+
+**Assessing memory and optimization**
+
+I'm analyzing their approach to allocate co_orig for all vertices but thinking they could limit it to just the selected ones to save memory. Although co_orig for unused vertices may waste resources, they compute normals for all, which might overshadow normal data. The tests only cover identity space, suggesting they should include tests for non-identity settings to catch potential issues with axis transformations. 
+
+Regarding performance, the overhead appears negligible for most cases, but if the selection is relatively small, they could benefit from mapping to reduce unnecessary allocations. Highlighting the axis-space mismatch is crucial, where computing axis_space as needed and using it for rotation matrix calculations would be ideal. Additionally, precomputing co_orig_space could help avoid repeated multiplications. Lastly, their current memory management is good, freeing resources as necessary.

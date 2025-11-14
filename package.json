@@ -4,11 +4,17 @@
     "description": "AI for large codebases. Brokk is a tool that helps you understand and navigate large codebases using AI.",
     "main": "index.js",
     "preferGlobal": true,
-    "repository": "",
+    "homepage": "https://brokk.ai",
+    "repository": "https://github.com/BrokkAi/brokk",
     "version": "1.0.0",
     "jdeploy": {
         "jdk": false,
-        "args": ["--add-modules jdk.incubator.vector"],
+        "jdkProvider": "jbr",
+        "args": ["-Dwatch.service.polling=true"],
+        "fallbackToUniversal": false,
+        "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
+        "configFileWin": "{{ path(env.APPDATA ?? path(user.home, \"AppData\", \"Roaming\"), \"Brokk\", \"jdeploy.json\") }}",
+        "configFileLinux": "{{ path(env.XDG_CONFIG_HOME ?? path(user.home, \".config\"), \"Brokk\", \"jdeploy.json\") }}",
         "publishTargets": [{
             "name": "github: brokk",
             "type": "GITHUB",
@@ -25,10 +31,25 @@
                 "description": "Microphone permissions are required for transcribing prompts."
             }
         ],
+        "documentTypes": [{
+            "role": "Editor",
+            "description": "Open folder as Brokk project",
+            "type": "directory"
+        }],
         "jar": "app/build/libs/brokk-*.jar",
         "javafx": true,
         "title": "Brokk",
-        "downloadPage": {"platforms": ["all"]}
+        "downloadPage": {"platforms": [
+            "debian-arm64",
+            "mac-arm64",
+            "linux-x64",
+            "windows-x64",
+            "mac-high-sierra",
+            "linux-arm64",
+            "debian-x64",
+            "mac-x64"
+        ]},
+        "platformBundlesEnabled": false
     },
     "dependencies": {
         "command-exists-promise": "^2.0.2",

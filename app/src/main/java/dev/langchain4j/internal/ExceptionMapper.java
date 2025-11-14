@@ -1,6 +1,7 @@
 package dev.langchain4j.internal;
 
 import dev.langchain4j.exception.AuthenticationException;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.InternalServerException;
 import dev.langchain4j.exception.InvalidRequestException;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.net.NoRouteToHostException;
 import java.net.UnknownHostException;
 import java.nio.channels.UnresolvedAddressException;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import javax.net.ssl.SSLException;
 
@@ -65,6 +67,13 @@ public interface ExceptionMapper {
             return t instanceof RuntimeException re ? re : new LangChain4jException(t);
         }
 
+        // FIXME remove this when we're completely on brokk-llm
+        private boolean isContextError(Throwable error) {
+            return error.getMessage() != null
+                    && (error.getMessage().toLowerCase(Locale.ROOT).contains("context")
+                            || error.getMessage().toLowerCase(Locale.ROOT).contains("token"));
+        }
+
         protected RuntimeException mapHttpStatusCode(Throwable cause, int httpStatusCode) {
             if (httpStatusCode >= 500 && httpStatusCode < 600) {
                 return new InternalServerException(cause);
@@ -77,6 +86,9 @@ public interface ExceptionMapper {
             }
             if (httpStatusCode == 408) {
                 return new TimeoutException(cause);
+            }
+            if (httpStatusCode == 413 || isContextError(cause)) {
+                return new ContextTooLargeException(cause);
             }
             if (httpStatusCode == 429) {
                 return new RateLimitException(cause);

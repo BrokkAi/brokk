@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.text.NumberFormat;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -685,7 +686,7 @@ public class Helper {
         final String suffix = entry.getValue();
         final long truncated = value / (divideBy / 10);
         final boolean hasDecimal = truncated < 100 && (truncated / 10d) != (truncated / 10);
-        final java.text.NumberFormat formatter = java.text.NumberFormat.getNumberInstance(locale);
+        final NumberFormat formatter = NumberFormat.getNumberInstance(locale);
         formatter.setMinimumFractionDigits(1);
         formatter.setMaximumFractionDigits(1);
         return hasDecimal ? formatter.format(truncated / 10d) + suffix : (truncated / 10) + suffix;

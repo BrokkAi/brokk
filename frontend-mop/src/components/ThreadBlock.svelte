@@ -214,6 +214,13 @@
     .header-preview:hover {
         background: color-mix(in srgb, var(--chat-background) 50%, var(--message-background));
     }
+
+    /* High contrast mode: add dotted border to collapsed thread header */
+    :global(.theme-high-contrast) .header-preview {
+        border: 1px dotted rgba(230, 230, 230, 0.3);
+        border-left: 4px solid var(--border-color-hex);
+    }
+
     .tag {
         font-weight: 600;
     }

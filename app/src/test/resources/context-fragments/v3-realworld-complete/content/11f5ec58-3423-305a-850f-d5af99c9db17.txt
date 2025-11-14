@@ -1,0 +1,199 @@
+diff --git a/source/blender/bmesh/tests/test_bmo_spin_precision.cc b/source/blender/bmesh/tests/test_bmo_spin_precision.cc
+index 9f75bf3..d4b1b08 100644
+--- a/source/blender/bmesh/tests/test_bmo_spin_precision.cc
++++ b/source/blender/bmesh/tests/test_bmo_spin_precision.cc
+@@ -305,3 +305,194 @@
+   run_spin_precision_test(200, angle_total, dvec, 1.0e-5f);
+   run_spin_precision_test(800, angle_total, dvec, 1.0e-5f);
+ }
++
++/* Non-identity space regression test.
++ * Correct behavior: axis and dvec must be transformed by 'space' before building per-step rotations
++ * and accumulating screw translation. The current implementation does not transform 'axis', so this
++ * test is expected to FAIL until that is fixed. */
++static void build_space_rotate_y(float angle, float r_space[4][4])
++{
++  unit_m4(r_space);
++  const float axis_y[3] = {0.0f, 1.0f, 0.0f};
++  float r3[3][3];
++  axis_angle_rmat_3x3(r3, axis_y, angle);
++  copy_m4_m3(r_space, r3);
++}
++
++static void run_spin_precision_test_non_identity_space(int steps,
++                                                       const float angle_total,
++                                                       const float dvec_in[3],
++                                                       float epsilon)
++{
++  BMeshCreateParams params{};
++  params.use_toolflags = true;
++  BMesh *bm = BM_mesh_create(&bm_mesh_allocsize_default, &params);
++
++  BMVert *v0, *v1;
++  BMEdge *e01;
++  build_single_edge_mesh(bm, &v0, &v1, &e01);
++
++  /* Keep originals for filtering. */
++  std::unordered_set<const BMVert *> orig_verts;
++  orig_verts.insert(v0);
++  orig_verts.insert(v1);
++
++  /* Prepare operator. */
++  BMOperator op;
++  BMO_op_init(bm, &op, 0, "spin");
++
++  /* Input geometry: both verts and the edge. */
++  {
++    BMElem *elems[3];
++    elems[0] = (BMElem *)v0;
++    elems[1] = (BMElem *)v1;
++    elems[2] = (BMElem *)e01;
++    BMO_slot_buffer_from_array(bm, &op, "geom", BM_ALL_NOLOOP, (void **)elems, 3);
++  }
++
++  /* Parameters. */
++  const float cent[3] = {0.0f, 0.0f, 0.0f};
++  const float axis_obj[3] = {0.0f, 0.0f, 1.0f};
++  float dvec[3] = {dvec_in[0], dvec_in[1], dvec_in[2]};
++  float space[4][4];
++  /* Choose a clear non-identity space: rotate +90 degrees around Y. */
++  build_space_rotate_y(float(M_PI) * 0.5f, space);
++
++  BMO_slot_vec_set(op.slots_in, "cent", (const float *)cent);
++  BMO_slot_vec_set(op.slots_in, "axis", (const float *)axis_obj);
++  BMO_slot_vec_set(op.slots_in, "dvec", (const float *)dvec);
++  BMO_slot_int_set(op.slots_in, "steps", steps);
++  BMO_slot_float_set(op.slots_in, "angle", angle_total);
++  BMO_slot_mat4_set(op.slots_in, "space", space);
++  BMO_slot_bool_set(op.slots_in, "use_duplicate", true);
++  BMO_slot_bool_set(op.slots_in, "use_merge", false);
++  BMO_slot_bool_set(op.slots_in, "use_normal_flip", false);
++
++  /* Execute. */
++  BMO_op_exec(bm, &op);
++
++  /* Build mapping orig_idx -> P0 (object space). */
++  std::vector<std::array<float, 3>> co_orig_vec;
++  {
++    BMIter iter;
++    BMVert *v;
++    int max_idx = -1;
++    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
++      if (is_original_vert(orig_verts, v)) {
++        int idx = *((const int *)&v->no[0]);
++        if (idx > max_idx) {
++          max_idx = idx;
++        }
++      }
++    }
++    co_orig_vec.resize(max_idx + 1);
++    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
++      if (is_original_vert(orig_verts, v)) {
++        int idx = *((const int *)&v->no[0]);
++        co_orig_vec[idx] = {v->co[0], v->co[1], v->co[2]};
++      }
++    }
++  }
++
++  /* Gather clones by original index. */
++  std::vector<BMVert *> clones_by_idx0;
++  std::vector<BMVert *> clones_by_idx1;
++  {
++    BMIter iter;
++    BMVert *v;
++    BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
++      if (is_original_vert(orig_verts, v)) {
++        continue;
++      }
++      int idx = *((const int *)&v->no[0]);
++      if (idx == 0) {
++        clones_by_idx0.push_back(v);
++      }
++      else if (idx == 1) {
++        clones_by_idx1.push_back(v);
++      }
++    }
++  }
++
++  EXPECT_EQ((int)clones_by_idx0.size(), steps);
++  EXPECT_EQ((int)clones_by_idx1.size(), steps);
++
++  /* Sort clones by measured angle so j-th vertex corresponds to step index i=j+1 (object-space axis). */
++  auto angle_cmp = [&](BMVert *a, BMVert *b) {
++    float aa = angle_around_axis(cent, axis_obj, a->co);
++    float bb = angle_around_axis(cent, axis_obj, b->co);
++    return aa < bb;
++  };
++  std::sort(clones_by_idx0.begin(), clones_by_idx0.end(), angle_cmp);
++  std::sort(clones_by_idx1.begin(), clones_by_idx1.end(), angle_cmp);
++
++  /* Precompute transforms for analytic target in space. */
++  float space_inv[4][4];
++  invert_m4_m4(space_inv, space);
++  float space3[3][3];
++  copy_m3_m4(space3, space);
++
++  float cent_space[3];
++  copy_v3_v3(cent_space, cent);
++  mul_m4_v3(space, cent_space);
++
++  float axis_space[3];
++  copy_v3_v3(axis_space, axis_obj);
++  mul_m3_v3(space3, axis_space);
++  normalize_v3(axis_space);
++
++  float dvec_space[3];
++  copy_v3_v3(dvec_space, dvec);
++  mul_m3_v3(space3, dvec_space);
++
++  /* Validate per-step positions for idx 0 and idx 1. */
++  auto validate_for_idx = [&](int orig_idx, const std::vector<BMVert *> &clones) {
++    const float p0_obj[3] = {co_orig_vec[orig_idx][0], co_orig_vec[orig_idx][1], co_orig_vec[orig_idx][2]};
++    double t_accum[3] = {0.0, 0.0, 0.0};
++    for (int i = 1; i <= steps; i++) {
++      BMVert *v = clones[i - 1];
++
++      float angle_i = angle_total * (float(i) / float(steps));
++      float r_i[3][3];
++      axis_angle_rmat_3x3(r_i, axis_space, angle_i);
++
++      float t_space[3] = {0, 0, 0};
++      if (!is_zero_v3(dvec_space)) {
++        accumulate_screw_translation(i, steps, angle_total, axis_space, dvec_space, t_accum, t_space);
++      }
++
++      float p_space[3];
++      copy_v3_v3(p_space, p0_obj);
++      mul_m4_v3(space, p_space);
++
++      float ofs[3];
++      sub_v3_v3v3(ofs, p_space, cent_space);
++      mul_m3_v3(r_i, ofs);
++      add_v3_v3(ofs, cent_space);
++      add_v3_v3(ofs, t_space);
++
++      float target_obj[3];
++      copy_v3_v3(target_obj, ofs);
++      mul_m4_v3(space_inv, target_obj);
++
++      float diff[3];
++      sub_v3_v3v3(diff, v->co, target_obj);
++      float max_abs = std::max(std::fabs(diff[0]), std::max(std::fabs(diff[1]), std::fabs(diff[2])));
++      ASSERT_LE(max_abs, epsilon) << "Step " << i << " deviation too high for orig idx " << orig_idx;
++    }
++  };
++
++  validate_for_idx(0, clones_by_idx0);
++  validate_for_idx(1, clones_by_idx1);
++
++  BMO_op_finish(bm, &op);
++  BM_mesh_free(bm);
++}
++
++TEST(BMesh, SpinPrecision_NonIdentitySpace_PureRotation)
++{
++  const float angle_total = 1.2345f;
++  const float dvec[3] = {0.0f, 0.0f, 0.0f};
++  /* Tight tolerance; current implementation should FAIL this due to axis-space mismatch. */
++  run_spin_precision_test_non_identity_space(200, angle_total, dvec, 1.0e-6f);
++}

@@ -1,0 +1,7 @@
+> Likely fix:
+Compute axis_space = normalize(M3(space) * axis).
+Use axis_space to build rmat_i.
+Use axis_space in the screw accumulation as well.
+Your tests use identity space, so they won’t catch this. Consider adding a test with a non-identity space to verify.
+
+add first the test, I will execute it to confirm it fails

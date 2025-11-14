@@ -1,0 +1,13 @@
+--- old
++++ new
+@@ -8,0 +8,1 @@
++#include <array>
+@@ -173,1 +174,1 @@
+-  std::vector<float3> co_orig_vec; /* We'll emulate float3 as array below. */
++  std::vector<std::array<float, 3>> co_orig_vec; /* We'll emulate float3 as array below. */
+@@ -238,1 +239,1 @@
+-    const float p0[3] = {co_orig_vec[0].x, co_orig_vec[0].y, co_orig_vec[0].z};
++    const float p0[3] = {co_orig_vec[0][0], co_orig_vec[0][1], co_orig_vec[0][2]};
+@@ -263,1 +264,1 @@
+-    const float p0[3] = {co_orig_vec[1].x, co_orig_vec[1].y, co_orig_vec[1].z};
++    const float p0[3] = {co_orig_vec[1][0], co_orig_vec[1][1], co_orig_vec[1][2]};

@@ -34,13 +34,13 @@
     }
   }
 
-  const defaults = getBubbleDisplayDefaults(bubble.type);
-  const hlVar = defaults.hlVar;
-  const bgVar = defaults.bgVar;
+  $: defaults = getBubbleDisplayDefaults(bubble.type);
+  $: hlVar = defaults.hlVar;
+  $: bgVar = defaults.bgVar;
 
   /* Use provided title/icon if available, otherwise fall back to defaults */
-  const title = bubble.title ?? defaults.title;
-  const iconId = bubble.iconId ?? defaults.iconId;
+  $: title = bubble.title ?? defaults.title;
+  $: iconId = bubble.iconId ?? defaults.iconId;
 </script>
 
 <div
@@ -82,6 +82,12 @@
     flex-direction: column;
     gap: 0.4em;
     word-break: break-word;
+  }
+
+  /* High contrast mode: add a subtle dotted border around the entire bubble */
+  :global(.theme-high-contrast) .message-bubble {
+    border: 1px dotted rgba(230, 230, 230, 0.3);
+    border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
   }
 
   .header {

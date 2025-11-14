@@ -56,13 +56,6 @@ project/project/
 !.brokk/review.md
 !.brokk/project.properties
 
-### JOERN'S CONFIGURATION ###
-cpg.bin
-/workspace/
-
-### LSP Test Files ###
-**/testcode-*/bin/
-
 ### JDeploy CONFIGURATION ###
 .jdeploy/
 

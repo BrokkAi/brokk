@@ -1,4 +1,4 @@
-import io.github.jbellis.brokk.Foo;
+import ai.brokk.Foo;
 
 public class UsePackaged {
     public void callPackagedMethod() {

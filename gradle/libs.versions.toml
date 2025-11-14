@@ -4,7 +4,7 @@ log4j = "2.20.0"
 jackson = "2.18.3"
 jgit = "7.4.0.202509020913-r"
 nullaway = "0.12.7"
-flatlaf = "3.6"
+flatlaf = "3.6.2"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
 treesitter-lang = "0.23.4"
@@ -36,9 +36,9 @@ junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
-junit-platform-engine = "org.junit.platform:junit-platform-engine:2.0.0"
-junit-platform-launcher = "org.junit.platform:junit-platform-launcher:2.0.0"
-junit-platform-commons = "org.junit.platform:junit-platform-commons:2.0.0"
+junit-platform-engine = { module = "org.junit.platform:junit-platform-engine", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
+junit-platform-commons = { module = "org.junit.platform:junit-platform-commons", version.ref = "junit" }
 jupiter-iface = "com.github.sbt.junit:jupiter-interface:0.13.3"
 
 # Static Analysis
@@ -46,6 +46,9 @@ nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
 checker-qual = "org.checkerframework:checker-qual:3.49.3"
 checker-util = "org.checkerframework:checker-util:3.49.3"
 dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
+auto-service-annotations = "com.google.auto.service:auto-service-annotations:1.1.1"
+auto-service = "com.google.auto.service:auto-service:1.1.1"
+errorprone-test-helpers = "com.google.errorprone:error_prone_test_helpers:2.27.1"
 
 # UI
 flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
@@ -58,13 +61,14 @@ jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
 okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
 jspecify = "org.jspecify:jspecify:1.0.0"
 jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
-jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
+apache-commons-text = "org.apache.commons:commons-text:1.12.0"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
+pcollections = "org.pcollections:pcollections:5.0.0"
 
 # Terminal
 jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }
@@ -105,10 +109,9 @@ treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
 treesitter-python = { module = "io.github.bonede:tree-sitter-python", version.ref = "treesitter-lang" }
 treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
 treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
+treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
 
-# Eclipse LSP
-eclipse-lsp4j = "org.eclipse.lsp4j:org.eclipse.lsp4j:0.22.0"
-eclipse-jsonrpc = "org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.22.0"
+# Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.43.0"
 
 # Decompiler
@@ -133,10 +136,9 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
-eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
-apache = ["apache-compress"]
+apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
 jediterm = ["jediterm-ui", "jediterm-core", "jediterm-pty", "pty4j"]
 

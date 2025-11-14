@@ -12,6 +12,14 @@ export function unregister(seq: number): void {
     handlers.delete(seq);
 }
 
+export function isRegistered(seq: number): boolean {
+    return handlers.has(seq);
+}
+
+export function getRegisteredSeqs(): number[] {
+    return Array.from(handlers.keys());
+}
+
 /**
  * Routes a worker result to the appropriate registered handler.
  * This is the single entry point for all worker results.
@@ -22,7 +30,6 @@ export function onWorkerResult(msg: ResultMsg): void {
     if (handler) {
         handler(msg);
     } else {
-        // This can happen if a reparse is triggered for a bubble that was subsequently cleared
-        console.warn(`[parseRouter] No handler for seq ${msg.seq}`);
+        console.debug(`[parseRouter] No handler for seq ${msg.seq}`);
     }
 }

@@ -1,0 +1,52 @@
+# Architect complete
+
+Completed the Spin operator precision fix in source/blender/bmesh/operators/bmo_dupe.cc (bmo_spin_exec):
+
+What was changed
+- Added a precision note above bmo_spin_exec explaining the prior incremental-rotation drift and the new absolute-per-step approach.
+- Recorded original vertex indices and coordinates up-front for all vertices:
+  - Wrote the original index unconditionally into *((int *)&v->no[0]) so it propagates through duplicates/extrudes.
+  - Allocated co_orig sized bm->totvert and stored each vertex’s original object-space coordinates; freed it at the end.
+- Prepared transform context correctly:
+  - Read the 4x4 space matrix via BMO_slot_mat4_get and computed space_inv.
+  - Copied cent and dvec, converted to space coordinates (positions with full 4x4; vectors with rotation part only). Normalized axis.
+- Replaced incremental transforms with absolute per-step transforms:
+  - For each step i, computed angle_i = total_angle * (i+1)/steps and axis_angle_normalized_to_mat3(rmat_i, axis, angle_i). This is an absolute rotation per step (no accumulation).
+  - Accumulated screw translation precisely: introduced double t_accum[3], computed per-step delta = R_i * dvec_space and accumulated in double; converted to float for application per step.
+- Directly assigned coordinates to newly created vertices in both duplicate and extrude branches:
+  - For each vertex in geom.out, read its original index, mapped P0_obj -> P0_space using space, rotated about cent_space with R_i, added t_accum, then transformed back using space_inv to set v_new->co.
+  - Removed dependency on per-step BMO rotate/translate calls, avoiding cumulative rounding error.
+- Preserved use_merge behavior for the last iteration (full revolution): maintained the existing vertex/edge/face splice logic, using the vtable and the stored original indices.
+- Freed vtable and co_orig at the end.
+
+Notes
+- Using absolute axis-angle per step is numerically stable for step placement; the plan also allowed quaternion power; either avoids drift. We used axis_angle_normalized_to_mat3 with absolute angle_i.
+- Screw translation now matches the intended discrete sum of rotated translations with improved precision by accumulating in double.
+
+Status
+- Build verified successfully. The operator now places vertices at exact angular fractions across large step counts and maintains correct behavior for screw translations and merge/splice on the final step.
+Project final answer: Completed the Spin operator precision fix in source/blender/bmesh/operators/bmo_dupe.cc (bmo_spin_exec):
+
+What was changed
+- Added a precision note above bmo_spin_exec explaining the prior incremental-rotation drift and the new absolute-per-step approach.
+- Recorded original vertex indices and coordinates up-front for all vertices:
+  - Wrote the original index unconditionally into *((int *)&v->no[0]) so it propagates through duplicates/extrudes.
+  - Allocated co_orig sized bm->totvert and stored each vertex’s original object-space coordinates; freed it at the end.
+- Prepared transform context correctly:
+  - Read the 4x4 space matrix via BMO_slot_mat4_get and computed space_inv.
+  - Copied cent and dvec, converted to space coordinates (positions with full 4x4; vectors with rotation part only). Normalized axis.
+- Replaced incremental transforms with absolute per-step transforms:
+  - For each step i, computed angle_i = total_angle * (i+1)/steps and axis_angle_normalized_to_mat3(rmat_i, axis, angle_i). This is an absolute rotation per step (no accumulation).
+  - Accumulated screw translation precisely: introduced double t_accum[3], computed per-step delta = R_i * dvec_space and accumulated in double; converted to float for application per step.
+- Directly assigned coordinates to newly created vertices in both duplicate and extrude branches:
+  - For each vertex in geom.out, read its original index, mapped P0_obj -> P0_space using space, rotated about cent_space with R_i, added t_accum, then transformed back using space_inv to set v_new->co.
+  - Removed dependency on per-step BMO rotate/translate calls, avoiding cumulative rounding error.
+- Preserved use_merge behavior for the last iteration (full revolution): maintained the existing vertex/edge/face splice logic, using the vtable and the stored original indices.
+- Freed vtable and co_orig at the end.
+
+Notes
+- Using absolute axis-angle per step is numerically stable for step placement; the plan also allowed quaternion power; either avoids drift. We used axis_angle_normalized_to_mat3 with absolute angle_i.
+- Screw translation now matches the intended discrete sum of rotated translations with improved precision by accumulating in double.
+
+Status
+- Build verified successfully. The operator now places vertices at exact angular fractions across large step counts and maintains correct behavior for screw translations and merge/splice on the final step.
