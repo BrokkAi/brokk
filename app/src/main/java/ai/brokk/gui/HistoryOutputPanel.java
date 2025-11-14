@@ -1771,14 +1771,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
         if (idx < 0) return;
 
-        String baselineSuffix = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+        // For special baseline states (detached HEAD or no repository), omit the suffix
+        boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
+        String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
                 ? " vs " + lastBaselineLabel
                 : "";
 
         try {
             if (res.filesChanged() == 0) {
                 tabs.setTitleAt(idx, "Changes (0)" + baselineSuffix);
-                tabs.setToolTipTextAt(idx, "No changes" + baselineSuffix + ".");
+                String tooltipMsg = isSpecialState ? "No baseline to compare" : ("No changes" + baselineSuffix);
+                tabs.setToolTipTextAt(idx, tooltipMsg + ".");
             } else {
                 boolean isDark = chrome.getTheme().isDarkTheme();
                 Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
@@ -2976,7 +2979,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.removeAll();
 
         if (res.filesChanged() == 0) {
-            var none = new JLabel("No changes in this session.", SwingConstants.CENTER);
+            String message;
+            if ("detached HEAD".equals(lastBaselineLabel)) {
+                message = "Detached HEAD – no changes to show";
+            } else if ("No repository".equals(lastBaselineLabel)) {
+                message = "No baseline to compare";
+            } else {
+                message = "No changes in this session.";
+            }
+            var none = new JLabel(message, SwingConstants.CENTER);
             none.setBorder(new EmptyBorder(20, 0, 20, 0));
             container.setLayout(new BorderLayout());
             container.add(none, BorderLayout.CENTER);
