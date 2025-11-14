@@ -675,22 +675,20 @@ public class CodeAgent {
     private EditBlock.EditResult applyBlocksAndHandleErrors(
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
-        // Identify files referenced by blocks that are not already editable
-        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
+        // Identify files referenced by blocks that are not already editable, to check for read-only conflicts.
+        // We only validate for read-only conflicts here; EditBlock.apply handles all other file resolution failures.
         var filesToAdd = blocksToApply.stream()
                 .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
                 .distinct()
-                .map(editBlock -> {
+                .flatMap(editBlock -> {
                     final var f = editBlock.rawFileName();
                     try {
-                        return contextManager.toFile(f);
+                        return Stream.of(contextManager.toFile(f));
                     } catch (IllegalArgumentException e) {
-                        invalidFileBlocks.add(
-                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
-                        return null;
+                        // EditBlock.apply will handle and report this as a file resolution failure
+                        return Stream.empty();
                     }
                 })
-                .filter(Objects::nonNull)
                 .filter(file -> !contextManager.getEditableFiles().contains(file))
                 .toList();
 
@@ -719,7 +717,6 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
-        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
@@ -796,7 +793,11 @@ public class CodeAgent {
                 metrics.failedEditBlocks += failedBlocks.size();
             }
             int succeededCount = attemptedBlockCount - failedBlocks.size();
+            assert succeededCount >= 0 : "succeededCount cannot be negative: attempted=%d, failed=%d"
+                    .formatted(attemptedBlockCount, failedBlocks.size());
             int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
+            assert newBlocksAppliedWithoutBuild >= 0 : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
+                    .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
             // Update originalFileContents in the workspace state being built for the next step
             Map<ProjectFile, String> nextOriginalFileContents = new HashMap<>(es.originalFileContents());
