@@ -87,7 +87,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
-
+    private static final String POWER_RANKING_TITLE = "Brokk Power Ranking";
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
@@ -358,7 +358,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeBadge.setFocusable(false);
 
         // Initialize Brokk Power Ranking indicator
-        this.brokkRankingLabel = new JLabel("Brokk Power Ranking: Unknown");
+        this.brokkRankingLabel = new JLabel(POWER_RANKING_TITLE + ": Unknown");
         this.brokkRankingLabel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
         this.brokkRankingLabel.setFocusable(false);
         this.brokkRankingLabel.setOpaque(false);
@@ -1024,11 +1024,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
-                        if (stat == null) {
-                            tokenUsageBar.setVisible(false);
-                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
-                            return;
-                        }
                         // make metadata available to TokenUsageBar for tooltip/warning rendering
                         tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
@@ -1051,9 +1046,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                         // Update Brokk Power Ranking indicator
                         if (stat.successRate == -1) {
-                            brokkRankingLabel.setText("Brokk Power Ranking: Unknown");
+                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
                         } else {
-                            brokkRankingLabel.setText("Brokk Power Ranking: " + stat.successRate + "%");
+                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
                         }
                         brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
                         brokkRankingLabel.setVisible(true);
@@ -1095,7 +1090,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static String buildBrokkRankingOnlyTooltip(int successRate) {
         StringBuilder body = new StringBuilder();
-        body.append("<div><b>Brokk Power Ranking</b></div>");
+        body.append("<div><b>");
+        body.append(POWER_RANKING_TITLE);
+        body.append("</b></div>");
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
@@ -1141,7 +1138,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
-        body.append("<div><b>Brokk Power Ranking</b></div>");
+        body.append("<div><b>");
+        body.append(POWER_RANKING_TITLE);
+        body.append("</b></div>");
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
