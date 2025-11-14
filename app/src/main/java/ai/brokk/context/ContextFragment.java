@@ -416,6 +416,16 @@ public interface ContextFragment {
     interface DynamicIdentity {}
 
     /**
+     * Marker for fragments that can be toggled read-only at runtime.
+     * This does not affect serialization yet.
+     */
+    interface EditableFragment {
+        boolean isReadOnly();
+
+        void setReadOnly(boolean readOnly);
+    }
+
+    /**
      * Marker interface for fragments that provide image content.
      * Implementations must provide a stable content hash for equality checks.
      */
@@ -544,7 +554,7 @@ public interface ContextFragment {
         }
     }
 
-    final class ProjectPathFragment implements PathFragment, ComputedFragment {
+    final class ProjectPathFragment implements PathFragment, ComputedFragment, EditableFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
@@ -552,6 +562,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
         private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private transient boolean readOnly;
 
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -669,6 +680,16 @@ public interface ContextFragment {
                 filesCv = new ComputedValue<>("ppf-files-" + id(), this::files, getFragmentExecutor());
             }
             return filesCv;
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
+        @Override
+        public void setReadOnly(boolean readOnly) {
+            this.readOnly = readOnly;
         }
 
         @Override
@@ -1747,9 +1768,10 @@ public interface ContextFragment {
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    class UsageFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class UsageFragment extends ComputedVirtualFragment implements EditableFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private transient boolean readOnly;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, true);
@@ -1873,6 +1895,16 @@ public interface ContextFragment {
         }
 
         @Override
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
+        @Override
+        public void setReadOnly(boolean readOnly) {
+            this.readOnly = readOnly;
+        }
+
+        @Override
         public ContextFragment refreshCopy() {
             return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
         }
@@ -1881,9 +1913,10 @@ public interface ContextFragment {
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
-    class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class CodeFragment extends ComputedVirtualFragment implements EditableFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
         private @Nullable ComputedValue<CodeUnit> unitCv;
+        private transient boolean readOnly;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
             super(contextManager);
@@ -1999,6 +2032,16 @@ public interface ContextFragment {
 
         public String getFullyQualifiedName() {
             return fullyQualifiedName;
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
+        @Override
+        public void setReadOnly(boolean readOnly) {
+            this.readOnly = readOnly;
         }
 
         public ComputedValue<CodeUnit> computedUnit() {
