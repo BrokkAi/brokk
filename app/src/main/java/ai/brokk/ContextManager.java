@@ -1560,6 +1560,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
             if (autoCommit) {
                 new GitWorkflow(this).performAutoCommit(prompt);
+                io.updateGitRepo();
             }
             if (autoCompress) {
                 compressHistory(); // synchronous

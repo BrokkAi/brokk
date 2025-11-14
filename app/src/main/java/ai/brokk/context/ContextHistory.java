@@ -328,6 +328,7 @@ public class ContextHistory {
         selected = liveContext();
         applySnapshotToWorkspace(history.peekLast(), io);
         redoFileDeletions(io, project, popped);
+        io.updateGitRepo();
         return true;
     }
 
@@ -490,6 +491,8 @@ public class ContextHistory {
                     IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
             io.updateWorkspace();
         }
+
+        io.updateGitRepo();
 
         if (!materializationWarnings.isEmpty()) {
             io.toolError(
