@@ -421,6 +421,64 @@ public class Context {
                 null);
     }
 
+    /**
+     * Returns a new Context where the fragment with the given id is replaced with a new instance
+     * that has a fresh ID and the requested read-only state set (for EditableFragment types only).
+     * If no matching editable fragment is found, returns this.
+     */
+    public Context toggleReadOnlyForFragmentId(String fragmentId, boolean setReadOnly) {
+        // Find the target fragment
+        ContextFragment target = null;
+        for (var f : fragments) {
+            if (f.id().equals(fragmentId)) {
+                target = f;
+                break;
+            }
+        }
+        if (!(target instanceof ContextFragment.EditableFragment<?> editable)) {
+            return this;
+        }
+
+        // Rebuild fragments replacing the target with a new instance using withReadOnly (fresh ID).
+        var newFragments = new ArrayList<ContextFragment>(fragments.size());
+        for (var f : fragments) {
+            if (!f.id().equals(fragmentId)) {
+                newFragments.add(f);
+                continue;
+            }
+            ContextFragment replacement = (ContextFragment) editable.withReadOnly(setReadOnly);
+            newFragments.add(replacement);
+        }
+
+        if (newFragments.equals(fragments)) {
+            return this;
+        }
+
+        // Build the action message without blocking; if fragment is computed, complete later.
+        Future<String> actionFuture;
+        String actionPrefix = setReadOnly ? "Set Read-Only: " : "Unset Read-Only: ";
+
+        if (target instanceof ContextFragment.ComputedFragment cf) {
+            // Non-blocking: use computedDescription, complete when available
+            var cv = cf.computedDescription();
+            cv.start();
+            var actionCf = new CompletableFuture<String>();
+            cv.onComplete((label, ex) -> {
+                if (ex != null) {
+                    logger.error("Exception occured while computing fragment description!");
+                } else {
+                    actionCf.complete(actionPrefix + label);
+                }
+            });
+            actionFuture = actionCf;
+        } else {
+            String label = target.shortDescription();
+            actionFuture = CompletableFuture.completedFuture(actionPrefix + label);
+        }
+
+        return withFragments(newFragments, actionFuture);
+    }
+
     public boolean isEmpty() {
         return fragments.isEmpty() && taskHistory.isEmpty();
     }
