@@ -2,11 +2,10 @@ package ai.brokk.prompts;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
-import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -130,7 +129,7 @@ public abstract class CodePrompts {
         return flags;
     }
 
-    public String codeReminder(Service service, StreamingChatModel model) {
+    public String codeReminder(AbstractService service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
         return baseReminder + "\n" + MARKDOWN_REMINDER;
     }
@@ -255,7 +254,7 @@ public abstract class CodePrompts {
 
         messages.add(systemMessage(cm, askReminder()));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
-        messages.addAll(getHistoryMessages(cm.topContext()));
+        messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
         return messages;
@@ -268,7 +267,7 @@ public abstract class CodePrompts {
      * @return A string summarizing editable files, read-only snippets, etc.
      */
     public static String formatWorkspaceToc(IContextManager cm) {
-        var ctx = cm.topContext();
+        var ctx = cm.liveContext();
         var editableContents = ctx.getEditableToc();
         var readOnlyContents = ctx.getReadOnlyToc();
         var workspaceBuilder = new StringBuilder();
@@ -329,11 +328,9 @@ public abstract class CodePrompts {
 
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.
-        var topCtx = cm.topContext();
-        var projectFiles = topCtx.fileFragments()
-                .flatMap(cf -> cf.files().stream())
-                .map(bf -> (ProjectFile) bf)
-                .collect(Collectors.toList());
+        var topCtx = cm.liveContext();
+        var projectFiles =
+                topCtx.fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toList());
 
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;

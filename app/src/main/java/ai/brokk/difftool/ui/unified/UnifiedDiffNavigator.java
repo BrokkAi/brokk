@@ -1,5 +1,6 @@
 package ai.brokk.difftool.ui.unified;
 
+import ai.brokk.gui.SwingUtil;
 import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
@@ -201,10 +202,11 @@ public class UnifiedDiffNavigator {
                 textArea.requestFocusInWindow();
 
                 // Scroll to make the line visible
-                var rect = textArea.modelToView2D(offset).getBounds();
-                if (rect != null) {
+                var rectBounds = SwingUtil.modelToView(textArea, offset);
+                if (rectBounds != null) {
                     // Expand rectangle to ensure some context is visible
-                    var expandedRect = new Rectangle(rect.x, Math.max(0, rect.y - 50), rect.width, rect.height + 100);
+                    var expandedRect = new Rectangle(
+                            rectBounds.x, Math.max(0, rectBounds.y - 50), rectBounds.width, rectBounds.height + 100);
                     textArea.scrollRectToVisible(expandedRect);
                 }
 

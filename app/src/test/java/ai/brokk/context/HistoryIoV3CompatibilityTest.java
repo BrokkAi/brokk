@@ -15,6 +15,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.jetbrains.annotations.Nullable;
@@ -45,7 +46,9 @@ class HistoryIoV3CompatibilityTest {
         assertNotNull(history, "History should not be null");
         assertFalse(history.getHistory().isEmpty(), "History contexts should not be empty");
 
-        Context top = history.getLiveContext();
+        Context top = history.liveContext();
+        // Let fragments materialize
+        top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
                 .contains("GitHubAuth.java"));
@@ -102,7 +105,7 @@ class HistoryIoV3CompatibilityTest {
         // Validate basic deserialization
         assertNotNull(history, "ContextHistory should not be null");
         assertFalse(history.getHistory().isEmpty(), "Contexts should not be empty");
-        Context live = history.getLiveContext();
+        Context live = history.liveContext();
         assertNotNull(live, "Live context should not be null");
         assertTrue(live.allFragments().findAny().isPresent(), "Live context should have fragments");
 

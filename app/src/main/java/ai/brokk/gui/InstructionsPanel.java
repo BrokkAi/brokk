@@ -4,6 +4,7 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -54,7 +55,6 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1015,7 +1015,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int successRate,
             boolean isTested) {}
     /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
-    private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, Service service) {
+    private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());
         if (pricing.bands().isEmpty()) {
             return "";
@@ -1239,7 +1239,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
         return contextManager
-                .topContext()
+                .liveContext()
                 .allFragments()
                 .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
@@ -1435,7 +1435,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // If Workspace is empty, ask the user how to proceed
-        if (chrome.getContextManager().topContext().isEmpty()) {
+        if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
             Object[] options = {"Code", "Search", "Cancel"};
@@ -1517,12 +1517,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var cm = chrome.getContextManager();
             var context = cm.liveContext();
-            SearchAgent agent = new SearchAgent(
-                    context,
-                    query,
-                    modelToUse,
-                    EnumSet.of(SearchAgent.Terminal.ANSWER, SearchAgent.Terminal.TASK_LIST),
-                    scope);
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
             try {
                 agent.scanInitialContext();
             } catch (InterruptedException e) {
@@ -1702,8 +1697,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         // Update chips from the selected context and toggle read-only
         workspaceItemsChipPanel.setFragmentsForContext(newCtx);
-        boolean readOnly =
-                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        boolean readOnly = !Objects.equals(newCtx, chrome.getContextManager().liveContext());
         workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);

@@ -8,7 +8,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
@@ -39,10 +38,8 @@ public class SessionManagerTest {
     @BeforeEach
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        // Clear the intern pool before each test to ensure isolation
-        FrozenFragment.clearInternPoolForTesting();
         // Reset fragment ID counter for test isolation
-        ContextFragment.nextId.set(1);
+        ContextFragment.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -116,7 +113,7 @@ public class SessionManagerTest {
         Context context2 = new Context(mockContextManager, "Second context with fragments")
                 .addVirtualFragment(sf)
                 .addPathFragments(List.of(pf));
-        originalHistory.addFrozenContextAndClearRedo(context2.freeze());
+        originalHistory.pushContext(context2);
 
         // Get initial modified time
         long initialModifiedTime = sessionManager.listSessions().stream()
@@ -229,20 +226,11 @@ public class SessionManagerTest {
         if (expected.isText()) {
             assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
         } else {
-            // For image fragments, compare byte content if both are FrozenFragment or can provide bytes
-            if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-                assertArrayEquals(
-                        expectedFf.imageBytesContent(),
-                        actualFf.imageBytesContent(),
-                        "FrozenFragment imageBytesContent mismatch for ID " + expected.id());
-            } else {
-                if (actual.image() != null) { // Fallback for non-frozen, if any after freezing
-                    assertArrayEquals(
-                            imageToBytes(expected.image()),
-                            imageToBytes(actual.image()),
-                            "Fragment image content mismatch for ID " + expected.id());
-                }
-            }
+            // Compare image content via the common API
+            assertArrayEquals(
+                    imageToBytes(expected.image()),
+                    imageToBytes(actual.image()),
+                    "Fragment image content mismatch for ID " + expected.id());
         }
 
         // Compare additional serialized top-level methods
@@ -253,24 +241,14 @@ public class SessionManagerTest {
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
         // Compare files and sources (ProjectFile and CodeUnit DTOs are by value)
-        if (!(expected instanceof FrozenFragment) && !(actual instanceof FrozenFragment)) {
-            assertEquals(
-                    expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                    "Fragment sources mismatch for ID " + expected.id());
-        }
+        assertEquals(
+                expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
                 expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
-
-        if (expected instanceof FrozenFragment expectedFf && actual instanceof FrozenFragment actualFf) {
-            assertEquals(
-                    expectedFf.originalClassName(),
-                    actualFf.originalClassName(),
-                    "FrozenFragment originalClassName mismatch for ID " + expected.id());
-            assertEquals(expectedFf.meta(), actualFf.meta(), "FrozenFragment meta mismatch for ID " + expected.id());
-        }
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {

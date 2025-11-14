@@ -367,7 +367,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
                     if (!deletedInfos.isEmpty()) {
                         var contextHistory = contextManager.getContextHistory();
-                        var frozenContext = contextHistory.topContext();
+                        var frozenContext = contextHistory.liveContext();
                         contextHistory.addEntryInfo(
                                 frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
                         contextManager

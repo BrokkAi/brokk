@@ -30,7 +30,7 @@ class BlitzForgeTest {
         // Use interface defaults; no special behavior needed for this minimal test
         return new IContextManager() {
             @Override
-            public Context topContext() {
+            public Context liveContext() {
                 // Return an empty Context for test purposes
                 return new Context(this, null);
             }

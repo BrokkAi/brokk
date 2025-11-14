@@ -4,6 +4,7 @@ import ai.brokk.exception.GlobalExceptionHandler;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
 import java.awt.RenderingHints;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Callable;
@@ -134,6 +135,23 @@ public class SwingUtil {
         return r2d == null
                 ? null
                 : new Rectangle((int) r2d.getX(), (int) r2d.getY(), (int) r2d.getWidth(), (int) r2d.getHeight());
+    }
+
+    /**
+     * Safely calls {@code modelToView2D} with null handling.
+     *
+     * @param comp the text component
+     * @param pos the document position
+     * @return the bounding rectangle, or null if the component doesn't have a size yet
+     */
+    @Nullable
+    public static Rectangle2D modelToView2D(JTextComponent comp, int pos) {
+        try {
+            return comp.modelToView2D(pos);
+        } catch (BadLocationException e) {
+            logger.warn("Invalid position {} for modelToView2D", pos, e);
+            return null;
+        }
     }
 
     private static Icon createSimpleFallbackIcon() {

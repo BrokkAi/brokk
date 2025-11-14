@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -264,7 +265,7 @@ public class GoAnalyzerTest {
         // The returnTypeText should be "string".
         // The current renderFunctionDeclaration formats it as: "func MyTopLevelFunction(param int) string { ... }"
         String expected = "func MyTopLevelFunction(param int) string { ... }";
-        assertEquals(expected.trim(), skeleton.get().trim());
+        assertCodeEquals(expected.trim(), skeleton.get());
     }
 
     @Test
@@ -273,7 +274,7 @@ public class GoAnalyzerTest {
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.anotherFunc");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.anotherFunc should be found.");
         String expected = "func anotherFunc() { ... }"; // No params, no return type in source
-        assertEquals(expected.trim(), skeleton.get().trim());
+        assertCodeEquals(expected.trim(), skeleton.get());
     }
 
     @Test
@@ -286,7 +287,7 @@ public class GoAnalyzerTest {
                           type MyInterface interface {
                             DoSomething()
                           }""";
-        assertEquals(expected.trim(), skeleton.get().trim());
+        assertCodeEquals(expected.trim(), skeleton.get());
     }
 
     @Test
@@ -295,7 +296,7 @@ public class GoAnalyzerTest {
         assertTrue(header.isPresent(), "Skeleton header for declpkg.MyTopLevelFunction should be found.");
         // For functions without children, getSkeletonHeader is the same as getSkeleton
         String expected = "func MyTopLevelFunction(param int) string { ... }";
-        assertEquals(expected.trim(), header.get().trim());
+        assertCodeEquals(expected.trim(), header.get());
     }
 
     @Test
@@ -309,7 +310,7 @@ public class GoAnalyzerTest {
                   [...]
                 }
                 """;
-        assertEquals(expectedStruct.trim(), headerStruct.get().trim());
+        assertCodeEquals(expectedStruct.trim(), headerStruct.get());
 
         Optional<String> headerInterface = AnalyzerUtil.getSkeletonHeader(analyzer, "declpkg.MyInterface");
         assertTrue(headerInterface.isPresent(), "Skeleton header for declpkg.MyInterface should be found.");
@@ -319,7 +320,7 @@ public class GoAnalyzerTest {
                   [...]
                 }
                 """;
-        assertEquals(expectedInterface.trim(), headerInterface.get().trim());
+        assertCodeEquals(expectedInterface.trim(), headerInterface.get());
     }
 
     @Test
@@ -328,7 +329,7 @@ public class GoAnalyzerTest {
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalVar");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalVar should be found.");
         // The skeleton will be the text of the var_spec node
-        assertEquals("MyGlobalVar int = 42", skeleton.get().trim());
+        assertCodeEquals("MyGlobalVar int = 42", skeleton.get());
     }
 
     @Test
@@ -337,7 +338,7 @@ public class GoAnalyzerTest {
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalConst");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalConst should be found.");
         // The skeleton will be the text of the const_spec node
-        assertEquals("MyGlobalConst = \"hello_const\"", skeleton.get().trim());
+        assertCodeEquals("MyGlobalConst = \"hello_const\"", skeleton.get());
     }
 
     @Test
@@ -364,7 +365,7 @@ public class GoAnalyzerTest {
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg.MyStruct.GetFieldA");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyStruct.GetFieldA should be found.");
         String expected = "func (s MyStruct) GetFieldA() int { ... }";
-        assertEquals(expected.trim(), skeleton.get().trim());
+        assertCodeEquals(expected.trim(), skeleton.get());
     }
 
     @Test
@@ -380,8 +381,8 @@ public class GoAnalyzerTest {
                                     FieldA int
                                     func (s MyStruct) GetFieldA() int { ... }
                                   }""";
-        String actualSkeleton = skeleton.get().replaceAll("\\r\\n", "\n").trim(); // Normalize newlines
-        assertEquals(
+        String actualSkeleton = skeleton.get();
+        assertCodeEquals(
                 expectedSkeleton.trim(), actualSkeleton, "Skeleton for MyStruct with fields and methods mismatch.");
     }
 

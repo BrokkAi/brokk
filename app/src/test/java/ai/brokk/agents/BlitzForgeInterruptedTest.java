@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
@@ -9,6 +10,8 @@ import ai.brokk.context.Context;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Files;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,7 +32,7 @@ import org.junit.jupiter.api.Test;
 class BlitzForgeInterruptedTest {
 
     private IContextManager contextManager;
-    private Service service;
+    private AbstractService service;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -43,7 +46,8 @@ class BlitzForgeInterruptedTest {
     @DisplayName("TaskResult with live context succeeds and assertion is enforced")
     void testTaskResultRequiresLiveContext() {
         // Get the live top context
-        Context liveContext = contextManager.topContext();
+        Context liveContext = contextManager.liveContext();
+        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Constructing TaskResult with live context should succeed
         TaskResult result = assertDoesNotThrow(
@@ -64,13 +68,8 @@ class BlitzForgeInterruptedTest {
     @DisplayName("TaskResult with unfrozen context should succeed")
     void testUnfrozenContextSucceeds() {
         // Get the live top context
-        Context liveContext = contextManager.topContext();
-
-        // Freeze it
-        Context frozenContext = liveContext.freeze();
-
-        // Unfreeze it
-        Context unfrozenContext = Context.unfreeze(frozenContext);
+        Context liveContext = contextManager.liveContext();
+        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Constructing TaskResult with unfrozen context should succeed
         TaskResult result = assertDoesNotThrow(
@@ -78,7 +77,7 @@ class BlitzForgeInterruptedTest {
                         contextManager,
                         "test instructions",
                         List.of(),
-                        unfrozenContext,
+                        liveContext,
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
                         new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
                 "TaskResult construction should succeed with unfrozen context");
@@ -121,11 +120,8 @@ class BlitzForgeInterruptedTest {
     @Test
     @DisplayName("Context.unfreeze is idempotent on live contexts")
     void testUnfreezeIdempotency() {
-        Context liveContext = contextManager.topContext();
-
-        // Unfreezing a live context should return a live context
-        Context unfrozen = Context.unfreeze(liveContext);
-        assertNotNull(unfrozen, "Context.unfreeze should not return null");
+        Context liveContext = contextManager.liveContext();
+        liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Should be usable for TaskResult construction
         TaskResult result = assertDoesNotThrow(
@@ -133,35 +129,12 @@ class BlitzForgeInterruptedTest {
                         contextManager,
                         "test",
                         List.of(),
-                        unfrozen,
+                        liveContext,
                         new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
                         new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
                 "Result from unfrozen context should be usable for TaskResult");
 
         assertNotNull(result, "TaskResult should be successfully constructed");
-    }
-
-    @Test
-    @DisplayName("Freeze-unfreeze round-trip produces usable context")
-    void testFreezeUnfreezeRoundTrip() {
-        Context original = contextManager.topContext();
-
-        Context frozen = original.freeze();
-        Context unfrozen = Context.unfreeze(frozen);
-
-        // The unfrozen context should be usable for TaskResult construction
-        TaskResult result = assertDoesNotThrow(
-                () -> new TaskResult(
-                        contextManager,
-                        "test",
-                        List.of(),
-                        unfrozen,
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                        new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, new Service.ModelConfig("test-model"))),
-                "TaskResult should be constructible from unfrozen context after freeze-unfreeze cycle");
-
-        assertNotNull(result, "TaskResult should be successfully constructed");
-        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
     }
 
     @Test

@@ -10,7 +10,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.util.migrationv4.V3_HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
@@ -22,6 +21,7 @@ import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +32,7 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public final class HistoryIo {
@@ -82,23 +83,13 @@ public final class HistoryIo {
         if (isV4) {
             return readZipV4(zip, mgr);
         } else if (isV3) {
-            try {
-                // Try reading as V4 first (supports migrated zips that still use the V3 filename)
-                return readZipV4(zip, mgr);
-            } catch (Exception ex) {
-                logger.debug(
-                        "Failed to read history zip as V4 (under V3 filename), falling back to V3 reader: {}",
-                        ex.toString());
-                return V3_HistoryIo.readZip(zip, mgr);
-            }
+            return V3_HistoryIo.readZip(zip, mgr);
         }
         throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
-        return readZipWithFragmentsFile(zip, mgr, V3_FRAGMENTS_FILENAME);
-        // TODO [Migration 4] replace above with below
-        //        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
+        return readZipWithFragmentsFile(zip, mgr, V4_FRAGMENTS_FILENAME);
     }
 
     private static ContextHistory readZipWithFragmentsFile(Path zip, IContextManager mgr, String fragmentsFilename)
@@ -211,6 +202,19 @@ public final class HistoryIo {
                     }
                 }));
 
+        // Ensure nextId is updated to avoid collisions with loaded fragment IDs
+        fragmentCache.keySet().stream()
+                .map(id -> {
+                    try {
+                        return Integer.parseInt(id);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .ifPresent(maxId -> ContextFragment.setMinimumId(maxId + 1));
+
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
             CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
@@ -237,21 +241,19 @@ public final class HistoryIo {
         }
     }
 
+    @Blocking
     public static void writeZip(ContextHistory ch, Path target) throws IOException {
         var writer = new ContentWriter();
         var collectedReferencedDtos = new HashMap<String, ReferencedFragmentDto>();
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
-        var imageDomainFragments = new HashSet<FrozenFragment>();
+        var imageDomainFragments = new HashSet<ContextFragment.ImageFragment>();
         var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
             ctx.fileFragments().forEach(fragment -> {
                 if (!collectedReferencedDtos.containsKey(fragment.id())) {
                     collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-                    if (fragment instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
-                    }
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
@@ -262,12 +264,19 @@ public final class HistoryIo {
                     }
                 } else if (!collectedVirtualDtos.containsKey(vf.id())) {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
-                    if (vf instanceof FrozenFragment ff && !ff.isText()) {
-                        imageDomainFragments.add(ff);
+                    if (vf instanceof ContextFragment.ImageFragment ff && !ff.isText()) {
+                        if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                            pastedImageFragments.add(aif);
+                        } else {
+                            if (ff instanceof ContextFragment.ComputedFragment cf) {
+                                var futureImageBytes = cf.computedImageBytes();
+                                if (futureImageBytes != null)
+                                    futureImageBytes.start(); // ensure this starts for when we need it later
+                            }
+                            imageDomainFragments.add(ff);
+                        }
                     }
-                    if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
-                        pastedImageFragments.add(aif);
-                    }
+
                     if (vf instanceof ContextFragment.HistoryFragment hf) {
                         hf.entries().stream()
                                 .map(TaskEntry::log)
@@ -372,9 +381,7 @@ public final class HistoryIo {
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
-                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
-                // TODO [Migration 4] replace above with below
-                //                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
+                zos.putNextEntry(new ZipEntry(V4_FRAGMENTS_FILENAME));
                 zos.write(fragmentsBytes);
                 zos.closeEntry();
 
@@ -413,8 +420,17 @@ public final class HistoryIo {
                     zos.closeEntry();
                 }
 
-                for (FrozenFragment ff : imageDomainFragments) {
-                    byte[] imageBytes = ff.imageBytesContent();
+                for (ContextFragment.ImageFragment ff : imageDomainFragments) {
+                    byte[] imageBytes = null;
+                    if (ff instanceof ContextFragment.ComputedFragment cf) {
+                        var futureBytes = cf.computedImageBytes();
+                        if (futureBytes != null) {
+                            imageBytes =
+                                    futureBytes.await(Duration.ofSeconds(10)).orElse(null);
+                        }
+                    } else {
+                        imageBytes = ImageUtil.imageToBytes(ff.image());
+                    }
                     if (imageBytes != null) {
                         ZipEntry entry = new ZipEntry(
                                 IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied

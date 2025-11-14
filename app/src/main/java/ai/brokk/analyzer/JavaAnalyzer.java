@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
+import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -10,6 +11,9 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCapture;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer {
@@ -247,7 +251,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
      * Strips Java generic type arguments (e.g., "<K, V extends X>") from any segments of the provided name. Handles
      * nested generics by tracking angle bracket depth.
      */
-    private String stripGenericTypeArguments(String name) {
+    public static String stripGenericTypeArguments(String name) {
         if (name.isEmpty()) return name;
         StringBuilder sb = new StringBuilder(name.length());
         int depth = 0;
@@ -357,5 +361,242 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     protected boolean isAnonymousStructure(String fqName) {
         var matcher = LAMBDA_REGEX.matcher(fqName);
         return matcher.find();
+    }
+
+    /**
+     * Java-specific implementation to compute direct supertypes by traversing the cached Tree-sitter AST. Preserves
+     * Java order: superclass (if any) first, then implemented interfaces in source order. Attempts to resolve names
+     * using file imports, then package-local names, then global search. First tries a focused in-code Tree-sitter query
+     * (string literal) for fast extraction; falls back to manual field traversal if needed.
+     *
+     * fixme: This implementation does not handle the Java import precedence which is "explicit wins over wildcard".
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
+
+        for (String importLine : importStatements) {
+            if (importLine.isBlank()) continue;
+
+            String normalized = importLine.strip();
+            if (!normalized.startsWith("import ")) continue;
+            if (normalized.startsWith("import static ")) continue;
+
+            if (normalized.endsWith(";")) {
+                normalized = normalized.substring(0, normalized.length() - 1).trim();
+            }
+            normalized = normalized.substring("import ".length()).trim();
+
+            if (normalized.endsWith(".*")) {
+                String packageName =
+                        normalized.substring(0, normalized.length() - 2).trim();
+
+                // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
+                Optional<CodeUnit> pkgModule = getDefinition(packageName);
+                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
+                    for (CodeUnit child : getDirectChildren(pkgModule.get())) {
+                        if (child.isClass() && packageName.equals(child.packageName())) {
+                            resolved.add(child);
+                        }
+                    }
+                }
+            } else if (!normalized.isEmpty()) {
+                // Explicit import: try to find the exact class
+                Optional<CodeUnit> found = getDefinition(normalized);
+                if (found.isPresent() && found.get().isClass()) {
+                    resolved.add(found.get());
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(resolved);
+    }
+
+    @Override
+    public List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        if (!cu.isClass()) return List.of();
+
+        // Pull cached raw supertypes from CodeUnitProperties
+        var rawNames = withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+
+        if (rawNames.isEmpty()) {
+            return List.of();
+        }
+
+        // Get resolved imports for this file from the analyzer pipeline
+        Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
+
+        // Resolve raw names using imports, package and global search, preserving order
+        return JavaTypeAnalyzer.compute(
+                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+    }
+
+    @Override
+    public List<CodeUnit> getAncestors(CodeUnit cu) {
+        // Breadth-first traversal of ancestors while preventing cycles and excluding the root.
+        if (!cu.isClass()) return List.of();
+
+        var result = new ArrayList<CodeUnit>();
+        var seen = new LinkedHashSet<String>();
+        // Mark root as seen to avoid re-adding it via cycles (e.g., interfaces A <-> B).
+        seen.add(cu.fqName());
+
+        var queue = new ArrayDeque<CodeUnit>();
+        // Seed with direct ancestors preserving declaration order.
+        for (var parent : getDirectAncestors(cu)) {
+            if (cu.fqName().equals(parent.fqName())) {
+                continue; // Defensive: avoid self-loop
+            }
+            if (seen.add(parent.fqName())) {
+                result.add(parent);
+                queue.add(parent);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            for (var parent : getDirectAncestors(current)) {
+                // Never add the original root as an ancestor.
+                if (cu.fqName().equals(parent.fqName())) {
+                    continue;
+                }
+                if (seen.add(parent.fqName())) {
+                    result.add(parent);
+                    queue.addLast(parent);
+                }
+            }
+        }
+
+        return List.copyOf(result);
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+        // Create a MODULE CodeUnit for the current file's package and attach the file's top-level classes as children.
+        if (modulePackageName.isBlank()) {
+            return; // default package: no module CU
+        }
+
+        // Locate the package_declaration node to compute a precise range for the module signature
+        TSNode packageNode = null;
+        for (int i = 0; i < rootNode.getChildCount(); i++) {
+            TSNode child = rootNode.getChild(i);
+            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
+                packageNode = child;
+                break;
+            }
+        }
+
+        // Determine parent package and simple name, so that fqName(parent + "." + short) == modulePackageName
+        int idx = modulePackageName.lastIndexOf('.');
+        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
+        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+
+        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        // Signature for a Java package module
+        String signature = "package " + modulePackageName + ";";
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(signature);
+
+        // Range covering the package declaration (when available)
+        if (packageNode != null) {
+            Range r = new Range(
+                    packageNode.getStartByte(),
+                    packageNode.getEndByte(),
+                    packageNode.getStartPoint().getRow(),
+                    packageNode.getEndPoint().getRow(),
+                    packageNode.getStartByte());
+            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
+        }
+
+        // Children: include only top-level classes declared in this exact package
+        List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
+        for (CodeUnit cu : localTopLevelCUs) {
+            if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
+                classesInThisFileAndPackage.add(cu);
+            }
+        }
+        localChildren.put(moduleCu, classesInThisFileAndPackage);
+
+        // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+    }
+
+    @Override
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Aggregate all @type.super captures for the same @type.decl across all matches.
+        // Previously only the first match was considered, which dropped additional interfaces.
+        try {
+            var query = getThreadLocalQuery();
+
+            // Ascend to the root node for matching
+            TSNode root = classNode;
+            while (root.getParent() != null && !root.getParent().isNull()) {
+                root = root.getParent();
+            }
+
+            var cursor = new TSQueryCursor();
+            cursor.exec(query, root);
+
+            TSQueryMatch match = new TSQueryMatch();
+            List<TSNode> aggregateSuperNodes = new ArrayList<>();
+
+            final int targetStart = classNode.getStartByte();
+            final int targetEnd = classNode.getEndByte();
+
+            while (cursor.nextMatch(match)) {
+                TSNode declNode = null;
+                List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+                for (TSQueryCapture cap : match.getCaptures()) {
+                    String capName = query.getCaptureNameForId(cap.getIndex());
+                    TSNode n = cap.getNode();
+                    if (n == null || n.isNull()) continue;
+
+                    if ("type.decl".equals(capName)) {
+                        declNode = n;
+                    } else if ("type.super".equals(capName)) {
+                        superCapturesThisMatch.add(n);
+                    }
+                }
+
+                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                    // Accumulate all type.super nodes for this declaration; do not break after first match.
+                    aggregateSuperNodes.addAll(superCapturesThisMatch);
+                }
+            }
+
+            // Sort once to preserve source order: superclass first, then interfaces in declaration order
+            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+            for (TSNode s : aggregateSuperNodes) {
+                String text = textSlice(s, src).strip();
+                if (!text.isEmpty()) {
+                    supers.add(text);
+                }
+            }
+
+            // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
+            LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+            return List.copyOf(unique);
+        } catch (Throwable t) {
+            log.debug(
+                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {} via query: {}",
+                    cu.fqName(),
+                    t.toString());
+            return List.of();
+        }
     }
 }

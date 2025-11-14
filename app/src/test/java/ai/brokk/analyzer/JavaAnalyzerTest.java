@@ -1,8 +1,11 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -56,7 +59,7 @@ public class JavaAnalyzerTest {
     public void extractMethodSource() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.method2", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
         final String expected =
                 """
                 public String method2(String input) {
@@ -67,44 +70,41 @@ public class JavaAnalyzerTest {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
     public void extractMethodSourceNested() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "A.AInner.AInnerInner.method7", true);
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
 
         final var expected =
                 """
                 public void method7() {
                                 System.out.println("hello");
                             }
-                """
-                        .trim();
+                """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
     public void extractMethodSourceConstructor() {
         final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "B.B", true); // TODO: Should we handle <init>?
         assertTrue(sourceOpt.isPresent());
-        final var source = sourceOpt.get().trim();
+        final var source = sourceOpt.get();
 
         final var expected =
                 """
                         public B() {
                                 System.out.println("B constructor");
                             }
-                        """
-                        .trim();
+                        """;
 
-        assertEquals(expected, source);
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -133,9 +133,8 @@ public class JavaAnalyzerTest {
                             }
                         }
                     }
-                """
-                        .trim();
-        assertEquals(expected, source);
+                """;
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -151,9 +150,8 @@ public class JavaAnalyzerTest {
                                 System.out.println("hello");
                             }
                         }
-                """
-                        .trim();
-        assertEquals(expected, source);
+                """;
+        assertCodeEquals(expected, source);
     }
 
     @Test
@@ -172,7 +170,7 @@ public class JavaAnalyzerTest {
     public void getSkeletonTestA() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "A");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -196,14 +194,14 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test
     public void getSkeletonTestD() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -219,14 +217,14 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test
     public void getSkeletonTestEnum() {
         final var skeletonOpt = AnalyzerUtil.getSkeleton(analyzer, "EnumClass");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -243,7 +241,7 @@ public class JavaAnalyzerTest {
     public void getGetSkeletonHeaderTest() {
         final var skeletonOpt = AnalyzerUtil.getSkeletonHeader(analyzer, "D");
         assertTrue(skeletonOpt.isPresent());
-        final var skeleton = skeletonOpt.get().trim();
+        final var skeleton = skeletonOpt.get();
 
         final var expected =
                 """
@@ -254,7 +252,7 @@ public class JavaAnalyzerTest {
                 }
                 """
                         .trim();
-        assertEquals(expected, skeleton);
+        assertCodeEquals(expected, skeleton);
     }
 
     @Test
@@ -286,6 +284,7 @@ public class JavaAnalyzerTest {
                 "EnumClass",
                 "F",
                 "Interface",
+                "MethodReferenceUsage",
                 "MethodReturner",
                 "ServiceImpl",
                 "ServiceInterface",
@@ -754,5 +753,64 @@ public class JavaAnalyzerTest {
         var topLevelUnits = analyzer.getTopLevelDeclarations(nonExistentFile);
 
         assertTrue(topLevelUnits.isEmpty(), "Should return empty list for non-existent file");
+    }
+
+    @Test
+    public void moduleCodeUnitCreated_withTopLevelClassChildren_only() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    package p1;
+    class A { class Inner {} }
+    class B {}
+    """, "A_B.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeModule = analyzer.getDefinition("p1");
+            assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p1' should be created");
+            var module = maybeModule.get();
+            assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");
+
+            var children = analyzer.getDirectChildren(module).stream()
+                    .map(CodeUnit::fqName)
+                    .sorted()
+                    .toList();
+
+            assertEquals(
+                    List.of("p1.A", "p1.B"),
+                    children,
+                    "Module children should include only top-level classes A and B (no nested types)");
+        }
+    }
+
+    @Test
+    public void moduleCodeUnitAggregatesChildrenAcrossFiles_excludesNested() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    package p2;
+    class A { class Inner {} }
+    class C { static class Nested {} }
+    """,
+                        "A_C.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeModule = analyzer.getDefinition("p2");
+            assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p2' should be created");
+            var module = maybeModule.get();
+            assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");
+
+            var children = analyzer.getDirectChildren(module).stream()
+                    .map(CodeUnit::fqName)
+                    .sorted()
+                    .toList();
+
+            assertEquals(
+                    List.of("p2.A", "p2.C"),
+                    children,
+                    "Module children should include only top-level classes A and C (exclude nested types)");
+        }
     }
 }

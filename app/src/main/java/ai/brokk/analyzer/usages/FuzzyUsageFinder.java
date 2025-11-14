@@ -1,15 +1,18 @@
 package ai.brokk.analyzer.usages;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.Llm;
-import ai.brokk.Service;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -30,12 +33,12 @@ import org.jetbrains.annotations.Nullable;
 public final class FuzzyUsageFinder {
 
     private static final Logger logger = LogManager.getLogger(FuzzyUsageFinder.class);
-    public static final int DEFAULT_MAX_FILES = 100;
+    public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
 
     private final IProject project;
     private final IAnalyzer analyzer;
-    private final @Nullable Service service;
+    private final AbstractService service;
     private final @Nullable Llm llm;
 
     public static FuzzyUsageFinder create(IContextManager ctx) {
@@ -53,7 +56,7 @@ public final class FuzzyUsageFinder {
      * @param service the LLM service.
      * @param llm optional LLM for future disambiguation
      */
-    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, @Nullable Service service, @Nullable Llm llm) {
+    public FuzzyUsageFinder(IProject project, IAnalyzer analyzer, AbstractService service, @Nullable Llm llm) {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
@@ -75,14 +78,26 @@ public final class FuzzyUsageFinder {
             shortName = lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
         }
         final String identifier = shortName;
-        // matches identifier around word boundaries and around common structures
-        var searchPattern = "\\b" + identifier + "(?:\\.\\w+|\\(.*\\)|\\(.*)?";
-        var matchingCodeUnits = analyzer.searchDefinitions(searchPattern).stream()
-                .filter(cu -> cu.shortName().equals(identifier))
+
+        // Determine language based on the target's source file extension
+        Language lang = Languages.fromExtension(target.source().extension());
+
+        // Build language-aware search patterns for this code unit kind
+        var templates = lang.getSearchPatterns(target.kind());
+        var searchPatterns = templates.stream()
+                .map(template -> template.replace("$ident", Pattern.quote(identifier)))
                 .collect(Collectors.toSet());
+
+        // Define pattern for matching code unit definitions with exact shortName (used to detect uniqueness)
+        var matchingCodeUnits =
+                analyzer.searchDefinitions("\\b%s\\b".formatted(Pattern.quote(identifier)), false).stream()
+                        .filter(cu -> cu.shortName().equals(identifier))
+                        .collect(Collectors.toSet());
         var isUnique = matchingCodeUnits.size() == 1;
-        final Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
-                List.of(searchPattern), analyzer.getProject().getAllFiles());
+
+        // Use a fast substring scan to prefilter candidate files by the raw identifier, not the regex
+        Set<ProjectFile> candidateFiles = SearchTools.searchSubstrings(
+                List.of(identifier), analyzer.getProject().getAnalyzableFiles(lang));
 
         if (maxFiles < candidateFiles.size()) {
             // Case 1: Too many call sites
@@ -90,8 +105,8 @@ public final class FuzzyUsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
-        // Extract raw usage hits from candidate files using the provided pattern
-        var hits = extractUsageHits(candidateFiles, searchPattern).stream()
+        // Extract raw usage hits from candidate files using the provided patterns
+        var hits = extractUsageHits(candidateFiles, searchPatterns).stream()
                 .filter(h -> !h.enclosing().fqName().equals(target.fqName()))
                 .collect(Collectors.toSet());
 
@@ -115,7 +130,7 @@ public final class FuzzyUsageFinder {
         }
 
         Set<UsageHit> finalHits = hits;
-        if (llm != null && service != null && !hits.isEmpty()) {
+        if (llm != null && !hits.isEmpty()) {
             // Case 4: This symbol is not unique among code units, disambiguate with LLM if possible
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
             var unscoredHits = new HashSet<>(hits);
@@ -163,12 +178,14 @@ public final class FuzzyUsageFinder {
             combined.addAll(scoredHits);
             combined.addAll(unscoredHits);
             finalHits = combined;
+            logger.debug("Found {} disambiguated hits", finalHits.size());
         }
+
         return new FuzzyResult.Ambiguous(target.shortName(), matchingCodeUnits, finalHits);
     }
 
     /**
-     * Extract raw usage hits from the given files by applying the Java regex searchPattern.
+     * Extract raw usage hits from the given files by applying the provided regex searchPatterns.
      *
      * <ul>
      *   <li>Emits one UsageHit per regex match occurrence.
@@ -177,9 +194,9 @@ public final class FuzzyUsageFinder {
      *   <li>Confidence is 1.0 by default; LLM will adjust if needed later.
      * </ul>
      */
-    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, String searchPattern) {
+    private Set<UsageHit> extractUsageHits(Set<ProjectFile> candidateFiles, Set<String> searchPatterns) {
         var hits = new ConcurrentHashMap<UsageHit, Boolean>(); // no ConcurrentHashSet exists
-        final var pattern = Pattern.compile(searchPattern);
+        final var patterns = searchPatterns.stream().map(Pattern::compile).toList();
 
         candidateFiles.parallelStream().forEach(file -> {
             try {
@@ -195,54 +212,43 @@ public final class FuzzyUsageFinder {
                     return;
                 }
 
-                // Precompute line starts for fast offset->line mapping
+                // Precompute line starts using actual separators (CRLF/LF/CR).
                 var lines = content.split("\\R", -1); // keep trailing empty lines if present
-                int[] lineStarts = new int[lines.length];
-                int running = 0;
-                for (int i = 0; i < lines.length; i++) {
-                    lineStarts[i] = running;
-                    running += lines[i].length() + 1; // +1 for the '\n' separator
-                }
+                var lineStarts = FileUtil.computeLineStarts(content);
+                assert lineStarts.length == lines.length : "lineStarts/lines length mismatch";
 
-                var matcher = pattern.matcher(content);
-                while (matcher.find()) {
-                    int start = matcher.start();
-                    int end = matcher.end();
+                for (var pattern : patterns) {
+                    var matcher = pattern.matcher(content);
+                    while (matcher.find()) {
+                        int start = matcher.start();
+                        int end = matcher.end();
 
-                    // Get the substring before the match and find its byte length
-                    int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
-                    int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
+                        // Get the substring before the match and find its byte length
+                        int startByte = content.substring(0, start).getBytes(StandardCharsets.UTF_8).length;
+                        int endByte = startByte + matcher.group().getBytes(StandardCharsets.UTF_8).length;
 
-                    // Binary search for the line index such that lineStarts[idx] <= start < next
-                    int lo = 0, hi = lineStarts.length - 1, lineIdx = 0;
-                    while (lo <= hi) {
-                        int mid = (lo + hi) >>> 1;
-                        if (lineStarts[mid] <= start) {
-                            lineIdx = mid;
-                            lo = mid + 1;
+                        // Map char offset -> 0-based line index using precomputed starts
+                        int lineIdx = FileUtil.findLineIndexForOffset(lineStarts, start);
+
+                        int startLine = Math.max(0, lineIdx - 3);
+                        int endLine = Math.min(lines.length - 1, lineIdx + 3);
+                        var snippet = IntStream.rangeClosed(startLine, endLine)
+                                .mapToObj(i -> lines[i])
+                                .collect(Collectors.joining("\n"));
+
+                        var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
+                        var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
+
+                        if (enclosingCodeUnit.isPresent()) {
+                            hits.put(
+                                    new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit.get(), 1.0, snippet),
+                                    true);
                         } else {
-                            hi = mid - 1;
+                            logger.warn(
+                                    "Unable to find enclosing code unit for {} in {}. Not registering hit.",
+                                    pattern.pattern(),
+                                    file);
                         }
-                    }
-
-                    int startLine = Math.max(0, lineIdx - 3);
-                    int endLine = Math.min(lines.length - 1, lineIdx + 3);
-                    var snippet = IntStream.rangeClosed(startLine, endLine)
-                            .mapToObj(i -> lines[i])
-                            .collect(Collectors.joining("\n"));
-
-                    var range = new IAnalyzer.Range(startByte, endByte, lineIdx, lineIdx, lineIdx);
-                    var enclosingCodeUnit = analyzer.enclosingCodeUnit(file, range);
-
-                    if (enclosingCodeUnit.isPresent()) {
-                        hits.put(
-                                new UsageHit(file, lineIdx + 1, start, end, enclosingCodeUnit.get(), 1.0, snippet),
-                                true);
-                    } else {
-                        logger.warn(
-                                "Unable to find enclosing code unit for {} in {}. Not registering hit.",
-                                searchPattern,
-                                file);
                     }
                 }
             } catch (Exception e) {

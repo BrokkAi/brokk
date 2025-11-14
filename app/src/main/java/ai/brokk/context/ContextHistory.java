@@ -2,22 +2,14 @@ package ai.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -26,17 +18,20 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Thread-safe undo/redo stack for *frozen* {@link Context} snapshots.
+ * Thread-safe undo/redo stack for {@link Context} snapshots with a live-context, non-blocking async design.
  *
  * <p>The newest entry is always at the tail of {@link #history}. All public methods are {@code synchronized}, so
  * callers need no extra locking.
  *
- * <p><strong>Contract:</strong> every {@code Context} handed to this class <em>must already be frozen</em> (see
- * {@link Context#freezeAndCleanup()}). This class never calls {@code freeze()} on its own.
+ * <p><strong>Contract:</strong> Contexts stored in this history are <em>live</em> (contain dynamic fragments with
+ * {@link ai.brokk.util.ComputedValue} futures). This class does NOT freeze contexts before storing them. For
+ * serialization, use {@link #applySnapshotToWorkspace(Context, IConsoleIO)} (Context, java.time.Duration)} to
+ * materialize computed values as needed without blocking the UI.
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
     private static final int MAX_DEPTH = 100;
+    private static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
 
@@ -51,36 +46,46 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
-    private Context liveContext;
 
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
-    /** Centralized diff caching/memoization for this history. */
+    /**
+     * Centralized diff service for computing and caching diffs between consecutive history entries.
+     * Works with live contexts and uses asynchronous {@link ai.brokk.util.ComputedValue} evaluation
+     * where needed to avoid blocking the UI.
+     */
     private final DiffService diffService;
 
     public ContextHistory(Context liveContext) {
-        var fr = liveContext.freezeAndCleanup();
-        this.liveContext = fr.liveContext();
-        var frozen = fr.frozenContext();
-        history.add(frozen);
-        selected = frozen;
+        pushContext(liveContext);
         this.diffService = new DiffService(this);
     }
 
+    public ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
+        this(contexts, resetEdges, Map.of(), Map.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+        this(contexts, resetEdges, gitStates, Map.of());
+    }
+
     public ContextHistory(
-            List<Context> frozenContexts,
+            List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
             Map<UUID, ContextHistoryEntryInfo> entryInfos) {
-        if (frozenContexts.isEmpty()) {
+        if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
-        history.addAll(frozenContexts);
+        history.addAll(contexts);
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
-        this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
         selected = history.peekLast();
         this.diffService = new DiffService(this);
     }
@@ -93,12 +98,8 @@ public class ContextHistory {
     }
 
     /** Latest context or {@code null} when uninitialised. */
-    public synchronized Context topContext() {
+    public synchronized Context liveContext() {
         return castNonNull(history.peekLast());
-    }
-
-    public synchronized Context getLiveContext() {
-        return liveContext;
     }
 
     public synchronized boolean hasUndoStates() {
@@ -110,8 +111,8 @@ public class ContextHistory {
     }
 
     public synchronized @Nullable Context getSelectedContext() {
-        if (selected == null || !history.contains(selected)) {
-            selected = topContext();
+        if (selected == null || !getContextIds().contains(selected.id())) {
+            selected = liveContext();
         }
         return selected;
     }
@@ -123,7 +124,7 @@ public class ContextHistory {
      * @return {@code true} iff {@code ctx} is present in history.
      */
     public synchronized boolean setSelectedContext(@Nullable Context ctx) {
-        if (ctx != null && history.contains(ctx)) {
+        if (ctx != null && getContextIds().contains(ctx.id())) {
             selected = ctx;
             return true;
         }
@@ -137,116 +138,82 @@ public class ContextHistory {
         return false;
     }
 
-    /**
-     * Applies the given function to the live context, freezes the result, and pushes it to the history.
-     *
-     * @param contextGenerator a function to apply to the live context
-     * @return the new live context
-     */
     public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(this.liveContext);
-        if (this.liveContext.equals(updatedLiveContext)) {
-            return this.liveContext;
+        var updatedLiveContext = contextGenerator.apply(liveContext());
+        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
+        // materialize
+        if (Objects.equals(liveContext(), updatedLiveContext)) {
+            return liveContext();
         }
 
-        var fr = updatedLiveContext.freezeAndCleanup();
-        this.liveContext = fr.liveContext();
-        addFrozenContextAndClearRedo(fr.frozenContext());
-        return this.liveContext;
+        pushContext(updatedLiveContext);
+        return liveContext();
     }
 
-    /**
-     * Applies the given function to the top (frozen) context and pushes the result to the history. This operates on the
-     * frozen context rather than the live context, making it suitable for silent updates that shouldn't trigger file
-     * reloading or history compression.
-     *
-     * <p>Unlike with push(), the `contextGenerator` must not generate dynamic ContextFragments.
-     */
-    public synchronized Context pushQuietly(Function<Context, Context> contextGenerator) {
-        var updatedTopContext = contextGenerator.apply(topContext());
-        if (topContext().equals(updatedTopContext)) {
-            return topContext();
-        }
-
-        // apply the same transformation to the live context
-        assert !updatedTopContext.containsDynamicFragments();
-        liveContext = contextGenerator.apply(liveContext);
-        addFrozenContextAndClearRedo(updatedTopContext);
-        return updatedTopContext;
-    }
-
-    public synchronized void pushLiveAndFrozen(Context live, Context frozen) {
-        this.liveContext = live;
-        addFrozenContextAndClearRedo(frozen);
-    }
-
-    /** Push {@code frozen} and clear redo stack. */
-    public synchronized void addFrozenContextAndClearRedo(Context frozen) {
-        assert !frozen.containsDynamicFragments();
-        history.addLast(frozen);
+    /** Push {@code ctx}, select it, and clear redo stack. */
+    public synchronized void pushContext(Context ctx) {
+        history.addLast(ctx);
         truncateHistory();
         redo.clear();
-        selected = frozen;
+        selected = ctx;
     }
 
     /**
      * Replaces the most recent context in history with the provided live and frozen contexts. This is useful for
      * coalescing rapid changes into a single history entry.
      */
-    public synchronized void replaceTop(Context newLive, Context newFrozen) {
-        assert !newFrozen.containsDynamicFragments();
+    public synchronized void replaceTop(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
-        history.addLast(newFrozen);
+        history.addLast(newLive);
         redo.clear();
-        selected = newFrozen;
-        liveContext = newLive;
+        selected = newLive;
     }
 
     /**
-     * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Load external changes", it updates the count and replaces it. Otherwise, it
-     * pushes a new context entry.
+     * Processes external file changes using the refresh model with an explicit set of changed files.
+     * Uses liveContext.copyAndRefresh(changed) to selectively refresh affected fragments.
      *
+     * Keeps the existing "Load external changes (n)" counting behavior.
+     *
+     * @param changed the set of files that changed; may be empty
      * @return The new frozen context if a change was made, otherwise null.
      */
-    public synchronized @Nullable Context processExternalFileChangesIfNeeded() {
-        var fr = liveContext.freezeAndCleanup();
-        if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-            var topCtx = topContext();
-            var previousAction = topCtx.getAction();
-            if (!previousAction.startsWith("Load external changes")) {
-                // If the previous action is not about external changes, push a new context
-                var newLiveContext = fr.liveContext()
-                        .withParsedOutput(null, CompletableFuture.completedFuture("Load external changes"));
-                var cleaned = newLiveContext.freezeAndCleanup();
-                pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
-                return cleaned.frozenContext();
-            }
+    public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
+        var refreshedLive = liveContext().copyAndRefresh(changed);
+        if (refreshedLive.equals(liveContext())) {
+            return null;
+        }
 
+        var previousAction = liveContext().getAction();
+        boolean isContinuation = previousAction.startsWith("Load external changes");
+
+        String newAction = "Load external changes";
+        if (isContinuation) {
             // Parse the existing action to extract the count if present
             var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
             var matcher = pattern.matcher(previousAction);
             int newCount;
             if (matcher.matches() && matcher.group(1) != null) {
-                var countGroup = matcher.group(1);
                 try {
-                    newCount = Integer.parseInt(countGroup) + 1;
+                    newCount = Integer.parseInt(matcher.group(1)) + 1;
                 } catch (NumberFormatException e) {
                     newCount = 2;
                 }
             } else {
                 newCount = 2;
             }
-
-            // Form the new action string with the updated count
-            var newAction = newCount > 1 ? "Load external changes (%d)".formatted(newCount) : "Load external changes";
-            var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
-            var cleaned = newLiveContext.freezeAndCleanup();
-            replaceTop(cleaned.liveContext(), cleaned.frozenContext());
-            return cleaned.frozenContext();
+            newAction = "Load external changes (%d)".formatted(newCount);
         }
-        return null;
+
+        var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
+
+        if (isContinuation) {
+            replaceTop(updatedLive);
+        } else {
+            pushContext(updatedLive);
+        }
+        return updatedLive;
     }
 
     /** Returns the previous frozen Context for the given one, or {@code null} if none (oldest). */
@@ -264,58 +231,6 @@ public class ContextHistory {
     /** Exposes the centralized diff service. */
     public DiffService getDiffService() {
         return diffService;
-    }
-
-    /**
-     * Centralized diff cache + dispatcher. Keys by current context id assuming a single stable predecessor per context.
-     */
-    public static final class DiffService {
-        private final ContextHistory history;
-        private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache =
-                new ConcurrentHashMap<>();
-
-        DiffService(ContextHistory history) {
-            this.history = history;
-        }
-
-        /** Non-blocking: returns cached result if ready. */
-        public Optional<List<Context.DiffEntry>> peek(Context curr) {
-            var cf = cache.get(curr.id());
-            if (cf != null && cf.isDone()) {
-                return java.util.Optional.ofNullable(cf.getNow(null));
-            }
-            return java.util.Optional.empty();
-        }
-
-        /** Load or compute the diff (shared across callers). */
-        public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-            return cache.computeIfAbsent(
-                    curr.id(),
-                    id -> CompletableFuture.supplyAsync(() -> {
-                        var prev = history.previousOf(curr);
-                        if (prev == null) return java.util.List.of();
-                        return curr.getDiff(prev);
-                    }));
-        }
-
-        /** Best-effort prefetch of all contexts that have a predecessor. */
-        public void warmUp(List<Context> contexts) {
-            for (var c : contexts) {
-                if (history.previousOf(c) != null) {
-                    diff(c);
-                }
-            }
-        }
-
-        /** Clear all cached entries. */
-        public void clear() {
-            cache.clear();
-        }
-
-        /** Retain only diffs for the provided set of current Context ids. */
-        public void retainOnly(java.util.Set<UUID> currentIds) {
-            cache.keySet().retainAll(currentIds);
-        }
     }
 
     /* ─────────────── undo / redo  ────────────── */
@@ -342,10 +257,8 @@ public class ContextHistory {
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
-        var newTop = history.peekLast();
-        applyFrozenContextToWorkspace(newTop, io);
-        liveContext = Context.unfreeze(castNonNull(newTop));
-        selected = topContext();
+        applySnapshotToWorkspace(liveContext(), io);
+        selected = liveContext();
         return UndoResult.success(toUndo);
     }
 
@@ -391,7 +304,7 @@ public class ContextHistory {
         });
     }
 
-    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, AbstractProject project) {
+    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, IProject project) {
         if (target == null) {
             return UndoResult.none();
         }
@@ -407,19 +320,18 @@ public class ContextHistory {
      * @param io the console IO for feedback
      * @return {@code true} if something was redone.
      */
-    public synchronized boolean redo(IConsoleIO io, AbstractProject project) {
+    public synchronized boolean redo(IConsoleIO io, IProject project) {
         if (redo.isEmpty()) return false;
         var popped = redo.removeLast();
         history.addLast(popped);
         truncateHistory();
-        liveContext = Context.unfreeze(castNonNull(popped));
-        selected = topContext();
-        applyFrozenContextToWorkspace(history.peekLast(), io);
+        selected = liveContext();
+        applySnapshotToWorkspace(history.peekLast(), io);
         redoFileDeletions(io, project, popped);
         return true;
     }
 
-    private void redoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+    private void redoFileDeletions(IConsoleIO io, IProject project, Context popped) {
         getEntryInfo(popped.id()).ifPresent(info -> {
             var filesToDelete =
                     info.deletedFiles().stream().map(DeletedFile::file).toList();
@@ -455,7 +367,7 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
-            var historyIds = history.stream().map(Context::id).collect(Collectors.toSet());
+            var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             // keep diff cache bounded to current history
             diffService.retainOnly(historyIds);
@@ -463,6 +375,10 @@ public class ContextHistory {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
         }
+    }
+
+    private Set<UUID> getContextIds() {
+        return history.stream().map(Context::id).collect(Collectors.toSet());
     }
 
     private int indexOf(Context ctx) {
@@ -475,7 +391,6 @@ public class ContextHistory {
     }
 
     public synchronized void addResetEdge(Context source, Context target) {
-        assert !source.containsDynamicFragments() && !target.containsDynamicFragments();
         resetEdges.add(new ResetEdge(source.id(), target.id()));
     }
 
@@ -507,51 +422,79 @@ public class ContextHistory {
         return Map.copyOf(entryInfos);
     }
 
-    /**
-     * Occasionally you will need to determine which live fragment a frozen fragment came from. This does that by
-     * assuming that the live and frozen Contexts have their fragments in the same order.
-     */
-    public synchronized ContextFragment mapToLiveFragment(ContextFragment f) {
-        if (!(f instanceof FrozenFragment)) {
-            return f;
-        }
-
-        var ctx = topContext();
-        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
-        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
-        return getLiveContext().getAllFragmentsInDisplayOrder().get(idx);
-    }
-
-    /** Applies the state from a frozen context to the workspace by restoring files. */
-    private void applyFrozenContextToWorkspace(@Nullable Context frozenContext, IConsoleIO io) {
-        if (frozenContext == null) {
+    /** Applies the state from a context to the workspace by restoring files. */
+    private void applySnapshotToWorkspace(@Nullable Context snapshot, IConsoleIO io) {
+        if (snapshot == null) {
             logger.warn("Attempted to apply null context to workspace");
             return;
         }
-        assert !frozenContext.containsDynamicFragments();
-        frozenContext
-                .getEditableFragments()
+
+        // Phase 0: best-effort pre-warm; runs off-EDT in undo/redo flows
+        snapshot.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+
+        // Phase 1: materialize all desired contents from the snapshot with bounded waits
+        var desiredContents = new LinkedHashMap<ProjectFile, String>();
+        var materializationWarnings = new ArrayList<String>();
+
+        snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
                     assert fragment.files().size() == 1 : fragment.files();
-
                     var pf = fragment.files().iterator().next();
-                    try {
-                        var newContent = fragment.text();
-                        var currentContent = pf.exists() ? pf.read().orElse("") : "";
 
-                        if (!newContent.equals(currentContent)) {
-                            pf.write(newContent);
-                            var restoredFiles = new ArrayList<String>();
-                            restoredFiles.add(pf.toString());
-                            io.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Restored files: " + String.join(", ", restoredFiles));
-                            io.updateWorkspace();
+                    try {
+                        String newContent;
+                        if (fragment instanceof ContextFragment.ComputedFragment df) {
+                            var tryNow = df.computedText().tryGet();
+                            if (tryNow.isPresent()) {
+                                newContent = tryNow.get();
+                            } else {
+                                var awaited = df.computedText().await(SNAPSHOT_AWAIT_TIMEOUT);
+                                if (awaited.isPresent()) {
+                                    newContent = awaited.get();
+                                } else {
+                                    // Do not fall back to reading current disk state; we want the snapshot value
+                                    materializationWarnings.add(pf.toString());
+                                    return;
+                                }
+                            }
+                        } else {
+                            newContent = fragment.text();
                         }
-                    } catch (IOException e) {
-                        io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
+                        desiredContents.put(pf, newContent);
+                    } catch (Exception e) {
+                        logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
+                        materializationWarnings.add(pf.toString());
                     }
                 });
+
+        // Phase 2: write all differing files and notify once
+        var restoredFiles = new ArrayList<String>();
+        for (var entry : desiredContents.entrySet()) {
+            var pf = entry.getKey();
+            var newContent = entry.getValue();
+            try {
+                var currentContent = pf.exists() ? pf.read().orElse("") : "";
+                if (!Objects.equals(newContent, currentContent)) {
+                    pf.write(newContent);
+                    restoredFiles.add(pf.toString());
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore file {} from snapshot", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        if (!restoredFiles.isEmpty()) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
+            io.updateWorkspace();
+        }
+
+        if (!materializationWarnings.isEmpty()) {
+            io.toolError(
+                    "Some files could not be restored within timeout: " + String.join(", ", materializationWarnings),
+                    "Undo/Redo Warning");
+        }
     }
 }
