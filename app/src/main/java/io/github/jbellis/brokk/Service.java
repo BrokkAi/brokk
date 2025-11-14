@@ -848,11 +848,6 @@ public class Service {
             return true;
         }
 
-        if (true) {
-            // something is broken in litellm world
-            return true;
-        }
-
         // if it doesn't support function calling then we need to emulate
         var b = info.get("supports_function_calling");
         return !(b instanceof Boolean bVal) || !bVal;
