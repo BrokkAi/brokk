@@ -1975,10 +1975,7 @@ public interface ContextFragment {
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
-            var unit = getComputedUnit().renderNowOrNull();
-            if (unit == null) {
-                return Set.of();
-            }
+            var unit = getComputedUnit().future().join();
             return Set.of(unit);
         }
 
@@ -1990,25 +1987,14 @@ public interface ContextFragment {
 
         @Override
         public String repr() {
-            var unit = getComputedUnit().renderNowOrNull();
-            if (unit != null) {
-                if (unit.isFunction()) {
-                    return "Method(['%s'])".formatted(unit.fqName());
-                } else {
-                    return "Class(['%s'])".formatted(unit.fqName());
-                }
-            }
             return "Method(['%s'])".formatted(fullyQualifiedName);
         }
 
         @Override
         @Blocking
         public String syntaxStyle() {
-            var unit = getComputedUnit().renderNowOrNull();
-            if (unit != null) {
-                return unit.source().getSyntaxStyle();
-            }
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            var unit = getComputedUnit().future().join();
+            return unit.source().getSyntaxStyle();
         }
 
         public String getFullyQualifiedName() {
