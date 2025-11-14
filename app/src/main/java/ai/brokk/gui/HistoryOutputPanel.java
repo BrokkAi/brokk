@@ -14,6 +14,7 @@ import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -204,6 +205,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private String lastBaselineLabel;
+
+    @Nullable
+    private BaselineMode lastBaselineMode;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -2934,6 +2938,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     var baseline = computeBaselineForChanges();
                     lastBaselineLabel = baseline.displayLabel();
+                    lastBaselineMode = baseline.mode();
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
@@ -3199,6 +3204,42 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
+        // Build header with baseline label and Create PR button
+        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        headerPanel.setOpaque(false);
+
+        // Baseline label on the left
+        String baselineLabelText = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                ? "Comparing vs " + lastBaselineLabel
+                : "Branch-based changes";
+        var baselineLabel = new JLabel(baselineLabelText);
+        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(baselineLabel, BorderLayout.WEST);
+
+        // Create PR button on the right (conditionally visible)
+        boolean showCreatePR = false;
+        if (lastBaselineMode != null) {
+            showCreatePR = (lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH)
+                    || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
+        }
+        if (showCreatePR) {
+            var createPRButton = new MaterialButton("Create PR");
+            createPRButton.setToolTipText("Create a Pull Request for these changes");
+            createPRButton.addActionListener(e -> {
+                SwingUtilities.invokeLater(() -> {
+                    CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+                });
+            });
+            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            buttonPanel.setOpaque(false);
+            buttonPanel.add(createPRButton);
+            headerPanel.add(buttonPanel, BorderLayout.EAST);
+        }
+
+        var topContainer = new JPanel(new BorderLayout(0, 6));
+        topContainer.setOpaque(false);
+        topContainer.add(headerPanel, BorderLayout.NORTH);
+
         // Use a compound border: line border for separation + padding
         wrapper.setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
@@ -3243,7 +3284,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Ensure the embedded diff reflects the current theme immediately
         diffPanel.applyTheme(chrome.getTheme());
 
-        wrapper.add(diffPanel, BorderLayout.CENTER);
+        topContainer.add(diffPanel, BorderLayout.CENTER);
+        wrapper.add(topContainer, BorderLayout.CENTER);
         return wrapper;
     }
 
