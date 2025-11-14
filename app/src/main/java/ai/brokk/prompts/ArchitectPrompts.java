@@ -29,7 +29,35 @@ public abstract class ArchitectPrompts extends CodePrompts {
     @Override
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
-        var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
+        var ctx = cm.liveContext();
+        var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
+
+        // Compute read-only policy text from current context
+        var ro = ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
+                .filter(f -> f instanceof ai.brokk.context.ContextFragment.EditableFragment)
+                .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                .filter(pf -> ((ai.brokk.context.ContextFragment.EditableFragment) pf).isReadOnly())
+                .map(pf -> pf.file().toString())
+                .distinct()
+                .sorted()
+                .toList();
+        var readonlyPolicy = (ro.isEmpty()
+                ? "(none)"
+                : ro.stream().map(p -> "- " + p).collect(java.util.stream.Collectors.joining("\n")));
+        var readonlyPolicyBlock =
+                ("""
+                You MUST NEVER edit, rename, or delete files listed below. Reading is allowed.
+                If you need to change behavior that currently lives in a read-only file, propose safe alternatives
+                (e.g., a new file, an extension point, or edits to an allowed file), and ask for explicit confirmation
+                only if policy explicitly allows exceptions.
+
+                <readonly-paths>
+                %s
+                </readonly-paths>
+                """
+                                .formatted(readonlyPolicy))
+                        .strip();
 
         var text =
                 """
@@ -39,11 +67,14 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <workspace-summary>
           %s
           </workspace-summary>
+          <read_only_policy>
+          %s
+          </read_only_policy>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), workspaceSummary, readonlyPolicyBlock, styleGuide)
                         .trim();
         return new SystemMessage(text);
     }
@@ -53,6 +84,33 @@ public abstract class ArchitectPrompts extends CodePrompts {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
 
+        // Compute read-only policy text from provided context
+        var ro = ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
+                .filter(f -> f instanceof ai.brokk.context.ContextFragment.EditableFragment)
+                .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                .filter(pf -> ((ai.brokk.context.ContextFragment.EditableFragment) pf).isReadOnly())
+                .map(pf -> pf.file().toString())
+                .distinct()
+                .sorted()
+                .toList();
+        var readonlyPolicy = (ro.isEmpty()
+                ? "(none)"
+                : ro.stream().map(p -> "- " + p).collect(java.util.stream.Collectors.joining("\n")));
+        var readonlyPolicyBlock =
+                ("""
+                You MUST NEVER edit, rename, or delete files listed below. Reading is allowed.
+                If you need to change behavior that currently lives in a read-only file, propose safe alternatives
+                (e.g., a new file, an extension point, or edits to an allowed file), and ask for explicit confirmation
+                only if policy explicitly allows exceptions.
+
+                <readonly-paths>
+                %s
+                </readonly-paths>
+                """
+                                .formatted(readonlyPolicy))
+                        .strip();
+
         var text =
                 """
           <instructions>
@@ -61,11 +119,14 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <workspace-summary>
           %s
           </workspace-summary>
+          <read_only_policy>
+          %s
+          </read_only_policy>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), workspaceSummary, readonlyPolicyBlock, styleGuide)
                         .trim();
         return new SystemMessage(text);
     }

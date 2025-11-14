@@ -305,6 +305,7 @@ public abstract class CodePrompts {
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
+        var readonlyPolicy = renderReadOnlyPolicy(ctx);
         var text =
                 """
           <instructions>
@@ -313,14 +314,47 @@ public abstract class CodePrompts {
           <workspace-toc>
           %s
           </workspace-toc>
+          <read_only_policy>
+          %s
+          </read_only_policy>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), workspaceSummary, readonlyPolicy, styleGuide)
                         .trim();
 
         return new SystemMessage(text);
+    }
+
+    private static List<String> computeReadOnlyPaths(Context ctx) {
+        return ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .filter(f -> f instanceof ContextFragment.EditableFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
+                .filter(pf -> ((ContextFragment.EditableFragment) pf).isReadOnly())
+                .map(pf -> pf.file().toString())
+                .distinct()
+                .toList();
+    }
+
+    private static String renderReadOnlyPolicy(Context ctx) {
+        var ro = computeReadOnlyPaths(ctx);
+        var list = ro.isEmpty()
+                ? "(none)"
+                : ro.stream().sorted().map(p -> "- " + p).collect(Collectors.joining("\n"));
+        return """
+                You MUST NEVER edit, rename, or delete files listed below. Reading is allowed.
+                If you need to change behavior that currently lives in a read-only file, propose safe alternatives
+                (e.g., a new file, an extension point, or edits to an allowed file), and ask for explicit confirmation
+                only if policy explicitly allows exceptions.
+
+                <readonly-paths>
+                %s
+                </readonly-paths>
+                """
+                .formatted(list)
+                .strip();
     }
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
@@ -335,6 +369,7 @@ public abstract class CodePrompts {
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
 
+        var readonlyPolicy = renderReadOnlyPolicy(topCtx);
         var text =
                 """
           <instructions>
@@ -343,11 +378,14 @@ public abstract class CodePrompts {
           <workspace-toc>
           %s
           </workspace-toc>
+          <read_only_policy>
+          %s
+          </read_only_policy>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), workspaceSummary, readonlyPolicy, styleGuide)
                         .trim();
 
         return new SystemMessage(text);
@@ -365,11 +403,20 @@ public abstract class CodePrompts {
     }
 
     public UserMessage codeRequest(Context ctx, String input, String reminder) {
+        // Add read-only enforcement note (agents must not propose edits to read-only paths)
+        var readonlyNote = renderReadOnlyPolicy(ctx);
+
         var instructions =
                 """
         <instructions>
         Think about this request for changes to the supplied code.
         If the request is ambiguous, %s.
+
+        The following read-only policy applies. Do not propose to edit, rename, or delete any listed files.
+        If a needed change touches one of them, explain the constraint, propose safe alternatives (e.g., use a different file or create a new one),
+        and request explicit confirmation only if policy allows exceptions.
+
+        %s
 
         Once you understand the request you MUST:
 
@@ -394,7 +441,8 @@ public abstract class CodePrompts {
                         .formatted(
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
-                                        : "ask questions");
+                                        : "ask questions",
+                                readonlyNote);
         return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
     }
 

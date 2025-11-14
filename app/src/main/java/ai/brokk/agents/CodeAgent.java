@@ -733,6 +733,25 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
+        // Guardrail: block edits to files designated read-only in the current context
+        var readOnlyPaths = computeReadOnlyPaths(context);
+        if (!readOnlyPaths.isEmpty()) {
+            var violating = es.pendingBlocks().stream()
+                    .map(EditBlock.SearchReplaceBlock::rawFileName)
+                    .filter(readOnlyPaths::contains)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!violating.isEmpty()) {
+                var message = "Cannot modify read-only file(s):\n"
+                        + violating.stream()
+                                .map(p -> " - " + p + " (read-only)")
+                                .collect(Collectors.joining("\n"))
+                        + "\n\nEdits were blocked. If a change is required, propose alternatives (e.g., a new file or "
+                        + "an editable path) and request explicit confirmation if policy allows exceptions.";
+                io.toolError(message);
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
+            }
+        }
+
         EditBlock.EditResult editResult;
         int updatedConsecutiveApplyFailures = es.consecutiveApplyFailures();
         EditState esForStep; // Will be updated
@@ -1440,6 +1459,17 @@ public class CodeAgent {
             }
             return results;
         }
+    }
+
+    private static Set<String> computeReadOnlyPaths(Context ctx) {
+        // Consider only project-backed path fragments that are flagged read-only
+        return ctx.getAllFragmentsInDisplayOrder().stream()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .filter(f -> f instanceof ContextFragment.EditableFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
+                .filter(pf -> ((ContextFragment.EditableFragment) pf).isReadOnly())
+                .map(pf -> pf.file().toString())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private static int clamp(int v, int lo, int hi) {
