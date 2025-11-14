@@ -232,9 +232,10 @@ public class ContextSerializationTest {
                         expectedDescription.get(),
                         actualDescription.get(),
                         "Fragment description mismatch for ID " + expected.id());
+                // Short description is based off of description
                 assertEquals(
-                        expected.shortDescription(),
-                        actual.shortDescription(),
+                        cvExpected.shortDescription(),
+                        cvActual.shortDescription(),
                         "Fragment shortDescription mismatch for ID " + expected.id());
             }
 
