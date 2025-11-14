@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
@@ -375,6 +376,19 @@ public class Brokk {
     /** Main entry point. */
     public static void main(String[] args) {
         Thread.setDefaultUncaughtExceptionHandler(new GlobalExceptionHandler());
+
+        // Ensure fragment executor is shut down on JVM termination
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            try {
+                                ContextFragment.shutdownFragmentExecutor();
+                            } catch (Throwable t) {
+                                logger.debug("Failed to shutdown fragment executor in shutdown hook", t);
+                            }
+                        },
+                        "brokk-shutdown-hook"));
+
         logBanner();
         logger.debug("Brokk starting");
 
@@ -920,6 +934,11 @@ public class Brokk {
             // We are about to exit the application.
             // Do NOT remove this project from the persistent "open projects" list.
             logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
+            try {
+                ContextFragment.shutdownFragmentExecutor();
+            } catch (Throwable t) {
+                logger.debug("Error during fragment executor shutdown on window close", t);
+            }
             System.exit(0);
         } else {
             // Other projects are still open or other projects are pending reopening.
@@ -1204,6 +1223,12 @@ public class Brokk {
             CompletableFuture.allOf(futures).join();
             logger.info("All project contexts closed. Exiting.");
         } finally {
+            // Ensure fragment executor is terminated so no lingering threads keep the JVM alive
+            try {
+                ContextFragment.shutdownFragmentExecutor();
+            } catch (Throwable t) {
+                logger.debug("Error during fragment executor shutdown at exit()", t);
+            }
             System.exit(0);
         }
     }

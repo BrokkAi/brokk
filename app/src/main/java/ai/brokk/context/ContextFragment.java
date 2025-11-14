@@ -138,6 +138,18 @@ public interface ContextFragment {
         return FRAGMENT_EXECUTOR;
     }
 
+    /**
+     * Forcefully shuts down the dedicated ContextFragment executor. Safe to call multiple times.
+     * Intended for application shutdown to ensure no lingering threads keep the JVM alive.
+     */
+    static void shutdownFragmentExecutor() {
+        try {
+            FRAGMENT_EXECUTOR.shutdownNow();
+        } catch (Throwable t) {
+            logger.warn("Error shutting down fragment executor", t);
+        }
+    }
+
     // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
     // We once saw macOS CI with 2 vCPUs blow up during static init with
     // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
@@ -2015,13 +2027,19 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String description() {
-            return "Source for " + fullyQualifiedName;
+            return getComputedUnit()
+                    .future()
+                    .thenApply(CodeUnit::shortName)
+                    .thenApply(shortName -> "Source for " + shortName)
+                    .join();
         }
 
         @Override
+        @Blocking
         public String shortDescription() {
-            return fullyQualifiedName.substring(fullyQualifiedName.lastIndexOf('.') + 1);
+            return getComputedUnit().future().thenApply(CodeUnit::shortName).join();
         }
 
         @Override
