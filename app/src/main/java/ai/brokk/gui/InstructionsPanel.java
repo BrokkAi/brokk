@@ -129,7 +129,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var scaledImage = baseIcon.getImage().getScaledInstance(16, 16, Image.SCALE_SMOOTH);
             return new ImageIcon(scaledImage);
         }
-        return null;
+        // fall back to blank
+        return new ImageIcon();
     }
 
     private final Chrome chrome;
@@ -337,7 +338,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
 
         // Create split action button with dropdown
-        actionButton = new ActionSplitButton(() -> isActionRunning(), ACTION_SEARCH); // Default to Search
+        actionButton = new ActionSplitButton(this::isActionRunning, ACTION_SEARCH); // Default to Search
 
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
@@ -362,9 +363,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.brokkRankingLabel.setFocusable(false);
         this.brokkRankingLabel.setOpaque(false);
         this.brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
-        if (BROKK_ICON_16 != null) {
-            this.brokkRankingLabel.setIcon(BROKK_ICON_16);
-        }
+        this.brokkRankingLabel.setIcon(BROKK_ICON_16);
 
         // Initialize mode indicator
         refreshModeIndicator();
