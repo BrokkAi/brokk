@@ -1,18 +1,29 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
+import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
+import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.WorktreeProject;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
+import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.tasks.TaskList;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
+
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,9 +35,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHPullRequest;
 
 /**
  * Executes long-running Brokk jobs using ContextManager, producing durable events
@@ -130,6 +145,10 @@ public final class JobRunner {
 
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
+
+                // To use it with set or get methods
+                AtomicReference<Object> completionResultRef = new AtomicReference<>(null);
+
                 // Parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
                 List<TaskList.TaskItem> tasks;
                 if (mode == Mode.REVIEW) {
@@ -258,15 +277,17 @@ public final class JobRunner {
                                                     spec.autoCompress());
                                         }
                                         case REVIEW -> {
-                                            // Parse PR data from taskInput
+                                            
                                             Map<String, Object> prData = new ObjectMapper()
                                                 .readValue(spec.taskInput(), new TypeReference<Map<String, Object>>() {});
-                                            
-                                            // Prepare context with PR data
-                                            preparePRContext(prData);
-                                            
+
+                                            Object prNumberObj = prData.getOrDefault("pr_number", 0);
+                                            int prNumber = (prNumberObj instanceof Number)
+                                                ? ((Number) prNumberObj).intValue()
+                                                : Integer.parseInt(String.valueOf(prNumberObj));
+
                                             // Create review prompt
-                                            String reviewPrompt = formatReviewPrompt(prData);
+                                            String reviewPrompt = manageReviewContext(prNumber);
                                             
                                             // Execute review using CodeAgent
                                             var agent = new CodeAgent(
@@ -278,13 +299,16 @@ public final class JobRunner {
                                                 result = agent.runTask(reviewPrompt, Set.of());
                                                 scope.append(result);
                                             }
-                                            JobStatus status = store.loadStatus(jobId);
                                             String jsonString = result.stopDetails().explanation();
-                                            Map<String, Object> reviewOutput;
                                             if (jsonString != null && !jsonString.isBlank()) {
-                                                reviewOutput = new ObjectMapper().readValue(jsonString, new TypeReference<>() {});
-                                                status = status.withMetadata("review_output", new ObjectMapper().writeValueAsString(reviewOutput));
-                                            }     
+                                                Object parsed = new ObjectMapper().readValue(jsonString, new TypeReference<Map<String, Object>>() {});
+                                                completionResultRef.set(parsed);
+                                            }
+                                            JobStatus status = store.loadStatus(jobId);
+                                            if (status != null) {
+                                                status = status.completed(completionResultRef.get());
+                                                store.updateStatus(jobId, status);
+                                            }   
                                         }
                                     }
 
@@ -330,18 +354,7 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        Object completionResult = null;
-                        if (mode == Mode.REVIEW) {
-                            String reviewJson = current.metadata().get("review_output");
-                            if (reviewJson != null) {
-                                try {
-                                    completionResult = new ObjectMapper().readValue(reviewJson, new TypeReference<Map<String, Object>>() {});
-                                } catch (Exception e) {
-                                    logger.warn("Failed to deserialize review output for completion", e);
-                                }
-                            }
-                        }
-                        current = current.completed(completionResult);
+                        current = current.completed(completionResultRef.get());
                         logger.info("Job {} completed successfully", jobId);
                     }
                     if (console != null) {
@@ -513,39 +526,76 @@ public final class JobRunner {
 
         return list;
     }
+
+    /**
+     * Builds review context (diff, changed files, description)
+     * and returns the final review prompt.
+     */
+    private String manageReviewContext(int prNumber) throws IOException {
+
+        // GitHub auth + fetch PR
+        GitHubAuth auth = GitHubAuth.getOrCreateInstance(cm.getProject());
+        GHPullRequest pr = auth.getGhRepository().getPullRequest(prNumber);
+    
+        // Repo and commit info
+        var repo = (GitRepo) cm.getProject().getRepo();
+        String headSha = pr.getHead().getSha();
+        String baseSha = pr.getBase().getSha();
+
+        String mergeBase;
+        String diff;
+        List<ProjectFile> changedFiles;
+        String prDescription;
+    
+        // Diff and changed files
+        try {
+            mergeBase = repo.getMergeBase(headSha, baseSha);
+            diff = repo.getDiff(mergeBase, headSha);
+            changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase)
+                    .stream()
+                    .map(IGitRepo.ModifiedFile::file)
+                    .collect(Collectors.toList());
+    
+            String fileNames = GitUiUtil.formatFileList(changedFiles);
+            prDescription = String.format(
+                "Diff of PR #%d (%s): %s [HEAD: %s vs BASE: %s]",
+                prNumber,
+                pr.getTitle(),
+                fileNames,
+                repo.shortHash(headSha),
+                repo.shortHash(mergeBase)
+            );
+    
+            // Add diff fragment to context
+            var fragment = new ContextFragment.StringFragment(
+                cm,
+                diff,
+                prDescription,
+                "text/x-diff"
+            );        
+            cm.addVirtualFragment(fragment);                    
+        
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build review context", e);
+        }
+    
+        // Build review prompt 
+        return formatReviewPrompt(prNumber, pr.getTitle(), prDescription);
+    }    
+
     /**
      * Format the review prompt with PR data and project review guidelines.
      * 
      * @param prData Map containing PR metadata
      * @return Formatted review prompt string with JSON output instructions
      */
-    private String formatReviewPrompt(Map<String, Object> prData) {
-        Object prNumberObj = prData.getOrDefault("pr_number", 0);
-        int prNumber;
-        if (prNumberObj instanceof Number) {
-            prNumber = ((Number) prNumberObj).intValue();
-        } else if (prNumberObj instanceof String) {
-            try {
-                prNumber = Integer.parseInt((String) prNumberObj);
-            } catch (NumberFormatException e) {
-                prNumber = 0;
-            }
-        } else {
-            prNumber = 0;
-        }
-        String prTitle = (String) prData.getOrDefault("title", "(untitled)");
-        String author = String.valueOf(prData.get("author"));
-        String description = (String) prData.get("body");
-        String descriptionSection = (description != null && !description.isBlank())
-            ? "Description:\n" + description + "\n\n"
-            : "";
+    private String formatReviewPrompt(int prNumber, String prTitle,String prdescription) {
 
         String reviewGuide = cm.getProject().getReviewGuide();
 
         return String.format("""
             Please review the following Pull Request:
             PR #%d: %s
-            Author: %s
             %s
             Review Guidelines:
             %s
@@ -567,86 +617,8 @@ public final class JobRunner {
             For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
             Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
             """,
-            prNumber, prTitle, author, descriptionSection, reviewGuide
+            prNumber, prTitle, prdescription, reviewGuide
         );
     }
-    /**
-     * Prepare context with PR data by adding diff and description as virtual fragments.
-     * 
-     * @param prData Map containing PR metadata including number, title, body, branches, and changed files
-     */
-    private void preparePRContext(Map<String, Object> prData) {
-        // Validate required fields upfront
-        Object prNumberObj = prData.get("pr_number");
-        if (!(prNumberObj instanceof Number)) {
-            throw new IllegalArgumentException("PR number is missing or invalid");
-        }
-        int prNumber = ((Number) prNumberObj).intValue();
-
-        String prTitle = (String) prData.get("title");
-        if (prTitle == null || prTitle.isBlank()) {
-            throw new IllegalArgumentException("PR title is missing or blank");
-        }
-
-        String baseBranch = (String) prData.get("base_branch");
-        String headBranch = (String) prData.get("head_branch");
-        if (baseBranch == null || baseBranch.isBlank() || headBranch == null || headBranch.isBlank()) {
-            throw new IllegalArgumentException("PR branches are missing");
-        }
-
-        @SuppressWarnings("unchecked")
-        List<Map<String, String>> changedFilesData =
-            (List<Map<String, String>>) prData.get("changed_files");
-        if (changedFilesData == null || changedFilesData.isEmpty()) {
-            throw new IllegalArgumentException("PR has no changed files");
-        }
-
-        String descriptionText = (String) prData.getOrDefault("body", "");
-
-        StringBuilder diffBuilder = new StringBuilder();
-        List<String> filenames = new ArrayList<>();
-
-        for (Map<String, String> fileData : changedFilesData) {
-            String filename = fileData.get("filename");
-            String patch = fileData.get("patch");
-
-            if (filename != null) filenames.add(filename);
-            if (filename != null && patch != null && !patch.isEmpty()) {
-                diffBuilder
-                    .append("diff --git a/").append(filename).append(" b/").append(filename).append("\n")
-                    .append("--- a/").append(filename).append("\n")
-                    .append("+++ b/").append(filename).append("\n")
-                    .append(patch);
-                if (!patch.endsWith("\n")) diffBuilder.append("\n");
-                diffBuilder.append("\n");
-            }
-        }
-
-        // Add diff fragment to context
-        String diff = diffBuilder.toString();
-        if (!diff.isEmpty()) {
-            String fileNamesSummary = filenames.isEmpty()
-                ? "(no files)"
-                : String.join(", ", filenames);
-
-            String description = String.format(
-                "Diff of PR #%d (%s): %s [BASE: %s ← HEAD: %s]",
-                prNumber, prTitle, fileNamesSummary, baseBranch, headBranch
-            );
-
-            var fragment = new ai.brokk.context.ContextFragment.StringFragment(
-                cm, diff, description, "text/x-diff"
-            );
-            cm.addVirtualFragment(fragment);
-        }
-
-        // Add PR description fragment
-        if (descriptionText != null && !descriptionText.isBlank()) {
-            var descriptionFragment = new ai.brokk.context.ContextFragment.StringFragment(
-                cm, descriptionText, "PR Description", "markdown"
-            );
-            cm.addVirtualFragment(descriptionFragment);
-        }
-    }
-
+   
 }
