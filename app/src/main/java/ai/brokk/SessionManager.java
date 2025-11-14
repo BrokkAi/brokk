@@ -630,7 +630,22 @@ public class SessionManager implements AutoCloseable {
                     return new TaskList.TaskListData(List.of());
                 }
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskList.TaskListData.class);
-                return new TaskList.TaskListData(List.copyOf(loaded.tasks()));
+
+                // Ensure backward compatibility: normalize any tasks that might have null/missing titles
+                // from old JSON format to use empty string
+                var normalizedTasks = loaded.tasks().stream()
+                        .map(task -> {
+                            @SuppressWarnings("NullAway") // Defensive check for deserialized data
+                            var titleValue = task.title();
+                            if (titleValue == null) {
+                                // Old JSON without title field; provide empty string default
+                                return new TaskList.TaskItem("", task.text(), task.done());
+                            }
+                            return task;
+                        })
+                        .toList();
+
+                return new TaskList.TaskListData(List.copyOf(normalizedTasks));
             } catch (IOException e) {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());

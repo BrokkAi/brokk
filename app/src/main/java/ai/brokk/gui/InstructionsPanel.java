@@ -54,6 +54,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +66,10 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -89,7 +92,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
 
-    private static final String PLACEHOLDER_TEXT =
+    private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
             Switching modes:
             - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
@@ -97,6 +100,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Brokk action modes:
             - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
               Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+              It is a great way to kick off work with strong context and a clear plan.
+            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+
+            Type your prompt here. (Shift+Enter for a new line)
+            """
+                    .stripIndent();
+
+    private static final String PLACEHOLDER_TEXT_EZ =
+            """
+            Brokk action modes:
+            - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
               It is a great way to kick off work with strong context and a clear plan.
             - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
             - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
@@ -546,8 +561,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
+        area.setText(getCurrentPlaceholder()); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
+
+        // Add focus listener to restore placeholder when focus is lost with empty text
+        area.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                // Restore placeholder state if text is empty
+                SwingUtilities.invokeLater(() -> deactivateCommandInput());
+            }
+        });
 
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
@@ -1090,9 +1114,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Returns true if the given text matches the placeholder.
+    // Returns true if the given text matches any placeholder variant.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT.equals(text);
+        return PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text);
+    }
+
+    // Returns the appropriate placeholder based on current advanced mode setting.
+    private String getCurrentPlaceholder() {
+        return GlobalUiSettings.isAdvancedMode() ? PLACEHOLDER_TEXT_ADVANCED : PLACEHOLDER_TEXT_EZ;
     }
 
     public void refreshBranchUi(String branchName) {
@@ -1779,57 +1808,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Let the badge compute its own theme-aware colors based on the active mode
         modeBadge.setActiveMode(mode);
 
-        // Build and set a dynamic tooltip that includes the mode description and the toggle shortcut
-        try {
-            var toggleKs = GlobalUiSettings.getKeybinding(
-                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-            var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-            if (toggleStr.isBlank()) {
-                toggleStr = "(unbound)";
-            }
-
-            String title;
-            String desc;
-            switch (mode) {
-                case ACTION_CODE -> {
-                    title = "Code Mode";
-                    desc =
-                            "Code: Applies changes directly to the files currently in your Workspace context based on your instructions.";
-                }
-                case ACTION_ASK -> {
-                    title = "Ask Mode";
-                    desc =
-                            "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
-                }
-                case ACTION_SEARCH -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-                default -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-            }
-
-            String body =
-                    "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
-                            .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
-            String html = wrapTooltipHtml(body, 320);
-            modeBadge.setToolTipText(html);
-        } catch (Exception ex) {
-            // Defensive: ensure tooltip failures don't affect the UI
-            modeBadge.setToolTipText(null);
-        }
-
-        // Use the badge's accent for the input pane stripe
-        Color accent = modeBadge.getAccent();
-
+        // Apply accent stripe only in Advanced Mode
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
-            var stripe = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
-            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(stripe, inner));
+            Border outerBorder;
+            if (GlobalUiSettings.isAdvancedMode()) {
+                Color accent = modeBadge.getAccent();
+                outerBorder = new MatteBorder(0, 4, 0, 0, accent);
+            } else {
+                outerBorder = BorderFactory.createEmptyBorder(0, 4, 0, 0);
+            }
+            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(outerBorder, inner));
             inputLayeredPane.revalidate();
             inputLayeredPane.repaint();
         }
@@ -1867,6 +1856,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
+    }
+
+    /**
+     * Deactivates the command input, restoring the placeholder state if the text area is empty.
+     * This is called when focus is lost and no text has been entered.
+     */
+    private void deactivateCommandInput() {
+        String currentText = instructionsArea.getText();
+        // Only restore placeholder if text is empty or whitespace-only
+        if (currentText == null || currentText.trim().isEmpty()) {
+            instructionsArea.setText(getCurrentPlaceholder());
+            instructionsArea.setEnabled(false);
+            commandInputOverlay.showOverlay();
+        }
+        // If user typed something, leave it as-is (don't restore placeholder)
     }
 
     public VoiceInputButton getVoiceInputButton() {
@@ -2030,6 +2034,32 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Applies Advanced Mode UI visibility to the Instructions panel.
+     * When in EZ mode (advanced=false), hides the mode badge and disables the mode dropdown.
+     * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
+     * Safe to call from any thread.
+     */
+    public void applyAdvancedModeForInstructions(boolean advanced) {
+        SwingUtilities.invokeLater(() -> {
+            modeBadge.setVisible(advanced);
+            actionButton.setDropdownEnabled(advanced);
+
+            // When switching TO EZ mode, reset to Lutz mode (the default for simplified UX)
+            if (!advanced) {
+                actionButton.setSelectedMode(ACTION_SEARCH);
+            }
+
+            // Switch placeholder only if currently showing a placeholder
+            String currentText = instructionsArea.getText();
+            if (isPlaceholderText(currentText)) {
+                instructionsArea.setText(getCurrentPlaceholder());
+            }
+
+            refreshModeIndicator();
+        });
+    }
+
+    /**
      * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
      * The main button area executes the selected action, while the dropdown arrow shows mode options.
      */
@@ -2049,6 +2079,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
                 "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+        private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
             super();
@@ -2078,10 +2109,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             });
 
             // Change cursor when hovering the dropdown area on the right
-            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            addMouseMotionListener(new MouseMotionAdapter() {
                 @Override
                 public void mouseMoved(MouseEvent e) {
-                    boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
+                    boolean inDropdown = dropdownEnabled && e.getX() >= getWidth() - DROPDOWN_WIDTH;
                     setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 }
             });
@@ -2106,6 +2137,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        public void setDropdownEnabled(boolean enabled) {
+            this.dropdownEnabled = enabled;
+            repaint();
+        }
+
         public void updateTooltip() {
             setToolTipText(buildTooltipHtml());
         }
@@ -2119,19 +2155,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         default -> MODE_TOOLTIP_LUTZ;
                     };
 
-            String toggleLine = "";
-            try {
-                var toggleKs = GlobalUiSettings.getKeybinding(
-                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr == null || toggleStr.isBlank()) {
-                    toggleStr = "(unbound)";
-                }
-                toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
-            } catch (Exception ignore) {
-                // Defensive: leave toggleLine empty if anything goes wrong
-            }
-
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
@@ -2143,6 +2166,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
             } catch (Exception ignore) {
                 // Defensive: leave submitLine empty if anything goes wrong
+            }
+
+            String toggleLine = "";
+            if (dropdownEnabled) {
+                try {
+                    var toggleKs = GlobalUiSettings.getKeybinding(
+                            "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                    var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                    if (toggleStr == null || toggleStr.isBlank()) {
+                        toggleStr = "(unbound)";
+                    }
+                    toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
+                } catch (Exception ignore) {
+                    // Defensive: leave toggleLine empty if anything goes wrong
+                }
             }
 
             return "<html><body style='width: 350px;'>" + modeTooltip
@@ -2200,7 +2238,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int x = e.getX();
             int y = e.getY();
             boolean inDropdown = x >= getWidth() - DROPDOWN_WIDTH && x <= getWidth() && y >= 0 && y <= getHeight();
-            if (inDropdown && isEnabled()) {
+            if (inDropdown && isEnabled() && dropdownEnabled) {
                 // Swallow events in dropdown area and show menu on press
                 if (e.getID() == MouseEvent.MOUSE_PRESSED) {
                     showDropdownMenu();
@@ -2262,8 +2300,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
 
-                // Draw divider line if not in stop mode
-                if (!inStopMode) {
+                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
+                if (!inStopMode && dropdownEnabled) {
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                     g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
@@ -2549,16 +2587,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }
 
-                var toggleKs = GlobalUiSettings.getKeybinding(
-                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr.isBlank()) {
-                    toggleStr = "(unbound)";
+                String toggleLine = "";
+                if (isVisible()) {
+                    try {
+                        var toggleKs = GlobalUiSettings.getKeybinding(
+                                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                        var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                        if (toggleStr == null || toggleStr.isBlank()) {
+                            toggleStr = "(unbound)";
+                        }
+                        toggleLine = "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: "
+                                + htmlEscape(toggleStr) + "</div>";
+                    } catch (Exception ignore) {
+                        // Defensive: leave toggleLine empty if anything goes wrong
+                    }
                 }
 
-                String body =
-                        "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
-                                .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
+                String body = "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div>%s"
+                        .formatted(htmlEscape(title), htmlEscape(desc), toggleLine);
                 return wrapTooltipHtml(body, 320);
             } catch (Exception e) {
                 return super.getToolTipText(event);

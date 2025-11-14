@@ -1449,7 +1449,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem(s, false))
+                .map(s -> new TaskList.TaskItem("", s, false))
                 .toList();
         if (additions.isEmpty()) {
             return;
@@ -1490,6 +1490,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+
+        // Kick off async summarization for each newly added task
+        for (var addition : additions) {
+            summarizeAndUpdateTaskTitle(addition.text());
+        }
     }
 
     /**
@@ -1536,6 +1541,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             boolean autoCommit,
             boolean autoCompress)
             throws InterruptedException {
+        // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
+        // The title is UI-only metadata for display/organization; the text is the actual task body.
         var prompt = task.text().strip();
         if (prompt.isEmpty()) {
             throw new IllegalArgumentException("Task text must be non-blank");
@@ -1579,7 +1586,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         if (idx >= 0) {
-            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             this.taskList = new TaskList.TaskListData(List.copyOf(existing));
             project.getSessionManager()
                     .writeTaskList(currentSessionId, this.taskList)
@@ -2737,6 +2744,56 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }
+    }
+
+    private void summarizeAndUpdateTaskTitle(String taskText) {
+        if (taskText.isBlank()) {
+            return;
+        }
+
+        var summaryFuture = summarizeTaskForConversation(taskText);
+
+        summaryFuture.whenComplete((summary, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed to summarize task title", ex);
+                return;
+            }
+            if (summary == null || summary.isBlank()) {
+                return;
+            }
+
+            submitBackgroundTask("Update task title", () -> {
+                try {
+                    TaskList.TaskListData currentData = project.getSessionManager()
+                            .readTaskList(currentSessionId)
+                            .get();
+
+                    var updatedTasks = new ArrayList<TaskList.TaskItem>();
+                    boolean found = false;
+                    for (var task : currentData.tasks()) {
+                        if (!found && task.text().equals(taskText)) {
+                            updatedTasks.add(new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
+                            found = true;
+                        } else {
+                            updatedTasks.add(task);
+                        }
+                    }
+
+                    if (found) {
+                        var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
+                        this.taskList = newData;
+                        project.getSessionManager().writeTaskList(currentSessionId, newData);
+
+                        if (io instanceof Chrome chrome) {
+                            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title after summarization", e);
+                }
+                return "";
+            });
+        });
     }
 
     public static class SummarizeWorker extends ExceptionAwareSwingWorker<String, String> {

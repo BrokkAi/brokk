@@ -226,6 +226,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
+        String userId = "";
         if (isBrokk) {
             String brokkKey = MainProject.getBrokkKey();
             if (brokkKey.isEmpty()) {
@@ -235,9 +236,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
             var kp = parseKey(brokkKey);
             authHeader = "Bearer " + kp.token();
+            userId = kp.userId().toString();
+        }
+        String url = baseUrl + "/model/info";
+        if (userId != null) {
+            url += "?user_id=" + URLEncoder.encode(userId, StandardCharsets.UTF_8);
         }
         Request request = new Request.Builder()
-                .url(baseUrl + "/model/info")
+                .url(url)
                 .header("Authorization", authHeader)
                 .get()
                 .build();

@@ -53,44 +53,17 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
+    private static final String KEY_UI_VERTICAL_ACTIVITY_LAYOUT = "ui.verticalActivityLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
+    private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
+    private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
 
     private static volatile @Nullable Properties cachedProps;
 
     private GlobalUiSettings() {}
 
-    public static Path getConfigDir() {
-        // Testability hook: allow tests to override the config directory to avoid touching real user config.
-        // If set, this takes precedence over OS-specific logic.
-        var override = System.getProperty("brokk.ui.config.dir");
-        if (override != null && !override.isBlank()) {
-            try {
-                return Path.of(override);
-            } catch (Exception e) {
-                logger.warn("Invalid system property brokk.ui.config.dir='{}': {}", override, e.getMessage());
-            }
-        }
-
-        var os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        if (os.contains("win")) {
-            var appData = System.getenv("APPDATA");
-            Path base = (appData != null && !appData.isBlank())
-                    ? Path.of(appData)
-                    : Path.of(System.getProperty("user.home"), "AppData", "Roaming");
-            return base.resolve("Brokk");
-        } else if (os.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Application Support", "Brokk");
-        } else {
-            var xdg = System.getenv("XDG_CONFIG_HOME");
-            Path base = (xdg != null && !xdg.isBlank())
-                    ? Path.of(xdg)
-                    : Path.of(System.getProperty("user.home"), ".config");
-            return base.resolve("Brokk");
-        }
-    }
-
     private static Path getUiPropertiesFile() {
-        return getConfigDir().resolve("ui.properties");
+        return BrokkConfigPaths.getGlobalConfigDir().resolve("ui.properties");
     }
 
     private static synchronized Properties loadProps() {
@@ -99,7 +72,7 @@ public final class GlobalUiSettings {
         }
         var props = new Properties();
         try {
-            var configDir = getConfigDir();
+            var configDir = BrokkConfigPaths.getGlobalConfigDir();
             Files.createDirectories(configDir);
             var file = getUiPropertiesFile();
             if (Files.exists(file)) {
@@ -116,7 +89,7 @@ public final class GlobalUiSettings {
 
     private static synchronized void saveProps(Properties props) {
         try {
-            var configDir = getConfigDir();
+            var configDir = BrokkConfigPaths.getGlobalConfigDir();
             Files.createDirectories(configDir);
             AtomicWrites.atomicSaveProperties(getUiPropertiesFile(), props, "Brokk global UI settings");
         } catch (IOException e) {
@@ -396,6 +369,14 @@ public final class GlobalUiSettings {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
     }
 
+    public static boolean isVerticalActivityLayout() {
+        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, false);
+    }
+
+    public static void saveVerticalActivityLayout(boolean enabled) {
+        setBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, enabled);
+    }
+
     // Instructions panel preferences
     public static boolean isInstructionsTabInsertIndentation() {
         return getBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, false);
@@ -403,6 +384,23 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
+
+    // Vertical layout split positions (pixels)
+    public static int getVerticalLayoutLeftSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT);
+    }
+
+    public static void saveVerticalLayoutLeftSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT, px);
+    }
+
+    public static int getVerticalLayoutHorizontalSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT);
+    }
+
+    public static void saveVerticalLayoutHorizontalSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT, px);
     }
 
     private static int getInt(String key) {

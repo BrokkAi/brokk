@@ -617,7 +617,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                             Issue: """
                                     + requireNonNull(lutzLitePrompt);
-                    var task = new TaskList.TaskItem(taskText, false);
+                    var task = new TaskList.TaskItem("", taskText, false);
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
                     var taskResult = cm.executeTask(task, planModel, codeModel, true, true);

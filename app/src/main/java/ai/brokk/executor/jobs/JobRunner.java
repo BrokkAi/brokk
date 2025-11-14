@@ -224,7 +224,7 @@ public final class JobRunner {
                                         case ASK -> {
                                             // Read-only execution: never auto-commit; allow compression if requested
                                             cm.executeTask(
-                                                    new TaskList.TaskItem(task.text(), false),
+                                                    new TaskList.TaskItem(task.title(), task.text(), false),
                                                     Objects.requireNonNull(
                                                             askPlannerModel, "plannerModel required for ASK jobs"),
                                                     Objects.requireNonNull(
@@ -434,7 +434,7 @@ public final class JobRunner {
         for (String line : Splitter.on('\n').split(taskInput)) {
             var trimmed = line.trim();
             if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem(trimmed, false));
+                list.add(new TaskList.TaskItem("", trimmed, false));
             }
         }
 
@@ -442,7 +442,7 @@ public final class JobRunner {
         if (list.isEmpty()) {
             String trimmed = taskInput.trim();
             if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem(trimmed, false));
+                list.add(new TaskList.TaskItem("", trimmed, false));
             }
         }
 
