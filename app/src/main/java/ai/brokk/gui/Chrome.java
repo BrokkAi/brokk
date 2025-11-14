@@ -1154,6 +1154,14 @@ public class Chrome
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
+
+        // Ensure the Changes tab reflects the current repo/branch state
+        try {
+            historyOutputPanel.refreshBranchDiffPanel();
+        } catch (Exception ex) {
+            logger.debug("Unable to refresh Changes tab after repo update", ex);
+        }
+
         logger.trace("updateGitRepo: finished");
     }
 

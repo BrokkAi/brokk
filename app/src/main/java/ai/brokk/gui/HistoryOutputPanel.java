@@ -2052,6 +2052,59 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
+    /**
+     * Public entry-point to refresh the branch-based Changes tab on demand.
+     * Safe to call from any thread.
+     */
+    public void refreshBranchDiffPanel() {
+        SwingUtilities.invokeLater(() -> {
+            // Dispose and clear any existing aggregated diff panel
+            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
+                try {
+                    diffPanel.dispose();
+                } catch (Throwable t) {
+                    logger.debug("Ignoring error disposing previous aggregated BrokkDiffPanel during refresh", t);
+                }
+            }
+            aggregatedChangesPanel = null;
+
+            // Put the Changes tab into a loading state with spinner
+            if (outputTabs != null && changesTabPlaceholder != null) {
+                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && outputTabs.getTabCount() >= 2) {
+                    idx = 1; // Fallback: assume second tab is "Changes"
+                }
+                if (idx >= 0) {
+                    try {
+                        outputTabs.setTitleAt(idx, "Changes (...)");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Tab lineup might have changed; ignore safely
+                    }
+                }
+
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
+
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                if (spinnerIcon != null) {
+                    spinnerLabel.setIcon(spinnerIcon);
+                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+                }
+
+                container.add(spinnerLabel, BorderLayout.CENTER);
+                container.revalidate();
+                container.repaint();
+            }
+
+            // Kick off asynchronous recompute
+            refreshCumulativeChangesAsync();
+        });
+    }
+
     /** Gets the LLM scroll pane */
     public JScrollPane getLlmScrollPane() {
         return llmScrollPane;
