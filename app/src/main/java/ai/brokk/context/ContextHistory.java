@@ -328,7 +328,7 @@ public class ContextHistory {
         selected = liveContext();
         applySnapshotToWorkspace(history.peekLast(), io);
         redoFileDeletions(io, project, popped);
-        io.updateGitRepo();
+        refreshGitAsync(io);
         return true;
     }
 
@@ -380,6 +380,16 @@ public class ContextHistory {
 
     private Set<UUID> getContextIds() {
         return history.stream().map(Context::id).collect(Collectors.toSet());
+    }
+
+    private static void refreshGitAsync(IConsoleIO io) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                io.updateGitRepo();
+            } catch (Exception e) {
+                logger.debug("Async Git refresh failed", e);
+            }
+        });
     }
 
     private int indexOf(Context ctx) {
@@ -492,7 +502,7 @@ public class ContextHistory {
             io.updateWorkspace();
         }
 
-        io.updateGitRepo();
+        refreshGitAsync(io);
 
         if (!materializationWarnings.isEmpty()) {
             io.toolError(
