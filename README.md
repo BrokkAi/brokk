@@ -27,6 +27,17 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
 
 Brokk documentation is at https://brokk.ai/documentation/.
 
+Additional docs in this repo:
+
+- Headless Executor
+  - Running: docs/headless-executor.md
+  - Events: docs/headless-executor-events.md
+  - curl examples: docs/headless-executor-testing-with-curl.md
+- Headless Session Manager
+  - Overview & Running: docs/headless-session-manager.md
+  - Architecture: docs/headless-session-manager-architecture.md
+  - curl examples: docs/headless-session-manager-testing-with-curl.md
+
 # Contributing
 
 Brokk uses Gradle with Scala support. To build Brokk,
