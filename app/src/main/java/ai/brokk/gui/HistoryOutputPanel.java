@@ -201,6 +201,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private CumulativeChanges lastCumulativeChanges;
 
+    @Nullable
+    private String lastBaselineLabel;
+
     /**
      * Constructs a new HistoryOutputPane.
      *
@@ -1768,22 +1771,28 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
         if (idx < 0) return;
 
+        String baselineSuffix = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                ? " vs " + lastBaselineLabel
+                : "";
+
         try {
             if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Changes (0)");
-                tabs.setToolTipTextAt(idx, "No changes in this session.");
+                tabs.setTitleAt(idx, "Changes (0)" + baselineSuffix);
+                tabs.setToolTipTextAt(idx, "No changes" + baselineSuffix + ".");
             } else {
                 boolean isDark = chrome.getTheme().isDarkTheme();
                 Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
                 Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
                 String htmlTitle = String.format(
-                        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                        res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted());
+                        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                        res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted(),
+                        escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
                 String tooltip = "Cumulative changes: "
                         + res.filesChanged()
                         + " files, +" + res.totalAdded()
-                        + "/-" + res.totalDeleted();
+                        + "/-" + res.totalDeleted()
+                        + baselineSuffix;
                 tabs.setToolTipTextAt(idx, tooltip);
             }
         } catch (IndexOutOfBoundsException ignore) {
@@ -2825,6 +2834,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
 
                     var baseline = computeBaselineForChanges();
+                    lastBaselineLabel = baseline.displayLabel();
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
