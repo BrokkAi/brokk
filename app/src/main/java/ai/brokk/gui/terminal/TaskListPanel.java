@@ -118,6 +118,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     // panels.
     private static final int ACTION_BUTTON_WIDTH = 140;
     private static final int ACTION_BUTTON_MIN_HEIGHT = 36;
+    private static final int SHORT_TITLE_CHAR_THRESHOLD = 20;
     private final Timer runningFadeTimer;
     private final JComponent controls;
     private final JPanel southPanel;
@@ -2048,8 +2049,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return firstLine.substring(0, maxLen).strip() + "...";
     }
 
+    private static boolean isShortTaskText(String text) {
+        if (text == null) {
+            return true;
+        }
+        String trimmed = text.strip();
+        return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD || !trimmed.contains("\n");
+    }
+
     private void summarizeAndUpdateTaskTitle(String taskText, int originalIndex) {
         if (taskText == null || taskText.isBlank()) {
+            return;
+        }
+        
+        if (isShortTaskText(taskText)) {
             return;
         }
         
