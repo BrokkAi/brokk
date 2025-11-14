@@ -932,21 +932,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     idx = 1; // Fallback: assume second tab is "Changes"
                 }
                 if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Changes (...)");
-                        tabs.setToolTipTextAt(idx, "Computing cumulative changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab might have changed; ignore safely
-                    }
+                try {
+                tabs.setTitleAt(idx, "Changes (...)");
+                tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                } catch (IndexOutOfBoundsException ignore) {
+                // Tab might have changed; ignore safely
                 }
-
+                }
+                
                 // Replace content with a spinner while loading
                 if (changesTabPlaceholder != null) {
-                    var container = changesTabPlaceholder;
-                    container.removeAll();
-                    container.setLayout(new BorderLayout());
-
-                    var spinnerLabel = new JLabel("Computing cumulative changes...", SwingConstants.CENTER);
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
+                
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                     var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                     if (spinnerIcon != null) {
                         spinnerLabel.setIcon(spinnerIcon);
@@ -1964,21 +1964,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     idx = 1; // Fallback: assume second tab is "Changes"
                 }
                 if (idx >= 0) {
-                    try {
-                        outputTabs.setTitleAt(idx, "(...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing cumulative changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard: tab lineup may have changed
-                    }
+                try {
+                outputTabs.setTitleAt(idx, "(...)");
+                outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                } catch (IndexOutOfBoundsException ignore) {
+                // Safe-guard: tab lineup may have changed
                 }
-            }
-
-            if (changesTabPlaceholder != null) {
+                }
+                }
+                
+                if (changesTabPlaceholder != null) {
                 var container = changesTabPlaceholder;
                 container.removeAll();
                 container.setLayout(new BorderLayout());
-
-                var spinnerLabel = new JLabel("Computing cumulative changes...", SwingConstants.CENTER);
+                
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                 var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                 if (spinnerIcon != null) {
                     spinnerLabel.setIcon(spinnerIcon);
@@ -2011,6 +2011,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 sessionSwitchPanel.revalidate();
                 sessionSwitchPanel.repaint();
             }
+            
+            // Show loading state in Changes tab before triggering refresh
+            if (outputTabs != null && changesTabPlaceholder != null) {
+                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && outputTabs.getTabCount() >= 2) {
+                    idx = 1;
+                }
+                if (idx >= 0) {
+                    try {
+                        outputTabs.setTitleAt(idx, "Changes (...)");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Safe-guard
+                    }
+                }
+                
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
+                
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                if (spinnerIcon != null) {
+                    spinnerLabel.setIcon(spinnerIcon);
+                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+                }
+                
+                container.add(spinnerLabel, BorderLayout.CENTER);
+                container.revalidate();
+                container.repaint();
+            }
+            
             // Trigger a fresh aggregation for the newly selected session
             refreshCumulativeChangesAsync();
         });
