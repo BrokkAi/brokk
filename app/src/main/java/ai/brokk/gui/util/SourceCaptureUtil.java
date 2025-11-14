@@ -23,7 +23,14 @@ public class SourceCaptureUtil {
      */
     public static void captureSourceForCodeUnit(CodeUnit codeUnit, ContextManager contextManager) {
         contextManager.submitBackgroundTask(
-                "Capture Source Code", () -> contextManager.sourceCodeForCodeUnit(codeUnit));
+                "Capture Source Code", () -> {
+                    try {
+                        var analyzer = contextManager.getAnalyzer();
+                        contextManager.sourceCodeForCodeUnit(analyzer, codeUnit);
+                    } catch (InterruptedException e) {
+                        logger.warn("Interrupted while capturing code unit", e);
+                    }
+                });
     }
 
     /**

@@ -1188,16 +1188,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
-    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
-        String sourceCode = null;
-        try {
-            sourceCode = getAnalyzer()
+    public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
+        String sourceCode = analyzer
                     .as(SourceCodeProvider.class)
                     .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
                     .orElse(null);
-        } catch (InterruptedException e) {
-            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
-        }
 
         if (sourceCode != null) {
             var fragment = new ContextFragment.StringFragment(
