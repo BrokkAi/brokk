@@ -2063,6 +2063,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         
         if (isShortTaskText(taskText)) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    for (int i = 0; i < model.getSize(); i++) {
+                        var task = model.get(i);
+                        if (task != null && task.text().equals(taskText)) {
+                            model.set(i, new TaskList.TaskItem(taskText.strip(), task.text(), task.done()));
+                            saveTasksForCurrentSession();
+                            list.repaint();
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title for short task", e);
+                }
+            });
             return;
         }
         
