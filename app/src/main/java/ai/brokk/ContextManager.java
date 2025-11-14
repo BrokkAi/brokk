@@ -1544,6 +1544,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             boolean autoCommit,
             boolean autoCompress)
             throws InterruptedException {
+        // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
+        // The title is UI-only metadata for display/organization; the text is the actual task body.
         var prompt = task.text().strip();
         if (prompt.isEmpty()) {
             throw new IllegalArgumentException("Task text must be non-blank");
