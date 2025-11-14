@@ -108,9 +108,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JTabbedPane activityTabs;
+
     // Output tabs
     @Nullable
     private JTabbedPane outputTabs;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel activityTabsContainer;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel outputTabsContainer;
+
+    // Session header panel (exposed so Chrome can reparent in vertical layout)
+    private JPanel sessionHeaderPanel;
 
     @Nullable
     private JPanel changesTabPlaceholder;
@@ -120,6 +132,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JTextArea captureDescriptionArea;
+
+    // Capture/notification bar container for fixed sizing in vertical layout
+    @Nullable
+    private JPanel captureOutputPanel;
 
     private final MaterialButton copyButton;
     private final MaterialButton clearButton;
@@ -357,32 +373,32 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         updateSessionComboBox();
 
         // Create header panel with all controls in a simple horizontal layout
-        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        headerPanel.setOpaque(true);
+        this.sessionHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        sessionHeaderPanel.setOpaque(true);
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
-        headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
+        sessionHeaderPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
 
-        headerPanel.add(newSessionButton);
-        headerPanel.add(new VerticalDivider());
+        sessionHeaderPanel.add(newSessionButton);
+        sessionHeaderPanel.add(new VerticalDivider());
 
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        headerPanel.add(sessionNameLabel);
+        sessionHeaderPanel.add(sessionNameLabel);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
-        var activityTabs = new JTabbedPane(JTabbedPane.TOP);
+        activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
         activityTabs.setMinimumSize(new Dimension(250, 0));
         activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
 
         // Create center container with both tab panels
-        var centerContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        centerContainer.add(centerPanel, BorderLayout.CENTER);
-        centerContainer.add(activityTabs, BorderLayout.EAST);
+        activityTabsContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        activityTabsContainer.add(centerPanel, BorderLayout.CENTER);
+        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
         // Main layout: header at top, center container in center
-        add(headerPanel, BorderLayout.NORTH);
-        add(centerContainer, BorderLayout.CENTER);
+        add(sessionHeaderPanel, BorderLayout.NORTH);
+        add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -458,6 +474,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(tabs, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+        outputTabsContainer = centerContainer;
 
         return centerContainer;
     }
@@ -966,6 +983,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return historyTable;
     }
 
+    public JTabbedPane getActivityTabs() {
+        return activityTabs;
+    }
+
+    public @Nullable JTabbedPane getOutputTabs() {
+        return outputTabs;
+    }
+
+    public JPanel getActivityTabsContainer() {
+        return activityTabsContainer;
+    }
+
+    public JPanel getOutputTabsContainer() {
+        return outputTabsContainer;
+    }
+
+    public JPanel getSessionHeaderPanel() {
+        return sessionHeaderPanel;
+    }
+
     /** Builds the LLM streaming area where markdown output is displayed */
     private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
         // Wrap it in a scroll pane for layout purposes, but disable scrollbars
@@ -988,6 +1025,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+        // Fixed height for capture panel
+        panel.setPreferredSize(new Dimension(0, 38));
+        panel.setMinimumSize(new Dimension(0, 38));
 
         // Placeholder area in center - will get all extra space
         captureDescriptionArea = new JTextArea("");
@@ -1005,6 +1045,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // "Open in New Window" button
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+            openWindowButton.setPreferredSize(new Dimension(24, 24));
+            openWindowButton.setMinimumSize(new Dimension(24, 24));
+            openWindowButton.setMaximumSize(new Dimension(24, 24));
         });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
@@ -1020,8 +1063,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 openOutputWindowFromContext(context);
             }
         });
-        // Set minimum size
-        openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
         // Notifications button
@@ -1029,7 +1070,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsButton.addActionListener(e -> showNotificationsDialog());
         SwingUtilities.invokeLater(() -> {
             notificationsButton.setIcon(Icons.NOTIFICATIONS);
-            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+            notificationsButton.setPreferredSize(new Dimension(24, 24));
+            notificationsButton.setMinimumSize(new Dimension(24, 24));
+            notificationsButton.setMaximumSize(new Dimension(24, 24));
         });
         buttonsPanel.add(notificationsButton);
 
@@ -1089,6 +1132,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonsPanel.addMouseListener(popupListener);
         notificationAreaPanel.addMouseListener(popupListener);
 
+        this.captureOutputPanel = panel;
         return panel;
     }
 
@@ -1163,13 +1207,48 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    public void applyFixedCaptureBarSizing(boolean enabled) {
+        // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
+        // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
+        SwingUtilities.invokeLater(() -> {
+            final int barHeight = 38;
+            final int btnSize = 24;
+
+            if (enabled) {
+                if (captureOutputPanel != null) {
+                    captureOutputPanel.setPreferredSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                }
+                notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                Dimension btnDim = new Dimension(btnSize, btnSize);
+                openWindowButton.setPreferredSize(btnDim);
+                openWindowButton.setMinimumSize(btnDim);
+                openWindowButton.setMaximumSize(btnDim);
+                notificationsButton.setPreferredSize(btnDim);
+                notificationsButton.setMinimumSize(btnDim);
+                notificationsButton.setMaximumSize(btnDim);
+            }
+
+            if (captureOutputPanel != null) {
+                captureOutputPanel.revalidate();
+                captureOutputPanel.repaint();
+            }
+            notificationAreaPanel.revalidate();
+            notificationAreaPanel.repaint();
+        });
+    }
+
     private JPanel buildNotificationAreaPanel() {
         var p = new JPanel();
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
         p.setOpaque(false);
         p.setBorder(new EmptyBorder(0, 5, 0, 0));
-        // Preferred width to allow message text and controls; height flexes with content
-        p.setPreferredSize(new Dimension(0, 0));
+        // Fixed height to match capture panel
+        p.setPreferredSize(new Dimension(0, 38));
+        p.setMinimumSize(new Dimension(0, 38));
         return p;
     }
 
@@ -1180,9 +1259,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var nextToShow = notificationQueue.poll();
-        if (nextToShow == null) {
-            return;
-        }
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;

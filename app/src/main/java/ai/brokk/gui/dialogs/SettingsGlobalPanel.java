@@ -79,6 +79,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
+    private JCheckBox verticalActivityLayoutCheckbox = new JCheckBox("Beta: Vertical Activity Layout");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
     private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
@@ -851,6 +852,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         appearancePanel.add(wordWrapCheckbox, gbc);
 
+        // Vertical Activity Layout
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Activity Layout:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(verticalActivityLayoutCheckbox, gbc);
+
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
 
         // Diff View
@@ -1391,6 +1406,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Code Block Layout
         wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
+        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
 
         // UI Scale (if present; hidden on macOS)
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
@@ -1616,6 +1632,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (themeChanged || wrapChanged) {
                 chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
                 logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
+            }
+        }
+
+        boolean previousVerticalLayout = GlobalUiSettings.isVerticalActivityLayout();
+        boolean newVerticalLayout = verticalActivityLayoutCheckbox.isSelected();
+        if (previousVerticalLayout != newVerticalLayout) {
+            GlobalUiSettings.saveVerticalActivityLayout(newVerticalLayout);
+            if (newVerticalLayout) {
+                // Turning ON vertical activity layout: apply immediately.
+                SwingUtilities.invokeLater(chrome::applyVerticalActivityLayout);
+            } else {
+                // Turning OFF (back to standard layout) requires restart to fully restore original layout.
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Restart required: Turning off Vertical Activity Layout will take effect after restarting Brokk.",
+                        "Restart Required",
+                        JOptionPane.INFORMATION_MESSAGE);
+                // Do not re-layout now; keep current layout until restart.
             }
         }
 

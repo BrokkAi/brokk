@@ -271,6 +271,8 @@ public class Chrome
     // Reference to the small header panel placed above the right tab stack (holds branch selector).
     // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
     private @Nullable JPanel rightTabbedHeader = null;
+    // Combined panel used when Vertical Activity Layout is enabled (Activity above Instructions | Output on the right)
+    private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
     /**
      * Default constructor sets up the UI.
@@ -705,7 +707,6 @@ public class Chrome
             Component newFocusOwner = (Component) evt.getNewValue();
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
-                historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
                     if (newFocusOwner == instructionsPanel.getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
@@ -738,6 +739,7 @@ public class Chrome
 
         // Complete all layout operations synchronously before showing window
         completeLayoutSynchronously();
+        applyVerticalActivityLayout();
 
         // Final validation and repaint before making window visible
         frame.validate();
@@ -1971,7 +1973,7 @@ public class Chrome
         int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         if (projectFilesTabIndex != -1) {
             leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
-            SwingUtilities.invokeLater(() -> projectFilesPanel.toggleDependencies());
+            SwingUtilities.invokeLater(projectFilesPanel::toggleDependencies);
         }
     }
 
@@ -2529,7 +2531,7 @@ public class Chrome
             var globalBounds = GlobalUiSettings.getMainWindowBounds();
             if (globalBounds.width > 0 && globalBounds.height > 0) {
                 // Calculate progressive DPI-aware offset based on number of open instances
-                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int instanceCount = openInstances.size(); // this instance not yet added
                 int step = UIScale.scale(20); // gentle, DPI-aware cascade step
                 int offsetX = globalBounds.x + (step * instanceCount);
                 int offsetY = globalBounds.y + (step * instanceCount);
@@ -3308,6 +3310,151 @@ public class Chrome
         }
     }
 
+    public void applyVerticalActivityLayout() {
+        Runnable task = () -> {
+            if (rightTabbedContainer == null) {
+                return;
+            }
+
+            boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
+            var activityTabs = historyOutputPanel.getActivityTabs();
+            var outputTabs = historyOutputPanel.getOutputTabs();
+            var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
+            var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
+            outputTabsContainer.setVisible(!enabled);
+
+            if (enabled) {
+                if (verticalActivityCombinedPanel != null
+                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
+                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
+                } else {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+
+                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(null);
+                    }
+
+                    // Create top-left composite: Session header above Activity tabs
+                    var leftTopPanel = new JPanel(new BorderLayout());
+                    leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
+                    leftTopPanel.add(activityTabs, BorderLayout.CENTER);
+
+                    // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
+                    var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+                    leftSplitPane.setTopComponent(leftTopPanel);
+                    leftSplitPane.setBottomComponent(rightTabbedContainer);
+                    leftSplitPane.setResizeWeight(0.4);
+
+                    // Restore saved position or use default
+                    int savedLeftPos = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+                    if (savedLeftPos > 0) {
+                        leftSplitPane.setDividerLocation(savedLeftPos);
+                    } else {
+                        leftSplitPane.setDividerLocation(0.4);
+                    }
+
+                    // Add listener to save position changes
+                    leftSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (leftSplitPane.isShowing()) {
+                            int newPos = leftSplitPane.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    // Create horizontal split: left split pane | output tabs
+                    var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+                    verticalSplit.setLeftComponent(leftSplitPane);
+                    if (outputTabs != null) {
+                        verticalSplit.setRightComponent(outputTabs);
+                    }
+                    verticalSplit.setResizeWeight(0.5);
+
+                    // Restore saved position or use default
+                    int savedHorizPos = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+                    if (savedHorizPos > 0) {
+                        verticalSplit.setDividerLocation(savedHorizPos);
+                    } else {
+                        verticalSplit.setDividerLocation(0.5);
+                    }
+
+                    // Add listener to save position changes
+                    verticalSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (verticalSplit.isShowing()) {
+                            int newPos = verticalSplit.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    verticalActivityCombinedPanel = verticalSplit;
+                    bottomSplitPane.setRightComponent(verticalSplit);
+
+                    // Ensure the capture/notification bar under Output maintains fixed sizing in vertical layout
+                    historyOutputPanel.applyFixedCaptureBarSizing(true);
+
+                    verticalSplit.revalidate();
+                    verticalSplit.repaint();
+                }
+            } else {
+                if (verticalActivityCombinedPanel != null) {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+
+                    // Return to standard layout; the bar sizing is already correct there.
+                    historyOutputPanel.applyFixedCaptureBarSizing(false);
+
+                    if (activityTabs.getParent() != activityTabsContainer) {
+                        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
+                    }
+                    if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
+                        outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
+                    }
+                    if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(rightTabbedContainer);
+                    }
+                    // Restore session header back to HistoryOutputPanel's top
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+                    historyOutputPanel.add(sessionHeader, BorderLayout.NORTH);
+
+                    verticalActivityCombinedPanel = null;
+                }
+                bottomSplitPane.setRightComponent(mainVerticalSplitPane);
+            }
+
+            activityTabsContainer.revalidate();
+            activityTabsContainer.repaint();
+            outputTabsContainer.revalidate();
+            outputTabsContainer.repaint();
+            topSplitPane.revalidate();
+            topSplitPane.repaint();
+            mainVerticalSplitPane.revalidate();
+            mainVerticalSplitPane.repaint();
+            bottomSplitPane.revalidate();
+            bottomSplitPane.repaint();
+            frame.revalidate();
+            frame.repaint();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
     /**
      * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
      */
@@ -3598,16 +3745,14 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
@@ -4120,6 +4265,15 @@ public class Chrome
      */
     public JComponent getAnalyzerStatusStrip() {
         return analyzerStatusStrip;
+    }
+
+    private static void detachFromParent(Component component) {
+        Container parent = component.getParent();
+        if (parent != null) {
+            parent.remove(component);
+            parent.revalidate();
+            parent.repaint();
+        }
     }
 
     @Override
