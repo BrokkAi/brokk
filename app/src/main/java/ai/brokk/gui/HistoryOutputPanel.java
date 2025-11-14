@@ -15,6 +15,7 @@ import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
@@ -2066,7 +2067,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Safe to call from any thread.
      */
     public void refreshBranchDiffPanel() {
-        SwingUtilities.invokeLater(() -> {
+    SwingUtil.runOnEdt(() -> {
             // Dispose and clear any existing aggregated diff panel
             if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
                 try {
