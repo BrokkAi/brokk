@@ -1656,6 +1656,9 @@ public class Chrome
         if (!openPreviewFiles.isEmpty()) {
             refreshPreviewsForFiles(openPreviewFiles);
         }
+
+        // Also refresh the Review tab to show updated changes
+        historyOutputPanel.refreshBranchDiffPanel();
     }
 
     /**
