@@ -1914,21 +1914,21 @@ public class Chrome
     }
 
     /**
-     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews,
-     * uses the file path. For other content, uses the title.
+     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews
+     * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
      */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        if (contentComponent instanceof PreviewTextPanel) {
-            // For file previews, extract file path from title or use title as fallback
+        if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
+            // For file previews with an actual file, use file-based key
             if (title.startsWith("Preview: ")) {
                 return "file:" + title.substring(9); // Remove "Preview: " prefix
             } else {
                 return "file:" + title;
             }
-        } else {
-            // For other types of previews, use a generic key based on class and title
-            return "preview:" + contentComponent.getClass().getSimpleName() + ":" + title;
         }
+        // For fragment previews (no file) or other content types, use title-based key
+        // This ensures placeholder and final content generate the same key for window reuse
+        return "preview:" + title;
     }
 
     /**
