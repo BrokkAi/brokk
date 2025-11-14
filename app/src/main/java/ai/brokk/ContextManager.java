@@ -1449,7 +1449,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem("", s, false))
+                .map(s -> {
+                    String provisionalTitle = makeProvisionalTaskTitle(s);
+                    return new TaskList.TaskItem(provisionalTitle, s, false);
+                })
                 .toList();
         if (additions.isEmpty()) {
             return;
@@ -1490,6 +1493,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        
+        // Kick off async summarization for each newly added task
+        for (var addition : additions) {
+            summarizeAndUpdateTaskTitle(addition.text());
+        }
     }
 
     /**
@@ -2737,6 +2745,68 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }
+    }
+
+    private String makeProvisionalTaskTitle(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String firstLine = text.lines().findFirst().orElse(text);
+        int maxLen = 80;
+        if (firstLine.length() <= maxLen) {
+            return firstLine.strip();
+        }
+        return firstLine.substring(0, maxLen).strip() + "...";
+    }
+
+    private void summarizeAndUpdateTaskTitle(String taskText) {
+        if (taskText == null || taskText.isBlank()) {
+            return;
+        }
+        
+        var summaryFuture = summarizeTaskForConversation(taskText);
+        
+        summaryFuture.whenComplete((summary, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed to summarize task title", ex);
+                return;
+            }
+            if (summary == null || summary.isBlank()) {
+                return;
+            }
+            
+            submitBackgroundTask("Update task title", () -> {
+                try {
+                    TaskList.TaskListData currentData = project.getSessionManager()
+                            .readTaskList(currentSessionId)
+                            .get();
+                    
+                    var updatedTasks = new ArrayList<TaskList.TaskItem>();
+                    boolean found = false;
+                    for (var task : currentData.tasks()) {
+                        if (!found && task.text().equals(taskText)) {
+                            updatedTasks.add(new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
+                            found = true;
+                        } else {
+                            updatedTasks.add(task);
+                        }
+                    }
+                    
+                    if (found) {
+                        var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
+                        this.taskList = newData;
+                        project.getSessionManager().writeTaskList(currentSessionId, newData);
+                        
+                        if (io instanceof Chrome chrome) {
+                            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI());
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title after summarization", e);
+                }
+                return null;
+            });
+        });
     }
 
     public static class SummarizeWorker extends ExceptionAwareSwingWorker<String, String> {

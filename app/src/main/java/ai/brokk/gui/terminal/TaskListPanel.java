@@ -586,10 +586,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
         int added = 0;
+        int startIndex = model.getSize();
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                model.addElement(new TaskList.TaskItem("", text, false));
+                String provisionalTitle = makeProvisionalTitle(text);
+                model.addElement(new TaskList.TaskItem(provisionalTitle, text, false));
                 added++;
             }
         }
@@ -601,6 +603,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
             // Ensure the Tasks tab badge updates to reflect newly added tasks.
             SwingUtilities.invokeLater(this::updateTasksTabBadge);
+            
+            // Kick off async summarization for each newly added task
+            for (int i = startIndex; i < model.getSize(); i++) {
+                summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text(), i);
+            }
         }
     }
 
@@ -921,6 +928,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             clearExpansionOnStructureChange();
             updateButtonStates();
+            
+            // Kick off async summarization for tasks with blank titles
+            for (int i = 0; i < model.getSize(); i++) {
+                var task = requireNonNull(model.get(i));
+                if (task.title() == null || task.title().isBlank()) {
+                    summarizeAndUpdateTaskTitle(task.text(), i);
+                }
+            }
         } finally {
             isLoadingTasks = false;
             clearExpansionOnStructureChange();
@@ -2036,6 +2051,55 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             StringSelection selection = new StringSelection(clipboardText);
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
         }
+    }
+
+    private String makeProvisionalTitle(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String firstLine = text.lines().findFirst().orElse(text);
+        int maxLen = 80;
+        if (firstLine.length() <= maxLen) {
+            return firstLine.strip();
+        }
+        return firstLine.substring(0, maxLen).strip() + "...";
+    }
+
+    private void summarizeAndUpdateTaskTitle(String taskText, int originalIndex) {
+        if (taskText == null || taskText.isBlank()) {
+            return;
+        }
+        
+        var cm = chrome.getContextManager();
+        var summaryFuture = cm.summarizeTaskForConversation(taskText);
+        
+        summaryFuture.whenComplete((summary, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed to summarize task title", ex);
+                return;
+            }
+            if (summary == null || summary.isBlank()) {
+                return;
+            }
+            
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Find the task by matching text (since it may have moved)
+                    for (int i = 0; i < model.getSize(); i++) {
+                        var task = model.get(i);
+                        if (task != null && task.text().equals(taskText)) {
+                            // Update with the summarized title
+                            model.set(i, new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
+                            saveTasksForCurrentSession();
+                            list.repaint();
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title after summarization", e);
+                }
+            });
+        });
     }
 
     @Override
