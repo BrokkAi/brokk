@@ -141,6 +141,8 @@ public class MergeAgent {
             var refreshedOpt = ConflictInspector.inspectFromProject(cm.getProject());
             conflict = refreshedOpt.orElseGet(() ->
                     new MergeConflict(mode, conflict.ourCommitId, otherCommitId, baseCommitId, Set.of(), Map.of()));
+            // Refresh the snapshot of conflicts to stay in sync with 'conflict'
+            this.conflicts = conflict.files();
         }
 
         // First pass: annotate ALL files up front (parallel)
@@ -301,7 +303,7 @@ public class MergeAgent {
         if (buildFailureText.isBlank() && codeAgentFailures.isEmpty()) {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
-            logger.debug("msg");
+            logger.debug(msg);
             cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
             var ctx = new Context(cm, "Resolved conflicts").addPathFragments(cm.toPathFragments(changedFiles));
@@ -367,7 +369,7 @@ public class MergeAgent {
         var unionOurCommits = ConcurrentHashMap.<String>newKeySet();
         var unionTheirCommits = ConcurrentHashMap.<String>newKeySet();
 
-        conflicts.parallelStream().forEach(cf -> {
+        conflicts.parallelStream().filter(FileConflict::isContentConflict).forEach(cf -> {
             assert cf.isContentConflict() : "Non-content conflicts should already be resolved";
 
             var conflictAnnotator = new ConflictAnnotator(repo, conflict);
