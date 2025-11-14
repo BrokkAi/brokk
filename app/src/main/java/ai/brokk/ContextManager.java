@@ -1449,10 +1449,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
-                .map(s -> {
-                    String provisionalTitle = makeProvisionalTaskTitle(s);
-                    return new TaskList.TaskItem(provisionalTitle, s, false);
-                })
+                .map(s -> new TaskList.TaskItem("", s, false))
                 .toList();
         if (additions.isEmpty()) {
             return;
