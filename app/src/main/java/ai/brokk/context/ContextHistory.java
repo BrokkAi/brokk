@@ -2,9 +2,11 @@ package ai.brokk.context;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.gui.Chrome;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Duration;
@@ -383,11 +385,26 @@ public class ContextHistory {
     }
 
     private static void refreshGitAsync(IConsoleIO io) {
+        try {
+            if (io instanceof Chrome chrome) {
+                ContextManager cm = chrome.getContextManager();
+                if (cm != null) {
+                    cm.submitBackgroundTask("Refresh Git repo", () -> {
+                        io.updateGitRepo();
+                        return null;
+                    });
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Scheduling Git refresh via ContextManager failed; falling back to default async", e);
+        }
+        // Fallback for headless/other implementations: run off common pool (non-blocking)
         CompletableFuture.runAsync(() -> {
             try {
                 io.updateGitRepo();
-            } catch (Exception e) {
-                logger.debug("Async Git refresh failed", e);
+            } catch (Exception ex) {
+                logger.debug("Async Git refresh (fallback) failed", ex);
             }
         });
     }
