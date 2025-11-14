@@ -451,7 +451,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Placeholder for the Changes tab
         var placeholder = new JPanel(new BorderLayout());
-        var placeholderLabel = new JLabel("Changes will appear here", SwingConstants.CENTER);
+        var placeholderLabel = new JLabel("Review will appear here", SwingConstants.CENTER);
         placeholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
         placeholder.add(placeholderLabel, BorderLayout.CENTER);
         this.changesTabPlaceholder = placeholder;
@@ -459,7 +459,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create the tabbed pane and add both tabs
         var tabs = new JTabbedPane();
         tabs.addTab("Output", outputPanel);
-        tabs.addTab("Changes", placeholder);
+        tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
 
         // Container for the combined section
@@ -933,7 +933,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 if (idx >= 0) {
                 try {
-                tabs.setTitleAt(idx, "Changes (...)");
+                tabs.setTitleAt(idx, "Review (...)");
                 tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                 } catch (IndexOutOfBoundsException ignore) {
                 // Tab might have changed; ignore safely
@@ -1763,7 +1763,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (idx < 0) {
             try {
                 if (tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                    idx = 1; // Fallback: assume second tab is "Review"
                 }
             } catch (IndexOutOfBoundsException ignore) {
                 return;
@@ -1779,15 +1779,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         try {
             if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Changes (0)" + baselineSuffix);
-                String tooltipMsg = isSpecialState ? "No baseline to compare" : ("No changes" + baselineSuffix);
+                tabs.setTitleAt(idx, "Review (0)" + baselineSuffix);
+                String tooltipMsg;
+                if (isSpecialState) {
+                    tooltipMsg = "No baseline to compare";
+                } else if ("HEAD".equals(lastBaselineLabel)) {
+                    tooltipMsg = "Working tree is clean";
+                } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                    tooltipMsg = "No changes vs " + lastBaselineLabel;
+                } else {
+                    tooltipMsg = "No changes to review";
+                }
                 tabs.setToolTipTextAt(idx, tooltipMsg + ".");
             } else {
                 boolean isDark = chrome.getTheme().isDarkTheme();
                 Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
                 Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
                 String htmlTitle = String.format(
-                        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                        "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
                         res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted(),
                         escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
@@ -2023,7 +2032,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "Changes (...)");
+                        outputTabs.setTitleAt(idx, "Review (...)");
                         outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Safe-guard
@@ -2076,7 +2085,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "Changes (...)");
+                        outputTabs.setTitleAt(idx, "Review (...)");
                         outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Tab lineup might have changed; ignore safely
@@ -3034,11 +3043,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (res.filesChanged() == 0) {
             String message;
             if ("detached HEAD".equals(lastBaselineLabel)) {
-                message = "Detached HEAD – no changes to show";
+                message = "Detached HEAD \u2014 no changes to review";
             } else if ("No repository".equals(lastBaselineLabel)) {
                 message = "No baseline to compare";
+            } else if ("HEAD".equals(lastBaselineLabel)) {
+                message = "Working tree is clean (no uncommitted changes).";
+            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                message = "No changes vs " + lastBaselineLabel + ".";
             } else {
-                message = "No changes in this session.";
+                message = "No changes to review.";
             }
             var none = new JLabel(message, SwingConstants.CENTER);
             none.setBorder(new EmptyBorder(20, 0, 20, 0));
