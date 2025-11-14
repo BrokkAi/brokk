@@ -1016,6 +1016,37 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
     private JPopupMenu buildChipContextMenu(ContextFragment fragment) {
         JPopupMenu menu = new JPopupMenu();
+
+        // Add Read-Only toggle for editable fragments
+        if (fragment instanceof ContextFragment.EditableFragment editable) {
+            boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
+            String label = editable.isReadOnly() ? "Unset Read-Only" : "Set Read-Only";
+            JMenuItem toggleRo = new JMenuItem(label);
+            toggleRo.setEnabled(onLatest && !readOnly);
+            toggleRo.addActionListener(e -> {
+                if (readOnly || !onLatest) {
+                    chrome.systemNotify(
+                            "Select latest activity to enable", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                // Execute on EDT as requested; push a new context entry with a new fragment ID.
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        contextManager.pushContext(
+                                curr -> curr.toggleReadOnlyForFragmentId(fragment.id(), !editable.isReadOnly()));
+                    } catch (Exception ex) {
+                        logger.error("Failed to toggle read-only for fragment {}", fragment, ex);
+                        chrome.systemNotify(
+                                "Failed to toggle read-only: " + ex.getMessage(),
+                                "Workspace",
+                                JOptionPane.WARNING_MESSAGE);
+                    }
+                });
+            });
+            menu.add(toggleRo);
+            menu.addSeparator();
+        }
+
         var scenario = new WorkspacePanel.SingleFragment(fragment);
         var actions = scenario.getActions(chrome.getContextPanel());
         boolean addedAnyAction = false;
@@ -1277,6 +1308,17 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         } else {
             labelText = safeShortDescription;
         }
+        // Read-only indicator icon (left of text)
+        var roIcon = new JLabel();
+        roIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
+        if (fragment instanceof ContextFragment.EditableFragment editable && editable.isReadOnly()) {
+            // Defer icon sizing until after label is created and styled; updateReadOnlyIcon() will set it.
+            roIcon.setVisible(true);
+        } else {
+            roIcon.setVisible(false);
+            roIcon.setIcon(null);
+        }
+
         var label = new JLabel(labelText);
 
         // Improve discoverability and accessibility with wrapped HTML tooltips
@@ -1398,6 +1440,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             }
         });
 
+        chip.add(roIcon);
         chip.add(label);
 
         // Add a slim vertical divider between label and close button
@@ -1415,6 +1458,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         chip.putClientProperty("brokk.fragments", Set.of(fragment));
         chip.putClientProperty("brokk.chip.closeButton", close);
         chip.putClientProperty("brokk.chip.label", label);
+        chip.putClientProperty("brokk.chip.roIcon", roIcon);
         // Track by id for grouped-segment multi-highlight
         try {
             chipById.put(fragment.id(), chip);
@@ -1422,6 +1466,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             logger.error("Failed to index chip by fragment id for {}", fragment, ex);
         }
         styleChip(chip, label, fragment);
+        updateReadOnlyIcon(chip, fragment);
 
         // Hover handlers: simple glow on enter; restore styling on exit; forward to external listener
         final int[] hoverCounter = {0};
@@ -1815,22 +1860,65 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         for (var component : getComponents()) {
             if (component instanceof JPanel chip) {
                 JLabel label = null;
+                ContextFragment fragment = null;
                 for (var child : chip.getComponents()) {
                     if (child instanceof JLabel jLabel) {
+                        // Heuristic: the first label after the optional roIcon is the text label we styled earlier.
+                        // We'll set 'label' to the last JLabel found to prefer the text label over the icon label.
                         label = jLabel;
-                        break;
                     }
                 }
+                var fragsObj = chip.getClientProperty("brokk.fragments");
+                if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
+                    fragment = (ContextFragment) fragSet.iterator().next();
+                }
                 if (label != null) {
-                    var fragsObj = chip.getClientProperty("brokk.fragments");
-                    ContextFragment fragment = null;
-                    if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
-                        fragment = (ContextFragment) fragSet.iterator().next();
-                    }
-                    // styleChip() now updates the close button icon with proper background color
                     styleChip(chip, label, fragment);
+                    updateReadOnlyIcon(chip, fragment);
                 }
             }
         }
+    }
+
+    // Fit a base icon into the current chip height, preserving theme scaling
+    private Icon fitIconToChip(Icon base, JComponent reference) {
+        int target = Math.max(12, reference.getPreferredSize().height - 4);
+        try {
+            if (base instanceof SwingUtil.ThemedIcon themed) {
+                return themed.withSize(target);
+            }
+            int w = Math.max(1, base.getIconWidth());
+            int h = Math.max(1, base.getIconHeight());
+            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = buf.createGraphics();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            base.paintIcon(null, g2, 0, 0);
+            g2.dispose();
+            Image scaled = buf.getScaledInstance(target, target, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaled);
+        } catch (Throwable t) {
+            return base;
+        }
+    }
+
+    // Update the Read-Only indicator icon visibility and image based on fragment state
+    private void updateReadOnlyIcon(JPanel chip, @Nullable ContextFragment fragment) {
+        Object iconObj = chip.getClientProperty("brokk.chip.roIcon");
+        if (!(iconObj instanceof JLabel roIcon)) {
+            return;
+        }
+        boolean show = fragment instanceof ContextFragment.EditableFragment editable && editable.isReadOnly();
+
+        if (show) {
+            Object lblObj = chip.getClientProperty("brokk.chip.label");
+            JComponent ref = lblObj instanceof JComponent ? (JComponent) lblObj : chip;
+            roIcon.setIcon(fitIconToChip(Icons.EDIT_OFF, ref));
+            roIcon.setVisible(true);
+        } else {
+            roIcon.setVisible(false);
+            roIcon.setIcon(null);
+        }
+        roIcon.revalidate();
+        roIcon.repaint();
     }
 }
