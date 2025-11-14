@@ -112,24 +112,8 @@ public final class MOPWebViewHost extends JPanel {
             var view = new WebView();
             view.setContextMenuEnabled(false);
 
-            // Intercept navigation to external links and open in system browser
-            view.getEngine().locationProperty().addListener((obs, oldLoc, newLoc) -> {
-                if (newLoc != null && !newLoc.isEmpty()) {
-                    boolean isExternalHttp = newLoc.startsWith("http://") || newLoc.startsWith("https://");
-                    boolean isEmbeddedServer = newLoc.contains("127.0.0.1")
-                            || newLoc.toLowerCase(Locale.ROOT).contains("localhost")
-                            || newLoc.contains("[::1]")
-                            || newLoc.contains("::1");
-
-                    if (isExternalHttp && !isEmbeddedServer) {
-                        logger.info("Intercepting external link navigation: {}", newLoc);
-                        view.getEngine().load("about:blank");
-                        SwingUtilities.invokeLater(() -> {
-                            Environment.openInBrowser(newLoc, SwingUtilities.getWindowAncestor(fxPanel));
-                        });
-                    }
-                }
-            });
+            // Determine embedded server port for link interception
+            int port = ClasspathHttpServer.ensureStarted();
 
             // Set unique user data directory per process to avoid DirectoryLock conflicts
             // when multiple brokk instances are running simultaneously
@@ -336,10 +320,59 @@ public final class MOPWebViewHost extends JPanel {
                             }
                         })();
                         """,
-                            getPlatformScrollSpeedFactor());
-                    view.getEngine().executeScript(wheelOverrideJs);
-                    // Now that the page is loaded, flush any buffered commands
-                    flushBufferedCommands();
+                        getPlatformScrollSpeedFactor());
+                        view.getEngine().executeScript(wheelOverrideJs);
+                        
+                        // Inject JavaScript to intercept link clicks and open external links in browser
+                        var linkInterceptionJs = String.format(
+                        Locale.US,
+                        """
+                        (function() {
+                        try {
+                        var embeddedPort = '%d';
+                        
+                        // Intercept all clicks on anchor tags
+                        document.addEventListener('click', function(event) {
+                        var target = event.target;
+                        
+                        // Walk up the DOM to find the nearest <a> tag
+                        while (target && target.tagName !== 'A') {
+                        target = target.parentElement;
+                        }
+                        
+                        if (target && target.tagName === 'A' && target.href) {
+                        var url = target.href;
+                        var isHttpLink = url.startsWith('http://') || url.startsWith('https://');
+                        var isEmbeddedServer = url.includes('127.0.0.1:' + embeddedPort);
+                        
+                        if (isHttpLink && !isEmbeddedServer) {
+                        // External link - prevent navigation and open in browser
+                        event.preventDefault();
+                        if (window.javaBridge && window.javaBridge.openExternalLink) {
+                        window.javaBridge.openExternalLink(url);
+                        } else {
+                        console.error('javaBridge.openExternalLink not available');
+                        }
+                        }
+                        // For internal links, let the default navigation happen
+                        }
+                        }, true); // Use capture phase to intercept before other handlers
+                        
+                        if (window.javaBridge) {
+                        window.javaBridge.jsLog('INFO', 'Link interception installed');
+                        }
+                        } catch (e) {
+                        if (window.javaBridge) {
+                        window.javaBridge.jsLog('ERROR', 'Link interception failed: ' + e);
+                        }
+                        }
+                        })();
+                        """,
+                        port);
+                        view.getEngine().executeScript(linkInterceptionJs);
+                        
+                        // Now that the page is loaded, flush any buffered commands
+                        flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
                     // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 } else if (newState == Worker.State.FAILED) {
@@ -355,7 +388,6 @@ public final class MOPWebViewHost extends JPanel {
                         .loadContent(
                                 "<html><body><h1>Error: mop-web/index.html not found</h1></body></html>", "text/html");
             } else {
-                int port = ClasspathHttpServer.ensureStarted();
                 var url = "http://127.0.0.1:" + port + "/index.html";
                 logger.info("Loading WebView content from embedded server: {}", url);
                 view.getEngine().load(url);
