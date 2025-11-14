@@ -12,6 +12,8 @@ import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -101,6 +103,22 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    /**
+     * Loads a JavaScript resource file from the classpath.
+     *
+     * @param resourcePath the path to the JavaScript resource (relative to resources root)
+     * @return the JavaScript code as a String
+     * @throws IOException if the resource cannot be loaded
+     */
+    private static String loadJavaScriptResource(String resourcePath) throws IOException {
+        try (InputStream is = MOPWebViewHost.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                throw new IOException("JavaScript resource not found: " + resourcePath);
+            }
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     private void initializeFxPanel() {
         fxPanel = new JFXPanel();
         fxPanel.setVisible(false); // Start hidden to prevent flicker
@@ -187,189 +205,27 @@ public final class MOPWebViewHost extends JPanel {
                     for (var l : searchListeners) {
                         bridge.addSearchStateListener(l);
                     }
-                    // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
-                    view.getEngine()
-                            .executeScript(
-                                    """
-                    (function() {
-                    var originalLog = console.log;
-                    var originalError = console.error;
-                    var originalWarn = console.warn;
-                    var originalInfo = console.info;
 
-                    function toStringWithStack(arg) {
-                        return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
+                    try {
+                        // Load and execute console logging interceptor
+                        String consoleInterceptor =
+                                loadJavaScriptResource("mop-webview-scripts/console-logging-interceptor.js");
+                        view.getEngine().executeScript(consoleInterceptor);
+
+                        // Load and execute wheel event handler with platform-specific scroll speed
+                        String wheelHandler = loadJavaScriptResource("mop-webview-scripts/wheel-event-handler.js");
+                        String wheelHandlerWithParams = wheelHandler.replace(
+                                "SCROLL_SPEED_FACTOR", String.format(Locale.US, "%f", getPlatformScrollSpeedFactor()));
+                        view.getEngine().executeScript(wheelHandlerWithParams);
+
+                        // Load and execute link interception handler with embedded server port
+                        String linkInterceptor =
+                                loadJavaScriptResource("mop-webview-scripts/link-interception-handler.js");
+                        String linkInterceptorWithParams = linkInterceptor.replace("EMBEDDED_SERVER_PORT", String.valueOf(port));
+                        view.getEngine().executeScript(linkInterceptorWithParams);
+                    } catch (IOException e) {
+                        logger.error("Failed to load JavaScript resources", e);
                     }
-
-                    console.log = function() {
-                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
-                        originalLog.apply(console, arguments);
-                    };
-                    console.error = function() {
-                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                        if (window.javaBridge) window.javaBridge.jsLog('ERROR', msg);
-                        originalError.apply(console, arguments);
-                    };
-                    console.warn = function() {
-                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                        if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
-                        originalWarn.apply(console, arguments);
-                    };
-                    console.info = function() {
-                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
-                        originalInfo.apply(console, arguments);
-                    };
-// do not send debug messages to Java (to costly; uncomment if needed)
-//                    console.debug = function() {
-//                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-//                        if (window.javaBridge) window.javaBridge.jsLog('DEBUG', msg);
-//                        originalInfo.apply(console, arguments);
-//                    };
-                })();
-                """); // Install wheel event override for platform-specific scroll speed
-                    var wheelOverrideJs = String.format(
-                            Locale.US,
-                            """
-                        (function() {
-                            try {
-                                // Platform-specific scroll behavior configuration
-                                var scrollSpeedFactor = %f;         // Platform-specific scroll speed factor
-                                var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
-                                var smoothingFactor = 0.8;          // Smoothing for very small movements
-
-                                var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
-                                var momentum = new Map();      // Track momentum per element
-
-                                function findScrollable(el) {
-                                    while (el && el !== document.body && el !== document.documentElement) {
-                                        var style = getComputedStyle(el);
-                                        var canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
-                                        var canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
-                                        if (canScrollY || canScrollX) return el;
-                                        el = el.parentElement;
-                                    }
-                                    return document.scrollingElement || document.documentElement || document.body;
-                                }
-
-                                function smoothScroll(element, targetX, targetY, duration) {
-                                    duration = duration || animationDuration;
-                                    var startX = element.scrollLeft;
-                                    var startY = element.scrollTop;
-                                    var deltaX = targetX - startX;
-                                    var deltaY = targetY - startY;
-                                    var startTime = performance.now();
-
-                                    // Cancel any existing smooth scroll for this element
-                                    var existing = smoothScrolls.get(element);
-                                    if (existing) {
-                                        cancelAnimationFrame(existing);
-                                    }
-
-                                    function animate(currentTime) {
-                                        var elapsed = currentTime - startTime;
-                                        var progress = Math.min(elapsed / duration, 1);
-
-                                        // Ease out cubic for smooth deceleration
-                                        var eased = 1 - Math.pow(1 - progress, 3);
-
-                                        element.scrollLeft = startX + deltaX * eased;
-                                        element.scrollTop = startY + deltaY * eased;
-
-                                        if (progress < 1) {
-                                            var animId = requestAnimationFrame(animate);
-                                            smoothScrolls.set(element, animId);
-                                        } else {
-                                            smoothScrolls.delete(element);
-                                        }
-                                    }
-
-                                    var animId = requestAnimationFrame(animate);
-                                    smoothScrolls.set(element, animId);
-                                }
-
-                                window.addEventListener('wheel', function(ev) {
-                                    if (ev.ctrlKey || ev.metaKey) { return; } // let zoom gestures pass
-                                    var target = findScrollable(ev.target);
-                                    if (!target) return;
-
-                                    ev.preventDefault();
-
-                                    var dx = ev.deltaX * scrollSpeedFactor;
-                                    var dy = ev.deltaY * scrollSpeedFactor;
-
-                                    // Filter out very small deltas to prevent jitter
-                                    if (Math.abs(dx) < minScrollThreshold) dx = 0;
-                                    if (Math.abs(dy) < minScrollThreshold) dy = 0;
-
-                                    // Apply scroll immediately with rounding to prevent sub-pixel issues
-                                    if (dx) {
-                                        var newScrollLeft = target.scrollLeft + Math.round(dx);
-                                        var maxScrollLeft = target.scrollWidth - target.clientWidth;
-                                        target.scrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
-                                    }
-                                    if (dy) {
-                                        var newScrollTop = target.scrollTop + Math.round(dy);
-                                        var maxScrollTop = target.scrollHeight - target.clientHeight;
-                                        target.scrollTop = Math.max(0, Math.min(newScrollTop, maxScrollTop));
-                                    }
-                                }, { passive: false, capture: true });
-                            } catch (e) {
-                                if (window.javaBridge) window.javaBridge.jsLog('ERROR', 'wheel override failed: ' + e);
-                            }
-                        })();
-                        """,
-                        getPlatformScrollSpeedFactor());
-                        view.getEngine().executeScript(wheelOverrideJs);
-                        
-                        // Inject JavaScript to intercept link clicks and open external links in browser
-                        var linkInterceptionJs = String.format(
-                        Locale.US,
-                        """
-                        (function() {
-                        try {
-                        var embeddedPort = '%d';
-                        
-                        // Intercept all clicks on anchor tags
-                        document.addEventListener('click', function(event) {
-                        var target = event.target;
-                        
-                        // Walk up the DOM to find the nearest <a> tag
-                        while (target && target.tagName !== 'A') {
-                        target = target.parentElement;
-                        }
-                        
-                        if (target && target.tagName === 'A' && target.href) {
-                        var url = target.href;
-                        var isHttpLink = url.startsWith('http://') || url.startsWith('https://');
-                        var isEmbeddedServer = url.includes('127.0.0.1:' + embeddedPort);
-                        
-                        if (isHttpLink && !isEmbeddedServer) {
-                        // External link - prevent navigation and open in browser
-                        event.preventDefault();
-                        if (window.javaBridge && window.javaBridge.openExternalLink) {
-                        window.javaBridge.openExternalLink(url);
-                        } else {
-                        console.error('javaBridge.openExternalLink not available');
-                        }
-                        }
-                        // For internal links, let the default navigation happen
-                        }
-                        }, true); // Use capture phase to intercept before other handlers
-                        
-                        if (window.javaBridge) {
-                        window.javaBridge.jsLog('INFO', 'Link interception installed');
-                        }
-                        } catch (e) {
-                        if (window.javaBridge) {
-                        window.javaBridge.jsLog('ERROR', 'Link interception failed: ' + e);
-                        }
-                        }
-                        })();
-                        """,
-                        port);
-                        view.getEngine().executeScript(linkInterceptionJs);
                         
                         // Now that the page is loaded, flush any buffered commands
                         flushBufferedCommands();

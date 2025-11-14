@@ -41,5 +41,17 @@
   <script type="module" src="/src/index.ts"></script>
 
   <div id="mop-root"></div>
+  
+  <!-- Test links for external navigation interception -->
+  <div style="position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; z-index: 10000;">
+    <div style="font-weight: bold; margin-bottom: 5px;">Test Links (should open in browser):</div>
+    <div><a href="http://example.com" style="color: #4da6ff;">http://example.com</a></div>
+    <div><a href="https://google.com" style="color: #4da6ff;">https://google.com</a></div>
+    <div><a href="http://localhost:8080" style="color: #4da6ff;">http://localhost:8080</a></div>
+    <div><a href="http://LocalHost:9000" style="color: #4da6ff;">http://LocalHost:9000 (case test)</a></div>
+    <div><a href="http://[::1]:8080" style="color: #4da6ff;">http://[::1]:8080 (IPv6)</a></div>
+    <div style="margin-top: 10px; font-weight: bold;">Internal (should stay in WebView):</div>
+    <div><a href="/index.html" style="color: #66ff66;">Reload this page (embedded server)</a></div>
+  </div>
 </body>
 </html>
