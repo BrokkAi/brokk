@@ -169,34 +169,45 @@ public final class DiffService {
                 .orElse(null);
 
         if (otherFragment == null) {
-            // No matching fragment in 'other'; if this represents a new, untracked file in Git, diff against empty
-            var repo = curr.getContextManager().getRepo();
-            if (thisFragment.isText() && isNewFileInGit(thisFragment, repo)) {
-                return extractFragmentContentAsync(thisFragment, true)
-                        .thenApply(newContent -> {
-                            var result = ContentDiffUtils.computeDiffResult(
-                                    "",
-                                    newContent,
-                                    "old/" + thisFragment.shortDescription(),
-                                    "new/" + thisFragment.shortDescription());
-                            if (result.diff().isEmpty()) {
-                                return null;
-                            }
-                            return new Context.DiffEntry(
-                                    thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
-                        })
-                        .exceptionally(ex -> {
-                            logger.warn(
-                                    "Error computing diff for new fragment '{}': {}",
-                                    thisFragment.shortDescription(),
-                                    ex.getMessage(),
-                                    ex);
-                            return new Context.DiffEntry(
-                                    thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                        });
+            // No matching fragment in 'other'
+            // - For non-text fragments (e.g., images), don't emit a diff here.
+            // - For PathFragments: only show a diff if it's a new, untracked file in Git.
+            // - For non-path text fragments (e.g., StringFragment, TaskFragment): show diff vs. empty content.
+            if (!thisFragment.isText()) {
+                return CompletableFuture.completedFuture(null);
             }
-            // The file is not shown as a diff
-            return CompletableFuture.completedFuture(null);
+
+            if (thisFragment instanceof ContextFragment.PathFragment) {
+                var repo = curr.getContextManager().getRepo();
+                if (!isNewFileInGit(thisFragment, repo)) {
+                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                    return CompletableFuture.completedFuture(null);
+                }
+            }
+
+            // Text fragment newly added: diff against empty
+            return extractFragmentContentAsync(thisFragment, true)
+                    .thenApply(newContent -> {
+                        var result = ContentDiffUtils.computeDiffResult(
+                                "",
+                                newContent,
+                                "old/" + thisFragment.shortDescription(),
+                                "new/" + thisFragment.shortDescription());
+                        if (result.diff().isEmpty()) {
+                            return null;
+                        }
+                        return new Context.DiffEntry(
+                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                    })
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Error computing diff for new fragment '{}': {}",
+                                thisFragment.shortDescription(),
+                                ex.getMessage(),
+                                ex);
+                        return new Context.DiffEntry(
+                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
+                    });
         }
 
         // Extract content asynchronously for both sides
