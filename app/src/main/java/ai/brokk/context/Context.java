@@ -691,7 +691,26 @@ public class Context {
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel) {
+        // Historical default: contexts created via this helper do not inherit read-only IDs.
+        // Use the overload with explicit read-only IDs when preservation is required.
         return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel, Set.of());
+    }
+
+    /**
+     * Creates a Context with explicit control over the read-only fragment IDs to persist.
+     * Prefer this when deriving a new Context from an existing one to preserve read-only tracking.
+     */
+    public static Context createWithIdAndReadOnly(
+            UUID id,
+            IContextManager cm,
+            List<ContextFragment> fragments,
+            List<TaskEntry> history,
+            @Nullable ContextFragment.TaskFragment parsed,
+            Future<String> action,
+            @Nullable UUID groupId,
+            @Nullable String groupLabel,
+            Set<String> readOnlyFragmentIds) {
+        return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel, readOnlyFragmentIds);
     }
 
     /**
