@@ -330,9 +330,8 @@ public abstract class CodePrompts {
     private static List<String> computeReadOnlyPaths(Context ctx) {
         return ctx.getAllFragmentsInDisplayOrder().stream()
                 .filter(f -> f instanceof ContextFragment.PathFragment)
-                .filter(f -> f instanceof ContextFragment.EditableFragment)
+                .filter(ctx::isReadOnly)
                 .map(f -> (ContextFragment.PathFragment) f)
-                .filter(pf -> ((ContextFragment.EditableFragment) pf).isReadOnly())
                 .map(pf -> pf.file().toString())
                 .distinct()
                 .toList();

@@ -224,7 +224,7 @@ public final class HistoryIo {
             // Use readonly IDs from CompactContextDto to populate Context-level read-only tracking
             var readonlyIds = Set.copyOf(compactDto.readonly());
 
-            Context reconstructed = Context.createWithIdAndReadOnly(
+            Context reconstructed = Context.createWithId(
                     built.id(),
                     mgr,
                     built.allFragments().toList(),
@@ -329,8 +329,19 @@ public final class HistoryIo {
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
             var compactDto = DtoMapper.toCompactDto(ctx, writer, summarizeAction(ctx));
+            // Override readonly list using Context's centralized read-only IDs
+            var rewrittenDto = new CompactContextDto(
+                    compactDto.id(),
+                    compactDto.editable(),
+                    List.copyOf(ctx.getReadOnlyFragmentIds()),
+                    compactDto.virtuals(),
+                    compactDto.tasks(),
+                    compactDto.parsedOutputId(),
+                    compactDto.action(),
+                    compactDto.groupId(),
+                    compactDto.groupLabel());
             contextsJsonlContent
-                    .append(objectMapper.writeValueAsString(compactDto))
+                    .append(objectMapper.writeValueAsString(rewrittenDto))
                     .append('\n');
         }
         byte[] contextsBytes = contextsJsonlContent.toString().getBytes(StandardCharsets.UTF_8);

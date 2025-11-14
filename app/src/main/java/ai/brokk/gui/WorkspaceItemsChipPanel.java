@@ -1026,7 +1026,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         JPopupMenu menu = new JPopupMenu();
 
         // Add Read-Only toggle for editable fragments
-        if (fragment instanceof ContextFragment.EditableFragment) {
+        if (fragment.getType().isEditable()) {
             boolean onLatest = Objects.equals(contextManager.selectedContext(), contextManager.liveContext());
             String label = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
             JMenuItem toggleRo = new JMenuItem(label);
@@ -1319,7 +1319,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         // Read-only indicator icon (left of text)
         var roIcon = new JLabel();
         roIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
-        if (fragment instanceof ContextFragment.EditableFragment && isFragmentReadOnly(fragment)) {
+        if (fragment.getType().isEditable() && isFragmentReadOnly(fragment)) {
             // Defer icon sizing until after label is created and styled; updateReadOnlyIcon() will set it.
             roIcon.setVisible(true);
         } else {
@@ -1915,7 +1915,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (!(iconObj instanceof JLabel roIcon)) {
             return;
         }
-        boolean show = fragment instanceof ContextFragment.EditableFragment && isFragmentReadOnly(fragment);
+        boolean show = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
 
         if (show) {
             Object lblObj = chip.getClientProperty("brokk.chip.label");

@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -67,24 +66,6 @@ public class DtoMapper {
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
                 .filter(Objects::nonNull)
                 .toList();
-
-        // Apply readOnly flags to editable-capable fragments based on IDs listed in dto.readonly
-        var readonlyIds = Set.copyOf(dto.readonly());
-        editableFragments.forEach(f -> {
-            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
-                ef.setReadOnly(true);
-            }
-        });
-        readonlyFragments.forEach(f -> {
-            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
-                ef.setReadOnly(true);
-            }
-        });
-        virtualFragments.forEach(f -> {
-            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
-                ef.setReadOnly(true);
-            }
-        });
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
@@ -147,7 +128,15 @@ public class DtoMapper {
             groupUuid = UUID.fromString(dto.groupId());
         }
         return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, groupUuid, dto.groupLabel());
+                ctxId,
+                mgr,
+                combined,
+                taskHistory,
+                parsedOutputFragment,
+                actionFuture,
+                groupUuid,
+                dto.groupLabel(),
+                dto.readonly());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -178,14 +167,14 @@ public class DtoMapper {
         var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
 
         // Collect readonly IDs across both file and virtual fragments, but only for EditableFragment
-        var readonlyIds = new java.util.ArrayList<String>();
+        var readonlyIds = new ArrayList<String>();
         ctx.fileFragments().forEach(f -> {
-            if (f instanceof ContextFragment.EditableFragment ef && ef.isReadOnly()) {
+            if (ctx.isReadOnly(f)) {
                 readonlyIds.add(f.id());
             }
         });
         ctx.virtualFragments().forEach(vf -> {
-            if (vf instanceof ContextFragment.EditableFragment ef && ef.isReadOnly()) {
+            if (ctx.isReadOnly(vf)) {
                 readonlyIds.add(vf.id());
             }
         });

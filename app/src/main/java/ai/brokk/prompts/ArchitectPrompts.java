@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
@@ -35,9 +36,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
         // Compute read-only policy text from current context
         var ro = ctx.getAllFragmentsInDisplayOrder().stream()
                 .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
-                .filter(f -> f instanceof ai.brokk.context.ContextFragment.EditableFragment)
+                .filter(ctx::isReadOnly)
                 .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
-                .filter(pf -> ((ai.brokk.context.ContextFragment.EditableFragment) pf).isReadOnly())
                 .map(pf -> pf.file().toString())
                 .distinct()
                 .sorted()
@@ -86,10 +86,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
         // Compute read-only policy text from provided context
         var ro = ctx.getAllFragmentsInDisplayOrder().stream()
-                .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
-                .filter(f -> f instanceof ai.brokk.context.ContextFragment.EditableFragment)
-                .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
-                .filter(pf -> ((ai.brokk.context.ContextFragment.EditableFragment) pf).isReadOnly())
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .filter(ctx::isReadOnly)
+                .map(f -> (ContextFragment.PathFragment) f)
                 .map(pf -> pf.file().toString())
                 .distinct()
                 .sorted()

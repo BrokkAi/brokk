@@ -1066,7 +1066,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 for (VirtualFragment vfToAdd : virtualFragmentsToAdd) {
                     modifiedCtx = modifiedCtx.addVirtualFragment(vfToAdd);
                 }
-                return Context.createWithIdAndReadOnly(
+                return Context.createWithId(
                         Context.newContextId(),
                         this,
                         modifiedCtx.allFragments().toList(),

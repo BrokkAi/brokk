@@ -1333,13 +1333,10 @@ public class ContextSerializationTest {
         Files.writeString(projectFile.absPath(), "public class RoTest {}");
 
         var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
-        // Mark project file fragment read-only
-        ppf.setReadOnly(true);
 
         var codeUnit = createTestCodeUnit(
                 "com.example.CodeFragmentTarget", new ProjectFile(tempDir, "src/CodeFragmentTarget.java"));
         var codeFrag = new ContextFragment.CodeFragment(mockContextManager, codeUnit);
-        codeFrag.setReadOnly(true);
 
         var sf = new ContextFragment.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -1348,6 +1345,9 @@ public class ContextSerializationTest {
                 .addPathFragments(List.of(ppf))
                 .addVirtualFragment(codeFrag)
                 .addVirtualFragment(sf);
+        // Toggle read-only via Context
+        ctx = ctx.toggleReadOnlyForFragmentId(ppf.id(), true);
+        ctx = ctx.toggleReadOnlyForFragmentId(codeFrag.id(), true);
 
         ContextHistory ch = new ContextHistory(ctx);
 
@@ -1433,10 +1433,10 @@ public class ContextSerializationTest {
                 "Editable fragment should remain not read-only when list contains unknown/non-editable ids only");
 
         // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
-        // Set readOnly and serialize
-        ppf.setReadOnly(true);
-        ContextHistory ch2 =
-                new ContextHistory(new Context(mockContextManager, "ctx-bc2").addPathFragments(List.of(ppf)));
+        // Set readOnly via Context and serialize
+        var ctx2 = new Context(mockContextManager, "ctx-bc2").addPathFragments(List.of(ppf));
+        ctx2 = ctx2.toggleReadOnlyForFragmentId(ppf.id(), true);
+        ContextHistory ch2 = new ContextHistory(ctx2);
         Path marked = tempDir.resolve("bc_marked.zip");
         HistoryIo.writeZip(ch2, marked);
 
