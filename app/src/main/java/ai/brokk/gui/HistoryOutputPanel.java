@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
@@ -57,6 +58,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -3358,6 +3360,32 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (ctx.isAiResult()) count++;
         }
         return count;
+    }
+
+    /** Returns the Git repository for the current project, if available. */
+    private Optional<IGitRepo> repo() {
+        try {
+            return Optional.ofNullable(contextManager.getProject().getRepo());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
+     * Used to detect detached HEAD states.
+     */
+    private static boolean isLikelyCommitHash(String s) {
+        if (s == null || s.length() < 7 || s.length() > 40) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
