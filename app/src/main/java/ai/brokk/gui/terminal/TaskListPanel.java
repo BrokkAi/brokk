@@ -587,7 +587,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             updateButtonStates();
             // Ensure the Tasks tab badge updates to reflect newly added tasks.
             SwingUtilities.invokeLater(this::updateTasksTabBadge);
-            
+
             // Kick off async summarization for each newly added task
             for (int i = startIndex; i < model.getSize(); i++) {
                 summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text(), i);
@@ -912,7 +912,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             clearExpansionOnStructureChange();
             updateButtonStates();
-            
+
             // Kick off async summarization for tasks needing a summary:
             // - title is blank, OR
             // - title equals body for a long task (common for imported/lutz tasks)
@@ -921,7 +921,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 var tTitle = task.title();
                 var tText = task.text();
                 boolean needsSummary = (tTitle == null || tTitle.isBlank())
-                        || (!isShortTaskText(tText) && tTitle != null && tTitle.strip().equals(tText.strip()));
+                        || (!isShortTaskText(tText)
+                                && tTitle != null
+                                && tTitle.strip().equals(tText.strip()));
                 if (needsSummary) {
                     summarizeAndUpdateTaskTitle(tText, i);
                 }
@@ -941,8 +943,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (int i = 0; i < model.size(); i++) {
             var it = requireNonNull(model.get(i));
             if (!it.text().isBlank()) {
-            // it is already the domain type, but copy defensively
-            dtos.add(new TaskList.TaskItem(it.title(), it.text(), it.done()));
+                // it is already the domain type, but copy defensively
+                dtos.add(new TaskList.TaskItem(it.title(), it.text(), it.done()));
             }
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
@@ -1190,9 +1192,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                    var it = requireNonNull(model.get(idx));
-                    model.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                    saveTasksForCurrentSession();
+                        var it = requireNonNull(model.get(idx));
+                        model.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                        saveTasksForCurrentSession();
                         // Task was marked done as part of a successful run; update tab badge immediately.
                         updateTasksTabBadge();
                     }
@@ -2054,7 +2056,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (taskText == null || taskText.isBlank()) {
             return;
         }
-        
+
         if (isShortTaskText(taskText)) {
             SwingUtilities.invokeLater(() -> {
                 try {
@@ -2073,10 +2075,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             });
             return;
         }
-        
+
         var cm = chrome.getContextManager();
         var summaryFuture = cm.summarizeTaskForConversation(taskText);
-        
+
         summaryFuture.whenComplete((summary, ex) -> {
             if (ex != null) {
                 logger.debug("Failed to summarize task title", ex);
@@ -2085,7 +2087,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (summary == null || summary.isBlank()) {
                 return;
             }
-            
+
             SwingUtilities.invokeLater(() -> {
                 try {
                     // Find the task by matching text (since it may have moved)
@@ -2296,7 +2298,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 check.setSelectedIcon(Icons.CHECK);
                 check.setSelected(value.done());
             }
-            
+
             // Font and strike-through first (affects metrics)
             Font base = list.getFont();
             view.setFont(base.deriveFont(Font.PLAIN));

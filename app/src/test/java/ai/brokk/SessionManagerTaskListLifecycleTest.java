@@ -48,8 +48,9 @@ class SessionManagerTaskListLifecycleTest {
         SessionManager sm = project.getSessionManager();
 
         // Prepare a canonical task list payload with explicit titles
-        TaskList.TaskListData data = new TaskList.TaskListData(
-                List.of(new TaskList.TaskItem("Task A Title", "do A", false), new TaskList.TaskItem("Task B Title", "do B", true)));
+        TaskList.TaskListData data = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("Task A Title", "do A", false),
+                new TaskList.TaskItem("Task B Title", "do B", true)));
 
         // 1) Create original session and write a tasklist.json inside its zip
         SessionManager.SessionInfo s1 = sm.newSession("Origin");
@@ -163,7 +164,8 @@ class SessionManagerTaskListLifecycleTest {
         assertEventually(() -> assertTrue(Files.exists(sessionZip), "Session zip should exist"));
 
         // Write legacy tasklist.json (without title field) directly into the zip
-        String legacyJson = """
+        String legacyJson =
+                """
                 {
                   "tasks": [
                     { "text": "legacy task A", "done": false },
@@ -174,7 +176,8 @@ class SessionManagerTaskListLifecycleTest {
 
         try (var fs = FileSystems.newFileSystem(sessionZip, Map.of())) {
             Path tasklistPath = fs.getPath("tasklist.json");
-            Files.writeString(tasklistPath, legacyJson, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(
+                    tasklistPath, legacyJson, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
 
         // Read the task list via SessionManager

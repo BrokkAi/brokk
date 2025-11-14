@@ -1490,7 +1490,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
-        
+
         // Kick off async summarization for each newly added task
         for (var addition : additions) {
             summarizeAndUpdateTaskTitle(addition.text());
@@ -2746,14 +2746,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-
     private void summarizeAndUpdateTaskTitle(String taskText) {
         if (taskText == null || taskText.isBlank()) {
             return;
         }
-        
+
         var summaryFuture = summarizeTaskForConversation(taskText);
-        
+
         summaryFuture.whenComplete((summary, ex) -> {
             if (ex != null) {
                 logger.debug("Failed to summarize task title", ex);
@@ -2762,13 +2761,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (summary == null || summary.isBlank()) {
                 return;
             }
-            
+
             submitBackgroundTask("Update task title", () -> {
                 try {
                     TaskList.TaskListData currentData = project.getSessionManager()
                             .readTaskList(currentSessionId)
                             .get();
-                    
+
                     var updatedTasks = new ArrayList<TaskList.TaskItem>();
                     boolean found = false;
                     for (var task : currentData.tasks()) {
@@ -2779,12 +2778,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             updatedTasks.add(task);
                         }
                     }
-                    
+
                     if (found) {
                         var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
                         this.taskList = newData;
                         project.getSessionManager().writeTaskList(currentSessionId, newData);
-                        
+
                         if (io instanceof Chrome chrome) {
                             SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI());
                         }

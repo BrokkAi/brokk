@@ -44,7 +44,7 @@ public class TaskListTest {
         var texts = data.tasks().stream().map(TaskList.TaskItem::text).collect(Collectors.toList());
         assertTrue(texts.get(0).contains("first task"), "First task text should be present");
         assertTrue(texts.get(1).contains("second task"), "Second task text should be present");
-        
+
         // Verify titles are present (may be provisional or generated)
         var titles = data.tasks().stream().map(TaskList.TaskItem::title).collect(Collectors.toList());
         assertNotNull(titles.get(0), "First task title should not be null");
@@ -64,9 +64,10 @@ public class TaskListTest {
                 persisted.tasks().stream().map(TaskList.TaskItem::text).collect(Collectors.toList());
         assertTrue(persistedTexts.get(0).contains("first task"), "Persisted first task should match");
         assertTrue(persistedTexts.get(1).contains("second task"), "Persisted second task should match");
-        
+
         // Verify titles are persisted
-        var persistedTitles = persisted.tasks().stream().map(TaskList.TaskItem::title).collect(Collectors.toList());
+        var persistedTitles =
+                persisted.tasks().stream().map(TaskList.TaskItem::title).collect(Collectors.toList());
         assertNotNull(persistedTitles.get(0), "Persisted first task title should not be null");
         assertNotNull(persistedTitles.get(1), "Persisted second task title should not be null");
     }

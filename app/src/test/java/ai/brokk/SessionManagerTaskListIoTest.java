@@ -84,8 +84,8 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId1,
-                                    new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("Session 1 Title " + taskId, "session1_task_" + taskId, false))))
+                                    new TaskList.TaskListData(List.of(new TaskList.TaskItem(
+                                            "Session 1 Title " + taskId, "session1_task_" + taskId, false))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId1).incrementAndGet();
                 } catch (Exception e) {
@@ -97,8 +97,8 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId2,
-                                    new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("Session 2 Title " + taskId, "session2_task_" + taskId, true))))
+                                    new TaskList.TaskListData(List.of(new TaskList.TaskItem(
+                                            "Session 2 Title " + taskId, "session2_task_" + taskId, true))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId2).incrementAndGet();
                 } catch (Exception e) {
@@ -178,8 +178,8 @@ class SessionManagerTaskListIoTest {
                     sessionManager
                             .writeTaskList(
                                     sessionId,
-                                    new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("Title " + writeValue, "task_write_" + writeValue, false))))
+                                    new TaskList.TaskListData(List.of(new TaskList.TaskItem(
+                                            "Title " + writeValue, "task_write_" + writeValue, false))))
                             .get(5, TimeUnit.SECONDS); // Wait for each write to complete
                 } catch (Exception e) {
                     fail("Write task failed: " + e.getMessage());
@@ -268,8 +268,8 @@ class SessionManagerTaskListIoTest {
                             sessionManager
                                     .writeTaskList(
                                             sessionId,
-                                            new TaskList.TaskListData(
-                                                    List.of(new TaskList.TaskItem("Title " + value, "task_" + value, false))))
+                                            new TaskList.TaskListData(List.of(
+                                                    new TaskList.TaskItem("Title " + value, "task_" + value, false))))
                                     .get(5, TimeUnit.SECONDS);
 
                             TaskList.TaskListData data =
