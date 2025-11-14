@@ -84,6 +84,9 @@ public class Context {
     @Nullable
     private final String groupLabel;
 
+    // Tracks read-only fragments by their IDs (matches CompactContextDto 'readonly' semantics)
+    private final Set<String> readOnlyFragmentIds;
+
     /**
      * Constructor for initial empty context
      */
@@ -96,7 +99,8 @@ public class Context {
                 null,
                 CompletableFuture.completedFuture(WELCOME_ACTION),
                 null,
-                null);
+                null,
+                Set.of());
     }
 
     private Context(
@@ -107,7 +111,8 @@ public class Context {
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action,
             @Nullable UUID groupId,
-            @Nullable String groupLabel) {
+            @Nullable String groupLabel,
+            Set<String> readOnlyFragmentIds) {
         this.id = id;
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
@@ -116,6 +121,7 @@ public class Context {
         this.parsedOutput = parsedOutput;
         this.groupId = groupId;
         this.groupLabel = groupLabel;
+        this.readOnlyFragmentIds = Set.copyOf(readOnlyFragmentIds);
     }
 
     public Context(
@@ -124,7 +130,7 @@ public class Context {
             List<TaskEntry> taskHistory,
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
+        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null, Set.of());
     }
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
@@ -250,7 +256,16 @@ public class Context {
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
         // By default, derived contexts should NOT inherit grouping; grouping is explicit via withGroup(...)
-        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, action, null, null);
+        return new Context(
+                newContextId(),
+                contextManager,
+                newFragments,
+                taskHistory,
+                null,
+                action,
+                null,
+                null,
+                this.readOnlyFragmentIds);
     }
 
     /**
@@ -334,6 +349,21 @@ public class Context {
         return groupLabel;
     }
 
+    /** Returns true if the fragment with the given ID is tracked as read-only in this Context. */
+    public boolean isReadOnly(String fragmentId) {
+        return readOnlyFragmentIds.contains(fragmentId);
+    }
+
+    /** Convenience overload delegating to ID-based method. */
+    public boolean isReadOnly(ContextFragment fragment) {
+        return isReadOnly(fragment.id());
+    }
+
+    /** Immutable view of read-only fragment IDs for this Context. */
+    public Set<String> getReadOnlyFragmentIds() {
+        return readOnlyFragmentIds;
+    }
+
     public Stream<ContextFragment> fileFragments() {
         return fragments.stream().filter(f -> f.getType().isPath());
     }
@@ -396,16 +426,31 @@ public class Context {
             return this;
         }
 
+        var idsToRemoveSet = new java.util.HashSet<>(idsToRemove);
         var newFragments =
-                fragments.stream().filter(f -> !idsToRemove.contains(f.id())).toList();
+                fragments.stream().filter(f -> !idsToRemoveSet.contains(f.id())).toList();
 
         int removedCount = fragments.size() - newFragments.size();
         if (removedCount == 0) {
             return this;
         }
 
+        // Remove any read-only tracking for dropped fragments
+        var newReadOnly = this.readOnlyFragmentIds.stream()
+                .filter(id -> !idsToRemoveSet.contains(id))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+
         String actionString = "Removed " + removedCount + " fragment" + (removedCount == 1 ? "" : "s");
-        return withFragments(newFragments, CompletableFuture.completedFuture(actionString));
+        return new Context(
+                newContextId(),
+                contextManager,
+                newFragments,
+                taskHistory,
+                null,
+                CompletableFuture.completedFuture(actionString),
+                null,
+                null,
+                newReadOnly);
     }
 
     public Context removeAll() {
@@ -418,7 +463,8 @@ public class Context {
                 null,
                 CompletableFuture.completedFuture(action),
                 null,
-                null);
+                null,
+                Set.of());
     }
 
     /**
@@ -439,19 +485,29 @@ public class Context {
             return this;
         }
 
-        // Rebuild fragments replacing the target with a new instance using withReadOnly (fresh ID).
+        // Rebuild fragments replacing the target with a new instance using withReadOnly (fresh ID)
         var newFragments = new ArrayList<ContextFragment>(fragments.size());
+        ContextFragment replacement = null;
         for (var f : fragments) {
             if (!f.id().equals(fragmentId)) {
                 newFragments.add(f);
-                continue;
+            } else {
+                replacement = (ContextFragment) editable.withReadOnly(setReadOnly);
+                newFragments.add(replacement);
             }
-            ContextFragment replacement = (ContextFragment) editable.withReadOnly(setReadOnly);
-            newFragments.add(replacement);
         }
 
-        if (newFragments.equals(fragments)) {
+        if (replacement == null) {
             return this;
+        }
+
+        // Update Context-level read-only tracking (remove old id; add new id when setting)
+        var newReadOnly = new java.util.LinkedHashSet<>(this.readOnlyFragmentIds);
+        newReadOnly.remove(fragmentId);
+        if (setReadOnly) {
+            newReadOnly.add(replacement.id());
+        } else {
+            newReadOnly.remove(replacement.id());
         }
 
         // Build the action message without blocking; if fragment is computed, complete later.
@@ -459,7 +515,6 @@ public class Context {
         String actionPrefix = setReadOnly ? "Set Read-Only: " : "Unset Read-Only: ";
 
         if (target instanceof ContextFragment.ComputedFragment cf) {
-            // Non-blocking: use computedDescription, complete when available
             var cv = cf.computedDescription();
             cv.start();
             var actionCf = new CompletableFuture<String>();
@@ -476,7 +531,8 @@ public class Context {
             actionFuture = CompletableFuture.completedFuture(actionPrefix + label);
         }
 
-        return withFragments(newFragments, actionFuture);
+        return new Context(
+                newContextId(), contextManager, newFragments, taskHistory, null, actionFuture, null, null, newReadOnly);
     }
 
     public boolean isEmpty() {
@@ -493,7 +549,16 @@ public class Context {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         // Do not inherit grouping on derived contexts; grouping is explicit
-        return new Context(newContextId(), contextManager, fragments, newTaskHistory, parsed, action, null, null);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                newTaskHistory,
+                parsed,
+                action,
+                null,
+                null,
+                this.readOnlyFragmentIds);
     }
 
     public Context clearHistory() {
@@ -505,7 +570,8 @@ public class Context {
                 null,
                 CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY),
                 null,
-                null);
+                null,
+                this.readOnlyFragmentIds);
     }
 
     /**
@@ -553,7 +619,16 @@ public class Context {
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
         // Clear grouping by default on derived contexts
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                null,
+                null,
+                this.readOnlyFragmentIds);
     }
 
     public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
@@ -566,17 +641,35 @@ public class Context {
                 parsedOutput,
                 CompletableFuture.completedFuture(action),
                 null,
-                null);
+                null,
+                this.readOnlyFragmentIds);
     }
 
     public Context withAction(Future<String> action) {
         // Clear grouping by default on derived contexts
-        return new Context(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null);
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                null,
+                null,
+                this.readOnlyFragmentIds);
     }
 
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
         return new Context(
-                newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, groupId, groupLabel);
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                groupId,
+                groupLabel,
+                this.readOnlyFragmentIds);
     }
 
     public static Context createWithId(
@@ -598,7 +691,7 @@ public class Context {
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel) {
-        return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel);
+        return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel, Set.of());
     }
 
     /**
@@ -614,7 +707,8 @@ public class Context {
                 null,
                 CompletableFuture.completedFuture("Compress History"),
                 null,
-                null);
+                null,
+                this.readOnlyFragmentIds);
     }
 
     @Nullable
@@ -648,7 +742,8 @@ public class Context {
                 null,
                 CompletableFuture.completedFuture("Reset context to historical state"),
                 sourceContext.getGroupId(),
-                sourceContext.getGroupLabel());
+                sourceContext.getGroupLabel(),
+                sourceContext.readOnlyFragmentIds);
     }
 
     @Override
@@ -952,7 +1047,8 @@ public class Context {
                 afterClear.parsedOutput,
                 CompletableFuture.completedFuture("Build results updated (failure)"),
                 null,
-                null);
+                null,
+                afterClear.readOnlyFragmentIds);
     }
 
     /**
@@ -1003,7 +1099,8 @@ public class Context {
                 parsedOutput,
                 CompletableFuture.completedFuture("Load external changes"),
                 this.groupId,
-                this.groupLabel);
+                this.groupLabel,
+                this.readOnlyFragmentIds);
     }
 
     /**
@@ -1020,7 +1117,7 @@ public class Context {
      * <p>
      * Note: Both contexts should be frozen (no dynamic fragments) for reliable results.
      */
-    public java.util.Set<ProjectFile> getChangedFiles(Context other) {
+    public Set<ProjectFile> getChangedFiles(Context other) {
         return DiffService.getChangedFiles(this, other);
     }
 
