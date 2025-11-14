@@ -1,10 +1,10 @@
 package ai.brokk.git;
 
-import org.eclipse.jgit.api.errors.TransportException;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.eclipse.jgit.api.errors.TransportException;
+import org.junit.jupiter.api.Test;
 
 public class GitRepoPermissionDeniedTest {
 

@@ -6,18 +6,17 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -937,21 +936,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     idx = 1; // Fallback: assume second tab is "Changes"
                 }
                 if (idx >= 0) {
-                try {
-                tabs.setTitleAt(idx, "Review (...)");
-                tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                } catch (IndexOutOfBoundsException ignore) {
-                // Tab might have changed; ignore safely
+                    try {
+                        tabs.setTitleAt(idx, "Review (...)");
+                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Tab might have changed; ignore safely
+                    }
                 }
-                }
-                
+
                 // Replace content with a spinner while loading
                 if (changesTabPlaceholder != null) {
-                var container = changesTabPlaceholder;
-                container.removeAll();
-                container.setLayout(new BorderLayout());
-                
-                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                    var container = changesTabPlaceholder;
+                    container.removeAll();
+                    container.setLayout(new BorderLayout());
+
+                    var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                     var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                     if (spinnerIcon != null) {
                         spinnerLabel.setIcon(spinnerIcon);
@@ -1802,7 +1801,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
                 String htmlTitle = String.format(
                         "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
-                        res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted(),
+                        res.filesChanged(),
+                        toHex(plusColor),
+                        res.totalAdded(),
+                        toHex(minusColor),
+                        res.totalDeleted(),
                         escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
                 String tooltip = "Cumulative changes: "
@@ -1981,20 +1984,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     idx = 1; // Fallback: assume second tab is "Changes"
                 }
                 if (idx >= 0) {
-                try {
-                outputTabs.setTitleAt(idx, "(...)");
-                outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                } catch (IndexOutOfBoundsException ignore) {
-                // Safe-guard: tab lineup may have changed
+                    try {
+                        outputTabs.setTitleAt(idx, "(...)");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Safe-guard: tab lineup may have changed
+                    }
                 }
-                }
-                }
-                
-                if (changesTabPlaceholder != null) {
+            }
+
+            if (changesTabPlaceholder != null) {
                 var container = changesTabPlaceholder;
                 container.removeAll();
                 container.setLayout(new BorderLayout());
-                
+
                 var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                 var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                 if (spinnerIcon != null) {
@@ -2028,7 +2031,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 sessionSwitchPanel.revalidate();
                 sessionSwitchPanel.repaint();
             }
-            
+
             // Show loading state in Changes tab before triggering refresh
             if (outputTabs != null && changesTabPlaceholder != null) {
                 int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
@@ -2043,11 +2046,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         // Safe-guard
                     }
                 }
-                
+
                 var container = changesTabPlaceholder;
                 container.removeAll();
                 container.setLayout(new BorderLayout());
-                
+
                 var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                 var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                 if (spinnerIcon != null) {
@@ -2055,12 +2058,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
                     spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
                 }
-                
+
                 container.add(spinnerLabel, BorderLayout.CENTER);
                 container.revalidate();
                 container.repaint();
             }
-            
+
             // Trigger a fresh aggregation for the newly selected session
             refreshCumulativeChangesAsync();
         });
@@ -2071,7 +2074,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Safe to call from any thread.
      */
     public void refreshBranchDiffPanel() {
-    SwingUtil.runOnEdt(() -> {
+        SwingUtil.runOnEdt(() -> {
             // Dispose and clear any existing aggregated diff panel
             if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
                 try {
@@ -2930,7 +2933,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
 
                     var repo = repoOpt.get();
-                    
+
                     // Branch-specific methods require GitRepo, not just IGitRepo
                     if (!(repo instanceof GitRepo gitRepo)) {
                         return new CumulativeChanges(0, 0, 0, List.of());
@@ -2953,25 +2956,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             case NON_DEFAULT_BRANCH -> {
                                 String currentBranch = gitRepo.getCurrentBranch();
                                 String defaultBranch = baseline.baselineRef();
-                                
+
                                 // Get files changed between branches
-                                var branchChanges = gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                var branchChanges =
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
                                 fileSet.addAll(branchChanges);
-                                
+
                                 // Union with working tree changes
                                 fileSet.addAll(gitRepo.getModifiedFiles());
-                                
+
                                 // Get merge base for left content
                                 leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
-                                leftCommitSha = gitRepo.resolveToCommit(upstreamRef).getName();
-                                
+                                leftCommitSha =
+                                        gitRepo.resolveToCommit(upstreamRef).getName();
+
                                 // Get files changed between HEAD and upstream
                                 var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
                                 fileSet.addAll(upstreamChanges);
-                                
+
                                 // Union with working tree changes
                                 fileSet.addAll(gitRepo.getModifiedFiles());
                             }
@@ -2990,25 +2995,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         for (var modFile : fileSet) {
                             var file = modFile.file();
                             String displayFile = file.getRelPath().toString();
-                            
+
                             // Compute left content based on baseline
-                            String leftContent = (leftCommitSha != null)
-                                    ? safeGetFileContent(gitRepo, leftCommitSha, file)
-                                    : "";
-                            
+                            String leftContent =
+                                    (leftCommitSha != null) ? safeGetFileContent(gitRepo, leftCommitSha, file) : "";
+
                             // Compute right content (working tree)
                             String rightContent = safeReadWorkingTree(file);
-                            
+
                             // Compute line counts
                             int[] netCounts = computeNetLineCounts(leftContent, rightContent);
                             totalAdded += netCounts[0];
                             totalDeleted += netCounts[1];
-                            
+
                             perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
                         }
 
                         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
-                        
+
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
                         return new CumulativeChanges(0, 0, 0, List.of());
@@ -3103,8 +3107,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
         messagePanel.setOpaque(false);
 
-        var countLabel = new JLabel(String.format(
-                "This diff contains %d files, which may be slow to display.", res.filesChanged()));
+        var countLabel = new JLabel(
+                String.format("This diff contains %d files, which may be slow to display.", res.filesChanged()));
         countLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
         countLabel.setFont(countLabel.getFont().deriveFont(Font.BOLD));
 
@@ -3152,8 +3156,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             hiddenPanel.setOpaque(false);
             hiddenPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-            var hiddenLabel = new JLabel(String.format(
-                    "Diff hidden (%d files). ", res.filesChanged()));
+            var hiddenLabel = new JLabel(String.format("Diff hidden (%d files). ", res.filesChanged()));
             hiddenLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
             var showLink = new JLabel("<html><a href='#'>Show anyway</a></html>");
