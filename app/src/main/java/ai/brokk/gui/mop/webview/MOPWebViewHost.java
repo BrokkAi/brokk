@@ -217,19 +217,23 @@ public final class MOPWebViewHost extends JPanel {
                         String wheelHandlerWithParams = wheelHandler.replace(
                                 "SCROLL_SPEED_FACTOR", String.format(Locale.US, "%f", getPlatformScrollSpeedFactor()));
                         view.getEngine().executeScript(wheelHandlerWithParams);
+                        logger.info(
+                                "Wheel event handler script executed, speed factor: {}",
+                                getPlatformScrollSpeedFactor());
 
                         // Load and execute link interception handler with embedded server port
                         String linkInterceptor =
                                 loadJavaScriptResource("mop-webview-scripts/link-interception-handler.js");
-                        String linkInterceptorWithParams = linkInterceptor.replace("EMBEDDED_SERVER_PORT", String.valueOf(port));
+                        String linkInterceptorWithParams =
+                                linkInterceptor.replace("EMBEDDED_SERVER_PORT", String.valueOf(port));
                         view.getEngine().executeScript(linkInterceptorWithParams);
                         logger.info("Link interception script executed successfully");
                     } catch (IOException e) {
                         logger.error("Failed to load JavaScript resources", e);
                     }
-                        
-                        // Now that the page is loaded, flush any buffered commands
-                        flushBufferedCommands();
+
+                    // Now that the page is loaded, flush any buffered commands
+                    flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
                     // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 } else if (newState == Worker.State.FAILED) {
