@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Registry for special text fragments with centralized policy:
@@ -98,7 +99,7 @@ public final class SpecialTextType {
 
     // --- Lookups and helpers ---
 
-    public static Optional<SpecialTextType> fromDescription(String description) {
+    public static Optional<SpecialTextType> fromDescription(@Nullable String description) {
         if (description == null) return Optional.empty();
         return Optional.ofNullable(BY_DESCRIPTION.get(description));
     }
@@ -160,12 +161,9 @@ public final class SpecialTextType {
     private static String renderTaskListMarkdown(String json) {
         try {
             var data = Json.getMapper().readValue(json, TaskList.TaskListData.class);
-            int total = (data.tasks() == null) ? 0 : data.tasks().size();
-            int completed = (data.tasks() == null)
-                    ? 0
-                    : (int) data.tasks().stream()
-                            .filter(TaskList.TaskItem::done)
-                            .count();
+            int total = data.tasks().size();
+            int completed =
+                    (int) data.tasks().stream().filter(TaskList.TaskItem::done).count();
 
             var sb = new StringBuilder();
             sb.append("# Task List\n\n");

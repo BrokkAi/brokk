@@ -10,7 +10,6 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -30,6 +29,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.nullness.util.NullnessUtil;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -215,8 +215,8 @@ public class WorkspaceTools {
         // Partition found into droppable vs protected based on SpecialTextType policy
         var partitioned =
                 foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
-        var toDrop = partitioned.get(true);
-        var protectedFragments = partitioned.get(false);
+        var toDrop = NullnessUtil.castNonNull(partitioned.get(true));
+        var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
         var existingDiscardedMap = context.getDiscardedFragmentsNote();
@@ -431,12 +431,6 @@ public class WorkspaceTools {
         // Append tasks to the local context
         // also takes care of autostarting tasks in EZ mode
         context = cm.appendTasksToTaskList(context, tasks);
-
-        var additions = tasks.stream()
-                .map(String::strip)
-                .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem(s, false))
-                .toList();
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))

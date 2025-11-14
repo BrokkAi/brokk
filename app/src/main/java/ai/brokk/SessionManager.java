@@ -518,8 +518,13 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-    // Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
-    // inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+    /**
+     * Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
+     * inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
+     **/
+    @Deprecated
     private @Nullable String readTaskListJson(Path zipPath) throws IOException {
         if (!Files.exists(zipPath)) {
             return null;
@@ -533,17 +538,8 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private void writeTaskListJson(Path zipPath, String json) throws IOException {
-        try (var fs =
-                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
-            Path taskListPath = fs.getPath("tasklist.json");
-            Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        }
-    }
-
     /**
      * Asynchronously read the legacy task list (tasklist.json) from the session's zip.
-     *
      * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
      * Will be removed in a future release.
      *
@@ -559,7 +555,7 @@ public class SessionManager implements AutoCloseable {
      * });
      * }</pre>
      */
-    @Deprecated()
+    @Deprecated
     public CompletableFuture<TaskList.TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -582,14 +578,11 @@ public class SessionManager implements AutoCloseable {
 
     /**
      * Asynchronously deletes the legacy tasklist.json from the session's zip file.
-     *
      * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
      * Will be removed in a future release.
-     *
      * This is a cleanup step after migrating to fragment-based storage, where the Task List
      * is stored as a StringFragment in Context. If the session zip or tasklist.json does not
      * exist, this operation is a no-op.
-     *
      * Concurrency: Executed via SerialByKeyExecutor using the session UUID string as the key,
      * ensuring per-session serialization and alignment with other session I/O.
      *
