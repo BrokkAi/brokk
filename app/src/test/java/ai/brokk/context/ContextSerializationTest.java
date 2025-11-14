@@ -1172,10 +1172,12 @@ public class ContextSerializationTest {
         HistoryIo.writeZip(originalHistory, zipFile);
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
-        assertContextsEqual(
-                originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        var originalCtx = originalHistory.getHistory().getFirst();
+        var loadedCtx = loadedHistory.getHistory().getFirst();
+        originalCtx.awaitContextsAreComputed(Duration.ofSeconds(10));
+        loadedCtx.awaitContextsAreComputed(Duration.ofSeconds(10));
+        assertContextsEqual(originalCtx, loadedCtx);
 
-        Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedRawFragment = loadedCtx
                 .virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.CODE)
