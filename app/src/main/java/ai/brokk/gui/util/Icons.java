@@ -76,4 +76,5 @@ public final class Icons {
     public static final Icon BLITZFORGE = SwingUtil.uiIcon("Brokk.blitzforge");
     public static final Icon MERGE = SwingUtil.uiIcon("Brokk.merge");
     public static final Icon CONTEXT = SwingUtil.uiIcon("Brokk.context");
+    public static final Icon EDIT_OFF = SwingUtil.uiIcon("Brokk.edit_off");
 }

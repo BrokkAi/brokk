@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -25,6 +26,8 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -850,5 +853,47 @@ class CodeAgentTest {
 
         // nextRequest should be null after sending (Task 3 semantics)
         assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
+    }
+
+    // RO-1: Guardrail - edits to read-only files are blocked with clear error
+    @Test
+    void testRunTask_blocksEditsToReadOnlyFile() throws IOException {
+        // Arrange: create a file and mark it as read-only in the workspace context
+        var roFile = contextManager.toFile("ro.txt");
+        roFile.write("hello");
+        // Build a context with a ProjectPathFragment for the file, mark it read-only
+        var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
+        var ctx = contextManager.liveContext();
+        ctx = ctx.setReadOnly(roFrag, true);
+
+        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        // Scripted model proposes an edit to the read-only file
+        var response =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(roFile.toString());
+        var stubModel = new TestScriptedLanguageModel(response);
+        var agent = new CodeAgent(contextManager, stubModel, consoleIO);
+
+        // Act
+        var result = agent.runTask(ctx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
+
+        // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
+        assertEquals(
+                TaskResult.StopReason.READ_ONLY_EDIT,
+                result.stopDetails().reason(),
+                "Should block edits to read-only files");
+        assertTrue(
+                result.stopDetails().explanation().contains(roFile.toString()),
+                "Error message should include the read-only file path");
+        assertEquals("hello", roFile.read().orElseThrow().strip(), "Read-only file content must remain unchanged");
     }
 }

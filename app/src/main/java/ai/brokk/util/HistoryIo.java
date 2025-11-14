@@ -218,7 +218,24 @@ public final class HistoryIo {
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
             CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
-            contexts.add(DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader));
+            // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
+            Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
+
+            // Use readonly IDs from CompactContextDto to populate Context-level read-only tracking
+            var readonlyIds = Set.copyOf(compactDto.readonly());
+
+            Context reconstructed = Context.createWithId(
+                    built.id(),
+                    mgr,
+                    built.allFragments().toList(),
+                    built.getTaskHistory(),
+                    built.getParsedOutput(),
+                    built.action,
+                    built.getGroupId(),
+                    built.getGroupLabel(),
+                    readonlyIds);
+
+            contexts.add(reconstructed);
         }
 
         if (contexts.isEmpty()) {
@@ -311,35 +328,20 @@ public final class HistoryIo {
 
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
-            var taskEntryRefs = ctx.getTaskHistory().stream()
-                    .map(te -> {
-                        String type = te.meta() != null ? te.meta().type().name() : null;
-                        String pmName =
-                                te.meta() != null ? te.meta().primaryModel().name() : null;
-                        String pmReason = te.meta() != null
-                                ? te.meta().primaryModel().reasoning().name()
-                                : null;
-                        return new TaskEntryRefDto(
-                                te.sequence(),
-                                te.log() != null ? te.log().id() : null,
-                                te.summary() != null ? writer.writeContent(te.summary(), null) : null,
-                                type,
-                                pmName,
-                                pmReason);
-                    })
-                    .toList();
-            var compactDto = new CompactContextDto(
-                    ctx.id().toString(),
-                    ctx.fileFragments().map(ContextFragment::id).toList(),
-                    List.of(),
-                    ctx.virtualFragments().map(ContextFragment::id).toList(),
-                    taskEntryRefs,
-                    ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                    summarizeAction(ctx),
-                    ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
-                    ctx.getGroupLabel());
+            var compactDto = DtoMapper.toCompactDto(ctx, writer, summarizeAction(ctx));
+            // Override readonly list using Context's centralized read-only IDs
+            var rewrittenDto = new CompactContextDto(
+                    compactDto.id(),
+                    compactDto.editable(),
+                    List.copyOf(ctx.getReadOnlyFragmentIds()),
+                    compactDto.virtuals(),
+                    compactDto.tasks(),
+                    compactDto.parsedOutputId(),
+                    compactDto.action(),
+                    compactDto.groupId(),
+                    compactDto.groupLabel());
             contextsJsonlContent
-                    .append(objectMapper.writeValueAsString(compactDto))
+                    .append(objectMapper.writeValueAsString(rewrittenDto))
                     .append('\n');
         }
         byte[] contextsBytes = contextsJsonlContent.toString().getBytes(StandardCharsets.UTF_8);

@@ -69,6 +69,8 @@ public final class MergePrompts {
         return """
                You are an expert software engineer assisting with merge conflict resolution. Carefully analyze the provided unified diff for a commit range and produce a structured,
                detailed summary with special attention to public API changes and breaking changes. Use Markdown appropriately. Be precise and thorough.
+
+               IMPORTANT: If a repository or Workspace enforces read-only files, do not propose changes to those files. Instead, call out the constraint explicitly and suggest safe alternatives (such as changes in allowed files or adding new files).
                """;
     }
 }

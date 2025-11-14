@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import javax.swing.event.AncestorEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -265,6 +266,12 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
+    /**
+     * Return a new instance of this fragment with a fresh ID.
+     * Implementations should create a new instance (so it gets a fresh dynamic ID).
+     */
+    ContextFragment copy();
+
     default List<TaskEntry> entries() {
         return List.of();
     }
@@ -401,7 +408,7 @@ public interface ContextFragment {
             final String CV_SUBS_KEY = "brokk.cv.subs";
 
             // Helper to register a subscription
-            java.util.function.Consumer<ComputedValue.Subscription> registerSub = sub -> {
+            Consumer<ComputedValue.Subscription> registerSub = sub -> {
                 @SuppressWarnings("unchecked")
                 var existing = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
                 if (existing == null) {
@@ -440,10 +447,10 @@ public interface ContextFragment {
                 private boolean disposed = false;
 
                 @Override
-                public void ancestorAdded(javax.swing.event.AncestorEvent e) {}
+                public void ancestorAdded(AncestorEvent e) {}
 
                 @Override
-                public void ancestorRemoved(javax.swing.event.AncestorEvent e) {
+                public void ancestorRemoved(AncestorEvent e) {
                     if (!disposed) {
                         disposed = true;
                         @SuppressWarnings("unchecked")
@@ -464,7 +471,7 @@ public interface ContextFragment {
                 }
 
                 @Override
-                public void ancestorMoved(javax.swing.event.AncestorEvent e) {}
+                public void ancestorMoved(AncestorEvent e) {}
             });
         }
     }
@@ -740,6 +747,11 @@ public interface ContextFragment {
         }
 
         @Override
+        public ContextFragment copy() {
+            return new ProjectPathFragment(file, contextManager);
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -833,6 +845,12 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "GitFileFragment('%s' @%s)".formatted(file, id);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
     }
 
@@ -951,6 +969,11 @@ public interface ContextFragment {
             var pa = this.file().absPath().normalize();
             var pb = op.file().absPath().normalize();
             return pa.equals(pb);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ExternalPathFragment(file, contextManager);
         }
     }
 
@@ -1156,6 +1179,11 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "ImageFileFragment('%s')".formatted(file);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ImageFileFragment(file, contextManager);
         }
     }
 
@@ -1390,6 +1418,12 @@ public interface ContextFragment {
             return description.equals(that.description) && syntaxStyle.equals(that.syntaxStyle);
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -1437,6 +1471,12 @@ public interface ContextFragment {
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment via TaskFragment)
@@ -1617,6 +1657,12 @@ public interface ContextFragment {
             }
             return text.equals(that.text);
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
     class AnonymousImageFragment extends PasteFragment implements ImageFragment { // Non-dynamic, content-hashed
@@ -1741,6 +1787,12 @@ public interface ContextFragment {
         public String shortDescription() {
             return "pasted image";
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
     class StacktraceFragment extends VirtualFragment { // Non-dynamic, content-hashed
@@ -1827,6 +1879,12 @@ public interface ContextFragment {
 
         public String getCode() {
             return code;
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
@@ -1955,6 +2013,12 @@ public interface ContextFragment {
 
         public boolean includeTestFiles() {
             return includeTestFiles;
+        }
+
+        @Override
+        public ContextFragment copy() {
+            var repl = new UsageFragment(getContextManager(), targetIdentifier, includeTestFiles); // fresh dynamic ID
+            return repl;
         }
 
         @Override
@@ -2098,6 +2162,12 @@ public interface ContextFragment {
             return fullyQualifiedName;
         }
 
+        @Override
+        public CodeFragment copy() {
+            var repl = new CodeFragment(getContextManager(), fullyQualifiedName); // fresh dynamic ID
+            return repl;
+        }
+
         public ComputedValue<CodeUnit> computedUnit() {
             return getComputedUnit();
         }
@@ -2222,6 +2292,12 @@ public interface ContextFragment {
             return new CallGraphFragment(id(), getContextManager(), methodName, depth, isCalleeGraph);
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new CallGraphFragment(getContextManager(), methodName, depth, isCalleeGraph);
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2342,6 +2418,12 @@ public interface ContextFragment {
             return new SkeletonFragment(id(), getContextManager(), getTargetIdentifiers(), getSummaryType());
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SkeletonFragment(getContextManager(), getTargetIdentifiers(), getSummaryType());
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2455,6 +2537,12 @@ public interface ContextFragment {
         @Override
         public ContextFragment refreshCopy() {
             return new SummaryFragment(id(), getContextManager(), targetIdentifier, summaryType);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SummaryFragment(getContextManager(), targetIdentifier, summaryType);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
@@ -2588,6 +2676,12 @@ public interface ContextFragment {
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2712,6 +2806,12 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
