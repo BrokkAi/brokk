@@ -112,6 +112,25 @@ public final class MOPWebViewHost extends JPanel {
             var view = new WebView();
             view.setContextMenuEnabled(false);
 
+            // Intercept navigation to external links and open in system browser
+            view.getEngine().locationProperty().addListener((obs, oldLoc, newLoc) -> {
+                if (newLoc != null && !newLoc.isEmpty()) {
+                    boolean isExternalHttp = newLoc.startsWith("http://") || newLoc.startsWith("https://");
+                    boolean isEmbeddedServer = newLoc.contains("127.0.0.1")
+                            || newLoc.toLowerCase(Locale.ROOT).contains("localhost")
+                            || newLoc.contains("[::1]")
+                            || newLoc.contains("::1");
+
+                    if (isExternalHttp && !isEmbeddedServer) {
+                        logger.info("Intercepting external link navigation: {}", newLoc);
+                        view.getEngine().load("about:blank");
+                        SwingUtilities.invokeLater(() -> {
+                            Environment.openInBrowser(newLoc, SwingUtilities.getWindowAncestor(fxPanel));
+                        });
+                    }
+                }
+            });
+
             // Set unique user data directory per process to avoid DirectoryLock conflicts
             // when multiple brokk instances are running simultaneously
             // First get the default user data directory that JavaFX would use
