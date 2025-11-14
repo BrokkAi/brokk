@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
@@ -3386,6 +3387,70 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         }
         return true;
+    }
+
+    /** Modes for determining the baseline reference for showing changes. */
+    private enum BaselineMode {
+        NON_DEFAULT_BRANCH,
+        DEFAULT_WITH_UPSTREAM,
+        DEFAULT_LOCAL_ONLY,
+        DETACHED,
+        NO_BASELINE
+    }
+
+    /** Information about the computed baseline for showing changes. */
+    private record BaselineInfo(BaselineMode mode, String baselineRef, String displayLabel) {}
+
+    /**
+     * Computes the appropriate baseline reference for displaying changes in the Changes tab.
+     * This determines what to diff against based on the current branch state.
+     *
+     * @return BaselineInfo containing the mode, baseline ref, and display label
+     */
+    private BaselineInfo computeBaselineForChanges() {
+        var repoOpt = repo();
+        if (repoOpt.isEmpty()) {
+            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "No repository");
+        }
+
+        var repo = repoOpt.get();
+
+        try {
+            String defaultBranch = repo.getDefaultBranch();
+            String currentBranch = repo.getCurrentBranch();
+
+            // Check if detached HEAD (either looks like a hash or not in local branches)
+            boolean isDetached = isLikelyCommitHash(currentBranch);
+            if (!isDetached && repo instanceof GitRepo gitRepo) {
+                var localBranches = gitRepo.listLocalBranches();
+                isDetached = !localBranches.contains(currentBranch);
+            }
+
+            if (isDetached) {
+                return new BaselineInfo(BaselineMode.DETACHED, "HEAD", "detached HEAD");
+            }
+
+            // If not on default branch, diff against default
+            if (!currentBranch.equals(defaultBranch)) {
+                return new BaselineInfo(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+            }
+
+            // On default branch - check for upstream remote
+            if (repo instanceof GitRepo gitRepo) {
+                var remoteBranches = gitRepo.listRemoteBranches();
+                String upstreamRef = "origin/" + defaultBranch;
+                if (remoteBranches.contains(upstreamRef)) {
+                    return new BaselineInfo(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
+                }
+            }
+
+            // On default branch but no upstream remote
+            return new BaselineInfo(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
+
+        } catch (Exception e) {
+            logger.warn("Failed to compute baseline for changes", e);
+            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
+        }
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
