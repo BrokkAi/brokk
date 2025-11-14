@@ -48,7 +48,7 @@ class SessionManagerTaskListLifecycleTest {
 
         // Prepare a canonical task list payload
         TaskList.TaskListData data = new TaskList.TaskListData(
-                List.of(new TaskList.TaskItem("do A", false), new TaskList.TaskItem("do B", true)));
+                List.of(new TaskList.TaskItem("", "do A", false), new TaskList.TaskItem("", "do B", true)));
 
         // 1) Create original session and write a tasklist.json inside its zip
         SessionManager.SessionInfo s1 = sm.newSession("Origin");

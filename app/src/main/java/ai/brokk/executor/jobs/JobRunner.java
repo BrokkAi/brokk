@@ -199,32 +199,32 @@ public final class JobRunner {
                                 logger.info("Job {} executing task: {}", jobId, task.text());
                                 try {
                                     switch (mode) {
-                                        case ARCHITECT -> {
-                                            cm.executeTask(
-                                                    task,
-                                                    Objects.requireNonNull(
-                                                            architectPlannerModel,
-                                                            "plannerModel required for ARCHITECT jobs"),
-                                                    Objects.requireNonNull(
-                                                            architectCodeModel,
-                                                            "code model unavailable for ARCHITECT jobs"),
-                                                    spec.autoCommit(),
-                                                    spec.autoCompress());
-                                        }
-                                        case CODE -> {
-                                            var agent = new CodeAgent(
-                                                    cm,
-                                                    Objects.requireNonNull(
-                                                            codeModeModel, "code model unavailable for CODE jobs"));
-                                            try (var scope = cm.beginTask(task.text(), false)) {
-                                                var result = agent.runTask(task.text(), Set.of());
-                                                scope.append(result);
-                                            }
-                                        }
-                                        case ASK -> {
-                                            // Read-only execution: never auto-commit; allow compression if requested
-                                            cm.executeTask(
-                                                    new TaskList.TaskItem(task.text(), false),
+                                    case ARCHITECT -> {
+                                    cm.executeTask(
+                                    task,
+                                    Objects.requireNonNull(
+                                    architectPlannerModel,
+                                    "plannerModel required for ARCHITECT jobs"),
+                                    Objects.requireNonNull(
+                                    architectCodeModel,
+                                    "code model unavailable for ARCHITECT jobs"),
+                                    spec.autoCommit(),
+                                    spec.autoCompress());
+                                    }
+                                    case CODE -> {
+                                    var agent = new CodeAgent(
+                                    cm,
+                                    Objects.requireNonNull(
+                                    codeModeModel, "code model unavailable for CODE jobs"));
+                                    try (var scope = cm.beginTask(task.text(), false)) {
+                                    var result = agent.runTask(task.text(), Set.of());
+                                    scope.append(result);
+                                    }
+                                    }
+                                    case ASK -> {
+                                    // Read-only execution: never auto-commit; allow compression if requested
+                                    cm.executeTask(
+                                    new TaskList.TaskItem(task.title(), task.text(), false),
                                                     Objects.requireNonNull(
                                                             askPlannerModel, "plannerModel required for ASK jobs"),
                                                     Objects.requireNonNull(
@@ -434,7 +434,7 @@ public final class JobRunner {
         for (String line : Splitter.on('\n').split(taskInput)) {
             var trimmed = line.trim();
             if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem(trimmed, false));
+                list.add(new TaskList.TaskItem("", trimmed, false));
             }
         }
 
@@ -442,7 +442,7 @@ public final class JobRunner {
         if (list.isEmpty()) {
             String trimmed = taskInput.trim();
             if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem(trimmed, false));
+                list.add(new TaskList.TaskItem("", trimmed, false));
             }
         }
 

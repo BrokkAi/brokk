@@ -573,7 +573,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                model.addElement(new TaskList.TaskItem(text, false));
+                model.addElement(new TaskList.TaskItem("", text, false));
                 added++;
             }
         }
@@ -664,7 +664,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
                 if (idx >= 0 && idx < model.getSize()) {
                     var it = requireNonNull(model.get(idx));
-                    model.set(idx, new TaskList.TaskItem(it.text(), !it.done()));
+                    model.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
                     changed = true;
                 }
             }
@@ -741,7 +741,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (newText != null) {
                 newText = newText.strip();
                 if (!newText.isEmpty() && !newText.equals(current.text())) {
-                    model.set(index, new TaskList.TaskItem(newText, current.done()));
+                    model.set(index, new TaskList.TaskItem(current.title(), newText, current.done()));
                     saveTasksForCurrentSession();
                     list.revalidate();
                     list.repaint();
@@ -889,8 +889,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (int i = 0; i < model.size(); i++) {
             var it = requireNonNull(model.get(i));
             if (!it.text().isBlank()) {
-                // it is already the domain type, but copy defensively
-                dtos.add(new TaskList.TaskItem(it.text(), it.done()));
+            // it is already the domain type, but copy defensively
+            dtos.add(new TaskList.TaskItem(it.title(), it.text(), it.done()));
             }
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
@@ -1138,9 +1138,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
 
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
-                        var it = requireNonNull(model.get(idx));
-                        model.set(idx, new TaskList.TaskItem(it.text(), true));
-                        saveTasksForCurrentSession();
+                    var it = requireNonNull(model.get(idx));
+                    model.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                    saveTasksForCurrentSession();
                         // Task was marked done as part of a successful run; update tab badge immediately.
                         updateTasksTabBadge();
                     }
@@ -1733,7 +1733,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         String combinedText = String.join(" | ", taskTexts);
 
         // Create the new combined task (always marked as not done)
-        TaskList.TaskItem combinedTask = new TaskList.TaskItem(combinedText, false);
+        TaskList.TaskItem combinedTask = new TaskList.TaskItem("", combinedText, false);
 
         // Replace the first task with the combined task
         model.set(firstIdx, combinedTask);
@@ -1825,9 +1825,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         // Replace the original with the first line; insert remaining lines after; mark all as not done
-        model.set(idx, new TaskList.TaskItem(lines.getFirst(), false));
+        model.set(idx, new TaskList.TaskItem("", lines.getFirst(), false));
         for (int i = 1; i < lines.size(); i++) {
-            model.add(idx + i, new TaskList.TaskItem(lines.get(i), false));
+            model.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
         }
 
         // Select the new block

@@ -1449,7 +1449,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem(s, false))
+                .map(s -> new TaskList.TaskItem("", s, false))
                 .toList();
         if (additions.isEmpty()) {
             return;
@@ -1579,7 +1579,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         if (idx >= 0) {
-            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             this.taskList = new TaskList.TaskListData(List.copyOf(existing));
             project.getSessionManager()
                     .writeTaskList(currentSessionId, this.taskList)

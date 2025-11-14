@@ -85,7 +85,7 @@ class SessionManagerTaskListIoTest {
                             .writeTaskList(
                                     sessionId1,
                                     new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("session1_task_" + taskId, false))))
+                                            List.of(new TaskList.TaskItem("", "session1_task_" + taskId, false))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId1).incrementAndGet();
                 } catch (Exception e) {
@@ -98,7 +98,7 @@ class SessionManagerTaskListIoTest {
                             .writeTaskList(
                                     sessionId2,
                                     new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("session2_task_" + taskId, true))))
+                                            List.of(new TaskList.TaskItem("", "session2_task_" + taskId, true))))
                             .get(5, TimeUnit.SECONDS);
                     writeCounts.get(sessionId2).incrementAndGet();
                 } catch (Exception e) {
@@ -173,7 +173,7 @@ class SessionManagerTaskListIoTest {
                             .writeTaskList(
                                     sessionId,
                                     new TaskList.TaskListData(
-                                            List.of(new TaskList.TaskItem("task_write_" + writeValue, false))))
+                                            List.of(new TaskList.TaskItem("", "task_write_" + writeValue, false))))
                             .get(5, TimeUnit.SECONDS); // Wait for each write to complete
                 } catch (Exception e) {
                     fail("Write task failed: " + e.getMessage());
@@ -262,7 +262,7 @@ class SessionManagerTaskListIoTest {
                                     .writeTaskList(
                                             sessionId,
                                             new TaskList.TaskListData(
-                                                    List.of(new TaskList.TaskItem("task_" + value, false))))
+                                                    List.of(new TaskList.TaskItem("", "task_" + value, false))))
                                     .get(5, TimeUnit.SECONDS);
 
                             TaskList.TaskListData data =
