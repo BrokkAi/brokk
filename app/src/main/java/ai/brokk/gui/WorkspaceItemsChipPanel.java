@@ -1915,11 +1915,16 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         if (!(iconObj instanceof JLabel roIcon)) {
             return;
         }
-        boolean show = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
+        boolean show = fragment != null && fragment.getType().isEditable() && isFragmentReadOnly(fragment);
 
         if (show) {
             Object lblObj = chip.getClientProperty("brokk.chip.label");
-            JComponent ref = lblObj instanceof JComponent ? (JComponent) lblObj : chip;
+            JComponent ref;
+            if (lblObj instanceof JComponent chipLabel) {
+                ref = chipLabel;
+            } else {
+                ref = chip;
+            }
             roIcon.setIcon(fitIconToChip(Icons.EDIT_OFF, ref));
             roIcon.setVisible(true);
         } else {

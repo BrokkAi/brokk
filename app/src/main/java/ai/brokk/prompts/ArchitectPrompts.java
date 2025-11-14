@@ -46,7 +46,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 ? "(none)"
                 : ro.stream().map(p -> "- " + p).collect(java.util.stream.Collectors.joining("\n")));
         var readonlyPolicyBlock =
-                ("""
+                """
                 You MUST NEVER edit, rename, or delete files listed below. Reading is allowed.
                 If you need to change behavior that currently lives in a read-only file, propose safe alternatives
                 (e.g., a new file, an extension point, or edits to an allowed file), and ask for explicit confirmation
@@ -56,7 +56,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 %s
                 </readonly-paths>
                 """
-                                .formatted(readonlyPolicy))
+                        .formatted(readonlyPolicy)
                         .strip();
 
         var text =
@@ -93,11 +93,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 .distinct()
                 .sorted()
                 .toList();
-        var readonlyPolicy = (ro.isEmpty()
+        var readonlyPolicy = ro.isEmpty()
                 ? "(none)"
-                : ro.stream().map(p -> "- " + p).collect(java.util.stream.Collectors.joining("\n")));
+                : ro.stream().map(p -> "- " + p).collect(java.util.stream.Collectors.joining("\n"));
         var readonlyPolicyBlock =
-                ("""
+                """
                 You MUST NEVER edit, rename, or delete files listed below. Reading is allowed.
                 If you need to change behavior that currently lives in a read-only file, propose safe alternatives
                 (e.g., a new file, an extension point, or edits to an allowed file), and ask for explicit confirmation
@@ -107,7 +107,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 %s
                 </readonly-paths>
                 """
-                                .formatted(readonlyPolicy))
+                        .formatted(readonlyPolicy)
                         .strip();
 
         var text =
