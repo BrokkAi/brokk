@@ -223,6 +223,7 @@ public final class MOPWebViewHost extends JPanel {
                                 loadJavaScriptResource("mop-webview-scripts/link-interception-handler.js");
                         String linkInterceptorWithParams = linkInterceptor.replace("EMBEDDED_SERVER_PORT", String.valueOf(port));
                         view.getEngine().executeScript(linkInterceptorWithParams);
+                        logger.info("Link interception script executed successfully");
                     } catch (IOException e) {
                         logger.error("Failed to load JavaScript resources", e);
                     }
