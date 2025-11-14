@@ -208,7 +208,11 @@ class SessionManagerTaskListIoTest {
         assertEquals(1, finalData.tasks().size());
         assertEquals(
                 "task_write_" + (numWrites - 1),
-                finalData.tasks().stream().sorted().toList().getFirst().text());
+                finalData.tasks().stream()
+                        .sorted(Comparator.comparing(TaskList.TaskItem::text))
+                        .toList()
+                        .getFirst()
+                        .text());
 
         // All values read should be less than or equal to the highest value written so far at the time of read.
         // Given SerialByKeyExecutor, this means any read will see a state from a completed write.
