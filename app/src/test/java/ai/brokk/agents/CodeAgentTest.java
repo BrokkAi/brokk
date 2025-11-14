@@ -851,4 +851,45 @@ class CodeAgentTest {
         // nextRequest should be null after sending (Task 3 semantics)
         assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
     }
+
+    // RO-1: Guardrail - edits to read-only files are blocked with clear error
+    @Test
+    void testRunTask_blocksEditsToReadOnlyFile() throws IOException {
+        // Arrange: create a file and mark it as read-only in the workspace context
+        var roFile = contextManager.toFile("ro.txt");
+        roFile.write("hello");
+        // Build a context with a ProjectPathFragment for the file, mark it read-only
+        var roFrag = new ai.brokk.context.ContextFragment.ProjectPathFragment(roFile, contextManager);
+        roFrag.setReadOnly(true);
+        var initialCtx = new ai.brokk.context.Context(contextManager, null).addPathFragments(List.of(roFrag));
+
+        // Scripted model proposes an edit to the read-only file
+        var response =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(roFile.toString());
+        var stubModel = new TestScriptedLanguageModel(response);
+        var agent = new CodeAgent(contextManager, stubModel, consoleIO);
+
+        // Act
+        var result = agent.runTask(initialCtx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
+
+        // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
+        assertEquals(
+                TaskResult.StopReason.READ_ONLY_EDIT,
+                result.stopDetails().reason(),
+                "Should block edits to read-only files");
+        assertTrue(
+                result.stopDetails().explanation().contains(roFile.toString()),
+                "Error message should include the read-only file path");
+        assertEquals("hello", roFile.read().orElseThrow().strip(), "Read-only file content must remain unchanged");
+    }
 }
