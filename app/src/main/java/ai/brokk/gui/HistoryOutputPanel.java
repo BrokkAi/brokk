@@ -2985,6 +2985,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 fileSet.addAll(gitRepo.getModifiedFiles());
                                 leftCommitSha = "HEAD";
                             }
+                            case DETACHED, NO_BASELINE -> {
+                                // No baseline available; no changes to compute in this switch branch.
+                                // Note: earlier guard already returns empty results for these modes.
+                            }
                         }
 
                         // Build per-file changes
@@ -3323,7 +3327,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static String safeGetFileContent(IGitRepo repo, String commitId, ProjectFile file) {
         try {
             String content = repo.getFileContent(commitId, file);
-            return (content == null || content.isEmpty()) ? "" : content;
+            return content.isEmpty() ? "" : content;
         } catch (Exception e) {
             logger.debug("Failed to get file content for {} at {}", file, commitId, e);
             return "";
@@ -3677,7 +3681,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Used to detect detached HEAD states.
      */
     private static boolean isLikelyCommitHash(String s) {
-        if (s == null || s.length() < 7 || s.length() > 40) {
+        if (s.length() < 7 || s.length() > 40) {
             return false;
         }
         for (int i = 0; i < s.length(); i++) {
