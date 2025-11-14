@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -66,6 +67,24 @@ public class DtoMapper {
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
                 .filter(Objects::nonNull)
                 .toList();
+
+        // Apply readOnly flags to editable-capable fragments based on IDs listed in dto.readonly
+        var readonlyIds = Set.copyOf(dto.readonly());
+        editableFragments.forEach(f -> {
+            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
+                ef.setReadOnly(true);
+            }
+        });
+        readonlyFragments.forEach(f -> {
+            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
+                ef.setReadOnly(true);
+            }
+        });
+        virtualFragments.forEach(f -> {
+            if (f instanceof ContextFragment.EditableFragment ef && readonlyIds.contains(f.id())) {
+                ef.setReadOnly(true);
+            }
+        });
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
@@ -132,6 +151,56 @@ public class DtoMapper {
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
+
+    /**
+     * Build a CompactContextDto for serialization, including readonly IDs for fragments
+     * that implement EditableFragment and have isReadOnly() == true.
+     */
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+        var taskEntryRefs = ctx.getTaskHistory().stream()
+                .map(te -> {
+                    String type = te.meta() != null ? te.meta().type().name() : null;
+                    String pmName = te.meta() != null ? te.meta().primaryModel().name() : null;
+                    String pmReason = te.meta() != null
+                            ? te.meta().primaryModel().reasoning().name()
+                            : null;
+                    return new TaskEntryRefDto(
+                            te.sequence(),
+                            te.log() != null ? te.log().id() : null,
+                            te.summary() != null ? writer.writeContent(te.summary(), null) : null,
+                            type,
+                            pmName,
+                            pmReason);
+                })
+                .toList();
+
+        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
+        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+
+        // Collect readonly IDs across both file and virtual fragments, but only for EditableFragment
+        var readonlyIds = new java.util.ArrayList<String>();
+        ctx.fileFragments().forEach(f -> {
+            if (f instanceof ContextFragment.EditableFragment ef && ef.isReadOnly()) {
+                readonlyIds.add(f.id());
+            }
+        });
+        ctx.virtualFragments().forEach(vf -> {
+            if (vf instanceof ContextFragment.EditableFragment ef && ef.isReadOnly()) {
+                readonlyIds.add(vf.id());
+            }
+        });
+
+        return new CompactContextDto(
+                ctx.id().toString(),
+                editableIds,
+                readonlyIds,
+                virtualIds,
+                taskEntryRefs,
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
+                action,
+                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
+                ctx.getGroupLabel());
+    }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
     public static @Nullable ContextFragment resolveAndBuildFragment(
