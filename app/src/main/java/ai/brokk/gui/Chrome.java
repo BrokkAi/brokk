@@ -3768,12 +3768,11 @@ public class Chrome
          * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
          */
         private boolean shouldIncludeInTraversal(java.awt.Component comp) {
-            if (comp == null || !comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
+            if (!comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
                 return false;
             }
             // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
-            if (comp instanceof javax.swing.JTextArea) {
-                var textArea = (javax.swing.JTextArea) comp;
+            if (comp instanceof javax.swing.JTextArea textArea) {
                 // Check if this is the instructions area by name or other property
                 if ("instructionsArea".equals(textArea.getName())
                         && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
