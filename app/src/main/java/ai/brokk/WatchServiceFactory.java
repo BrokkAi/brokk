@@ -2,6 +2,7 @@ package ai.brokk;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -45,8 +46,16 @@ public class WatchServiceFactory {
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
             List<IWatchService.Listener> listeners) {
+        String implProp = getImplementationPreference();
+        String os = getOsName();
+        return createInternal(root, gitRepoRoot, globalGitignorePath, listeners, implProp, os);
+    }
 
-        // Check for explicit override
+    /**
+     * Get the implementation preference from system property or environment variable.
+     * Package-private for testing.
+     */
+    static String getImplementationPreference() {
         String implProp = System.getProperty(WATCH_SERVICE_IMPL_PROPERTY);
         if (implProp == null) {
             implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
@@ -55,18 +64,39 @@ public class WatchServiceFactory {
             // Default to legacy if no preference is set for now.  Will change later once native is more stable.
             implProp = "legacy";
         }
+        return implProp;
+    }
+
+    /**
+     * Get the OS name for platform detection.
+     * Package-private for testing.
+     */
+    static String getOsName() {
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Internal creation method that can be tested without modifying global state.
+     * Package-private for testing.
+     */
+    static IWatchService createInternal(
+            Path root,
+            @Nullable Path gitRepoRoot,
+            @Nullable Path globalGitignorePath,
+            List<IWatchService.Listener> listeners,
+            String implProp,
+            String os) {
+
         if ("legacy".equalsIgnoreCase(implProp)) {
-            logger.info("Using legacy watch service (forced by system property)");
+            logger.info("Using legacy watch service (forced by configuration)");
             return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
         if ("native".equalsIgnoreCase(implProp)) {
-            logger.info("Using native watch service (forced by system property)");
+            logger.info("Using native watch service (forced by configuration)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
         // Platform-based selection
-        String os = System.getProperty("os.name").toLowerCase();
-
         if (os.contains("mac")) {
             // macOS benefits most from native FSEvents implementation
             logger.info("Detected macOS, using native watch service (FSEvents)");
