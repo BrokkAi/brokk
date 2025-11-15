@@ -77,9 +77,36 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            Path workTreeRoot = gitRepoInstance.getWorkTreeRoot();
+            // Check if opened at a subdirectory (project root != working tree root)
+            // Try toRealPath() for symlink resolution (needed on macOS /var vs /private/var)
+            // but ensure both paths use same resolution method to avoid comparison issues
+            boolean isSubdirectory;
+            try {
+                Path realRoot = this.root.toRealPath();
+                Path realWorkTree = workTreeRoot.toRealPath();
+                isSubdirectory = !realRoot.equals(realWorkTree);
+            } catch (IOException e) {
+                // If toRealPath() fails on either path, use consistent fallback
+                logger.trace("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
+                isSubdirectory = !this.root
+                        .toAbsolutePath()
+                        .normalize()
+                        .equals(workTreeRoot.toAbsolutePath().normalize());
+            }
+            boolean isWorktree = gitRepoInstance.isWorktree();
+
+            if (isWorktree && !isSubdirectory) {
+                // Worktree opened at root → share config with main repo
+                this.masterRootPathForConfig =
+                        gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+            } else {
+                // All other cases: use project root for config
+                // - Regular projects (worktree or not)
+                // - Worktrees opened at subdirectory
+                this.masterRootPathForConfig = this.root;
+            }
         } else {
             this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
         }
