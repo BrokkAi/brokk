@@ -3,7 +3,6 @@ package ai.brokk;
 import ai.brokk.analyzer.ProjectFile;
 import io.methvin.watcher.DirectoryChangeEvent;
 import io.methvin.watcher.DirectoryWatcher;
-import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,10 +27,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public class NativeProjectWatchService implements IWatchService {
     private static final Logger logger = LogManager.getLogger(NativeProjectWatchService.class);
-
-    private static final long DEBOUNCE_DELAY_MS = 500;
-    private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
-    private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
     // Directories to exclude from watching
     private static final Set<String> EXCLUDED_DIR_NAMES = Set.of(
@@ -77,9 +72,13 @@ public class NativeProjectWatchService implements IWatchService {
 
     private final List<Listener> listeners;
 
+    @Nullable
     private volatile DirectoryWatcher watcher;
+
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
+
+    @Nullable
     private volatile Thread watcherThread;
 
     /**
@@ -112,10 +111,8 @@ public class NativeProjectWatchService implements IWatchService {
 
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
-        watcherThread = new Thread(
-                () -> beginWatching(delayNotificationsUntilCompleted),
-                "NativeDirectoryWatcher@"
-                        + Long.toHexString(Thread.currentThread().threadId()));
+        watcherThread = new Thread(() -> beginWatching(delayNotificationsUntilCompleted));
+        watcherThread.setName("NativeDirectoryWatcher@" + Long.toHexString(watcherThread.threadId()));
         watcherThread.setDaemon(true);
         watcherThread.start();
     }
@@ -157,8 +154,8 @@ public class NativeProjectWatchService implements IWatchService {
             try {
                 delayNotificationsUntilCompleted.get();
             } catch (Exception e) {
-                logger.debug("Error while waiting for the initial Future to complete", e);
-                throw new RuntimeException(e);
+                logger.error("Error while waiting for the initial Future to complete", e);
+                return;
             }
 
             logger.info("Starting native directory watcher for: {}", root);
@@ -166,6 +163,8 @@ public class NativeProjectWatchService implements IWatchService {
 
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
+        } catch (Exception e) {
+            logger.error("Error starting native directory watcher", e);
         }
     }
 
@@ -247,9 +246,9 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     private void handleEvent(DirectoryChangeEvent event) {
-        // Wait if paused
-        while (pauseCount > 0) {
-            Thread.onSpinWait();
+        // Skip processing if paused
+        if (pauseCount > 0) {
+            return;
         }
 
         if (!running) return;
@@ -301,19 +300,6 @@ public class NativeProjectWatchService implements IWatchService {
             } catch (Exception e) {
                 logger.error(
                         "Error notifying listener {} of file changes",
-                        listener.getClass().getSimpleName(),
-                        e);
-            }
-        }
-    }
-
-    private void notifyNoFilesChanged() {
-        for (Listener listener : listeners) {
-            try {
-                listener.onNoFilesChangedDuringPollInterval();
-            } catch (Exception e) {
-                logger.error(
-                        "Error notifying listener {} of no file changes",
                         listener.getClass().getSimpleName(),
                         e);
             }
@@ -373,14 +359,5 @@ public class NativeProjectWatchService implements IWatchService {
                 logger.warn("Interrupted while waiting for watcher thread to stop");
             }
         }
-    }
-
-    /**
-     * Checks if any window in the application currently has focus
-     */
-    private boolean isApplicationFocused() {
-        var focusedWindow =
-                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-        return focusedWindow != null;
     }
 }

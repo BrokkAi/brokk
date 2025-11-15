@@ -1381,11 +1381,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
             }
 
-            // Restore position - use nested invokeLater to ensure ALL layout is complete
-            // First invokeLater processes the setText, second one restores scroll
-            SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
+            // Restore position after layout is complete
+            SwingUtilities.invokeLater(() -> {
                 ScrollPositionPreserver.restore(textArea, scrollPane.getViewport(), savedPosition);
-            }));
+            });
 
         } catch (Exception e) {
             logger.error("Error refreshing preview from disk for {}", file, e);
@@ -1400,34 +1399,33 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * @param syntaxStyle The syntax highlighting style to use
      */
     public void updateContent(String newText, String syntaxStyle) {
-        // Save current scroll position
-        final var savedPosition = ScrollPositionPreserver.capture(textArea, scrollPane.getViewport());
+        SwingUtilities.invokeLater(() -> {
+            // Save current scroll position
+            final var savedPosition = ScrollPositionPreserver.capture(textArea, scrollPane.getViewport());
 
-        // Temporarily remove document listener if present
-        if (saveButtonDocumentListener != null) {
-            textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
-        }
-
-        try {
-            // Update syntax style if it changed
-            if (!textArea.getSyntaxEditingStyle().equals(syntaxStyle)) {
-                textArea.setSyntaxEditingStyle(syntaxStyle);
-            }
-
-            // Update content
-            textArea.setText(newText);
-        } finally {
-            // Re-add document listener
+            // Temporarily remove document listener if present
             if (saveButtonDocumentListener != null) {
-                textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+                textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
             }
-        }
 
-        // Restore position - use nested invokeLater to ensure ALL layout is complete
-        // First invokeLater processes the setText, second one restores scroll
-        SwingUtilities.invokeLater(() -> SwingUtilities.invokeLater(() -> {
+            try {
+                // Update syntax style if it changed
+                if (!textArea.getSyntaxEditingStyle().equals(syntaxStyle)) {
+                    textArea.setSyntaxEditingStyle(syntaxStyle);
+                }
+
+                // Update content
+                textArea.setText(newText);
+            } finally {
+                // Re-add document listener
+                if (saveButtonDocumentListener != null) {
+                    textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+                }
+            }
+
+            // Restore position after all updates
             ScrollPositionPreserver.restore(textArea, scrollPane.getViewport(), savedPosition);
-        }));
+        });
     }
 
     /**

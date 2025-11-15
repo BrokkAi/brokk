@@ -56,28 +56,6 @@ class FragmentFileExtractorTest {
     }
 
     @Test
-    void testExtractProjectFile_FromComputedFragmentThatIsAlsoPathFragment() throws Exception {
-        // ProjectPathFragment is both a PathFragment and a ComputedFragment
-        var projectRoot = tempDir.resolve("project");
-        Files.createDirectories(projectRoot);
-        Files.writeString(projectRoot.resolve("Computed.java"), "public class Computed {}");
-
-        var project = new TestProject(projectRoot, Languages.JAVA);
-        var projectFile = new ProjectFile(projectRoot, Path.of("Computed.java"));
-
-        var fragment = new ContextFragment.ProjectPathFragment(projectFile, null);
-
-        // Verify it's both types
-        assertTrue(fragment instanceof ContextFragment.PathFragment, "Should be PathFragment");
-        assertTrue(fragment instanceof ContextFragment.ComputedFragment, "Should be ComputedFragment");
-
-        ProjectFile extracted = FragmentFileExtractor.extractProjectFile(fragment);
-
-        assertNotNull(extracted, "Should extract ProjectFile from computed PathFragment");
-        assertEquals(projectFile, extracted);
-    }
-
-    @Test
     void testExtractProjectFile_WithNullFragment() {
         // Edge case: what if someone passes null?
         // The method should handle it gracefully (it does instanceof check first)

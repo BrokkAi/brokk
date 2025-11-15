@@ -1977,9 +1977,8 @@ public class Chrome
     /**
      * Generates a key for identifying and reusing preview windows based on content type and context. For file previews
      * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
-     * Package-private for testing.
      */
-    String generatePreviewWindowKey(String title, JComponent contentComponent) {
+    private String generatePreviewWindowKey(String title, JComponent contentComponent) {
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
             // For file previews with an actual file, use file-based key
             if (title.startsWith("Preview: ")) {
@@ -2590,11 +2589,13 @@ public class Chrome
             if (existingFrame != null) {
                 // Update existing panel's content instead of replacing it
                 var contentPane = existingFrame.getContentPane();
-                Component centerComponent =
-                        ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
-                if (centerComponent instanceof PreviewTextPanel existingPanel) {
-                    existingPanel.updateContent(text, style);
-                    return;
+                LayoutManager layout = contentPane.getLayout();
+                if (layout instanceof BorderLayout borderLayout) {
+                    Component centerComponent = borderLayout.getLayoutComponent(contentPane, BorderLayout.CENTER);
+                    if (centerComponent instanceof PreviewTextPanel existingPanel) {
+                        existingPanel.updateContent(text, style);
+                        return;
+                    }
                 }
             }
 
@@ -2627,11 +2628,13 @@ public class Chrome
             if (existingFrame != null) {
                 // Update existing panel's content instead of replacing it
                 var contentPane = existingFrame.getContentPane();
-                Component centerComponent =
-                        ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
-                if (centerComponent instanceof PreviewTextPanel existingPanel) {
-                    existingPanel.updateContent(text, resolvedStyle);
-                    return;
+                LayoutManager layout = contentPane.getLayout();
+                if (layout instanceof BorderLayout borderLayout) {
+                    Component centerComponent = borderLayout.getLayoutComponent(BorderLayout.CENTER);
+                    if (centerComponent instanceof PreviewTextPanel existingPanel) {
+                        existingPanel.updateContent(text, resolvedStyle);
+                        return;
+                    }
                 }
             }
 

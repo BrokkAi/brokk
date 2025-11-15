@@ -15,12 +15,14 @@ public class ScrollPositionPreserver {
 
     /**
      * Represents a saved scroll position with line/column caret position and viewport scroll.
+     * The viewportPos parameter accepts null and normalizes it to Point(0, 0).
      */
     public record Position(int line, int column, Point viewportPos) {
-        public Position {
-            if (line < 0) line = 0;
-            if (column < 0) column = 0;
-            if (viewportPos == null) viewportPos = new Point(0, 0);
+        public Position(int line, int column, @Nullable Point viewportPos) {
+            this.line = line < 0 ? 0 : line;
+            this.column = column < 0 ? 0 : column;
+            // Normalize null to default point for safety
+            this.viewportPos = viewportPos != null ? viewportPos : new Point(0, 0);
         }
     }
 
