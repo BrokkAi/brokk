@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ImageUtil;
 import java.io.IOException;
@@ -114,6 +115,23 @@ public final class DiffService {
         cache.keySet().retainAll(currentIds);
     }
 
+    @Blocking
+    private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
+        if (!(fragment instanceof ContextFragment.PathFragment)) {
+            return false;
+        }
+        Set<ProjectFile> files;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            files = cf.computedFiles().future().join();
+        } else {
+            files = fragment.files();
+        }
+        if (files.isEmpty()) {
+            return false;
+        }
+        return !repo.getTrackedFiles().contains(files.iterator().next());
+    }
+
     /**
      * Compute per-fragment diffs between curr (new/right) and other (old/left) contexts.
      * Triggers async computations and awaits their completion.
@@ -151,7 +169,23 @@ public final class DiffService {
                 .orElse(null);
 
         if (otherFragment == null) {
-            // New fragment (no match in other) - diff against empty
+            // No matching fragment in 'other'
+            // - For non-text fragments (e.g., images), don't emit a diff here.
+            // - For PathFragments: only show a diff if it's a new, untracked file in Git.
+            // - For non-path text fragments (e.g., StringFragment, TaskFragment): show diff vs. empty content.
+            if (!thisFragment.isText()) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            if (thisFragment instanceof ContextFragment.PathFragment) {
+                var repo = curr.getContextManager().getRepo();
+                if (!isNewFileInGit(thisFragment, repo)) {
+                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                    return CompletableFuture.completedFuture(null);
+                }
+            }
+
+            // Text fragment newly added: diff against empty
             return extractFragmentContentAsync(thisFragment, true)
                     .thenApply(newContent -> {
                         var result = ContentDiffUtils.computeDiffResult(

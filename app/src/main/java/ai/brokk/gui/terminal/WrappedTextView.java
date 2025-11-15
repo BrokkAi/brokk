@@ -137,6 +137,17 @@ public class WrappedTextView extends JComponent {
             int lineHeight = fm.getHeight();
             int y = topPadding + fm.getAscent();
 
+            if (!expanded && maxVisibleLines == 1) {
+                String renderLine = addEllipsisToFit(text, fm, availableWidth);
+                g2.drawString(renderLine, 0, y);
+                if (strikeThrough) {
+                    int yStrike = y - Math.round(fm.getAscent() * 0.4f);
+                    int w = fm.stringWidth(renderLine);
+                    g2.drawLine(0, yStrike, w, yStrike);
+                }
+                return;
+            }
+
             var lines = wrapLines(text, fm, availableWidth);
             List<String> renderLines = lines;
             if (!expanded && lines.size() >= maxVisibleLines) {

@@ -784,13 +784,18 @@ public class EditBlock {
         if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
             throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
+
+        // Strip leading comment prefixes (// or #) that LLMs might include
+        var stripped = filename.strip();
+        stripped = stripped.replaceFirst("^(//|#)\\s*", "");
+
         ProjectFile file;
         try {
-            file = cm.toFile(filename);
+            file = cm.toFile(stripped);
         } catch (IllegalArgumentException e) {
             // This can happen if the LLM provides an absolute path
             throw new SymbolInvalidException(
-                    "Filename '%s' is invalid, possibly an absolute path.".formatted(filename));
+                    "Filename '%s' is invalid, possibly an absolute path.".formatted(stripped));
         }
 
         // 1. Exact match (common case)
@@ -811,27 +816,16 @@ public class EditBlock {
                     "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
         }
 
-        // 3. Check tracked files in git repo (substring match)
+        // 3. Check tracked files in git repo (basename match only)
         var repo = cm.getRepo();
         var trackedMatches = repo.getTrackedFiles().stream()
-                .filter(f -> f.toString().contains(filename))
+                .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                 .toList();
         if (trackedMatches.size() == 1) {
             logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
             return trackedMatches.getFirst();
         }
         if (trackedMatches.size() > 1) {
-            // Prefer exact basename match if available among tracked files
-            var exactBaseMatches = trackedMatches.stream()
-                    .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
-                    .toList();
-            if (exactBaseMatches.size() == 1) {
-                logger.debug(
-                        "Resolved ambiguous tracked filename [{}] to exact basename match [{}]",
-                        filename,
-                        exactBaseMatches.getFirst());
-                return exactBaseMatches.getFirst();
-            }
             throw new SymbolAmbiguousException(
                     "Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
         }

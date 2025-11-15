@@ -45,6 +45,11 @@ public class TaskListTest {
         assertTrue(texts.get(0).contains("first task"), "First task text should be present");
         assertTrue(texts.get(1).contains("second task"), "Second task text should be present");
 
+        // Verify titles are present (may be provisional or generated)
+        var titles = data.tasks().stream().map(TaskList.TaskItem::title).collect(Collectors.toList());
+        assertNotNull(titles.get(0), "First task title should not be null");
+        assertNotNull(titles.get(1), "Second task title should not be null");
+
         // Close and reopen a new ContextManager on the same project to verify persistence
         cm.close();
         cm = new ContextManager(new MainProject(projectRoot));
@@ -59,6 +64,12 @@ public class TaskListTest {
                 persisted.tasks().stream().map(TaskList.TaskItem::text).collect(Collectors.toList());
         assertTrue(persistedTexts.get(0).contains("first task"), "Persisted first task should match");
         assertTrue(persistedTexts.get(1).contains("second task"), "Persisted second task should match");
+
+        // Verify titles are persisted
+        var persistedTitles =
+                persisted.tasks().stream().map(TaskList.TaskItem::title).collect(Collectors.toList());
+        assertNotNull(persistedTitles.get(0), "Persisted first task title should not be null");
+        assertNotNull(persistedTitles.get(1), "Persisted second task title should not be null");
     }
 
     @Test
@@ -78,15 +89,17 @@ public class TaskListTest {
         var session1Tasks = cm.getTaskList();
         assertNotNull(session1Tasks, "Session 1 task list should not be null");
         assertEquals(1, session1Tasks.tasks().size(), "Session 1 should have exactly one task");
-        var s1Text = session1Tasks.tasks().getFirst().text();
-        assertTrue(s1Text.contains("task only in session 1"), "Session 1 task should match");
+        var s1Task = session1Tasks.tasks().getFirst();
+        assertTrue(s1Task.text().contains("task only in session 1"), "Session 1 task text should match");
+        assertNotNull(s1Task.title(), "Session 1 task title should not be null");
 
         // Switch to session 2 and verify
         cm.switchSessionAsync(session2Id).get();
         var session2Tasks = cm.getTaskList();
         assertNotNull(session2Tasks, "Session 2 task list should not be null");
         assertEquals(1, session2Tasks.tasks().size(), "Session 2 should have exactly one task");
-        var s2Text = session2Tasks.tasks().getFirst().text();
-        assertTrue(s2Text.contains("task only in session 2"), "Session 2 task should match");
+        var s2Task = session2Tasks.tasks().getFirst();
+        assertTrue(s2Task.text().contains("task only in session 2"), "Session 2 task text should match");
+        assertNotNull(s2Task.title(), "Session 2 task title should not be null");
     }
 }

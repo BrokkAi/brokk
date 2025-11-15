@@ -1177,16 +1177,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
-    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
-        String sourceCode = null;
-        try {
-            sourceCode = getAnalyzer()
-                    .as(SourceCodeProvider.class)
-                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
-                    .orElse(null);
-        } catch (InterruptedException e) {
-            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
-        }
+    public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
+        String sourceCode = analyzer.as(SourceCodeProvider.class)
+                .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
+                .orElse(null);
 
         if (sourceCode != null) {
             var fragment = new ContextFragment.StringFragment(
@@ -1438,7 +1432,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var additions = tasks.stream()
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem(s, false))
+                .map(s -> new TaskList.TaskItem("", s, false))
                 .toList();
         if (additions.isEmpty()) {
             return context;
@@ -1468,6 +1462,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+
+        // Kick off async summarization for each newly added task
+        for (var addition : additions) {
+            summarizeAndUpdateTaskTitle(addition.text());
+        }
+
         return context;
     }
 
@@ -1558,6 +1558,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             boolean autoCommit,
             boolean autoCompress)
             throws InterruptedException {
+        // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
+        // The title is UI-only metadata for display/organization; the text is the actual task body.
         var prompt = task.text().strip();
         if (prompt.isEmpty()) {
             throw new IllegalArgumentException("Task text must be non-blank");
@@ -1601,7 +1603,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         if (idx >= 0) {
-            existing.set(idx, new TaskList.TaskItem(task.text(), true));
+            existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             var newData = new TaskList.TaskListData(List.copyOf(existing));
             setTaskList(newData);
         }
@@ -2736,6 +2738,53 @@ public class ContextManager implements IContextManager, AutoCloseable {
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }
+    }
+
+    private void summarizeAndUpdateTaskTitle(String taskText) {
+        if (taskText.isBlank()) {
+            return;
+        }
+
+        var summaryFuture = summarizeTaskForConversation(taskText);
+
+        summaryFuture.whenComplete((summary, ex) -> {
+            if (ex != null) {
+                logger.debug("Failed to summarize task title", ex);
+                return;
+            }
+            if (summary == null || summary.isBlank()) {
+                return;
+            }
+
+            submitBackgroundTask("Update task title", () -> {
+                try {
+                    TaskList.TaskListData currentData = getTaskList();
+
+                    var updatedTasks = new ArrayList<TaskList.TaskItem>();
+                    boolean found = false;
+                    for (var task : currentData.tasks()) {
+                        if (!found && task.text().equals(taskText)) {
+                            updatedTasks.add(new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
+                            found = true;
+                        } else {
+                            updatedTasks.add(task);
+                        }
+                    }
+
+                    if (found) {
+                        var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
+                        setTaskList(newData);
+
+                        if (io instanceof Chrome chrome) {
+                            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Error updating task title after summarization", e);
+                }
+                return "";
+            });
+        });
     }
 
     public static class SummarizeWorker extends ExceptionAwareSwingWorker<String, String> {

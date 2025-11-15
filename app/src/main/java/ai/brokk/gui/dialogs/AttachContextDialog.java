@@ -454,9 +454,6 @@ public class AttachContextDialog extends JDialog {
 
         var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
 
-        // Publish immediately so chips show "Loading..." and update automatically.
-        cm.addPathFragmentAsync(frag);
-
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
@@ -491,12 +488,6 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        // Build PathFragments and publish immediately for instant chips.
-        var pathFrags = selected.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
-                .collect(Collectors.toList());
-        cm.addPathFragments(pathFrags);
-
         Set<ContextFragment> fragments = selected.stream()
                 .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -527,9 +518,6 @@ public class AttachContextDialog extends JDialog {
 
         var cu = opt.get();
 
-        // Publish immediately (ComputedFragment => "Loading..." chip).
-        cm.sourceCodeForCodeUnit(cu);
-
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
@@ -557,9 +545,6 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-
-        // Publish immediately (ComputedFragment => "Loading..." chip).
-        cm.sourceCodeForCodeUnit(cu);
 
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
@@ -591,9 +576,6 @@ public class AttachContextDialog extends JDialog {
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
-
-        // Publish immediately so WorkspaceItemsChipPanel can render a "Loading..." chip and update automatically
-        cm.usageForIdentifier(target, includeTestFilesCheck.isSelected());
 
         var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());

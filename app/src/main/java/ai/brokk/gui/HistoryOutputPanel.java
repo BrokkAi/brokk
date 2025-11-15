@@ -11,9 +11,12 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -57,6 +60,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -108,9 +112,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MarkdownOutputPanel llmStreamArea;
     private final JScrollPane llmScrollPane;
 
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JTabbedPane activityTabs;
+
     // Output tabs
     @Nullable
     private JTabbedPane outputTabs;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel activityTabsContainer;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel outputTabsContainer;
+
+    // Session header panel (exposed so Chrome can reparent in vertical layout)
+    private JPanel sessionHeaderPanel;
 
     @Nullable
     private JPanel changesTabPlaceholder;
@@ -120,6 +136,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JTextArea captureDescriptionArea;
+
+    // Capture/notification bar container for fixed sizing in vertical layout
+    @Nullable
+    private JPanel captureOutputPanel;
 
     private final MaterialButton copyButton;
     private final MaterialButton clearButton;
@@ -195,6 +215,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private CumulativeChanges lastCumulativeChanges;
+
+    @Nullable
+    private String lastBaselineLabel;
+
+    @Nullable
+    private BaselineMode lastBaselineMode;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -357,32 +383,32 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         updateSessionComboBox();
 
         // Create header panel with all controls in a simple horizontal layout
-        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        headerPanel.setOpaque(true);
+        this.sessionHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        sessionHeaderPanel.setOpaque(true);
         var titledBorder = BorderFactory.createTitledBorder("Session");
         var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
-        headerPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
+        sessionHeaderPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
 
-        headerPanel.add(newSessionButton);
-        headerPanel.add(new VerticalDivider());
+        sessionHeaderPanel.add(newSessionButton);
+        sessionHeaderPanel.add(new VerticalDivider());
 
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        headerPanel.add(sessionNameLabel);
+        sessionHeaderPanel.add(sessionNameLabel);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
-        var activityTabs = new JTabbedPane(JTabbedPane.TOP);
+        activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
         activityTabs.setMinimumSize(new Dimension(250, 0));
         activityTabs.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")));
 
         // Create center container with both tab panels
-        var centerContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        centerContainer.add(centerPanel, BorderLayout.CENTER);
-        centerContainer.add(activityTabs, BorderLayout.EAST);
+        activityTabsContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        activityTabsContainer.add(centerPanel, BorderLayout.CENTER);
+        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
         // Main layout: header at top, center container in center
-        add(headerPanel, BorderLayout.NORTH);
-        add(centerContainer, BorderLayout.CENTER);
+        add(sessionHeaderPanel, BorderLayout.NORTH);
+        add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
@@ -443,7 +469,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Placeholder for the Changes tab
         var placeholder = new JPanel(new BorderLayout());
-        var placeholderLabel = new JLabel("Changes will appear here", SwingConstants.CENTER);
+        var placeholderLabel = new JLabel("Review will appear here", SwingConstants.CENTER);
         placeholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
         placeholder.add(placeholderLabel, BorderLayout.CENTER);
         this.changesTabPlaceholder = placeholder;
@@ -451,13 +477,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create the tabbed pane and add both tabs
         var tabs = new JTabbedPane();
         tabs.addTab("Output", outputPanel);
-        tabs.addTab("Changes", placeholder);
+        tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
 
         // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(tabs, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+        outputTabsContainer = centerContainer;
 
         return centerContainer;
     }
@@ -925,8 +952,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 if (idx >= 0) {
                     try {
-                        tabs.setTitleAt(idx, "Changes (...)");
-                        tabs.setToolTipTextAt(idx, "Computing cumulative changes...");
+                        tabs.setTitleAt(idx, "Review (...)");
+                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Tab might have changed; ignore safely
                     }
@@ -938,7 +965,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     container.removeAll();
                     container.setLayout(new BorderLayout());
 
-                    var spinnerLabel = new JLabel("Computing cumulative changes...", SwingConstants.CENTER);
+                    var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                     var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                     if (spinnerIcon != null) {
                         spinnerLabel.setIcon(spinnerIcon);
@@ -966,6 +993,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return historyTable;
     }
 
+    public JTabbedPane getActivityTabs() {
+        return activityTabs;
+    }
+
+    public @Nullable JTabbedPane getOutputTabs() {
+        return outputTabs;
+    }
+
+    public JPanel getActivityTabsContainer() {
+        return activityTabsContainer;
+    }
+
+    public JPanel getOutputTabsContainer() {
+        return outputTabsContainer;
+    }
+
+    public JPanel getSessionHeaderPanel() {
+        return sessionHeaderPanel;
+    }
+
     /** Builds the LLM streaming area where markdown output is displayed */
     private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
         // Wrap it in a scroll pane for layout purposes, but disable scrollbars
@@ -988,6 +1035,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+        // Fixed height for capture panel
+        panel.setPreferredSize(new Dimension(0, 38));
+        panel.setMinimumSize(new Dimension(0, 38));
 
         // Placeholder area in center - will get all extra space
         captureDescriptionArea = new JTextArea("");
@@ -1005,6 +1055,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // "Open in New Window" button
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+            openWindowButton.setPreferredSize(new Dimension(24, 24));
+            openWindowButton.setMinimumSize(new Dimension(24, 24));
+            openWindowButton.setMaximumSize(new Dimension(24, 24));
         });
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
@@ -1020,8 +1073,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 openOutputWindowFromContext(context);
             }
         });
-        // Set minimum size
-        openWindowButton.setMinimumSize(openWindowButton.getPreferredSize());
         buttonsPanel.add(openWindowButton);
 
         // Notifications button
@@ -1029,7 +1080,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsButton.addActionListener(e -> showNotificationsDialog());
         SwingUtilities.invokeLater(() -> {
             notificationsButton.setIcon(Icons.NOTIFICATIONS);
-            notificationsButton.setMinimumSize(notificationsButton.getPreferredSize());
+            notificationsButton.setPreferredSize(new Dimension(24, 24));
+            notificationsButton.setMinimumSize(new Dimension(24, 24));
+            notificationsButton.setMaximumSize(new Dimension(24, 24));
         });
         buttonsPanel.add(notificationsButton);
 
@@ -1089,6 +1142,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonsPanel.addMouseListener(popupListener);
         notificationAreaPanel.addMouseListener(popupListener);
 
+        this.captureOutputPanel = panel;
         return panel;
     }
 
@@ -1136,31 +1190,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    public void showConfirmNotification(String message, Runnable onAccept, Runnable onReject) {
-        Runnable r = () -> {
-            var entry = new NotificationEntry(IConsoleIO.NotificationRole.CONFIRM, message, System.currentTimeMillis());
-            notifications.add(entry);
-            updateNotificationsButton();
-            persistNotificationsAsync();
-            refreshNotificationsDialog();
+    public void applyFixedCaptureBarSizing(boolean enabled) {
+        // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
+        // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
+        SwingUtilities.invokeLater(() -> {
+            final int barHeight = 38;
+            final int btnSize = 24;
 
-            if (isDisplayingNotification) {
-                notificationQueue.offer(entry);
-            } else {
-                notificationAreaPanel.removeAll();
-                isDisplayingNotification = true;
-                JPanel card = createNotificationCard(IConsoleIO.NotificationRole.CONFIRM, message, onAccept, onReject);
-                notificationAreaPanel.add(card);
-                animateNotificationCard(card);
-                notificationAreaPanel.revalidate();
-                notificationAreaPanel.repaint();
+            if (enabled) {
+                if (captureOutputPanel != null) {
+                    captureOutputPanel.setPreferredSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                }
+                notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                Dimension btnDim = new Dimension(btnSize, btnSize);
+                openWindowButton.setPreferredSize(btnDim);
+                openWindowButton.setMinimumSize(btnDim);
+                openWindowButton.setMaximumSize(btnDim);
+                notificationsButton.setPreferredSize(btnDim);
+                notificationsButton.setMinimumSize(btnDim);
+                notificationsButton.setMaximumSize(btnDim);
             }
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
+
+            if (captureOutputPanel != null) {
+                captureOutputPanel.revalidate();
+                captureOutputPanel.repaint();
+            }
+            notificationAreaPanel.revalidate();
+            notificationAreaPanel.repaint();
+        });
     }
 
     private JPanel buildNotificationAreaPanel() {
@@ -1168,8 +1229,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
         p.setOpaque(false);
         p.setBorder(new EmptyBorder(0, 5, 0, 0));
-        // Preferred width to allow message text and controls; height flexes with content
-        p.setPreferredSize(new Dimension(0, 0));
+        // Fixed height to match capture panel
+        p.setPreferredSize(new Dimension(0, 38));
+        p.setMinimumSize(new Dimension(0, 38));
         return p;
     }
 
@@ -1180,9 +1242,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var nextToShow = notificationQueue.poll();
-        if (nextToShow == null) {
-            return;
-        }
 
         notificationAreaPanel.removeAll();
         isDisplayingNotification = true;
@@ -1755,7 +1814,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (idx < 0) {
             try {
                 if (tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                    idx = 1; // Fallback: assume second tab is "Review"
                 }
             } catch (IndexOutOfBoundsException ignore) {
                 return;
@@ -1763,22 +1822,44 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
         if (idx < 0) return;
 
+        // For special baseline states (detached HEAD or no repository), omit the suffix
+        boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
+        String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                ? " vs " + lastBaselineLabel
+                : "";
+
         try {
             if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Changes (0)");
-                tabs.setToolTipTextAt(idx, "No changes in this session.");
+                tabs.setTitleAt(idx, "Review (0)" + baselineSuffix);
+                String tooltipMsg;
+                if (isSpecialState) {
+                    tooltipMsg = "No baseline to compare";
+                } else if ("HEAD".equals(lastBaselineLabel)) {
+                    tooltipMsg = "Working tree is clean";
+                } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                    tooltipMsg = "No changes vs " + lastBaselineLabel;
+                } else {
+                    tooltipMsg = "No changes to review";
+                }
+                tabs.setToolTipTextAt(idx, tooltipMsg + ".");
             } else {
                 boolean isDark = chrome.getTheme().isDarkTheme();
                 Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
                 Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
                 String htmlTitle = String.format(
-                        "<html>Changes (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
-                        res.filesChanged(), toHex(plusColor), res.totalAdded(), toHex(minusColor), res.totalDeleted());
+                        "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                        res.filesChanged(),
+                        toHex(plusColor),
+                        res.totalAdded(),
+                        toHex(minusColor),
+                        res.totalDeleted(),
+                        escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
                 String tooltip = "Cumulative changes: "
                         + res.filesChanged()
                         + " files, +" + res.totalAdded()
-                        + "/-" + res.totalDeleted();
+                        + "/-" + res.totalDeleted()
+                        + baselineSuffix;
                 tabs.setToolTipTextAt(idx, tooltip);
             }
         } catch (IndexOutOfBoundsException ignore) {
@@ -1952,7 +2033,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (idx >= 0) {
                     try {
                         outputTabs.setTitleAt(idx, "(...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing cumulative changes...");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Safe-guard: tab lineup may have changed
                     }
@@ -1964,7 +2045,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 container.removeAll();
                 container.setLayout(new BorderLayout());
 
-                var spinnerLabel = new JLabel("Computing cumulative changes...", SwingConstants.CENTER);
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
                 var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
                 if (spinnerIcon != null) {
                     spinnerLabel.setIcon(spinnerIcon);
@@ -1997,7 +2078,93 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 sessionSwitchPanel.revalidate();
                 sessionSwitchPanel.repaint();
             }
+
+            // Show loading state in Changes tab before triggering refresh
+            if (outputTabs != null && changesTabPlaceholder != null) {
+                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && outputTabs.getTabCount() >= 2) {
+                    idx = 1;
+                }
+                if (idx >= 0) {
+                    try {
+                        outputTabs.setTitleAt(idx, "Review (...)");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Safe-guard
+                    }
+                }
+
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
+
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                if (spinnerIcon != null) {
+                    spinnerLabel.setIcon(spinnerIcon);
+                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+                }
+
+                container.add(spinnerLabel, BorderLayout.CENTER);
+                container.revalidate();
+                container.repaint();
+            }
+
             // Trigger a fresh aggregation for the newly selected session
+            refreshCumulativeChangesAsync();
+        });
+    }
+
+    /**
+     * Public entry-point to refresh the branch-based Changes tab on demand.
+     * Safe to call from any thread.
+     */
+    public void refreshBranchDiffPanel() {
+        SwingUtil.runOnEdt(() -> {
+            // Dispose and clear any existing aggregated diff panel
+            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
+                try {
+                    diffPanel.dispose();
+                } catch (Throwable t) {
+                    logger.debug("Ignoring error disposing previous aggregated BrokkDiffPanel during refresh", t);
+                }
+            }
+            aggregatedChangesPanel = null;
+
+            // Put the Changes tab into a loading state with spinner
+            if (outputTabs != null && changesTabPlaceholder != null) {
+                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && outputTabs.getTabCount() >= 2) {
+                    idx = 1; // Fallback: assume second tab is "Changes"
+                }
+                if (idx >= 0) {
+                    try {
+                        outputTabs.setTitleAt(idx, "Review (...)");
+                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                    } catch (IndexOutOfBoundsException ignore) {
+                        // Tab lineup might have changed; ignore safely
+                    }
+                }
+
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
+
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                if (spinnerIcon != null) {
+                    spinnerLabel.setIcon(spinnerIcon);
+                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+                }
+
+                container.add(spinnerLabel, BorderLayout.CENTER);
+                container.revalidate();
+                container.repaint();
+            }
+
+            // Kick off asynchronous recompute
             refreshCumulativeChangesAsync();
         });
     }
@@ -2802,109 +2969,111 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         panel.showInFrame("Diff: " + ctx.getAction());
     }
 
-    // Compute the net changes across the entire session history in the background,
-    // reusing cached diffs where possible. Updates the "Changes" tab title and content on the EDT.
-    // Net changes = earliest version -> latest version for each file (matches the unified diff visual).
+    // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
+    // Shows changes relative to the baseline branch (or uncommitted changes on default branch).
     private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
-                .submitBackgroundTask("Aggregate session changes", () -> {
-                    var contexts = contextManager.getContextHistoryList();
-                    var ch = contextManager.getContextHistory();
-                    var ds = ch.getDiffService();
-
-                    // Step 1: Collect all DiffEntry objects across all contexts (compute in parallel via cache)
-                    var futures = new ArrayList<CompletableFuture<List<Context.DiffEntry>>>();
-                    for (var ctx : contexts) {
-                        if (ch.previousOf(ctx) != null) {
-                            futures.add(ds.diff(ctx));
-                        }
-                    }
-                    CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                            .join();
-
-                    var allDiffEntries = new ArrayList<Context.DiffEntry>();
-                    for (var f : futures) {
-                        try {
-                            var list = f.get();
-                            allDiffEntries.addAll(list);
-                        } catch (Exception ex) {
-                            // Log and continue: best-effort aggregation should not fail the whole computation
-                            logger.debug("Skipping failed diff computation while aggregating cumulative changes", ex);
-                        }
+                .submitBackgroundTask("Compute branch-based changes", () -> {
+                    var repoOpt = repo();
+                    if (repoOpt.isEmpty()) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
                     }
 
-                    // Step 2: Identify unique fragments by source matching
-                    var uniqueFragments = new ArrayList<ContextFragment>();
-                    for (var de : allDiffEntries) {
-                        ContextFragment frag = de.fragment();
-                        boolean found = false;
-                        for (var existing : uniqueFragments) {
-                            if (frag.hasSameSource(existing)) {
-                                found = true;
-                                break;
+                    var repo = repoOpt.get();
+
+                    // Branch-specific methods require GitRepo, not just IGitRepo
+                    if (!(repo instanceof GitRepo gitRepo)) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
+
+                    var baseline = computeBaselineForChanges();
+                    lastBaselineLabel = baseline.displayLabel();
+                    lastBaselineMode = baseline.mode();
+
+                    // Handle cases with no baseline
+                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
+
+                    try {
+                        Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
+                        String leftCommitSha = null;
+
+                        switch (baseline.mode()) {
+                            case NON_DEFAULT_BRANCH -> {
+                                String currentBranch = gitRepo.getCurrentBranch();
+                                String defaultBranch = baseline.baselineRef();
+
+                                // Get files changed between branches
+                                var branchChanges =
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                fileSet.addAll(branchChanges);
+
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+
+                                // Get merge base for left content
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
                             }
-                        }
-                        if (!found) {
-                            uniqueFragments.add(frag);
-                        }
-                    }
+                            case DEFAULT_WITH_UPSTREAM -> {
+                                String upstreamRef = baseline.baselineRef();
+                                leftCommitSha =
+                                        gitRepo.resolveToCommit(upstreamRef).getName();
 
-                    // Step 3: For each unique fragment, find earliest and latest versions and compute net diff
-                    List<PerFileChange> perFileChanges = new ArrayList<>();
-                    int totalAdded = 0;
-                    int totalDeleted = 0;
+                                // Get files changed between HEAD and upstream
+                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
+                                fileSet.addAll(upstreamChanges);
 
-                    for (var uniqueFrag : uniqueFragments) {
-                        String earliestContent = null;
-                        String latestContent = null;
-
-                        // Forward loop: find first occurrence (earliest)
-                        for (var de : allDiffEntries) {
-                            if (uniqueFrag.hasSameSource(de.fragment())) {
-                                earliestContent = de.oldContent();
-                                break;
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
                             }
-                        }
-
-                        // Backward loop: find last occurrence (latest)
-                        for (int i = allDiffEntries.size() - 1; i >= 0; i--) {
-                            var de = allDiffEntries.get(i);
-                            if (uniqueFrag.hasSameSource(de.fragment())) {
-                                latestContent = safeFragmentText(de);
-                                break;
+                            case DEFAULT_LOCAL_ONLY -> {
+                                // Only working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                leftCommitSha = "HEAD";
+                            }
+                            case DETACHED, NO_BASELINE -> {
+                                // No baseline available; no changes to compute in this switch branch.
+                                // Note: earlier guard already returns empty results for these modes.
                             }
                         }
 
-                        if (earliestContent != null && latestContent != null) {
-                            // Compute net diff for this fragment
-                            int[] netCounts = computeNetLineCounts(earliestContent, latestContent);
+                        // Build per-file changes
+                        List<PerFileChange> perFileChanges = new ArrayList<>();
+                        int totalAdded = 0;
+                        int totalDeleted = 0;
+
+                        for (var modFile : fileSet) {
+                            var file = modFile.file();
+                            String displayFile = file.getRelPath().toString();
+
+                            // Compute left content based on baseline
+                            String leftContent =
+                                    (leftCommitSha != null) ? safeGetFileContent(gitRepo, leftCommitSha, file) : "";
+
+                            // Compute right content (working tree)
+                            String rightContent = safeReadWorkingTree(file);
+
+                            // Compute line counts
+                            int[] netCounts = computeNetLineCounts(leftContent, rightContent);
                             totalAdded += netCounts[0];
                             totalDeleted += netCounts[1];
 
-                            // Derive a display file name for the diff view; keep extension for syntax highlighting
-                            String displayFile;
-                            var files = uniqueFrag.files();
-                            if (files.size() == 1) {
-                                var pf = files.iterator().next();
-                                displayFile = pf.getRelPath().toString();
-                            } else {
-                                displayFile = uniqueFrag.shortDescription();
-                            }
-
-                            perFileChanges.add(new PerFileChange(displayFile, earliestContent, latestContent));
+                            perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
                         }
-                    }
 
-                    return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+                        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+
+                    } catch (Exception e) {
+                        logger.warn("Failed to compute branch-based changes", e);
+                        return new CumulativeChanges(0, 0, 0, List.of());
+                    }
                 })
                 .thenApply(result -> {
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
-
                         setChangesTabTitleAndTooltip(result);
-
-                        // Render or update the Changes tab content
                         updateChangesTabContent(result);
                     });
                     return result;
@@ -2933,7 +3102,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.removeAll();
 
         if (res.filesChanged() == 0) {
-            var none = new JLabel("No changes in this session.", SwingConstants.CENTER);
+            String message;
+            if ("detached HEAD".equals(lastBaselineLabel)) {
+                message = "Detached HEAD \u2014 no changes to review";
+            } else if ("No repository".equals(lastBaselineLabel)) {
+                message = "No baseline to compare";
+            } else if ("HEAD".equals(lastBaselineLabel)) {
+                message = "Working tree is clean (no uncommitted changes).";
+            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                message = "No changes vs " + lastBaselineLabel + ".";
+            } else {
+                message = "No changes to review.";
+            }
+            var none = new JLabel(message, SwingConstants.CENTER);
             none.setBorder(new EmptyBorder(20, 0, 20, 0));
             container.setLayout(new BorderLayout());
             container.add(none, BorderLayout.CENTER);
@@ -2963,6 +3144,42 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
+
+        // Build header with baseline label and Create PR button
+        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        headerPanel.setOpaque(false);
+
+        // Baseline label on the left
+        String baselineLabelText = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                ? "Comparing vs " + lastBaselineLabel
+                : "Branch-based changes";
+        var baselineLabel = new JLabel(baselineLabelText);
+        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(baselineLabel, BorderLayout.WEST);
+
+        // Create PR button on the right (conditionally visible)
+        boolean showCreatePR = false;
+        if (lastBaselineMode != null) {
+            showCreatePR = (lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH)
+                    || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
+        }
+        if (showCreatePR) {
+            var createPRButton = new MaterialButton("Create PR");
+            createPRButton.setToolTipText("Create a Pull Request for these changes");
+            createPRButton.addActionListener(e -> {
+                SwingUtilities.invokeLater(() -> {
+                    CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+                });
+            });
+            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            buttonPanel.setOpaque(false);
+            buttonPanel.add(createPRButton);
+            headerPanel.add(buttonPanel, BorderLayout.EAST);
+        }
+
+        var topContainer = new JPanel(new BorderLayout(0, 6));
+        topContainer.setOpaque(false);
+        topContainer.add(headerPanel, BorderLayout.NORTH);
 
         // Use a compound border: line border for separation + padding
         wrapper.setBorder(new CompoundBorder(
@@ -3008,7 +3225,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Ensure the embedded diff reflects the current theme immediately
         diffPanel.applyTheme(chrome.getTheme());
 
-        wrapper.add(diffPanel, BorderLayout.CENTER);
+        topContainer.add(diffPanel, BorderLayout.CENTER);
+        wrapper.add(topContainer, BorderLayout.CENTER);
         return wrapper;
     }
 
@@ -3023,6 +3241,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         try {
             return de.fragment().text();
         } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String safeReadWorkingTree(ProjectFile file) {
+        try {
+            if (Files.exists(file.absPath())) {
+                return Files.readString(file.absPath(), StandardCharsets.UTF_8);
+            } else {
+                return "";
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to read working tree file {}", file, e);
+            return "";
+        }
+    }
+
+    private static String safeGetFileContent(IGitRepo repo, String commitId, ProjectFile file) {
+        try {
+            String content = repo.getFileContent(commitId, file);
+            return content.isEmpty() ? "" : content;
+        } catch (Exception e) {
+            logger.debug("Failed to get file content for {} at {}", file, commitId, e);
             return "";
         }
     }
@@ -3358,6 +3599,96 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (ctx.isAiResult()) count++;
         }
         return count;
+    }
+
+    /** Returns the Git repository for the current project, if available. */
+    private Optional<IGitRepo> repo() {
+        try {
+            return Optional.ofNullable(contextManager.getProject().getRepo());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
+     * Used to detect detached HEAD states.
+     */
+    private static boolean isLikelyCommitHash(String s) {
+        if (s.length() < 7 || s.length() > 40) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Modes for determining the baseline reference for showing changes. */
+    private enum BaselineMode {
+        NON_DEFAULT_BRANCH,
+        DEFAULT_WITH_UPSTREAM,
+        DEFAULT_LOCAL_ONLY,
+        DETACHED,
+        NO_BASELINE
+    }
+
+    /** Information about the computed baseline for showing changes. */
+    private record BaselineInfo(BaselineMode mode, String baselineRef, String displayLabel) {}
+
+    /**
+     * Computes the appropriate baseline reference for displaying changes in the Changes tab.
+     * This determines what to diff against based on the current branch state.
+     *
+     * @return BaselineInfo containing the mode, baseline ref, and display label
+     */
+    private BaselineInfo computeBaselineForChanges() {
+        var repoOpt = repo();
+        if (repoOpt.isEmpty()) {
+            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "No repository");
+        }
+
+        var repo = repoOpt.get();
+
+        try {
+            String defaultBranch = repo.getDefaultBranch();
+            String currentBranch = repo.getCurrentBranch();
+
+            // Check if detached HEAD (either looks like a hash or not in local branches)
+            boolean isDetached = isLikelyCommitHash(currentBranch);
+            if (!isDetached && repo instanceof GitRepo gitRepo) {
+                var localBranches = gitRepo.listLocalBranches();
+                isDetached = !localBranches.contains(currentBranch);
+            }
+
+            if (isDetached) {
+                return new BaselineInfo(BaselineMode.DETACHED, "HEAD", "detached HEAD");
+            }
+
+            // If not on default branch, diff against default
+            if (!currentBranch.equals(defaultBranch)) {
+                return new BaselineInfo(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+            }
+
+            // On default branch - check for upstream remote
+            if (repo instanceof GitRepo gitRepo) {
+                var remoteBranches = gitRepo.listRemoteBranches();
+                String upstreamRef = "origin/" + defaultBranch;
+                if (remoteBranches.contains(upstreamRef)) {
+                    return new BaselineInfo(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
+                }
+            }
+
+            // On default branch but no upstream remote
+            return new BaselineInfo(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
+
+        } catch (Exception e) {
+            logger.warn("Failed to compute baseline for changes", e);
+            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
+        }
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {

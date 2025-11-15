@@ -1067,25 +1067,25 @@ public class ContextSerializationTest {
         // The IDs will be 3, 4, 5, 6, 7 based on current setup
         var vf1 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for uniqueText1 (first)",
                 "uniqueText1",
-                "Description for uniqueText1 (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf2 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for duplicateText (first)",
                 "duplicateText",
-                "Description for duplicateText (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf3 = new ContextFragment.StringFragment(
-                mockContextManager, "uniqueText2", "Description for uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
+                mockContextManager, "Content for uniqueText2", "uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf4_duplicate_of_vf2 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for duplicateText (second, different desc)",
                 "duplicateText",
-                "Description for duplicateText (second, different desc)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf5_duplicate_of_vf1 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for uniqueText1 (second, different desc)",
                 "uniqueText1",
-                "Description for uniqueText1 (second, different desc)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
         context = context.addVirtualFragment(vf1);
@@ -1113,29 +1113,29 @@ public class ContextSerializationTest {
         // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
         assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
 
-        Set<String> actualTexts = deduplicatedFragments.stream()
-                .map(ContextFragment.VirtualFragment::text)
+        Set<String> actualDescriptions = deduplicatedFragments.stream()
+                .map(ContextFragment.VirtualFragment::description)
                 .collect(Collectors.toSet());
         assertEquals(
                 Set.of("uniqueText1", "duplicateText", "uniqueText2"),
-                actualTexts,
+                actualDescriptions,
                 "Texts of deduplicated fragments do not match expected unique texts.");
 
         // Verify that the specific fragments kept are the first ones encountered
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText1".equals(f.text())
-                                && "Description for uniqueText1 (first)".equals(f.description())),
+                        .anyMatch(f -> "uniqueText1".equals(f.description())
+                                && "Content for uniqueText1 (first)".equals(f.text())),
                 "Expected first instance of 'uniqueText1' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "duplicateText".equals(f.text())
-                                && "Description for duplicateText (first)".equals(f.description())),
+                        .anyMatch(f -> "duplicateText".equals(f.description())
+                                && "Content for duplicateText (first)".equals(f.text())),
                 "Expected first instance of 'duplicateText' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText2".equals(f.text())
-                                && "Description for uniqueText2".equals(f.description())),
+                        .anyMatch(f ->
+                                "uniqueText2".equals(f.description()) && "Content for uniqueText2".equals(f.text())),
                 "Expected 'uniqueText2' to be present.");
     }
 
