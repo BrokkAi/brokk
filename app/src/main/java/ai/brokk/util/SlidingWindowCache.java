@@ -162,18 +162,20 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     public V putReserved(K key, V value) {
         // Ensure we're replacing a reserved entry
         assert reservedKeys.containsKey(key) : "putReserved called on non-reserved key";
-        reservedKeys.remove(key);
-
-        V previousValue = cache.put(key, value);
-
-        // Update access order and size
-        accessOrder.remove(key); // Remove if already present
-        accessOrder.offer(key); // Add to end (most recent)
-
-        if (previousValue == null) {
-            currentSize.incrementAndGet();
+        V previousValue;
+        // Perform updates in a critical section to avoid a race window where the key appears
+        // neither reserved nor cached, allowing a second reservation.
+        synchronized (this) {
+            previousValue = cache.put(key, value);
+            // Update access order and size
+            accessOrder.remove(key); // Remove if already present
+            accessOrder.offer(key); // Add to end (most recent)
+            if (previousValue == null) {
+                currentSize.incrementAndGet();
+            }
+            // Remove reservation only after cache is populated so tryReserve() observes presence
+            reservedKeys.remove(key);
         }
-
         return previousValue;
     }
 

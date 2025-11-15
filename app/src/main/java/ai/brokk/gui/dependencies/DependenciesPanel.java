@@ -17,8 +17,11 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
@@ -225,6 +228,23 @@ public final class DependenciesPanel extends JPanel {
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setReorderingAllowed(false);
 
+        // Ensure Tab/Shift+Tab move focus forward/backward out of the table (not just within cells)
+        table.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "transferFocusOut");
+        table.getActionMap().put("transferFocusOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                table.transferFocus();
+            }
+        });
+        table.getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "transferFocusBackwardOut");
+        table.getActionMap().put("transferFocusBackwardOut", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                table.transferFocusBackward();
+            }
+        });
+
         var scrollPane = new JScrollPane(table);
         // Ensure no viewport border/inset so the table content can touch the scroll pane border
         scrollPane.setViewportBorder(null);
@@ -248,10 +268,48 @@ public final class DependenciesPanel extends JPanel {
         addButton.setIcon(Icons.ADD);
         removeButton = new MaterialButton();
         removeButton.setIcon(Icons.REMOVE);
+        // Allow our custom Tab handlers to run by disabling default focus traversal keys
+        addButton.setFocusTraversalKeysEnabled(false);
+        removeButton.setFocusTraversalKeysEnabled(false);
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
 
         southContainerPanel.add(addRemovePanel, BorderLayout.EAST);
+
+        // Ensure Tab/Shift+Tab on Add/Remove buttons move focus beyond Dependencies
+        addButton.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "depsNext");
+        addButton.getActionMap().put("depsNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                addButton.transferFocus();
+            }
+        });
+        addButton
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "depsPrev");
+        addButton.getActionMap().put("depsPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                addButton.transferFocusBackward();
+            }
+        });
+
+        removeButton.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "depsNext");
+        removeButton.getActionMap().put("depsNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                removeButton.transferFocus();
+            }
+        });
+        removeButton
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK), "depsPrev");
+        removeButton.getActionMap().put("depsPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                removeButton.transferFocusBackward();
+            }
+        });
 
         // Spacer to align with the workspace bottom summary area (kept invisible)
         bottomSpacer = new JPanel();
@@ -768,5 +826,18 @@ public final class DependenciesPanel extends JPanel {
                 }
             }
         }
+    }
+
+    // Public getters for focus traversal policy
+    public JTable getDependencyTable() {
+        return table;
+    }
+
+    public MaterialButton getAddButton() {
+        return addButton;
+    }
+
+    public MaterialButton getRemoveButton() {
+        return removeButton;
     }
 }

@@ -87,7 +87,9 @@ public class SessionManager implements AutoCloseable {
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
-        this.sessionExecutor = Executors.newFixedThreadPool(3, new SessionExecutorThreadFactory());
+        // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
+        int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
+        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
     }
