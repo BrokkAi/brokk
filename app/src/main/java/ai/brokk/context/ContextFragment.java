@@ -2017,9 +2017,14 @@ public interface ContextFragment {
                                 "cf-unit-" + id(),
                                 () -> {
                                     var analyzer = getAnalyzer();
-                                    return analyzer.getDefinition(fullyQualifiedName)
-                                            .orElseThrow(() -> new IllegalArgumentException(
-                                                    "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
+                                    var definition = analyzer.getDefinition(fullyQualifiedName);
+                                    if (definition.isEmpty()) {
+                                        var msg = "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName
+                                                + ". This may indicate a stale context fragment from a renamed or deleted symbol.";
+                                        logger.warn(msg);
+                                        throw new IllegalArgumentException(msg);
+                                    }
+                                    return definition.get();
                                 },
                                 getFragmentExecutor());
                     },

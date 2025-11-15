@@ -47,6 +47,18 @@ public class DtoMapper {
         // Utility class - no instantiation
     }
 
+    /**
+     * Translate old package names (io.github.jbellis.brokk) to new package names (ai.brokk) in fully qualified names.
+     * This handles migration from the pre-November 2025 package structure.
+     * Package-private for testing.
+     */
+    static String migratePackageName(String fqName) {
+        if (fqName.startsWith("io.github.jbellis.brokk.")) {
+            return fqName.replace("io.github.jbellis.brokk.", "ai.brokk.");
+        }
+        return fqName;
+    }
+
     public static Context fromCompactDto(
             CompactContextDto dto,
             IContextManager mgr,
@@ -693,7 +705,8 @@ public class DtoMapper {
                     if (fqName == null) {
                         throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
-                    return new ContextFragment.CodeFragment(mgr, fqName);
+                    var migratedFqName = migratePackageName(fqName);
+                    return new ContextFragment.CodeFragment(mgr, migratedFqName);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }
