@@ -717,7 +717,6 @@ public class Chrome
         // Set up focus traversal with individual components for granular navigation
         var focusOrder = List.<Component>of(
                 instructionsPanel.getInstructionsArea(),
-                instructionsPanel.getActionButton(),
                 instructionsPanel.getModelSelectorComponent(),
                 instructionsPanel.getMicButton(),
                 instructionsPanel.getWandButton(),
@@ -3763,6 +3762,27 @@ public class Chrome
             return -1;
         }
 
+        /**
+         * Returns true if the component should be included in focus traversal.
+         * The Instructions area is skipped when "tab inserts indentation" is enabled,
+         * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
+         */
+        private boolean shouldIncludeInTraversal(java.awt.Component comp) {
+            if (comp == null || !comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
+                return false;
+            }
+            // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
+            if (comp instanceof javax.swing.JTextArea) {
+                var textArea = (javax.swing.JTextArea) comp;
+                // Check if this is the instructions area by name or other property
+                if ("instructionsArea".equals(textArea.getName())
+                        && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         @Override
         public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
             if (order.isEmpty()) return aComponent;
@@ -3773,7 +3793,7 @@ public class Chrome
             for (int i = 1; i <= order.size(); i++) {
                 int nextIdx = (idx + i) % order.size();
                 java.awt.Component nextComp = order.get(nextIdx);
-                if (nextComp != null && nextComp.isFocusable() && nextComp.isShowing() && nextComp.isEnabled()) {
+                if (shouldIncludeInTraversal(nextComp)) {
                     return nextComp;
                 }
             }
@@ -3790,7 +3810,7 @@ public class Chrome
             for (int i = 1; i <= order.size(); i++) {
                 int prevIdx = (idx - i + order.size()) % order.size();
                 java.awt.Component prevComp = order.get(prevIdx);
-                if (prevComp != null && prevComp.isFocusable() && prevComp.isShowing() && prevComp.isEnabled()) {
+                if (shouldIncludeInTraversal(prevComp)) {
                     return prevComp;
                 }
             }
@@ -3802,7 +3822,7 @@ public class Chrome
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = 0; i < order.size(); i++) {
                 java.awt.Component comp = order.get(i);
-                if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
+                if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
             }
@@ -3814,7 +3834,7 @@ public class Chrome
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = order.size() - 1; i >= 0; i--) {
                 java.awt.Component comp = order.get(i);
-                if (comp != null && comp.isFocusable() && comp.isShowing() && comp.isEnabled()) {
+                if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
             }

@@ -568,6 +568,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
+        // Identify this field so global focus traversal can selectively skip it
+        area.setName("instructionsArea");
         // The BorderUtils will now handle the border, including focus behavior and padding.
         BorderUtils.addFocusBorder(area, area);
         area.setLineWrap(true);
