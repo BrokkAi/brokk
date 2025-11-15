@@ -666,11 +666,20 @@ public class SessionManager implements AutoCloseable {
         if (GitRepoFactory.hasGitRepo(worktreeRoot)) {
             try (var tempRepo = new GitRepo(worktreeRoot)) {
                 Path workTreeRoot = tempRepo.getWorkTreeRoot();
+                // Try toRealPath() for symlink resolution (needed on macOS /var vs /private/var)
+                // but ensure both paths use same resolution method to avoid comparison issues
                 boolean isSubdirectory;
                 try {
-                    isSubdirectory = !worktreeRoot.toRealPath().equals(workTreeRoot.toRealPath());
-                } catch (IOException e) {
-                    isSubdirectory = !worktreeRoot.normalize().equals(workTreeRoot.normalize());
+                    Path realWorktreeRoot = worktreeRoot.toRealPath();
+                    Path realWorkTree = workTreeRoot.toRealPath();
+                    isSubdirectory = !realWorktreeRoot.equals(realWorkTree);
+                } catch (IOException ioex) {
+                    // If toRealPath() fails on either path, use consistent fallback
+                    logger.trace("toRealPath() failed, using normalize() for path comparison: {}", ioex.getMessage());
+                    isSubdirectory = !worktreeRoot
+                            .toAbsolutePath()
+                            .normalize()
+                            .equals(workTreeRoot.toAbsolutePath().normalize());
                 }
 
                 if (tempRepo.isWorktree() && !isSubdirectory) {

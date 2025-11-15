@@ -80,13 +80,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         if (this.repo instanceof GitRepo gitRepoInstance) {
             Path workTreeRoot = gitRepoInstance.getWorkTreeRoot();
             // Check if opened at a subdirectory (project root != working tree root)
-            // Use toRealPath() to handle macOS /var vs /private/var symlink differences
+            // Try toRealPath() for symlink resolution (needed on macOS /var vs /private/var)
+            // but ensure both paths use same resolution method to avoid comparison issues
             boolean isSubdirectory;
             try {
-                isSubdirectory = !this.root.toRealPath().equals(workTreeRoot.toRealPath());
+                Path realRoot = this.root.toRealPath();
+                Path realWorkTree = workTreeRoot.toRealPath();
+                isSubdirectory = !realRoot.equals(realWorkTree);
             } catch (IOException e) {
-                // Fallback to string comparison if toRealPath() fails
-                isSubdirectory = !this.root.normalize().equals(workTreeRoot.normalize());
+                // If toRealPath() fails on either path, use consistent fallback
+                logger.trace("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
+                isSubdirectory = !this.root
+                        .toAbsolutePath()
+                        .normalize()
+                        .equals(workTreeRoot.toAbsolutePath().normalize());
             }
             boolean isWorktree = gitRepoInstance.isWorktree();
 

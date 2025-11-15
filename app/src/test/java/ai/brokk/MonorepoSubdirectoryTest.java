@@ -456,9 +456,13 @@ public class MonorepoSubdirectoryTest {
                     subdirConfig.toRealPath(),
                     "Subdirectory and worktree should have different config locations");
             assertEquals(
-                    subdirPath.toRealPath(), subdirConfig.toRealPath(), "Subdirectory should use subdirectory for config");
+                    subdirPath.toRealPath(),
+                    subdirConfig.toRealPath(),
+                    "Subdirectory should use subdirectory for config");
             assertEquals(
-                    repoRoot.toRealPath(), worktreeConfig.toRealPath(), "Worktree should use git repository root for config");
+                    repoRoot.toRealPath(),
+                    worktreeConfig.toRealPath(),
+                    "Worktree should use git repository root for config");
         } finally {
             subdirProj.close();
             worktreeProj.close();
