@@ -98,7 +98,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             // Note: If no fileWatchListener is provided, only analyzer events will be handled.
             // Callers should use the new constructor and add their own listeners via watchService.addListener()
 
-            this.watchService = new ProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            this.watchService = WatchServiceFactory.create(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
         // Initialize executor and analyzer

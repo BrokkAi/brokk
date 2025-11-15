@@ -382,8 +382,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (project instanceof AbstractProject abstractProject) {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
-        // Create watch service first
-        var watchService = new ProjectWatchService(
+        // Create watch service using factory (selects best implementation for platform)
+        var watchService = WatchServiceFactory.create(
                 project.getRoot(),
                 project.hasGit() ? project.getRepo().getGitTopLevel() : null,
                 globalGitignorePath,
@@ -522,7 +522,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Creates a file watch listener that receives raw file system events directly from ProjectWatchService.
+     * Creates a file watch listener that receives raw file system events directly from IWatchService.
      * This listener handles git metadata changes, tracked file changes, and preview window refreshes.
      * <p>
      * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching

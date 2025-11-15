@@ -127,6 +127,9 @@ dependencies {
 
     implementation(libs.checker.util)
 
+    // File watching - native recursive directory watching
+    implementation("io.methvin:directory-watcher:0.18.0")
+
     // Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.junit)

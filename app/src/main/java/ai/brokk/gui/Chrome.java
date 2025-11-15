@@ -1650,9 +1650,7 @@ public class Chrome
     @Override
     public void onTrackedFileChange() {
         // Refresh preview windows when tracked files change
-        // Get all currently open preview files
         Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
-        logger.debug("onTrackedFileChange called - open preview files: {}", openPreviewFiles);
         if (!openPreviewFiles.isEmpty()) {
             refreshPreviewsForFiles(openPreviewFiles);
         }
@@ -1939,8 +1937,14 @@ public class Chrome
         });
 
         // Bring window to front and make visible
-        previewFrame.toFront();
         previewFrame.setVisible(true);
+        previewFrame.toFront();
+        previewFrame.requestFocus();
+        // On macOS, sometimes need to explicitly request focus
+        if (SystemInfo.isMacOS) {
+            previewFrame.setAlwaysOnTop(true);
+            previewFrame.setAlwaysOnTop(false);
+        }
     }
 
     /**
@@ -2036,31 +2040,25 @@ public class Chrome
      * @param excludeFrame Optional frame to exclude from refresh (typically the one that just saved)
      */
     public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
-        logger.debug("refreshPreviewsForFiles called with files: {}, excludeFrame: {}", changedFiles, excludeFrame);
         SwingUtilities.invokeLater(() -> {
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
-                logger.debug("Preview frame for {}: {}", file, previewFrame);
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
                     // Get the content panel from the frame
                     Container contentPane = previewFrame.getContentPane();
 
                     // Refresh based on panel type
                     if (contentPane instanceof PreviewTextPanel textPanel) {
-                        logger.debug("Refreshing PreviewTextPanel for {}", file);
                         textPanel.refreshFromDisk();
                     } else if (contentPane instanceof PreviewImagePanel imagePanel) {
-                        logger.debug("Refreshing PreviewImagePanel for {}", file);
                         imagePanel.refreshFromDisk();
                     } else {
                         // Content might be nested in a BorderLayout
                         Component centerComponent =
                                 ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
                         if (centerComponent instanceof PreviewTextPanel textPanel) {
-                            logger.debug("Refreshing nested PreviewTextPanel for {}", file);
                             textPanel.refreshFromDisk();
                         } else if (centerComponent instanceof PreviewImagePanel imagePanel) {
-                            logger.debug("Refreshing nested PreviewImagePanel for {}", file);
                             imagePanel.refreshFromDisk();
                         }
                     }
@@ -2207,7 +2205,6 @@ public class Chrome
             // Non-computed virtual fragment: show placeholder and load in background
             previewVirtualFragment(fragment, initialTitle, computedDescNow);
         } catch (Exception ex) {
-            logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
         }
     }
@@ -2344,7 +2341,6 @@ public class Chrome
                 }
             } catch (Exception e) {
                 txt = "Error loading preview: " + e.getMessage();
-                logger.debug("Error reading file for preview", e);
             }
             final String fTxt = txt;
             SwingUtilities.invokeLater(() -> {
@@ -2359,10 +2355,14 @@ public class Chrome
      */
     private void previewSnapshotFragment(
             ContextFragment fragment, String initialTitle, @Nullable String computedDescNow) {
+        // Extract ProjectFile if this is a PathFragment
+        ProjectFile projectFile = FragmentFileExtractor.extractProjectFile(fragment);
+
         var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, fragment);
+                contextManager, projectFile, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, fragment);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
+        final ProjectFile finalProjectFile = projectFile;
         contextManager.submitBackgroundTask("Load snapshot preview", () -> {
             String txt;
             String style = SyntaxConstants.SYNTAX_STYLE_NONE;
@@ -2370,7 +2370,6 @@ public class Chrome
                 txt = fragment.text();
             } catch (Exception e) {
                 txt = "Error loading preview: " + e.getMessage();
-                logger.debug("Error loading snapshot text", e);
             }
             try {
                 style = fragment.syntaxStyle();
@@ -2379,7 +2378,8 @@ public class Chrome
             }
             final String fTxt = txt;
             final String fStyle = style;
-            SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle));
+            SwingUtilities.invokeLater(
+                    () -> renderPreviewContent(fTxt, fStyle, initialTitle, finalProjectFile, fragment));
         });
 
         updateDescriptionAsync(initialTitle, placeholder, computedDescNow, fragment);
@@ -2390,6 +2390,9 @@ public class Chrome
      */
     private void previewComputedFragment(
             ContextFragment.ComputedFragment cf, String initialTitle, @Nullable String computedDescNow) {
+        // Extract ProjectFile if this is also a PathFragment
+        final ProjectFile projectFile = FragmentFileExtractor.extractProjectFile(cf);
+
         String styleNow = cf.computedSyntaxStyle().renderNowOrNull();
         final String syntaxNow = (styleNow != null) ? styleNow : SyntaxConstants.SYNTAX_STYLE_NONE;
 
@@ -2408,19 +2411,20 @@ public class Chrome
                                 && !SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(resolvedStyle)) {
                             // Resolved to non-markdown; re-render as text
                             SwingUtilities.invokeLater(
-                                    () -> renderAndShowPreview(textNow, resolvedStyle, initialTitle));
+                                    () -> renderAndShowPreview(textNow, resolvedStyle, initialTitle, projectFile, cf));
                         }
                     });
                 }
             } else {
-                var previewPanel = new PreviewTextPanel(contextManager, null, textNow, syntaxNow, themeManager, cf);
+                var previewPanel =
+                        new PreviewTextPanel(contextManager, projectFile, textNow, syntaxNow, themeManager, cf);
                 showPreviewFrame(contextManager, initialTitle, previewPanel);
                 if (styleNow == null) {
                     // Style was inferred; resolve in background for possible re-render
                     cf.computedSyntaxStyle().onComplete((resolvedStyle, e) -> {
                         if (e == null && !Objects.equals(resolvedStyle, syntaxNow)) {
                             SwingUtilities.invokeLater(
-                                    () -> renderAndShowPreview(textNow, resolvedStyle, initialTitle));
+                                    () -> renderAndShowPreview(textNow, resolvedStyle, initialTitle, projectFile, cf));
                         }
                     });
                 }
@@ -2428,7 +2432,8 @@ public class Chrome
             updateDescriptionAsync(initialTitle, null, computedDescNow, cf);
         } else {
             // Placeholder needed; load in background
-            var placeholder = new PreviewTextPanel(contextManager, null, "Loading...", syntaxNow, themeManager, cf);
+            var placeholder =
+                    new PreviewTextPanel(contextManager, projectFile, "Loading...", syntaxNow, themeManager, cf);
             showPreviewFrame(contextManager, initialTitle, placeholder);
 
             contextManager.submitBackgroundTask("Load computed fragment preview", () -> {
@@ -2442,7 +2447,7 @@ public class Chrome
                 }
                 final String fTxt = txt;
                 final String fStyle = style;
-                SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle));
+                SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle, projectFile, cf));
             });
 
             updateDescriptionAsync(initialTitle, placeholder, computedDescNow, cf);
@@ -2474,7 +2479,7 @@ public class Chrome
             }
             final String fTxt = txt;
             final String fStyle = style;
-            SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle));
+            SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle, null, fragment));
         });
 
         updateDescriptionAsync(initialTitle, placeholder, computedDescNow, fragment);
@@ -2514,26 +2519,77 @@ public class Chrome
 
     /**
      * Renders text content and shows it in a preview frame. Handles both markdown and plain text.
+     * If an existing preview window is found, updates its content instead of creating a new panel.
      */
-    private void renderPreviewContent(String text, String style, String title) {
+    private void renderPreviewContent(
+            String text,
+            String style,
+            String title,
+            @Nullable ProjectFile projectFile,
+            @Nullable ContextFragment fragment) {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
             JPanel contentPanel = renderMarkdownContent(text);
             showPreviewFrame(contextManager, title, contentPanel);
         } else {
-            var panel = new PreviewTextPanel(contextManager, null, text, style, themeManager, null);
+            // Check if we're updating an existing window
+            String windowKey = generatePreviewWindowKey(
+                    title, new PreviewTextPanel(contextManager, projectFile, "", style, themeManager, fragment));
+            JFrame existingFrame = activePreviewWindows.get(windowKey);
+
+            if (existingFrame != null) {
+                // Update existing panel's content instead of replacing it
+                var contentPane = existingFrame.getContentPane();
+                LayoutManager layout = contentPane.getLayout();
+                if (layout instanceof BorderLayout borderLayout) {
+                    Component centerComponent = borderLayout.getLayoutComponent(contentPane, BorderLayout.CENTER);
+                    if (centerComponent instanceof PreviewTextPanel existingPanel) {
+                        existingPanel.updateContent(text, style);
+                        return;
+                    }
+                }
+            }
+
+            // No existing window, create new panel
+            var panel = new PreviewTextPanel(contextManager, projectFile, text, style, themeManager, fragment);
             showPreviewFrame(contextManager, title, panel);
         }
     }
 
     /**
      * Renders text with resolved style and shows it. Used for async re-renders when style changes.
+     * If an existing preview window is found, updates its content instead of creating a new panel.
      */
-    private void renderAndShowPreview(String text, String resolvedStyle, String title) {
+    private void renderAndShowPreview(
+            String text,
+            String resolvedStyle,
+            String title,
+            @Nullable ProjectFile projectFile,
+            @Nullable ContextFragment fragment) {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(resolvedStyle)) {
             JPanel contentPanel = renderMarkdownContent(text);
             showPreviewFrame(contextManager, title, contentPanel);
         } else {
-            var panel = new PreviewTextPanel(contextManager, null, text, resolvedStyle, themeManager, null);
+            // Check if we're updating an existing window
+            String windowKey = generatePreviewWindowKey(
+                    title,
+                    new PreviewTextPanel(contextManager, projectFile, "", resolvedStyle, themeManager, fragment));
+            JFrame existingFrame = activePreviewWindows.get(windowKey);
+
+            if (existingFrame != null) {
+                // Update existing panel's content instead of replacing it
+                var contentPane = existingFrame.getContentPane();
+                LayoutManager layout = contentPane.getLayout();
+                if (layout instanceof BorderLayout borderLayout) {
+                    Component centerComponent = borderLayout.getLayoutComponent(BorderLayout.CENTER);
+                    if (centerComponent instanceof PreviewTextPanel existingPanel) {
+                        existingPanel.updateContent(text, resolvedStyle);
+                        return;
+                    }
+                }
+            }
+
+            // No existing window, create new panel
+            var panel = new PreviewTextPanel(contextManager, projectFile, text, resolvedStyle, themeManager, fragment);
             showPreviewFrame(contextManager, title, panel);
         }
     }
