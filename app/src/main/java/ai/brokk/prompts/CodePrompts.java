@@ -328,7 +328,8 @@ public abstract class CodePrompts {
 
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.
-        var projectFiles = cm.liveContext().fileFragments()
+        var projectFiles = cm.liveContext()
+                .fileFragments()
                 .flatMap(cf -> cf.files().stream())
                 .collect(Collectors.toList());
 

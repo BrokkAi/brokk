@@ -743,9 +743,7 @@ public class CodeAgent {
                 .collect(Collectors.toSet());
         if (!violating.isEmpty()) {
             var message = "Task aborted; agent attempted to modify read-only file(s):\n"
-                          + violating.stream()
-                                  .map(p -> " - " + p)
-                                  .collect(Collectors.joining("\n"));
+                    + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
             io.toolError(message);
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
         }
@@ -1465,9 +1463,14 @@ public class CodeAgent {
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
-        var editableFiles = ctx.getEditableFragments().filter(cf -> cf instanceof ContextFragment.ProjectPathFragment).flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        var editableAll = ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        var readonly = ctx.getReadOnlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var editableFiles = ctx.getEditableFragments()
+                .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
+                .flatMap(cf -> cf.files().stream())
+                .collect(Collectors.toSet());
+        var editableAll =
+                ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var readonly =
+                ctx.getReadOnlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), editableFiles.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
     }

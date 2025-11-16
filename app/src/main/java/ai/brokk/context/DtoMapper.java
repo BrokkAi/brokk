@@ -60,7 +60,7 @@ public class DtoMapper {
         var readonlyFragments = dto.readonly().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toSet());
 
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
@@ -119,14 +119,14 @@ public class DtoMapper {
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
-                        Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
-                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                        editableFragments.stream(), virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
         UUID groupUuid = null;
         if (dto.groupId() != null && !dto.groupId().isEmpty()) {
             groupUuid = UUID.fromString(dto.groupId());
         }
+
         return Context.createWithId(
                 ctxId,
                 mgr,
@@ -136,7 +136,7 @@ public class DtoMapper {
                 actionFuture,
                 groupUuid,
                 dto.groupLabel(),
-                dto.readonly());
+                readonlyFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

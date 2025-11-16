@@ -220,22 +220,7 @@ public final class HistoryIo {
             CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
             // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
             Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
-
-            // Use readonly IDs from CompactContextDto to populate Context-level read-only tracking
-            var readonlyIds = Set.copyOf(compactDto.readonly());
-
-            Context reconstructed = Context.createWithId(
-                    built.id(),
-                    mgr,
-                    built.allFragments().toList(),
-                    built.getTaskHistory(),
-                    built.getParsedOutput(),
-                    built.action,
-                    built.getGroupId(),
-                    built.getGroupLabel(),
-                    readonlyIds);
-
-            contexts.add(reconstructed);
+            contexts.add(built);
         }
 
         if (contexts.isEmpty()) {
@@ -333,7 +318,7 @@ public final class HistoryIo {
             var rewrittenDto = new CompactContextDto(
                     compactDto.id(),
                     compactDto.editable(),
-                    List.copyOf(ctx.getReadOnlyFragmentIds()),
+                    ctx.getReadOnlyFragments().map(ContextFragment::id).toList(),
                     compactDto.virtuals(),
                     compactDto.tasks(),
                     compactDto.parsedOutputId(),
