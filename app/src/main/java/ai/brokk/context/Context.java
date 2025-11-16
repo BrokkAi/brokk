@@ -182,7 +182,8 @@ public class Context {
     }
 
     public String getEditableToc() {
-        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
+        return getEditableFragments()
+                .map(ContextFragment::formatToc).collect(Collectors.joining(", "));
     }
 
     public String getReadOnlyToc() {
@@ -376,7 +377,8 @@ public class Context {
      * Returns readonly files and virtual fragments (excluding usage fragments) as a combined stream
      */
     public Stream<ContextFragment> getReadOnlyFragments() {
-        return fragments.stream().filter(f -> !f.getType().isEditable());
+        var editable = getEditableFragments().collect(Collectors.toSet());
+        return fragments.stream().filter(cf -> !editable.contains(cf));
     }
 
     /**
@@ -411,7 +413,8 @@ public class Context {
                 .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
 
         return Streams.concat(
-                editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast));
+                editableVirtuals, otherEditablePathFragments, sortedProjectFiles.map(ContextFragment.class::cast))
+                .filter(cf -> !readOnlyFragmentIds.contains(cf.id()));
     }
 
     public Stream<ContextFragment> allFragments() {
