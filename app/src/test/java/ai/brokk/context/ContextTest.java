@@ -220,6 +220,29 @@ class ContextTest {
     }
 
     @Test
+    void testCopyAndRefreshPreservesReadOnly() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/RefreshRO.java");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "class RefreshRO {}");
+        var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
+
+        var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
+        // Mark the fragment read-only
+        ctx = ctx.setReadOnly(ppf, true);
+        assertTrue(ctx.isReadOnly(ppf), "Precondition: fragment should be read-only");
+
+        // Trigger refresh
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
+
+        // Ensure a new instance was created for the project fragment
+        var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
+        assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
+
+        // Verify read-only state is preserved on the refreshed fragment
+        assertTrue(refreshed.isReadOnly(newFrag), "Read-only state must persist across refresh");
+    }
+
+    @Test
     void testUnionCombinesWithoutDuplicates() throws Exception {
         var pf = new ProjectFile(tempDir, "src/U.java");
         Files.createDirectories(pf.absPath().getParent());

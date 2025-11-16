@@ -1034,6 +1034,9 @@ public class Context {
         var newFragments = new ArrayList<ContextFragment>(fragments.size());
         boolean anyReplaced = false;
 
+        // Track replacements so we can remap read-only membership
+        var replacementMap = new HashMap<ContextFragment, ContextFragment>();
+
         for (var f : fragments) {
             if (f instanceof ContextFragment.ComputedFragment df) {
                 // Refresh computed fragments whose referenced files intersect the changed set
@@ -1042,6 +1045,7 @@ public class Context {
                     newFragments.add(refreshed);
                     if (refreshed != f) {
                         anyReplaced = true;
+                        replacementMap.put(f, refreshed);
                     }
                     continue;
                 }
@@ -1059,6 +1063,16 @@ public class Context {
             return this;
         }
 
+        // Remap read-only membership to refreshed fragments to preserve state across replacement
+        var newReadOnly = new HashSet<>(this.readOnlyFragments);
+        for (var e : replacementMap.entrySet()) {
+            var oldFrag = e.getKey();
+            var newFrag = e.getValue();
+            if (newReadOnly.remove(oldFrag)) {
+                newReadOnly.add(newFrag);
+            }
+        }
+
         return new Context(
                 newContextId(),
                 contextManager,
@@ -1068,7 +1082,7 @@ public class Context {
                 CompletableFuture.completedFuture("Load external changes"),
                 this.groupId,
                 this.groupLabel,
-                this.readOnlyFragments);
+                newReadOnly);
     }
 
     /**
