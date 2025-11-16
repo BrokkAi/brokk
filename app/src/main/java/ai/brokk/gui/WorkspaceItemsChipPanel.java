@@ -1868,9 +1868,11 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
             if (component instanceof JPanel chip) {
                 JLabel label = null;
                 ContextFragment fragment = null;
+                Object roIconObj = chip.getClientProperty("brokk.chip.roIcon");
                 for (var child : chip.getComponents()) {
                     if (child instanceof JLabel jLabel) {
-                        // Heuristic: the first label after the optional roIcon is the text label we styled earlier.
+                        // Skip the icon label (roIcon) when selecting the text label.
+                        if (roIconObj == jLabel) continue;
                         // We'll set 'label' to the last JLabel found to prefer the text label over the icon label.
                         label = jLabel;
                     }
