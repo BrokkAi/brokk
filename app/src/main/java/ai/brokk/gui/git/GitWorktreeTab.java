@@ -481,8 +481,14 @@ public class GitWorktreeTab extends JPanel {
                 // Determine the path to open: worktree root or corresponding subdirectory
                 final Path pathToOpen;
                 if (relativeSubdir != null) {
-                    pathToOpen = worktreePath.resolve(relativeSubdir);
-                    logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
+                    Path subdirPath = worktreePath.resolve(relativeSubdir);
+                    if (Files.exists(subdirPath)) {
+                        pathToOpen = subdirPath;
+                        logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
+                    } else {
+                        logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
+                        pathToOpen = worktreePath;
+                    }
                 } else {
                     pathToOpen = worktreePath;
                 }
@@ -793,8 +799,14 @@ public class GitWorktreeTab extends JPanel {
                 } else {
                     // Current project is a subdirectory, calculate relative path and resolve in worktree
                     Path relativeSubdir = gitRepo.getGitTopLevel().relativize(project.getRoot());
-                    pathToOpen = newWorktreePath.resolve(relativeSubdir);
-                    logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
+                    Path subdirPath = newWorktreePath.resolve(relativeSubdir);
+                    if (Files.exists(subdirPath)) {
+                        pathToOpen = subdirPath;
+                        logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
+                    } else {
+                        logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
+                        pathToOpen = newWorktreePath;
+                    }
                 }
 
                 Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(pathToOpen).parent(project);

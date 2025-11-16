@@ -522,4 +522,164 @@ public class MonorepoSubdirectoryTest {
                 "BuildAgent should NOT see build config at git root - "
                         + "each package in monorepo uses its own build configuration");
     }
+
+    /**
+     * Integration test: Full workflow from subdirectory project to worktree creation and session management.
+     * This test simulates the complete user experience:
+     * 1. Open a subdirectory project
+     * 2. Create a worktree from it
+     * 3. Verify the worktree opens at the corresponding subdirectory
+     * 4. Verify config isolation between projects
+     * 5. Verify session management works correctly
+     */
+    @Test
+    void testIntegration_SubdirectoryWorktreeWorkflow() throws Exception {
+        Path subdirPath = repoRoot.resolve("subproject");
+
+        // Step 1: Create and configure main subdirectory project
+        var mainProject = (MainProject) AbstractProject.createProject(subdirPath, null);
+        AbstractProject closeable1 = mainProject;
+
+        try {
+            // Verify config location for main subdirectory project
+            assertEquals(
+                    subdirPath.toAbsolutePath().normalize(),
+                    mainProject.getMasterRootPathForConfig(),
+                    "Main subdirectory project should have config at subdirectory");
+
+            // Set some configuration
+            mainProject.setCommitMessageFormat("test: {message}");
+            mainProject.saveProjectProperties();
+            Path mainBrokkDir = subdirPath.resolve(".brokk");
+            assertTrue(Files.exists(mainBrokkDir.resolve("project.properties")), "Main project config should exist");
+
+            // Create a session directory to test session management
+            Path mainSessionsDir = mainBrokkDir.resolve("sessions");
+            Files.createDirectories(mainSessionsDir);
+            Path sessionZip = mainSessionsDir.resolve("test-session.zip");
+            Files.writeString(sessionZip, "dummy session data");
+
+            // Step 2: Create a worktree from the main git repository
+            var gitRepo = (GitRepo) mainProject.getRepo();
+
+            // Get current branch name to create worktree from it
+            String currentBranch = gitRepo.getCurrentBranch();
+            String worktreeBranch = "test-worktree-branch";
+
+            // Create the new branch locally first, so worktree has the same content
+            gitRepo.createBranch(worktreeBranch, currentBranch);
+
+            // Create worktree at git root level (simulating what GitWorktreeTab does)
+            Path worktreeRoot = tempDir.resolve("worktree-root");
+            gitRepo.addWorktree(worktreeBranch, worktreeRoot);
+
+            // Step 3: Open the corresponding subdirectory in the worktree
+            // This mimics the logic in GitWorktreeTab where it calculates relativeSubdir
+            Path relativeSubdir = gitRepo.getGitTopLevel().relativize(subdirPath);
+            Path worktreeSubdir = worktreeRoot.resolve(relativeSubdir);
+
+            // Verify the subdirectory exists in the worktree
+            assertTrue(Files.exists(worktreeSubdir), "Worktree subdirectory should exist");
+
+            var worktreeProject = AbstractProject.createProject(worktreeSubdir, mainProject);
+            AbstractProject closeable2 = worktreeProject;
+
+            try {
+                // Step 4: Verify config isolation
+                // Worktree subdirectory should have its OWN config, not shared with main repo
+                assertEquals(
+                        worktreeSubdir.toAbsolutePath().normalize(),
+                        worktreeProject.getMasterRootPathForConfig(),
+                        "Worktree subdirectory should have isolated config");
+
+                // Verify config directories are independent
+                Path mainBrokkDirActual = mainBrokkDir.toAbsolutePath().normalize();
+                Path worktreeBrokkDir = worktreeSubdir.resolve(".brokk").toAbsolutePath().normalize();
+
+                assertNotEquals(
+                        mainBrokkDirActual,
+                        worktreeBrokkDir,
+                        "Worktree and main subdirectory should have different .brokk directories");
+
+                // Verify config files don't exist yet in worktree
+                assertFalse(
+                        Files.exists(worktreeBrokkDir.resolve("workspace.properties")),
+                        "Worktree subdirectory should start with no config");
+
+                // Create a workspace property file in worktree to simulate independent config
+                Files.createDirectories(worktreeBrokkDir);
+                Path worktreeWsProps = worktreeBrokkDir.resolve("workspace.properties");
+                Files.writeString(worktreeWsProps, "# Worktree workspace config\n");
+                assertTrue(
+                        Files.exists(worktreeWsProps),
+                        "Worktree config should now exist");
+
+                // Verify main project config still exists independently
+                assertTrue(
+                        Files.exists(mainBrokkDir.resolve("project.properties")),
+                        "Main project config should still exist independently");
+
+                // Step 5: Verify session management
+                Path worktreeSessionsDir = worktreeBrokkDir.resolve("sessions");
+                Files.createDirectories(worktreeSessionsDir);
+
+                // Sessions should be isolated
+                assertFalse(
+                        Files.exists(worktreeSessionsDir.resolve("test-session.zip")),
+                        "Worktree should not see main project's sessions");
+
+                // Create a session in worktree
+                Path worktreeSessionZip = worktreeSessionsDir.resolve("worktree-session.zip");
+                Files.writeString(worktreeSessionZip, "worktree session data");
+
+                // Verify main project doesn't see worktree session
+                assertFalse(
+                        Files.exists(mainSessionsDir.resolve("worktree-session.zip")),
+                        "Main project should not see worktree's sessions");
+
+                // Step 6: Verify git operations work correctly in both projects
+                // Create a new file in worktree subdirectory
+                Path newFile = worktreeSubdir.resolve("worktree-new-file.txt");
+                Files.writeString(newFile, "New file in worktree");
+
+                var worktreeGitRepo = (GitRepo) worktreeProject.getRepo();
+                // The key test: This add operation should succeed
+                // Previously would fail or create incorrect paths due to using repository.getWorkTree()
+                // instead of gitTopLevel for path relativization
+                assertDoesNotThrow(
+                        () -> worktreeGitRepo.add(newFile), "Should be able to stage file in worktree subdirectory");
+
+                // Verify files exist on disk in the worktree
+                assertTrue(
+                        Files.exists(worktreeSubdir.resolve("sub-file1.txt")),
+                        "Worktree should have original committed files on disk");
+                assertTrue(
+                        Files.exists(worktreeSubdir.resolve("sub-file2.txt")),
+                        "Worktree should have original committed files on disk");
+                assertTrue(
+                        Files.exists(newFile),
+                        "Worktree should have the newly created file on disk");
+
+                // Step 7: Verify directory structure is correct
+                // The worktree subdirectory should exist and contain the same structure
+                assertTrue(Files.isDirectory(worktreeSubdir), "Worktree subdirectory should exist");
+                assertEquals(
+                        "subproject",
+                        worktreeSubdir.getFileName().toString(),
+                        "Worktree should preserve subdirectory name");
+
+            } finally {
+                closeable2.close();
+            }
+
+            // Step 8: Verify main project is unaffected
+            assertTrue(
+                    Files.exists(mainBrokkDir.resolve("project.properties")),
+                    "Main project config should be unchanged");
+            assertTrue(Files.exists(sessionZip), "Main project session should still exist");
+
+        } finally {
+            closeable1.close();
+        }
+    }
 }

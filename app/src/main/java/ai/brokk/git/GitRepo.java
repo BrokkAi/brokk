@@ -251,9 +251,10 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     String toRepoRelativePath(ProjectFile file) {
         // ProjectFile.absPath() gives the absolute path on the filesystem.
-        // We need to make it relative to the git repository root (gitTopLevel).
-        // This ensures correct behavior when opening subdirectories of a monorepo.
-        Path relativePath = gitTopLevel.relativize(file.absPath());
+        // We need to make it relative to the working tree root for JGit commands.
+        // JGit always works relative to the working tree, even in worktrees.
+        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+        Path relativePath = workingTreeRoot.relativize(file.absPath());
         return relativePath.toString().replace('\\', '/');
     }
 
