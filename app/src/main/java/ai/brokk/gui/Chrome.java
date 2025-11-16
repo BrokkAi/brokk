@@ -377,14 +377,6 @@ public class Chrome
         // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
         leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
-        // DEBUG: Add mouse listener to leftTabbedPanel itself
-        leftTabbedPanel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                System.out.println("DEBUG: leftTabbedPanel clicked at: " + e.getPoint());
-            }
-        });
-
         projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, themeManager);
         leftTabbedPanel.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
@@ -426,41 +418,26 @@ public class Chrome
 
         // Add Git tabs (Changes, Log, Worktrees) if available (in the requested visual order)
         // Always construct Git tabs when the project has git; show/hide based on Advanced Mode
-        System.out.println("DEBUG: hasGit() = " + getProject().hasGit());
-        System.out.println("DEBUG: Repo type = " + getProject().getRepo().getClass().getName());
         if (getProject().hasGit()) {
-            System.out.println("DEBUG: Creating git tabs");
             gitCommitTab = new GitCommitTab(this, contextManager);
             gitLogTab = new GitLogTab(this, contextManager);
             gitWorktreeTab = new GitWorktreeTab(this, contextManager);
 
-            System.out.println("DEBUG: isAdvancedMode() = " + GlobalUiSettings.isAdvancedMode());
             if (GlobalUiSettings.isAdvancedMode()) {
-                System.out.println("DEBUG: Adding git tabs to leftTabbedPanel");
                 // Changes tab (with badge)
                 var commitIcon = Icons.COMMIT;
                 gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
                 leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
                 var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                System.out.println("DEBUG: Changes tab index = " + commitTabIdx);
                 var changesShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                 gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
                 leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
-                System.out.println("DEBUG: Attaching mouse listener to Changes tab");
                 gitTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
-                        System.out.println("DEBUG: Changes tab clicked!");
                         handleTabToggle(commitTabIdx);
                     }
-                });
-                // DEBUG: Check tab label properties
-                SwingUtilities.invokeLater(() -> {
-                    System.out.println("DEBUG: gitTabLabel bounds = " + gitTabLabel.getBounds());
-                    System.out.println("DEBUG: gitTabLabel isVisible = " + gitTabLabel.isVisible());
-                    System.out.println("DEBUG: gitTabLabel isEnabled = " + gitTabLabel.isEnabled());
-                    System.out.println("DEBUG: gitTabLabel parent = " + (gitTabLabel.getParent() != null ? gitTabLabel.getParent().getClass().getName() : "null"));
                 });
 
                 // Log tab (after Changes)
@@ -501,13 +478,6 @@ public class Chrome
                 return null;
             });
 
-            // DEBUG: Check leftTabbedPanel state after all tabs added
-            SwingUtilities.invokeLater(() -> {
-                System.out.println("DEBUG: leftTabbedPanel tab count = " + leftTabbedPanel.getTabCount());
-                System.out.println("DEBUG: leftTabbedPanel selected index = " + leftTabbedPanel.getSelectedIndex());
-                System.out.println("DEBUG: leftTabbedPanel isEnabled = " + leftTabbedPanel.isEnabled());
-                System.out.println("DEBUG: leftTabbedPanel bounds = " + leftTabbedPanel.getBounds());
-            });
         } else {
             gitCommitTab = null;
             gitLogTab = null;

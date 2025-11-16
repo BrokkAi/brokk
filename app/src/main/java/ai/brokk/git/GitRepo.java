@@ -435,8 +435,10 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public synchronized void add(Path path) throws GitAPIException {
         var addCommand = git.add();
+        // JGit expects paths relative to the working tree, not gitTopLevel
+        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         var repoRelativePath =
-                gitTopLevel.relativize(path.toAbsolutePath()).toString().replace('\\', '/');
+                workingTreeRoot.relativize(path.toAbsolutePath()).toString().replace('\\', '/');
         addCommand.addFilepattern(repoRelativePath);
         addCommand.call();
     }

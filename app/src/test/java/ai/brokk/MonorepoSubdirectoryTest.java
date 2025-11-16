@@ -594,7 +594,8 @@ public class MonorepoSubdirectoryTest {
 
                 // Verify config directories are independent
                 Path mainBrokkDirActual = mainBrokkDir.toAbsolutePath().normalize();
-                Path worktreeBrokkDir = worktreeSubdir.resolve(".brokk").toAbsolutePath().normalize();
+                Path worktreeBrokkDir =
+                        worktreeSubdir.resolve(".brokk").toAbsolutePath().normalize();
 
                 assertNotEquals(
                         mainBrokkDirActual,
@@ -610,9 +611,7 @@ public class MonorepoSubdirectoryTest {
                 Files.createDirectories(worktreeBrokkDir);
                 Path worktreeWsProps = worktreeBrokkDir.resolve("workspace.properties");
                 Files.writeString(worktreeWsProps, "# Worktree workspace config\n");
-                assertTrue(
-                        Files.exists(worktreeWsProps),
-                        "Worktree config should now exist");
+                assertTrue(Files.exists(worktreeWsProps), "Worktree config should now exist");
 
                 // Verify main project config still exists independently
                 assertTrue(
@@ -656,9 +655,7 @@ public class MonorepoSubdirectoryTest {
                 assertTrue(
                         Files.exists(worktreeSubdir.resolve("sub-file2.txt")),
                         "Worktree should have original committed files on disk");
-                assertTrue(
-                        Files.exists(newFile),
-                        "Worktree should have the newly created file on disk");
+                assertTrue(Files.exists(newFile), "Worktree should have the newly created file on disk");
 
                 // Step 7: Verify directory structure is correct
                 // The worktree subdirectory should exist and contain the same structure
