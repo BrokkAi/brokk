@@ -189,15 +189,21 @@ public class Context {
     }
 
     public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
-        var toAdd = paths.stream()
-                .filter(p -> !fragments.stream().anyMatch(p::hasSameSource))
-                .toList();
+        // Build a list of unique new path fragments
+        var toAdd = new ArrayList<ContextFragment.PathFragment>();
+        paths.stream()
+                .filter(p -> fragments.stream().noneMatch(p::hasSameSource))
+                .forEach(pf -> {
+                    if (toAdd.stream().noneMatch(existing -> existing.hasSameSource(pf))) {
+                        toAdd.add(pf);
+                    }
+                });
         if (toAdd.isEmpty()) {
             return this;
         }
 
+        // filter out summaries of files that we're now adding in full
         var filesToAdd = toAdd.stream().flatMap(pf -> pf.files().stream()).collect(Collectors.toSet());
-
         var newFragments = fragments.stream()
                 .filter(f -> {
                     if (f.getType() == ContextFragment.FragmentType.SKELETON) {
@@ -362,11 +368,11 @@ public class Context {
     }
 
     /**
-     * Returns readonly files and virtual fragments (excluding usage fragments) as a combined stream
+     * Returns the fragments explicitly marked read-only in this Context.
+     * Only fragments that have been setReadOnly(...) are included.
      */
     public Stream<ContextFragment> getReadOnlyFragments() {
-        var editable = getEditableFragments().collect(Collectors.toSet());
-        return fragments.stream().filter(cf -> !editable.contains(cf));
+        return readOnlyFragments.stream();
     }
 
     /**
