@@ -130,6 +130,64 @@ class SessionManagerTaskListLifecycleTest {
         throw new AssertionError("Condition not met within timeout");
     }
 
+    /**
+     * Verifies that legacy tasklist.json files (with null titles) get default titles when loaded.
+     * This test ensures backward compatibility with old session files.
+     */
+    @Test
+    void legacyMissingTitlesAreDefaulted() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        SessionManager sm = project.getSessionManager();
+
+        // Create a new session
+        SessionManager.SessionInfo sessionInfo = sm.newSession("Legacy");
+        UUID sessionId = sessionInfo.id();
+
+        Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
+        Path sessionZip = sessionsDir.resolve(sessionId + ".zip");
+
+        // Wait for session zip to be created AND be fully written (not locked by async task)
+        // On Linux/Ubuntu CI, we need to ensure the SessionManager's async task completes
+        // before we can safely open and modify the ZIP file
+        assertEventually(() -> {
+            assertTrue(Files.exists(sessionZip), "Session zip should exist");
+            // Try to read the manifest to ensure the ZIP is fully written and not locked
+            try (var fs = FileSystems.newFileSystem(sessionZip, Map.of())) {
+                Path manifest = fs.getPath("manifest.json");
+                assertTrue(Files.exists(manifest), "Manifest should exist in zip");
+            } catch (IOException e) {
+                throw new AssertionError("ZIP not ready: " + e.getMessage());
+            }
+        });
+
+        // Write legacy tasklist.json directly to the zip
+        String legacyJson =
+                """
+                {
+                  "tasks": [
+                    {"text": "legacy task A", "done": false},
+                    {"text": "legacy task B", "done": true}
+                  ]
+                }
+                """;
+
+        try (var fs = FileSystems.newFileSystem(sessionZip, Map.of())) {
+            Path tasklistPath = fs.getPath("tasklist.json");
+            Files.writeString(tasklistPath, legacyJson);
+        }
+
+        // Read back via SessionManager API - should correctly load the tasks
+        TaskList.TaskListData data = sm.readTaskList(sessionId).get(5, TimeUnit.SECONDS);
+
+        assertEquals(2, data.tasks().size(), "Should have 2 tasks");
+        assertEquals("legacy task A", data.tasks().get(0).text());
+        assertEquals(false, data.tasks().get(0).done());
+        assertEquals("legacy task B", data.tasks().get(1).text());
+        assertEquals(true, data.tasks().get(1).done());
+
+        project.close();
+    }
+
     /** Low-level helper: read tasklist.json directly from a given session zip path. */
     private static TaskList.TaskListData readTaskListDirect(Path zipPath) throws IOException {
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
