@@ -1040,8 +1040,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 // Execute on EDT as requested; push a new context entry with a new fragment ID.
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        contextManager.pushContext(
-                                curr -> curr.setReadOnly(fragment, !curr.isReadOnly(fragment)));
+                        contextManager.pushContext(curr -> curr.setReadOnly(fragment, !curr.isReadOnly(fragment)));
                     } catch (Exception ex) {
                         logger.error("Failed to toggle read-only for fragment {}", fragment, ex);
                         chrome.systemNotify(

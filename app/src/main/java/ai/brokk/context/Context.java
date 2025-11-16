@@ -412,16 +412,12 @@ public class Context {
     }
 
     /**
-     * Removes fragments from this context by their IDs.
+     * Removes fragments from this context.
      */
-    public Context removeFragmentsByIds(Collection<String> idsToRemove) {
-        if (idsToRemove.isEmpty()) {
-            return this;
-        }
-
-        var idsToRemoveSet = new java.util.HashSet<>(idsToRemove);
+    public Context removeFragments(Collection<? extends ContextFragment> toRemove) {
+        var toRemoveSet = new HashSet<>(toRemove);
         var newFragments =
-                fragments.stream().filter(f -> !idsToRemoveSet.contains(f.id())).toList();
+                fragments.stream().filter(f -> !toRemoveSet.contains(f)).toList();
 
         int removedCount = fragments.size() - newFragments.size();
         if (removedCount == 0) {
@@ -430,7 +426,7 @@ public class Context {
 
         // Remove any read-only tracking for dropped fragments
         var newReadOnly = this.readOnlyFragments.stream()
-                .filter(f -> !idsToRemoveSet.contains(f.id()))
+                .filter(f -> !toRemoveSet.contains(f))
                 .collect(Collectors.toSet());
 
         String actionString = "Removed " + removedCount + " fragment" + (removedCount == 1 ? "" : "s");
@@ -459,7 +455,7 @@ public class Context {
                 null,
                 Set.of());
     }
-    
+
     public Context setReadOnly(ContextFragment fragment, boolean readonly) {
         assert fragment.getType().isEditable();
         assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
@@ -984,15 +980,14 @@ public class Context {
     public Context withBuildResult(boolean success, String processedOutput) {
         var desc = ContextFragment.BUILD_RESULTS.description();
 
-        var idsToDrop = virtualFragments()
+        var fragmentsToDrop = virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
                         || (f.getType() == ContextFragment.FragmentType.STRING
                                 && f instanceof ContextFragment.StringFragment sf
                                 && desc.equals(sf.description())))
-                .map(ContextFragment::id)
                 .toList();
 
-        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
+        var afterClear = fragmentsToDrop.isEmpty() ? this : removeFragments(fragmentsToDrop);
 
         if (success) {
             // Build succeeded; nothing to add after clearing old fragments
