@@ -879,7 +879,13 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
     }
 
     private void styleChip(JPanel chip, JLabel label, @Nullable ContextFragment fragment) {
-        ChipKind kind = fragment == null ? ChipKind.OTHER : classify(fragment);
+        ChipKind kind;
+        if (fragment != null) {
+            kind = classify(fragment);
+        } else {
+            Object k = chip.getClientProperty("brokk.chip.kind");
+            kind = (k instanceof ChipKind ck) ? ck : ChipKind.OTHER;
+        }
 
         Color bg;
         Color fg;
@@ -1863,28 +1869,42 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         });
     }
 
+    private @Nullable JLabel getChipTextLabel(JComponent chip) {
+        Object lbl = chip.getClientProperty("brokk.chip.label");
+        if (lbl instanceof JLabel j) {
+            return j;
+        }
+        // Fallback: scan children, ignoring the read-only icon label
+        Object roIconObj = chip.getClientProperty("brokk.chip.roIcon");
+        for (var child : chip.getComponents()) {
+            if (child instanceof JLabel jLabel && child != roIconObj) {
+                return jLabel;
+            }
+        }
+        return null;
+    }
+
+    private @Nullable ContextFragment getChipPrimaryFragment(JComponent chip) {
+        Object fragsObj = chip.getClientProperty("brokk.fragments");
+        if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
+            Object first = fragSet.iterator().next();
+            if (first instanceof ContextFragment cf) {
+                return cf;
+            }
+        }
+        return null;
+    }
+
     private void restyleAllChips() {
         for (var component : getComponents()) {
-            if (component instanceof JPanel chip) {
-                JLabel label = null;
-                ContextFragment fragment = null;
-                Object roIconObj = chip.getClientProperty("brokk.chip.roIcon");
-                for (var child : chip.getComponents()) {
-                    if (child instanceof JLabel jLabel) {
-                        // Skip the icon label (roIcon) when selecting the text label.
-                        if (roIconObj == jLabel) continue;
-                        // We'll set 'label' to the last JLabel found to prefer the text label over the icon label.
-                        label = jLabel;
-                    }
-                }
-                var fragsObj = chip.getClientProperty("brokk.fragments");
-                if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
-                    fragment = (ContextFragment) fragSet.iterator().next();
-                }
-                if (label != null) {
-                    styleChip(chip, label, fragment);
-                    updateReadOnlyIcon(chip, fragment);
-                }
+            if (!(component instanceof JPanel chip)) continue;
+
+            JLabel label = getChipTextLabel(chip);
+            ContextFragment fragment = getChipPrimaryFragment(chip);
+
+            if (label != null) {
+                styleChip(chip, label, fragment);
+                updateReadOnlyIcon(chip, fragment);
             }
         }
     }
