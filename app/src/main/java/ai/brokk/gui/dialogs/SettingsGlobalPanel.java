@@ -85,6 +85,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
+    private JComboBox<String> primaryModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -104,6 +105,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
+    private boolean plannerModelSyncListenerRegistered = false;
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     @Nullable
@@ -1175,7 +1177,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
-        // Create top panel with preferred code model selector
+        // Create top panel with preferred Lutz code model and primary model selectors
         var topPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 10, 0);
@@ -1184,19 +1186,58 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0.0;
-        topPanel.add(new JLabel("Preferred Code Model:"), gbc);
+        topPanel.add(new JLabel("Lutz Code Model:"), gbc);
 
         preferredCodeModelCombo = new JComboBox<>();
         // Will be populated with favorite model aliases in loadSettings()
-        // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
-        var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        comboHolder.add(preferredCodeModelCombo);
+        // Create code model holder with BorderLayout to embed the help icon
+        var codeComboHolder = new JPanel(new BorderLayout(0, 0));
+        codeComboHolder.add(preferredCodeModelCombo, BorderLayout.CENTER);
+
+        // Add help icon for Lutz Code Model directly in the holder
+        var codeHelpButton = new MaterialButton();
+        codeHelpButton.setIcon(Icons.HELP);
+        codeHelpButton.setToolTipText("This model is used by Lutz mode to implement tasks.");
+        codeHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        codeHelpButton.setContentAreaFilled(false);
+        codeHelpButton.setFocusPainted(false);
+        codeHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        codeComboHolder.add(codeHelpButton, BorderLayout.EAST);
 
         gbc.gridx = 1;
-        gbc.weightx = 1.0; // let the holder absorb extra space
+        gbc.weightx = 0.5;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(codeComboHolder, gbc);
+
+        // Add Primary Model (Planner Model) selector
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(new JLabel("Primary Model:"), gbc);
+
+        primaryModelCombo = new JComboBox<>();
+        // Create primary model holder with BorderLayout to embed the help icon
+        var primaryComboHolder = new JPanel(new BorderLayout(0, 0));
+        primaryComboHolder.add(primaryModelCombo, BorderLayout.CENTER);
+
+        // Add help icon for Primary Model directly in the holder
+        var primaryHelpButton = new MaterialButton();
+        primaryHelpButton.setIcon(Icons.HELP);
+        primaryHelpButton.setToolTipText(
+                "This model is used by Lutz mode for planning, coding simple tasks, and answering questions.");
+        primaryHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        primaryHelpButton.setContentAreaFilled(false);
+        primaryHelpButton.setFocusPainted(false);
+        primaryHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        primaryComboHolder.add(primaryHelpButton, BorderLayout.EAST);
+
+        gbc.gridx = 3;
+        gbc.weightx = 0.5;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(0, 10, 10, 0);
-        topPanel.add(comboHolder, gbc);
+        topPanel.add(primaryComboHolder, gbc);
 
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
@@ -1464,6 +1505,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Quick Models Tab
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
         var loadedFavorites = MainProject.loadFavoriteModels();
         if (loadedFavorites.isEmpty()) {
             var defaultAlias = "default";
@@ -1485,19 +1527,62 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Select the favorite that matches the current code config
-        String selectedAlias = null;
+        String selectedCodeAlias = null;
         for (Service.FavoriteModel favorite : loadedFavorites) {
             if (favorite.config().name().equals(currentCodeConfig.name())
                     && favorite.config().reasoning() == currentCodeConfig.reasoning()
                     && favorite.config().tier() == currentCodeConfig.tier()) {
-                selectedAlias = favorite.alias();
+                selectedCodeAlias = favorite.alias();
                 break;
             }
         }
-        if (selectedAlias != null) {
-            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        if (selectedCodeAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedCodeAlias);
         } else if (!loadedFavorites.isEmpty()) {
             preferredCodeModelCombo.setSelectedIndex(0);
+        }
+
+        // Populate planner model combo with favorite aliases
+        primaryModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current planner config
+        String selectedPlannerAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentPlannerConfig.name())
+                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
+                    && favorite.config().tier() == currentPlannerConfig.tier()) {
+                selectedPlannerAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedPlannerAlias != null) {
+            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            primaryModelCombo.setSelectedIndex(0);
+        }
+
+        // Add listener to sync planner combo when model changes in InstructionsPanel
+        if (!plannerModelSyncListenerRegistered) {
+            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+                try {
+                    // Use the current favorites from the table model to avoid capturing stale state
+                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
+                        if (favorite.config().name().equals(cfg.name())
+                                && favorite.config().reasoning() == cfg.reasoning()
+                                && favorite.config().tier() == cfg.tier()) {
+                            String alias = favorite.alias();
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
+                            break;
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
+                }
+            });
+            plannerModelSyncListenerRegistered = true;
         }
 
         // GitHub Tab
@@ -1734,13 +1819,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
-        var selectedAlias = (String) preferredCodeModelCombo.getSelectedItem();
-        if (selectedAlias != null && !selectedAlias.isEmpty()) {
+        var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedCodeAlias != null && !selectedCodeAlias.isEmpty()) {
             try {
-                var favoriteModel = MainProject.getFavoriteModel(selectedAlias);
+                var favoriteModel = MainProject.getFavoriteModel(selectedCodeAlias);
                 chrome.getProject().getMainProject().setCodeModelConfig(favoriteModel.config());
             } catch (IllegalArgumentException e) {
-                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedAlias);
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedCodeAlias);
+            }
+        }
+
+        // Planner Model
+        var selectedPlannerAlias = (String) primaryModelCombo.getSelectedItem();
+        if (selectedPlannerAlias != null && !selectedPlannerAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedPlannerAlias);
+                chrome.getProject().getMainProject().setArchitectModelConfig(favoriteModel.config());
+                chrome.getInstructionsPanel().selectPlannerModelConfig(favoriteModel.config());
+            } catch (IllegalArgumentException e) {
+                logger.warn(
+                        "Selected planner favorite model alias '{}' no longer exists, skipping save.",
+                        selectedPlannerAlias);
             }
         }
 

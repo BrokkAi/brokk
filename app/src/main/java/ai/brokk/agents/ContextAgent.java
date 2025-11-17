@@ -201,7 +201,16 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            candidates = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+            int maxNeighbors = 100;
+            var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
+            if (envMaxNeighbors != null) {
+                try {
+                    maxNeighbors = Integer.parseInt(envMaxNeighbors);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid BRK_MAX_NEIGHBORS value '{}', using default", envMaxNeighbors);
+                }
+            }
+            candidates = context.getMostRelevantFiles(maxNeighbors).stream()
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();

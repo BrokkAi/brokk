@@ -54,7 +54,6 @@ public class Context {
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
-    public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
