@@ -704,7 +704,12 @@ public class Chrome
 
         // Listen for focus changes to update action states and track relevant focus
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
+            Component oldFocusOwner = (Component) evt.getOldValue();
             Component newFocusOwner = (Component) evt.getNewValue();
+
+            // Apply global focus highlighting
+            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
+
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
                 if (historyOutputPanel.getHistoryTable() != null) {
@@ -729,13 +734,34 @@ public class Chrome
 
         // Listen for context changes and analyzer events
         contextManager.addContextListener(this);
-        contextManager.addAnalyzerCallback(this);
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
 
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
+
+        // Set up focus traversal with individual components for granular navigation
+        var focusOrder = List.<Component>of(
+                instructionsPanel.getInstructionsArea(),
+                instructionsPanel.getModelSelectorComponent(),
+                instructionsPanel.getMicButton(),
+                instructionsPanel.getWandButton(),
+                instructionsPanel.getHistoryDropdown(),
+                taskListPanel.getGoStopButton(),
+                taskListPanel.getTaskInput(),
+                taskListPanel.getTaskList(),
+                projectFilesPanel.getSearchField(),
+                projectFilesPanel.getRefreshButton(),
+                projectFilesPanel.getProjectTree(),
+                dependenciesPanel.getDependencyTable(),
+                dependenciesPanel.getAddButton(),
+                dependenciesPanel.getRemoveButton(),
+                historyOutputPanel.getHistoryTable(),
+                historyOutputPanel.getLlmStreamArea());
+        frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
+        frame.setFocusCycleRoot(true);
+        frame.setFocusTraversalPolicyProvider(true);
 
         // Complete all layout operations synchronously before showing window
         completeLayoutSynchronously();
@@ -960,6 +986,7 @@ public class Chrome
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
+            taskListPanel.contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
@@ -2204,8 +2231,31 @@ public class Chrome
                 return;
             }
 
-            // Non-computed virtual fragment: show placeholder and load in background
-            previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            // 6. Everything else (virtual fragments, skeletons, etc.)
+            if (fragment instanceof ContextFragment.StringFragment sf) {
+                String previewText = sf.previewText();
+                String previewStyle = sf.previewSyntaxStyle();
+
+                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(previewStyle)) {
+                    var markdownPanel = MarkdownOutputPool.instance().borrow();
+                    markdownPanel.updateTheme(MainProject.getTheme());
+                    markdownPanel.setText(List.of(Messages.customSystem(previewText)));
+
+                    // Use shared utility method to create searchable content panel without scroll pane
+                    JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+
+                    showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                } else {
+                    var previewPanel =
+                            new PreviewTextPanel(contextManager, null, previewText, previewStyle, themeManager, sf);
+                    showPreviewFrame(contextManager, initialTitle, previewPanel);
+                }
+                // Update title asynchronously if needed (for computed descriptions)
+                updateDescriptionAsync(initialTitle, null, computedDescNow, sf);
+            } else {
+                // Non-computed virtual fragment: show placeholder and load in background
+                previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            }
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
@@ -3115,6 +3165,10 @@ public class Chrome
 
     public @Nullable TerminalDrawerPanel getTerminalDrawer() {
         return terminalDrawer;
+    }
+
+    public JTabbedPane getRightTabbedPanel() {
+        return rightTabbedPanel;
     }
 
     public void updateTerminalFontSize() {}
@@ -4323,5 +4377,177 @@ public class Chrome
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
         return dialog;
+    }
+
+    private static class ChromeFocusTraversalPolicy extends java.awt.FocusTraversalPolicy {
+        private final java.util.List<java.awt.Component> order;
+
+        public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
+            this.order = order.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toList());
+        }
+
+        private int getIndex(java.awt.Component c) {
+            // Find component or one of its ancestors in the order list
+            for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
+                int i = order.indexOf(comp);
+                if (i != -1) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * Returns true if the component should be included in focus traversal.
+         * The Instructions area is skipped when "tab inserts indentation" is enabled,
+         * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
+         */
+        private boolean shouldIncludeInTraversal(java.awt.Component comp) {
+            if (!comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
+                return false;
+            }
+            // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
+            if (comp instanceof javax.swing.JTextArea textArea) {
+                // Check if this is the instructions area by name or other property
+                if ("instructionsArea".equals(textArea.getName())
+                        && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            if (order.isEmpty()) return aComponent;
+            int idx = getIndex(aComponent);
+            if (idx == -1) {
+                return getFirstComponent(focusCycleRoot);
+            }
+            for (int i = 1; i <= order.size(); i++) {
+                int nextIdx = (idx + i) % order.size();
+                java.awt.Component nextComp = order.get(nextIdx);
+                if (shouldIncludeInTraversal(nextComp)) {
+                    return nextComp;
+                }
+            }
+            return aComponent;
+        }
+
+        @Override
+        public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            if (order.isEmpty()) return aComponent;
+            int idx = getIndex(aComponent);
+            if (idx == -1) {
+                return getLastComponent(focusCycleRoot);
+            }
+            for (int i = 1; i <= order.size(); i++) {
+                int prevIdx = (idx - i + order.size()) % order.size();
+                java.awt.Component prevComp = order.get(prevIdx);
+                if (shouldIncludeInTraversal(prevComp)) {
+                    return prevComp;
+                }
+            }
+            return aComponent;
+        }
+
+        @Override
+        public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
+            if (order.isEmpty()) return focusCycleRoot;
+            for (int i = 0; i < order.size(); i++) {
+                java.awt.Component comp = order.get(i);
+                if (shouldIncludeInTraversal(comp)) {
+                    return comp;
+                }
+            }
+            return focusCycleRoot;
+        }
+
+        @Override
+        public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
+            if (order.isEmpty()) return focusCycleRoot;
+            for (int i = order.size() - 1; i >= 0; i--) {
+                java.awt.Component comp = order.get(i);
+                if (shouldIncludeInTraversal(comp)) {
+                    return comp;
+                }
+            }
+            return focusCycleRoot;
+        }
+
+        @Override
+        public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
+            return getFirstComponent(focusCycleRoot);
+        }
+    }
+
+    // Global focus highlighting mechanism
+    private static final Color FOCUS_BORDER_COLOR = new Color(0x1F6FEB); // Blue focus color
+
+    private void applyFocusHighlighting(@Nullable Component oldFocus, @Nullable Component newFocus) {
+        // Remove highlighting from old component
+        if (oldFocus != null && oldFocus != newFocus) {
+            removeFocusHighlight(oldFocus);
+        }
+
+        // Apply highlighting to new component
+        if (newFocus != null && shouldHighlightComponent(newFocus)) {
+            applyFocusHighlight(newFocus);
+        }
+    }
+
+    private boolean shouldHighlightComponent(Component component) {
+        // Only highlight components that are part of our focus traversal policy
+        if (!component.isFocusable()) {
+            return false;
+        }
+
+        // Check if component is one of our main navigable components
+        return component == instructionsPanel.getInstructionsArea()
+                || component == instructionsPanel.getMicButton()
+                || component == instructionsPanel.getWandButton()
+                || component == instructionsPanel.getHistoryDropdown()
+                || component == instructionsPanel.getModelSelectorComponent()
+                || component == projectFilesPanel.getSearchField()
+                || component == projectFilesPanel.getRefreshButton()
+                || component == projectFilesPanel.getProjectTree()
+                || component == dependenciesPanel.getDependencyTable()
+                || component == dependenciesPanel.getAddButton()
+                || component == dependenciesPanel.getRemoveButton()
+                || component == taskListPanel.getTaskInput()
+                || component == taskListPanel.getGoStopButton()
+                || component == taskListPanel.getTaskList()
+                || component == historyOutputPanel.getHistoryTable()
+                || component == historyOutputPanel.getLlmStreamArea();
+    }
+
+    private void applyFocusHighlight(Component component) {
+        if (component instanceof JComponent jcomp) {
+            // Store original border if not already stored
+            if (jcomp.getClientProperty("originalBorder") == null) {
+                jcomp.putClientProperty("originalBorder", jcomp.getBorder());
+            }
+
+            // Apply focus border
+            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var focusBorder = BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2);
+
+            if (originalBorder != null) {
+                jcomp.setBorder(BorderFactory.createCompoundBorder(focusBorder, originalBorder));
+            } else {
+                jcomp.setBorder(focusBorder);
+            }
+
+            jcomp.repaint();
+        }
+    }
+
+    private void removeFocusHighlight(Component component) {
+        if (component instanceof JComponent jcomp) {
+            // Restore original border
+            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            jcomp.setBorder(originalBorder);
+            jcomp.repaint();
+        }
     }
 }

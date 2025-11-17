@@ -131,7 +131,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default void appendTasksToTaskList(List<String> tasks) {
+    default Context appendTasksToTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 
