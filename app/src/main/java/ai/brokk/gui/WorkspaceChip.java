@@ -224,6 +224,7 @@ public class WorkspaceChip extends JPanel {
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     onPrimaryClick();
+                    e.consume();
                 }
             }
         };
@@ -247,6 +248,7 @@ public class WorkspaceChip extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 onCloseClick();
+                e.consume();
             }
         };
         closeButton.addMouseListener(closeMouse);
@@ -273,8 +275,10 @@ public class WorkspaceChip extends JPanel {
                 int separatorEndX = separator.getX() + separator.getWidth();
                 if (clickX > separatorEndX) {
                     onCloseClick();
+                    e.consume();
                 } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
                     onPrimaryClick();
+                    e.consume();
                 }
             }
         };
@@ -296,7 +300,16 @@ public class WorkspaceChip extends JPanel {
 
     protected void onPrimaryClick() {
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment != null) {
+        if (fragment == null) {
+            return;
+        }
+        // Ensure a single preview window that starts with "Loading..." and updates in-place.
+        try {
+            var panel = chrome.getContextPanel();
+            panel.showFragmentPreview(fragment);
+        } catch (Exception ex) {
+            logger.error("Failed to open preview via WorkspacePanel; falling back to Chrome", ex);
+            // Fallback (should not normally be needed)
             chrome.openFragmentPreview(fragment);
         }
     }
