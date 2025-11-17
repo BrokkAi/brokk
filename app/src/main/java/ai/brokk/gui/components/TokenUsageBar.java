@@ -94,59 +94,60 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 if (!isEnabled() || readOnly) {
                     return;
                 }
-                if (SwingUtilities.isLeftMouseButton(e) && !e.isPopupTrigger()) {
-                    Segment seg = findSegmentAt(e.getX());
-                    if (seg != null && !seg.fragments.isEmpty()) {
-                        if (seg.isSummaryGroup) {
-                            // Open combined preview for all summaries (mirrors synthetic chip behavior)
-                            int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f -> {
-                                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                                            var files = cf.computedFiles().renderNowOr(Set.of());
-                                            return files.stream();
-                                        }
-                                        return f.files().stream();
-                                    })
-                                    .map(ProjectFile::toString)
-                                    .distinct()
-                                    .count();
-                            String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+                if (!SwingUtilities.isLeftMouseButton(e) || e.isPopupTrigger()) {
+                    return;
+                }
 
-                            StringBuilder combinedText = new StringBuilder();
-                            for (var f : seg.fragments) {
+                Segment seg = findSegmentAt(e.getX());
+                if (seg == null || seg.fragments.isEmpty()) {
+                    runOnClick();
+                    return;
+                }
+
+                if (seg.isSummaryGroup) {
+                    // Open combined preview for all summaries (mirrors synthetic chip behavior)
+                    int totalFiles = (int) seg.fragments.stream()
+                            .flatMap(f -> {
                                 if (f instanceof ContextFragment.ComputedFragment cf) {
-                                    combinedText
-                                            .append(cf.computedText().renderNowOr("(Loading summary...)"))
-                                            .append("\n\n");
-                                } else {
-                                    combinedText.append(f.text()).append("\n\n");
+                                    var files = cf.computedFiles().renderNowOr(Set.of());
+                                    return files.stream();
                                 }
-                            }
-                            var previewPanel = new PreviewTextPanel(
-                                    chrome.getContextManager(),
-                                    null,
-                                    combinedText.toString(),
-                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                                    chrome.getTheme(),
-                                    null);
-                            chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
-                        } else if (seg.fragments.size() == 1) {
-                            // Single fragment: open its preview
-                            chrome.openFragmentPreview(seg.fragments.iterator().next());
+                                return f.files().stream();
+                            })
+                            .map(ProjectFile::toString)
+                            .distinct()
+                            .count();
+                    String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+
+                    StringBuilder combinedText = new StringBuilder();
+                    for (var f : seg.fragments) {
+                        if (f instanceof ContextFragment.ComputedFragment cf) {
+                            combinedText
+                                    .append(cf.computedText().renderNowOr("(Loading summary...)"))
+                                    .append("\n\n");
                         } else {
-                            // Grouped segment (e.g., "Other"): no direct preview action
-                            Runnable r = onClick;
-                            if (r != null) {
-                                r.run();
-                            }
-                        }
-                    } else {
-                        Runnable r = onClick;
-                        if (r != null) {
-                            r.run();
+                            combinedText.append(f.text()).append("\n\n");
                         }
                     }
+                    var previewPanel = new PreviewTextPanel(
+                            chrome.getContextManager(),
+                            null,
+                            combinedText.toString(),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            chrome.getTheme(),
+                            null);
+                    chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                    return;
                 }
+
+                if (seg.fragments.size() == 1) {
+                    // Single fragment: open its preview
+                    chrome.openFragmentPreview(seg.fragments.iterator().next());
+                    return;
+                }
+
+                // Grouped segment (e.g., "Other") or any other fallback: trigger general click handler
+                runOnClick();
             }
 
             @Override
@@ -219,6 +220,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         this.onClick = onClick;
         setCursor(onClick != null ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
         repaint();
+    }
+
+    private void runOnClick() {
+        Runnable r = onClick;
+        if (r != null) {
+            r.run();
+        }
     }
 
     public void setOnHoverFragments(@Nullable BiConsumer<Collection<ContextFragment>, Boolean> cb) {
