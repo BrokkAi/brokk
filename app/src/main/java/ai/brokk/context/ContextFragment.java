@@ -39,6 +39,8 @@ import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
+import javax.swing.event.AncestorListener;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -387,7 +389,7 @@ public interface ContextFragment {
          * @param owner the Swing component that owns these subscriptions
          * @param uiUpdate a runnable to execute on the EDT when any computed value completes
          */
-        default void bind(javax.swing.JComponent owner, java.lang.Runnable uiUpdate) {
+        default void bind(JComponent owner, Runnable uiUpdate) {
             computedText().start();
             computedDescription().start();
             computedFiles().start();
@@ -398,9 +400,9 @@ public interface ContextFragment {
             // Helper to register a subscription
             Consumer<ComputedValue.Subscription> registerSub = sub -> {
                 @SuppressWarnings("unchecked")
-                var existing = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
+                var existing = (List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
                 if (existing == null) {
-                    existing = new java.util.ArrayList<>();
+                    existing = new ArrayList<>();
                     owner.putClientProperty(CV_SUBS_KEY, existing);
                 }
                 existing.add(sub);
@@ -408,7 +410,7 @@ public interface ContextFragment {
 
             // Helper to run UI update, coalesced onto EDT
             final boolean[] scheduled = {false};
-            java.lang.Runnable scheduleUpdate = () -> {
+            Runnable scheduleUpdate = () -> {
                 if (!scheduled[0]) {
                     scheduled[0] = true;
                     SwingUtilities.invokeLater(() -> {
@@ -431,7 +433,7 @@ public interface ContextFragment {
             registerSub.accept(s3);
 
             // Auto-dispose when owner is removed from parent
-            owner.addAncestorListener(new javax.swing.event.AncestorListener() {
+            owner.addAncestorListener(new AncestorListener() {
                 private boolean disposed = false;
 
                 @Override
@@ -442,14 +444,10 @@ public interface ContextFragment {
                     if (!disposed) {
                         disposed = true;
                         @SuppressWarnings("unchecked")
-                        var subs = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
+                        var subs = (List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
                         if (subs != null) {
                             for (var sub : subs) {
-                                try {
-                                    sub.dispose();
-                                } catch (Exception ex) {
-                                    // best-effort disposal
-                                }
+                                sub.dispose();
                             }
                             subs.clear();
                             owner.putClientProperty(CV_SUBS_KEY, null);
