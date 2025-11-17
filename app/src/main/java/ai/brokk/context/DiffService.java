@@ -138,7 +138,8 @@ public final class DiffService {
      */
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
         try {
-            var diffFutures = curr.allFragments()
+            var diffFutures = curr.getEditableFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                     .map(cf -> computeDiffForFragment(curr, cf, other))
                     .toList();
 
