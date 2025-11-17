@@ -305,10 +305,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
-        // Set up custom focus traversal policy for tab navigation
-        setFocusTraversalPolicy(new InstructionsPanelFocusTraversalPolicy());
-        setFocusCycleRoot(true);
-        setFocusTraversalPolicyProvider(true);
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -323,6 +319,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
+        // Add explicit focus border to make focus visible on the mic button
+        micButton.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                // Use a brighter, thicker focus border for visibility
+                var focusColor = new Color(0x3DA9FF);
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                if (original == null) {
+                    micButton.putClientProperty("originalBorder", micButton.getBorder());
+                }
+                var focusBorder = BorderFactory.createLineBorder(focusColor, 4, true);
+                var inner = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(BorderFactory.createCompoundBorder(focusBorder, inner));
+                micButton.repaint();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(original);
+                micButton.repaint();
+            }
+        });
 
         // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
         KeyboardShortcutUtil.registerGlobalShortcut(
@@ -385,7 +404,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
-        modelSelector.getComponent().setFocusable(true);
+        var modelComp = modelSelector.getComponent();
+        modelComp.setFocusable(true);
+        // Pressing space on the model selector should open up the options.
+        if (modelComp instanceof AbstractButton modelButton) {
+            modelComp.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "press");
+            modelComp.getActionMap().put("press", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    modelButton.doClick();
+                }
+            });
+        }
 
         // Initialize TokenUsageBar (left of Attach button)
         tokenUsageBar = new TokenUsageBar(chrome);
@@ -576,6 +606,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
+        // Identify this field so global focus traversal can selectively skip it
+        area.setName("instructionsArea");
         // The BorderUtils will now handle the border, including focus behavior and padding.
         BorderUtils.addFocusBorder(area, area);
         area.setLineWrap(true);
@@ -654,6 +686,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Respect user preference: insert indentation when enabled, otherwise traverse focus
                 if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     applyIndentation(area, true);
                 } else {
@@ -668,6 +701,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartShiftTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Respect user preference: unindent when enabled, otherwise traverse focus backward
                 if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     applyIndentation(area, false);
                 } else {
@@ -692,6 +726,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ensure focusable for keyboard accessibility
         micButton.setFocusable(true);
         wandButton.setFocusable(true);
+        historyDropdown.setFocusable(true);
 
         // Build a left cluster to measure width for proper center alignment of the badge
         var leftCluster = new JPanel();
@@ -2083,6 +2118,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.addSelectionListener(listener);
     }
 
+    // Public getters for focus traversal policy
+    public VoiceInputButton getMicButton() {
+        return micButton;
+    }
+
+    public WandButton getWandButton() {
+        return wandButton;
+    }
+
+    public SplitButton getHistoryDropdown() {
+        return historyDropdown;
+    }
+
+    public ActionSplitButton getActionButton() {
+        return actionButton;
+    }
+
     /**
      * Applies Advanced Mode UI visibility to the Instructions panel.
      * When in EZ mode (advanced=false), hides the mode badge and disables the mode dropdown.
@@ -2156,6 +2208,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Defer icon loading until EDT is ready
             SwingUtilities.invokeLater(() -> {
                 this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
+            });
+
+            getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("SPACE"), "showMenu");
+            getActionMap().put("showMenu", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    showDropdownMenu();
+                }
             });
 
             // Change cursor when hovering the dropdown area on the right
@@ -2391,7 +2451,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 int arc = 12;
                 Color borderColor;
                 if (isFocusOwner()) {
-                    borderColor = new Color(0x1F6FEB);
+                    borderColor = Color.WHITE;
                 } else {
                     borderColor = UIManager.getColor("Component.borderColor");
                     if (borderColor == null) borderColor = Color.GRAY;
@@ -2508,74 +2568,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             completionCache.put(text, completions);
 
             return completions;
-        }
-    }
-
-    /**
-     * Custom focus traversal policy for InstructionsPanel.
-     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
-     */
-    private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
-        @Override
-        public Component getComponentAfter(Container aContainer, Component aComponent) {
-            if (aComponent == instructionsArea) {
-                return micButton;
-            } else if (aComponent == micButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == modelSelector.getComponent()) {
-                return actionButton;
-            } else if (aComponent == actionButton) {
-                return findHistoryDropdown();
-            } else if (aComponent == findHistoryDropdown()) {
-                return getNextFocusableComponent();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getComponentBefore(Container aContainer, Component aComponent) {
-            if (aComponent == micButton) {
-                return instructionsArea;
-            } else if (aComponent == modelSelector.getComponent()) {
-                return micButton;
-            } else if (aComponent == actionButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == findHistoryDropdown()) {
-                return actionButton;
-            } else if (aComponent == getNextFocusableComponent()) {
-                return findHistoryDropdown();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getFirstComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getLastComponent(Container aContainer) {
-            return findHistoryDropdown();
-        }
-
-        @Override
-        public Component getDefaultComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        private Component findHistoryDropdown() {
-            return historyDropdown;
-        }
-
-        private Component getNextFocusableComponent() {
-            Container parent = InstructionsPanel.this.getParent();
-            while (parent != null && !(parent instanceof Window)) {
-                parent = parent.getParent();
-            }
-            if (parent != null) {
-                return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
-            }
-            return instructionsArea;
         }
     }
 

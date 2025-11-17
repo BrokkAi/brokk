@@ -2266,6 +2266,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
+    // Public getters for focus traversal policy
+    public JList<TaskList.TaskItem> getTaskList() {
+        return list;
+    }
+
+    public JTextField getTaskInput() {
+        return input;
+    }
+
+    public MaterialButton getGoStopButton() {
+        return goStopButton;
+    }
+
     /**
      * Ensure tasksTabBadgedIcon is created and applied to the enclosing JTabbedPane tab (if present).
      * Safe to call from any thread; UI work runs on the EDT. No-op if not hosted in a JTabbedPane or if theme
