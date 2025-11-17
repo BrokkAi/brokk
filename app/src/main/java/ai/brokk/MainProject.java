@@ -1549,10 +1549,8 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel(
-                    "Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel(
-                    "Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
+            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();

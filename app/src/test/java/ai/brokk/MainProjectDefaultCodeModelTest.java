@@ -43,9 +43,8 @@ class MainProjectDefaultCodeModelTest {
         if (testProject != null) {
             testProject.close();
         }
-        MainProject.globalPropertiesCache = originalGlobalPropertiesCache != null
-                ? (Properties) originalGlobalPropertiesCache.clone()
-                : null;
+        MainProject.globalPropertiesCache =
+                originalGlobalPropertiesCache != null ? (Properties) originalGlobalPropertiesCache.clone() : null;
 
         if (Files.exists(tempDir)) {
             Files.walk(tempDir).sorted(Comparator.reverseOrder()).forEach(path -> {
