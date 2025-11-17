@@ -10,12 +10,14 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.jetbrains.annotations.Nullable;
@@ -143,7 +145,8 @@ class HistoryIoV3CompatibilityTest {
         var ppf = findFragment(live, ContextFragment.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");
         var description = ppf.computedDescription().renderNowOrNull();
-        assertEquals("EditBlock.java [app/src/main/java/ai/brokk]", description);
+        var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk"));
+        assertEquals("EditBlock.java [%s]".formatted(path), description);
     }
 
     private Path stageBasicSessionZip() throws IOException, URISyntaxException {
