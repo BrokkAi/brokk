@@ -3,10 +3,13 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.UserMessage;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,8 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration tests for ContextHistory and its DiffService, verifying that diffs between contexts
- * are computed correctly without relying on frozen fragments. These tests validate that the
- * live-context, non-blocking async design works correctly with ComputedValue-based fragments.
+ * are computed correctly with file-backed ProjectPathFragments (hermetic via @TempDir).
  */
 public class ContextHistoryTest {
 
@@ -28,33 +30,36 @@ public class ContextHistoryTest {
     @BeforeEach
     public void setUp() {
         contextManager = new TestContextManager(tempDir, new TestConsoleIO());
+        ContextFragment.setMinimumId(1);
     }
 
     /**
-     * Verifies that DiffService correctly computes diffs between two consecutive contexts.
-     * This test creates two contexts with different content and validates that the diff
-     * is computed without calling freeze().
+     * Verifies that DiffService correctly computes diffs between two consecutive contexts
+     * using real files inside the temp project.
      */
     @Test
-    public void testDiffServiceComputesDiffsBetweenLiveContexts() {
-        // Create initial context with a string fragment
-        var initialFragment =
-                new ContextFragment.StringFragment(contextManager, "Initial content", "Test Fragment", "text/plain");
+    public void testDiffServiceComputesDiffsBetweenLiveContexts() throws Exception {
+        // Arrange: create a file in the temp project
+        var pf = new ProjectFile(tempDir, "src/Test1.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "Initial content\n");
+
+        var initialFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        // Seed computed text to simulate live context readiness
+        initialFragment.computedText().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
                 contextManager,
                 List.of(initialFragment),
                 List.of(),
                 null,
-                java.util.concurrent.CompletableFuture.completedFuture("Initial"));
+                CompletableFuture.completedFuture("Initial"));
 
-        // Create history with initial context
         var history = new ContextHistory(initialContext);
 
-        // Create a second context with modified content
-        var modifiedFragment = new ContextFragment.StringFragment(
-                contextManager, "Modified content with more text", "Test Fragment", "text/plain");
-
+        // Modify file for new context
+        Files.writeString(pf.absPath(), "Initial content\nModified content with more text\n");
+        var modifiedFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var modifiedContext = new Context(
                 contextManager,
                 List.of(modifiedFragment),
@@ -62,249 +67,199 @@ public class ContextHistoryTest {
                 null,
                 CompletableFuture.completedFuture("Modified"));
 
-        // Push the modified context to history
         history.pushContext(modifiedContext);
 
-        // Verify history contains both contexts
-        var contextList = history.getHistory();
-        assertEquals(2, contextList.size(), "History should contain 2 contexts");
+        // Act
+        var diffs = history.getDiffService().diff(modifiedContext).join();
 
-        // Get the diff service and compute diff between the two contexts
-        var diffService = history.getDiffService();
-        var diffs = diffService.diff(modifiedContext).join();
-
-        // Verify that diffs were computed
+        // Assert
         assertNotNull(diffs, "Diffs should not be null");
         assertFalse(diffs.isEmpty(), "Diffs should be computed between the two contexts");
-
-        // Verify that the diff contains the modified fragment
-        var diffEntry = diffs.get(0);
+        var diffEntry = diffs.getFirst();
         assertEquals(modifiedFragment.id(), diffEntry.fragment().id(), "Diff should reference the modified fragment");
         assertFalse(diffEntry.diff().isEmpty(), "Diff output should not be empty");
+        assertTrue(diffEntry.linesAdded() > 0 || diffEntry.linesDeleted() > 0, "Expected some changes");
     }
 
     /**
-     * Verifies that DiffService works correctly when adding new fragments to a context.
-     * This test ensures that diffs reflect added fragments without freezing.
+     * Verifies that DiffService detects added project file fragments.
+     * New untracked files should produce diffs vs. empty.
      */
     @Test
-    public void testDiffServiceDetectsAddedFragments() {
-        // Create initial context with one fragment
-        var fragment1 =
-                new ContextFragment.StringFragment(contextManager, "Fragment 1 content", "Fragment 1", "text/plain");
-
-        var initialContext = new Context(
-                contextManager, List.of(fragment1), List.of(), null, CompletableFuture.completedFuture("Initial"));
-
+    public void testDiffServiceDetectsAddedFragments() throws Exception {
+        // Initial context with no files
+        var initialContext =
+                new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture("Initial"));
         var history = new ContextHistory(initialContext);
 
-        // Create second context with an additional fragment (different description so it's a new source)
-        var fragment2 =
-                new ContextFragment.StringFragment(contextManager, "Fragment 2 content", "New Fragment", "text/plain");
+        // Create new file and context that includes it
+        var pf = new ProjectFile(tempDir, "src/NewFile.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "New file content\nline2\n");
 
-        var extendedContext = initialContext.addVirtualFragment(fragment2);
+        var projectFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var extendedContext = new Context(
+                contextManager, List.of(projectFrag), List.of(), null, CompletableFuture.completedFuture("Extended"));
 
         history.pushContext(extendedContext);
 
         // Compute diff
-        var diffService = history.getDiffService();
-        var diffs = diffService.diff(extendedContext).join();
+        var diffs = history.getDiffService().diff(extendedContext).join();
 
-        // Verify that diff detects the new fragment was added
+        // Verify that the new project file appears in the diffs
         assertNotNull(diffs, "Diffs should be computed");
-        // The new fragment should appear in the diffs
-        var hasNewFragment = diffs.stream().anyMatch(de -> de.fragment().id().equals(fragment2.id()));
-        assertTrue(hasNewFragment, "Diff should include the newly added fragment");
+        assertFalse(diffs.isEmpty(), "Adding a new file should produce a diff");
+        var hasNewFile = diffs.stream().anyMatch(de -> de.fragment().id().equals(projectFrag.id()));
+        assertTrue(hasNewFile, "Diff should include the newly added project file fragment");
     }
 
     /**
      * Verifies that DiffService correctly handles contexts with no changes.
-     * This test ensures that unchanged contexts produce empty or minimal diffs.
+     * Unchanged project files should not produce diffs.
      */
     @Test
-    public void testDiffServiceHandlesUnchangedContexts() {
-        // Create context with a fragment
-        var fragment =
-                new ContextFragment.StringFragment(contextManager, "Static content", "Test Fragment", "text/plain");
+    public void testDiffServiceHandlesUnchangedContexts() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Static.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "Static content\n");
 
-        var context = new Context(
-                contextManager,
-                List.of(fragment),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action"));
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action"));
+        var history = new ContextHistory(ctx1);
 
-        var history = new ContextHistory(context);
+        // Create a second context with the same file content
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action"));
+        history.pushContext(ctx2);
 
-        // Push the same context (no actual changes)
-        var contextCopy = new Context(
-                contextManager,
-                context.allFragments().toList(),
-                context.getTaskHistory(),
-                null,
-                CompletableFuture.completedFuture("Action"));
+        var diffs = history.getDiffService().diff(ctx2).join();
 
-        history.pushContext(contextCopy);
-
-        // Compute diff
-        var diffService = history.getDiffService();
-        var diffs = diffService.diff(contextCopy).join();
-
-        // For identical content, we expect either no diffs or diffs with empty diff strings
-        if (!diffs.isEmpty()) {
-            diffs.forEach(de -> assertTrue(
-                    de.diff().isEmpty() || de.diff().equals("[image changed]"),
-                    "Unchanged fragments should have empty or image diffs"));
-        }
+        // Expect no diffs
+        assertNotNull(diffs);
+        assertTrue(diffs.isEmpty(), "Unchanged project files should not produce diffs");
     }
 
     /**
-     * Verifies that DiffService correctly detects modified fragment content.
-     * This test creates two contexts where a fragment's content changes between them,
-     * and verifies that the diff correctly identifies the change.
+     * Verifies that DiffService correctly detects modified project file content.
      */
     @Test
-    public void testDiffServiceDetectsModifiedFragmentContent() {
-        // Create initial context with a fragment
-        var fragment1 =
-                new ContextFragment.StringFragment(contextManager, "Original content", "Test Fragment", "text/plain");
+    public void testDiffServiceDetectsModifiedFragmentContent() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Modified.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "Original content\n");
 
-        var initialContext = new Context(
-                contextManager, List.of(fragment1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        // Seed computed text to snapshot original content for diff
+        frag1.computedText().await(Duration.ofSeconds(2));
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(ctx1);
 
-        var history = new ContextHistory(initialContext);
+        Files.writeString(pf.absPath(), "Original content\nModified content with more text\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Modified"));
+        history.pushContext(ctx2);
 
-        // Create a second context with the same fragment description and syntax style,
-        // but different content (this simulates a modification to the fragment)
-        var fragment2 = new ContextFragment.StringFragment(
-                contextManager,
-                "Modified content with more text",
-                "Test Fragment", // Same description
-                "text/plain"); // Same syntax style
+        var diffs = history.getDiffService().diff(ctx2).join();
 
-        var modifiedContext = new Context(
-                contextManager, List.of(fragment2), List.of(), null, CompletableFuture.completedFuture("Modified"));
-
-        history.pushContext(modifiedContext);
-
-        // Compute diff
-        var diffService = history.getDiffService();
-        var diffs = diffService.diff(modifiedContext).join();
-
-        // Verify that diffs were computed for the modified fragment
-        assertNotNull(diffs, "Diffs should be computed");
+        assertNotNull(diffs);
         assertFalse(diffs.isEmpty(), "Diffs should reflect content change");
-
-        var diffEntry = diffs.get(0);
-        assertFalse(diffEntry.diff().isEmpty(), "Diff output should show content change");
-        assertTrue(
-                diffEntry.linesAdded() > 0 || diffEntry.linesDeleted() > 0, "Diff should show lines added or deleted");
+        var de = diffs.getFirst();
+        assertTrue(de.linesAdded() > 0 || de.linesDeleted() > 0, "Expected lines added/deleted");
+        assertFalse(de.diff().isEmpty(), "Diff output should not be empty");
     }
 
     /**
-     * Verifies that DiffService non-blocking peek() method works correctly.
-     * This test ensures that the cache works without blocking callers.
+     * Verifies that DiffService non-blocking peek() works with file-backed contexts.
      */
     @Test
-    public void testDiffServiceNonBlockingPeek() {
-        var fragment = new ContextFragment.StringFragment(contextManager, "Content", "Test Fragment", "text/plain");
+    public void testDiffServiceNonBlockingPeek() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Peek.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "Content\n");
 
-        var context1 = new Context(
-                contextManager,
-                List.of(fragment),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action 1"));
-        var history = new ContextHistory(context1);
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        // Seed computed text to snapshot original content for diff
+        frag1.computedText().await(Duration.ofSeconds(2));
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
+        var history = new ContextHistory(ctx1);
 
-        var fragment2 =
-                new ContextFragment.StringFragment(contextManager, "Modified content", "Test Fragment", "text/plain");
-
-        var context2 = new Context(
-                contextManager,
-                List.of(fragment2),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
-        history.pushContext(context2);
+        Files.writeString(pf.absPath(), "Modified content\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
+        history.pushContext(ctx2);
 
         var diffService = history.getDiffService();
 
         // Peek before diff is computed should return empty Optional
-        var peeked = diffService.peek(context2);
+        var peeked = diffService.peek(ctx2);
         assertTrue(peeked.isEmpty(), "Peek before computation should return empty Optional");
 
-        // Compute the diff
-        diffService.diff(context2).join();
-
-        // Now peek should return the computed diff
-        var peekedAfter = diffService.peek(context2);
+        // Compute and then peek
+        diffService.diff(ctx2).join();
+        var peekedAfter = diffService.peek(ctx2);
         assertTrue(peekedAfter.isPresent(), "Peek after computation should return the diff");
         assertFalse(peekedAfter.get().isEmpty(), "Peeked diff should not be empty");
     }
 
     /**
-     * Verifies that DiffService correctly computes diffs for contexts with task history changes.
-     * This test ensures that history additions are reflected in the diff computation.
+     * Verifies that DiffService correctly computes diffs for contexts with task history changes
+     * while operating on file-backed project fragments.
      */
     @Test
-    public void testDiffServiceWithTaskHistoryChanges() {
-        var fragment = new ContextFragment.StringFragment(contextManager, "Content", "Test Fragment", "text/plain");
+    public void testDiffServiceWithTaskHistoryChanges() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/WithHistory.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "Content\n");
 
+        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var initialContext = new Context(
-                contextManager,
-                List.of(fragment),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Initial"));
+                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
 
         var history = new ContextHistory(initialContext);
 
-        // Create a second context with added task history
+        // Add task history only; no file changes
         var taskFragment =
                 new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
-
-        var contextWithHistory = initialContext.addHistoryEntry(
-                taskEntry, null, java.util.concurrent.CompletableFuture.completedFuture("Action"));
-
+        var contextWithHistory =
+                initialContext.addHistoryEntry(taskEntry, null, CompletableFuture.completedFuture("Action"));
         history.pushContext(contextWithHistory);
 
-        // Compute diff
-        var diffService = history.getDiffService();
-        var diffs = diffService.diff(contextWithHistory).join();
+        var diffs = history.getDiffService().diff(contextWithHistory).join();
 
-        // Verify that diffs were computed (may include history fragment in the diffs)
+        // Since file didn't change, expect no diffs; we just ensure computation succeeded
         assertNotNull(diffs, "Diffs should be computed");
-        // Context diffs focus on fragment changes, not task history directly,
-        // so we just verify the diff computation succeeded
+        assertTrue(diffs.isEmpty(), "No file changes means no diffs");
     }
 
     /**
-     * Verifies that DiffService warmUp pre-computes diffs for multiple contexts.
-     * This test ensures that the warmUp mechanism works without errors.
+     * Verifies that DiffService warmUp pre-computes diffs for multiple contexts using project files.
      */
     @Test
-    public void testDiffServiceWarmUp() {
-        var fragment1 = new ContextFragment.StringFragment(contextManager, "Content 1", "Fragment 1", "text/plain");
+    public void testDiffServiceWarmUp() throws Exception {
+        var pf1 = new ProjectFile(tempDir, "src/Content1.txt");
+        Files.createDirectories(pf1.absPath().getParent());
+        Files.writeString(pf1.absPath(), "Content 1\n");
 
+        var frag1 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
+        // Seed computed text to snapshot original content for diff
+        frag1.computedText().await(Duration.ofSeconds(2));
         var context1 = new Context(
-                contextManager,
-                List.of(fragment1),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action 1"));
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
 
         var history = new ContextHistory(context1);
 
-        var fragment2 = new ContextFragment.StringFragment(contextManager, "Content 2", "Fragment 2", "text/plain");
-
+        // Modify to create a second context with changes
+        Files.writeString(pf1.absPath(), "Content 1\nMore\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
         var context2 = new Context(
-                contextManager,
-                List.of(fragment2),
-                List.of(),
-                null,
-                java.util.concurrent.CompletableFuture.completedFuture("Action 2"));
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
         history.pushContext(context2);
 
         var diffService = history.getDiffService();
@@ -313,13 +268,8 @@ public class ContextHistoryTest {
         var contexts = history.getHistory();
         diffService.warmUp(contexts);
 
-        // All diffs should be computed now (or in progress)
-        // Verify by peeking or explicitly joining
         for (var ctx : contexts) {
-            var peek = diffService.peek(ctx);
-            // WarmUp should have triggered computation for contexts with predecessors
             if (history.previousOf(ctx) != null) {
-                // Either already computed or in progress
                 diffService.diff(ctx).join();
                 assertTrue(diffService.peek(ctx).isPresent(), "After join, diff should be cached");
             }
