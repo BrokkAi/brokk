@@ -1452,7 +1452,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         combined.addAll(additions);
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
-        context = context.withTaskList(newData);
+        context = context.withTaskList(
+                newData, preExistingIncompleteTasks.isEmpty() ? "Tasks list created" : "Tasks added");
 
         if (io instanceof Chrome chrome) {
             // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
@@ -1475,9 +1476,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data) {
+    public Context setTaskList(TaskList.TaskListData data, String action) {
         // Track the change in history by pushing a new context with the Task List fragment
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
@@ -1524,9 +1525,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
-                pushContext(currentLiveCtx -> currentLiveCtx
-                        .withTaskList(legacy)
-                        .withAction(CompletableFuture.completedFuture("Task list migrated")));
+                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy, "Task list migrated"));
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
@@ -1605,7 +1604,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (idx >= 0) {
             existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             var newData = new TaskList.TaskListData(List.copyOf(existing));
-            setTaskList(newData);
+            setTaskList(newData, "Marked task done");
         }
     }
 
@@ -2773,7 +2772,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     if (found) {
                         var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
-                        setTaskList(newData);
+                        setTaskList(newData, "Updated task title");
 
                         if (io instanceof Chrome chrome) {
                             SwingUtilities.invokeLater(chrome::refreshTaskListUI);

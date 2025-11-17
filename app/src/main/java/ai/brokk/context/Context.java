@@ -1093,16 +1093,16 @@ public class Context {
     /**
      * Updates the Task List fragment with the provided JSON. Clears previous Task List fragments before adding a new one.
      */
-    private Context withTaskList(String json) {
+    private Context withTaskList(String json, String action) {
         var next = putSpecial(SpecialTextType.TASK_LIST, json);
-        return next.withParsedOutput(null, CompletableFuture.completedFuture("Task list updated"));
+        return next.withParsedOutput(null, CompletableFuture.completedFuture(action));
     }
 
     /**
      * Serializes and updates the Task List fragment using TaskList.TaskListData.
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
-    public Context withTaskList(TaskList.TaskListData data) {
+    public Context withTaskList(TaskList.TaskListData data, String action) {
         // Guard: if data hasn't changed, return this context unchanged
         var currentData = getTaskListDataOrEmpty();
         if (currentData.equals(data)) {
@@ -1122,10 +1122,10 @@ public class Context {
         // Non-empty case: serialize and update normally
         try {
             String json = Json.getMapper().writeValueAsString(data);
-            return withTaskList(json);
+            return withTaskList(json, action);
         } catch (Exception e) {
             logger.warn("Failed to serialize Task List to JSON", e);
-            return withTaskList("{\"tasks\":[]}");
+            return withTaskList("{\"tasks\":[]}", action);
         }
     }
 

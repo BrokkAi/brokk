@@ -30,7 +30,7 @@ public class TaskListFragmentPersistenceTest {
                 List.of(new TaskList.TaskItem("Do A", "Do A", false), new TaskList.TaskItem("Do B", "Do B", true)));
 
         // When: we apply the Task List via Context API and push into history
-        var after = initial.withTaskList(data);
+        var after = initial.withTaskList(data, "Tasks list created");
 
         // Then: Top context should include a Task List StringFragment with JSON content
         Optional<ContextFragment.StringFragment> fragOpt = after.getTaskListFragment();
