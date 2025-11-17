@@ -540,6 +540,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return stageTiming;
     }
 
+    /**
+     * Exposes the current immutable AnalyzerState snapshot for persistence.
+     * Intended for use by Language.saveAnalyzer and other persistence hooks.
+     */
+    public AnalyzerState snapshotState() {
+        return this.state;
+    }
+
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return fileProperties(file).topLevelCodeUnits();

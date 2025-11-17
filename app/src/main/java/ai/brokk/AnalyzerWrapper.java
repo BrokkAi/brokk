@@ -359,6 +359,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             needsRebuild = false;
         }
 
+        // Persist analyzer snapshots by language (best-effort)
+        try {
+            persistAnalyzerState(analyzer);
+        } catch (Throwable t) {
+            logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
+        }
+
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
             logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
@@ -478,6 +485,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             }
             // The function is supplied the current analyzer (may be null).
             currentAnalyzer = fn.apply(currentAnalyzer);
+
+            // Persist analyzer snapshots by language (best-effort)
+            try {
+                persistAnalyzerState(currentAnalyzer);
+            } catch (Throwable t) {
+                logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
+            }
+
             logger.debug("Analyzer refresh completed.");
             if (listener != null) {
                 boolean isNowReady = (currentAnalyzer != null);
@@ -572,6 +587,28 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
         } catch (Throwable th) {
             logger.debug("Exception while shutting down analyzerExecutor: {}", th.getMessage());
+        }
+    }
+
+    /**
+     * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
+     */
+    private void persistAnalyzerState(IAnalyzer analyzer) {
+        if (analyzer == null) return;
+
+        var langs = analyzer.languages();
+        if (langs == null || langs.isEmpty()) {
+            logger.trace("No languages to persist for analyzer: {}", analyzer.getClass().getSimpleName());
+            return;
+        }
+
+        for (var lang : langs) {
+            try {
+                var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
+                lang.saveAnalyzer(sub, project);
+            } catch (Throwable t) {
+                logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
+            }
         }
     }
 }
