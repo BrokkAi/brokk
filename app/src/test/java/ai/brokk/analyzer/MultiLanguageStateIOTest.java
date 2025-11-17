@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IProject;
-import ai.brokk.util.FileUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -11,99 +11,30 @@ import org.junit.jupiter.api.Test;
 
 public class MultiLanguageStateIOTest {
 
-    /**
-     * Minimal multi-language test project providing the basics required by TreeSitterAnalyzer and Language loaders.
-     */
-    static final class TestProject implements IProject {
-        private final Path root;
-        private final Set<ProjectFile> files;
-        private final Set<Language> languages;
-
-        TestProject(Path root, Set<ProjectFile> files, Set<Language> languages) {
-            this.root = root;
-            this.files = files;
-            this.languages = languages;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAnalyzableFiles(Language language) {
-            // Return only files that match the language's extensions
-            var exts = language.getExtensions();
-            var result = new LinkedHashSet<ProjectFile>();
-            for (var pf : files) {
-                var ext = pf.extension();
-                var normalized = ext.startsWith(".") ? ext.substring(1) : ext;
-                if (exts.contains(normalized)) {
-                    result.add(pf);
-                }
-            }
-            return result;
-        }
-
-        @Override
-        public Set<String> getExcludedDirectories() {
-            return Collections.emptySet();
-        }
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return languages;
-        }
-    }
-
     @Test
     void roundTripMultiLanguageAnalyzerState() throws Exception {
-        Path root = Files.createTempDirectory("brokk-multi-proj");
-        try {
-            // --- Prepare Java source file ---
-            Path javaDir = root.resolve("src")
-                    .resolve("main")
-                    .resolve("java")
-                    .resolve("com")
-                    .resolve("example");
-            Files.createDirectories(javaDir);
-            Path javaFilePath = javaDir.resolve("Hello.java");
-            String javaSrc =
-                    """
-                    package com.example;
+        // Build a temp project with Java + Python sources; project cleans itself up when closed
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                public class Hello {
+                    public int add(int a, int b) { return a + b; }
+                }
+                """,
+                "src/main/java/com/example/Hello.java");
 
-                    public class Hello {
-                        public int add(int a, int b) { return a + b; }
-                    }
-                    """;
-            Files.writeString(javaFilePath, javaSrc);
+        builder.addFileContents(
+                """
+                class World:
+                    def greet(self):
+                        return "hi"
+                """,
+                "src/main/python/com/example/mod.py");
 
-            // --- Prepare Python source file with a class (to ensure non-empty getAllDeclarations) ---
-            Path pyDir = root.resolve("src")
-                    .resolve("main")
-                    .resolve("python")
-                    .resolve("com")
-                    .resolve("example");
-            Files.createDirectories(pyDir);
-            Path pyFilePath = pyDir.resolve("mod.py");
-            String pySrc =
-                    """
-                    class World:
-                        def greet(self):
-                            return "hi"
-                    """;
-            Files.writeString(pyFilePath, pySrc);
+        // Configure languages: Java + Python
+        Set<Language> langs = Set.of(Languages.JAVA, Languages.PYTHON);
 
-            // Build project file set
-            ProjectFile javaPf = new ProjectFile(root, root.relativize(javaFilePath));
-            ProjectFile pyPf = new ProjectFile(root, root.relativize(pyFilePath));
-            Set<ProjectFile> filesSet = Set.of(javaPf, pyPf);
-
-            // Configure languages: Java + Python
-            Set<Language> langs = Set.of(Languages.JAVA, Languages.PYTHON);
-
-            IProject project = new TestProject(root, filesSet, langs);
-
+        try (IProject project = builder.build()) {
             // Build a MultiLanguage analyzer (load attempts persisted state; initial run falls back to full build)
             Language.MultiLanguage multiLang = new Language.MultiLanguage(langs);
             IAnalyzer analyzer = multiLang.loadAnalyzer(project);
@@ -180,12 +111,6 @@ public class MultiLanguageStateIOTest {
                     post.add(cu.fqName());
                 }
                 assertEquals(pre, post, "FQNs after reload should match original for " + lang.name());
-            }
-        } finally {
-            // Best-effort cleanup of temp dir
-            try {
-                FileUtil.deleteRecursively(root);
-            } catch (Throwable ignored) {
             }
         }
     }

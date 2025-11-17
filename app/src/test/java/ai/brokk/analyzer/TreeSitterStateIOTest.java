@@ -3,79 +3,29 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IProject;
-import ai.brokk.util.FileUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 public class TreeSitterStateIOTest {
 
-    /**
-     * Minimal test project providing just enough of IProject for TreeSitterAnalyzer.
-     */
-    static final class TestProject implements IProject {
-        private final Path root;
-        private final Set<ProjectFile> files;
-
-        TestProject(Path root, Set<ProjectFile> files) {
-            this.root = root;
-            this.files = files;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAnalyzableFiles(Language language) {
-            // Return only files that match the language's extensions
-            var exts = language.getExtensions();
-            var result = new LinkedHashSet<ProjectFile>();
-            for (var pf : files) {
-                var ext = pf.extension();
-                var normalized = ext.startsWith(".") ? ext.substring(1) : ext;
-                if (exts.contains(normalized)) {
-                    result.add(pf);
-                }
-            }
-            return result;
-        }
-
-        @Override
-        public Set<String> getExcludedDirectories() {
-            return Collections.emptySet();
-        }
-    }
-
     @Test
     void roundTripJavaAnalyzerState() throws Exception {
-        Path root = Files.createTempDirectory("brokk-java-proj");
-        try {
-            // Prepare a simple Java source file
-            Path pkgDir = root.resolve("src")
-                    .resolve("main")
-                    .resolve("java")
-                    .resolve("com")
-                    .resolve("example");
-            Files.createDirectories(pkgDir);
-            Path javaFilePath = pkgDir.resolve("Hello.java");
-            String src =
-                    """
-                    package com.example;
+        // Build an ephemeral project with a single Java file; project cleans itself up when closed
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
 
-                    public class Hello {
-                        public int add(int a, int b) { return a + b; }
-                    }
-                    """;
-            Files.writeString(javaFilePath, src);
+                public class Hello {
+                    public int add(int a, int b) { return a + b; }
+                }
+                """,
+                "src/main/java/com/example/Hello.java");
 
-            // Build project file set
-            ProjectFile pf = new ProjectFile(root, root.relativize(javaFilePath));
-            Set<ProjectFile> filesSet = Set.of(pf);
-            IProject project = new TestProject(root, filesSet);
-
+        try (IProject project = builder.build()) {
             // Build analyzer and assert we have declarations
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             var decls = analyzer.getAllDeclarations();
@@ -104,12 +54,6 @@ public class TreeSitterStateIOTest {
             assertTrue(
                     reDecls.stream().anyMatch(cu -> cu.fqName().equals(expectedFq)),
                     "Reloaded analyzer missing expected fqName " + expectedFq);
-        } finally {
-            // Best-effort cleanup of temp dir
-            try {
-                FileUtil.deleteRecursively(root);
-            } catch (Throwable ignored) {
-            }
         }
     }
 }
