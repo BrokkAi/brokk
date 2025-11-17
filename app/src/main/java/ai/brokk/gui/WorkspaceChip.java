@@ -10,7 +10,7 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.util.ComputedValue;
+import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -29,7 +29,6 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -69,8 +68,6 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static final Logger logger = LogManager.getLogger(WorkspaceChip.class);
-
-    private static final String CV_SUBS_KEY = "brokk.cv.subs";
 
     protected final Chrome chrome;
     protected final ContextManager contextManager;
@@ -434,7 +431,7 @@ public class WorkspaceChip extends JPanel {
 
     public void updateFragment(ContextFragment fragment) {
         // Rebind to updated fragment instance with same id
-        disposeComputedSubscriptions();
+        ComputedSubscription.disposeAll(this);
         setFragmentsInternal(Set.of(fragment));
         refreshLabelAndTooltip();
         updateReadOnlyIcon();
@@ -562,23 +559,7 @@ public class WorkspaceChip extends JPanel {
     protected void bindComputed() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            cf.bind(this, this::refreshLabelAndTooltip);
-        }
-    }
-
-    protected void disposeComputedSubscriptions() {
-        @SuppressWarnings("unchecked")
-        var subs = (List<ComputedValue.Subscription>) getClientProperty(CV_SUBS_KEY);
-        if (subs != null) {
-            for (var sub : subs) {
-                try {
-                    sub.dispose();
-                } catch (Exception ex) {
-                    logger.trace("Error disposing ComputedValue subscription", ex);
-                }
-            }
-            subs.clear();
-            putClientProperty(CV_SUBS_KEY, null);
+            ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
         }
     }
 
@@ -938,7 +919,7 @@ public class WorkspaceChip extends JPanel {
             this.summaryFragments = new ArrayList<>(summaries);
 
             // Rebind for all summaries instead of a single primary fragment
-            disposeComputedSubscriptions();
+            ComputedSubscription.disposeAll(this);
             bindComputed();
             refreshLabelAndTooltip();
         }
@@ -956,7 +937,7 @@ public class WorkspaceChip extends JPanel {
         }
 
         public void updateSummaries(List<ContextFragment> newSummaries) {
-            disposeComputedSubscriptions();
+            ComputedSubscription.disposeAll(this);
             this.summaryFragments = new ArrayList<>(newSummaries);
             super.setFragmentsInternal(new LinkedHashSet<>(newSummaries));
             bindComputed();
@@ -967,7 +948,7 @@ public class WorkspaceChip extends JPanel {
         protected void bindComputed() {
             for (var f : summaryFragments) {
                 if (f instanceof ContextFragment.ComputedFragment cf) {
-                    cf.bind(this, this::refreshLabelAndTooltip);
+                    ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
                 }
             }
         }
