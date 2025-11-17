@@ -475,6 +475,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Initialize mode indicator
         refreshModeIndicator();
 
+        // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
+        applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+
         // Subscribe to service reload events to update button states
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
     }
@@ -2136,6 +2139,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Programmatically select a planner model configuration and update the UI accordingly.
+     * Used by Settings dialog to synchronize model selection.
+     *
+     * @param cfg the model configuration to select
+     * @return true if the configuration was found and selected, false otherwise
+     */
+    public boolean selectPlannerModelConfig(Service.ModelConfig cfg) {
+        boolean success = modelSelector.selectConfig(cfg);
+        if (success) {
+            updateTokenCostIndicator();
+        }
+        return success;
+    }
+
+    /**
      * Applies Advanced Mode UI visibility to the Instructions panel.
      * When in EZ mode (advanced=false), hides the mode badge and disables the mode dropdown.
      * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
@@ -2155,6 +2173,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
                 instructionsArea.setText(getCurrentPlaceholder());
+            }
+
+            // Toggle ModelSelector visibility based on Advanced Mode
+            modelSelector.getComponent().setVisible(advanced);
+            if (selectorStripPanel != null) {
+                selectorStripPanel.revalidate();
+                selectorStripPanel.repaint();
+            }
+            if (bottomToolbarPanel != null) {
+                bottomToolbarPanel.revalidate();
+                bottomToolbarPanel.repaint();
             }
 
             refreshModeIndicator();
