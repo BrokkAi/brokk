@@ -1453,7 +1453,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var newData = new TaskList.TaskListData(List.copyOf(combined));
         context = context.withTaskList(
-                newData, preExistingIncompleteTasks.isEmpty() ? "Tasks list created" : "Tasks added");
+                newData, preExistingIncompleteTasks.isEmpty() ? "Task list created" : "Task list updated");
 
         if (io instanceof Chrome chrome) {
             // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
@@ -1604,7 +1604,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (idx >= 0) {
             existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             var newData = new TaskList.TaskListData(List.copyOf(existing));
-            setTaskList(newData, "Marked task done");
+            setTaskList(newData, "Task list marked task done");
         }
     }
 
@@ -2772,7 +2772,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     if (found) {
                         var newData = new TaskList.TaskListData(List.copyOf(updatedTasks));
-                        setTaskList(newData, "Updated task title");
+                        setTaskList(newData, "Task list updated task title");
 
                         if (io instanceof Chrome chrome) {
                             SwingUtilities.invokeLater(chrome::refreshTaskListUI);
