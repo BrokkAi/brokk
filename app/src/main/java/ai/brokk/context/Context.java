@@ -499,23 +499,6 @@ public class Context {
                 newContextId(), contextManager, fragments, taskHistory, null, actionFuture, null, null, newReadOnly);
     }
 
-    /**
-     * Sets read-only state for a fragment by ID. Looks up the fragment from the current context
-     * and delegates to {@link #setReadOnly(ContextFragment, boolean)}.
-     *
-     * @param fragmentId the ID of the fragment to modify
-     * @param readonly true to set read-only, false to unset
-     * @return a new context with updated read-only state, or this context if fragment not found
-     */
-    public Context setReadonly(String fragmentId, boolean readonly) {
-        var fragment = fragments.stream()
-                .filter(f -> f.id().equals(fragmentId))
-                .findFirst();
-        assert fragment.isPresent();
-
-        return setReadOnly(fragment.get(), readonly);
-    }
-
     public boolean isEmpty() {
         return fragments.isEmpty() && taskHistory.isEmpty();
     }

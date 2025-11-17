@@ -741,7 +741,7 @@ public class WorkspaceChip extends JPanel {
                 if (!ensureMutatingAllowed()) {
                     return;
                 }
-                contextManager.pushContext(curr -> curr.setReadonly(fragment.id(), !curr.isReadOnly(fragment)));
+                contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isReadOnly(fragment)));
             });
             menu.add(toggleRo);
             menu.addSeparator();
