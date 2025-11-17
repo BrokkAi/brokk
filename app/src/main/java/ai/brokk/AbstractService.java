@@ -48,6 +48,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
     public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_MINI = "gpt-5-mini";
+    public static final String SONNET_4_5 = "claude-sonnet-4-5";
+    public static final String HAIKU_4_5 = "claude-haiku-4-5";
 
     // these models are defined for low-latency use cases that don't require high intelligence
     private static final Set<String> SYSTEM_ONLY_MODELS = Set.of("gemini-2.0-flash-lite", "gpt-4.1-nano");
