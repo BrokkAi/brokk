@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,6 +36,7 @@ public record SettingsData(
      * @param project Current project, or null if no project is open
      * @return SettingsData with all loaded settings
      */
+    @Blocking
     public static SettingsData load(@Nullable IProject project) {
         // Load global settings (file I/O)
         var jvmSettings = MainProject.getJvmMemorySettings();
@@ -64,26 +66,11 @@ public record SettingsData(
         if (project != null) {
             try {
                 buildDetails = project.loadBuildDetails();
-            } catch (Exception e) {
-                logger.warn("Failed to load build details", e);
-            }
-
-            try {
                 styleGuide = project.getStyleGuide();
-            } catch (Exception e) {
-                logger.warn("Failed to load style guide", e);
-            }
-
-            try {
                 commitFormat = project.getCommitMessageFormat();
-            } catch (Exception e) {
-                logger.warn("Failed to load commit message format", e);
-            }
-
-            try {
                 reviewGuide = project.getReviewGuide();
             } catch (Exception e) {
-                logger.warn("Failed to load review guide", e);
+                logger.warn("Failed to load project settings", e);
             }
         }
 
@@ -94,6 +81,7 @@ public record SettingsData(
     /**
      * Loads account balance via network call. Safe to call off EDT.
      */
+    @Blocking
     private static String loadAccountBalance(String apiKey) {
         if (apiKey.isBlank()) {
             return "No API key configured";
