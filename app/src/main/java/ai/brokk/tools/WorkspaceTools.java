@@ -10,6 +10,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.gui.Chrome;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
@@ -438,7 +440,11 @@ public class WorkspaceTools {
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
-        io.llmOutput("I've created the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+        }
+
         return formattedTaskList;
     }
 
