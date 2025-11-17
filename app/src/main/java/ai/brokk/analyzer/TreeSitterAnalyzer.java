@@ -109,8 +109,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
      *
+     * Note: parsedTree is not persisted on disk. When loading from a saved snapshot, parsedTree will be null.
+     * This is safe and intentional; clients must not assume parsedTree is non-null.
+     *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree.
+     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      * @param resolvedImports   resolved CodeUnits from import statements.
      */
@@ -462,6 +465,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
+     *
+     * Note: When constructed from a prebuilt state loaded from disk, all FileProperties.parsedTree
+     * references will be null (parsed trees are not persisted). This is safe; logic must not rely
+     * on parsedTree being non-null after load.
      */
     protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
         this.project = project;

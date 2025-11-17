@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -93,6 +94,10 @@ public final class TreeSitterStateIO {
             var state = fromDto(dto);
             log.debug("Loaded TreeSitter AnalyzerState from {}", file);
             return Optional.of(state);
+        } catch (MismatchedInputException mie) {
+            // Schema mismatch / incompatible version - trigger a rebuild
+            log.warn("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
+            return Optional.empty();
         } catch (IOException e) {
             log.warn("Failed to load TreeSitter AnalyzerState from {}: {}", file, e.getMessage(), e);
             return Optional.empty();
