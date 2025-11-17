@@ -134,12 +134,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
-    public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
+    public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog, SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
-        loadSettings();
+        populateFromData(data); // Populate UI from pre-loaded data (no I/O)
 
         // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
         parentDialog.addWindowListener(new WindowAdapter() {
@@ -155,6 +156,178 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Register for settings change notifications
         MainProject.addSettingsChangeListener(this);
+    }
+
+    /**
+     * Populates UI fields from pre-loaded settings data. No I/O operations.
+     * Must be called on EDT.
+     */
+    public void populateFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // General Tab - JVM Memory
+        try {
+            var mem = data.jvmMemorySettings();
+            if (mem.automatic()) {
+                memoryAutoRadio.setSelected(true);
+                memorySpinner.setEnabled(false);
+            } else {
+                memoryManualRadio.setSelected(true);
+                memorySpinner.setEnabled(true);
+                try {
+                    int v = mem.manualMb();
+                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+                    int min = ((Number) model.getMinimum()).intValue();
+                    int max = ((Number) model.getMaximum()).intValue();
+                    if (v < min) v = min;
+                    if (v > max) v = max;
+                    int step = model.getStepSize().intValue();
+                    if (step > 0) {
+                        int rem = v % step;
+                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
+                    }
+                    memorySpinner.setValue(v);
+                } catch (Exception ignore) {
+                    // leave spinner as-is
+                }
+            }
+        } catch (Exception ignore) {
+            // Use defaults if there is any problem reading settings
+        }
+
+        // Advanced Mode (General tab)
+        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // Service Tab
+        brokkKeyField.setText(data.brokkApiKey());
+        balanceField.setText(data.accountBalance()); // Pre-loaded from background
+        updateSignupLabelVisibility();
+        if (brokkProxyRadio != null && localhostProxyRadio != null) {
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                brokkProxyRadio.setSelected(true);
+            } else {
+                localhostProxyRadio.setSelected(true);
+            }
+        }
+
+        if (forceToolEmulationCheckbox != null) {
+            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
+        }
+        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
+        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
+        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
+        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
+        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
+
+        // Compression Tab
+        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
+        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
+        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
+
+        // Appearance Tab
+        String currentTheme = MainProject.getTheme();
+        switch (currentTheme) {
+            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            default -> lightThemeRadio.setSelected(true);
+        }
+
+        // Code Block Layout
+        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
+        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
+
+        // UI Scale (if present; hidden on macOS)
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            String pref = MainProject.getUiScalePref();
+            if ("auto".equalsIgnoreCase(pref)) {
+                uiScaleAutoRadio.setSelected(true);
+                uiScaleCombo.setSelectedItem("1.0");
+                uiScaleCombo.setEnabled(false);
+            } else {
+                uiScaleCustomRadio.setSelected(true);
+                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
+                String selected = pref;
+                boolean found = false;
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (pref.equals(model.getElementAt(i))) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try {
+                        double v = Double.parseDouble(pref);
+                        int nearest = (int) Math.round(v);
+                        if (nearest < 1) nearest = 1;
+                        if (nearest > 5) nearest = 5;
+                        selected = nearest + ".0";
+                    } catch (NumberFormatException ignore) {
+                        selected = "1.0";
+                    }
+                }
+                uiScaleCombo.setSelectedItem(selected);
+                uiScaleCombo.setEnabled(true);
+            }
+        }
+
+        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
+
+        // Diff View preference
+        boolean unified = GlobalUiSettings.isDiffUnifiedView();
+        diffUnifiedRadio.setSelected(unified);
+        diffSideBySideRadio.setSelected(!unified);
+
+        // Startup behavior
+        var startupMode = MainProject.getStartupOpenMode();
+        if (startupMode == MainProject.StartupOpenMode.ALL) {
+            startupOpenAllRadio.setSelected(true);
+        } else {
+            startupOpenLastRadio.setSelected(true);
+        }
+        // Persist per-project main window position (default true)
+        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
+
+        // Instructions panel behavior
+        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+
+        // Quick Models Tab - use pre-loaded data
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var loadedFavorites = data.favoriteModels();
+        quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate preferred code model combo with favorite aliases
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current code config
+        String selectedAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentCodeConfig.name())
+                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
+                    && favorite.config().tier() == currentCodeConfig.tier()) {
+                selectedAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
+
+        // GitHub Tab
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.loadSettings();
+        }
+
+        // MCP Servers Tab
+        mcpServersListModel.clear();
+        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
+        for (McpServer server : mcpConfig.servers()) {
+            mcpServersListModel.addElement(server);
+        }
     }
 
     private void initComponents() {
@@ -286,20 +459,41 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         }
                     }
 
-                    GlobalUiSettings.saveKeybinding(id, captured);
+                    // Save keybinding in background to avoid EDT blocking
+                    var keystrokeToSave = captured;
                     field.setText(formatKeyStroke(captured));
-                    // Immediately refresh global keybindings so changes take effect
-                    try {
-                        chrome.refreshKeybindings();
-                    } catch (Exception ex) {
-                        logger.debug("refreshKeybindings failed (non-fatal)", ex);
-                    }
-                    JOptionPane.showMessageDialog(panel, "Saved and applied.");
+
+                    new SwingWorker<Void, Void>() {
+                        @Override
+                        protected Void doInBackground() {
+                            GlobalUiSettings.saveKeybinding(id, keystrokeToSave);
+                            return null;
+                        }
+
+                        @Override
+                        protected void done() {
+                            // Immediately refresh global keybindings so changes take effect
+                            try {
+                                chrome.refreshKeybindings();
+                            } catch (Exception ex) {
+                                logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                            }
+                            JOptionPane.showMessageDialog(panel, "Saved and applied.");
+                        }
+                    }.execute();
                 });
 
                 clearBtn.addActionListener(ev -> {
-                    GlobalUiSettings.saveKeybinding(id, def);
                     field.setText(formatKeyStroke(def));
+
+                    // Save keybinding in background to avoid EDT blocking
+                    new SwingWorker<Void, Void>() {
+                        @Override
+                        protected Void doInBackground() {
+                            GlobalUiSettings.saveKeybinding(id, def);
+                            return null;
+                        }
+                    }.execute();
                 });
             }
         }

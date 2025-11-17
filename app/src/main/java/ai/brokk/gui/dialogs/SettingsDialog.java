@@ -51,22 +51,24 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         SwingUtil.applyPrimaryButtonStyle(okButton);
 
-        // Global Settings Panel
-        globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
-        tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
+        // Create loading panel to show while settings load
+        var loadingPanel = new JPanel(new GridBagLayout());
+        var loadingLabel = new JLabel("Loading settings...");
+        loadingLabel.setFont(loadingLabel.getFont().deriveFont(Font.PLAIN, 14f));
+        loadingPanel.add(loadingLabel);
 
-        // Project Settings Panel
-        // Pass dialog buttons to project panel for enabling/disabling during build agent run
-        projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
-        tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
-
-        updateProjectPanelEnablement(); // Initial enablement
+        tabbedPane.addTab("Loading", null, loadingPanel, "Loading settings");
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
         buttonPanel.add(applyButton);
+
+        // Disable buttons while loading
+        okButton.setEnabled(false);
+        cancelButton.setEnabled(false);
+        applyButton.setEnabled(false);
 
         okButton.addActionListener(e -> {
             if (applySettings()) {
@@ -83,10 +85,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         applyButton.addActionListener(e -> {
             if (applySettings()) {
                 // Reload settings in panels to reflect saved state
-                globalSettingsPanel.loadSettings();
-                chrome.getProject();
-                projectSettingsPanel.loadSettings();
-                handleProxyRestartIfNeeded(); // Handle restart if proxy changed on Apply
+                loadSettingsInBackground();
             }
         });
 
@@ -112,6 +111,82 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(tabbedPane, BorderLayout.CENTER);
         getContentPane().add(buttonPanel, BorderLayout.SOUTH);
+
+        // Load settings in background and populate UI when done
+        loadSettingsInBackground();
+    }
+
+    /**
+     * Loads all settings in background thread and populates UI on EDT when complete.
+     * This prevents EDT blocking from file I/O and network operations.
+     */
+    private void loadSettingsInBackground() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Disable panels during load
+        if (globalSettingsPanel != null) {
+            globalSettingsPanel.setEnabled(false);
+        }
+        if (projectSettingsPanel != null) {
+            projectSettingsPanel.setEnabled(false);
+        }
+
+        var worker = new SwingWorker<SettingsData, Void>() {
+            @Override
+            protected SettingsData doInBackground() {
+                // All I/O happens here in background thread
+                return SettingsData.load(chrome.getProject());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    var data = get();
+                    populateUIFromData(data);
+                } catch (Exception e) {
+                    logger.error("Failed to load settings", e);
+                    chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
+                    dispose();
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Populates UI panels with loaded settings data. Must be called on EDT.
+     */
+    private void populateUIFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Remove loading tab if this is initial load
+        if (globalSettingsPanel == null) {
+            tabbedPane.removeAll();
+
+            // Create panels with data
+            globalSettingsPanel = new SettingsGlobalPanel(chrome, this, data);
+            tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
+
+            projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton, data);
+            tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
+
+            updateProjectPanelEnablement();
+
+            // Enable buttons now that panels are loaded
+            okButton.setEnabled(true);
+            cancelButton.setEnabled(true);
+            applyButton.setEnabled(true);
+        } else {
+            // This is a reload after Apply - just refresh panel data
+            globalSettingsPanel.populateFromData(data);
+            projectSettingsPanel.populateFromData(data);
+            globalSettingsPanel.setEnabled(true);
+            projectSettingsPanel.setEnabled(true);
+            handleProxyRestartIfNeeded();
+        }
+
+        revalidate();
+        repaint();
     }
 
     public Chrome getChrome() {
@@ -163,13 +238,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         projectSettingsPanel.refreshDataRetentionPanel();
         // After data retention policy is refreshed, the model list (which depends on policy)
         // in the global panel might need to be updated as well.
-        globalSettingsPanel.loadSettings(); // Reload to reflect new policy and available models
+        loadSettingsInBackground(); // Reload to reflect new policy and available models
     }
 
     // Called by SettingsProjectPanel's DataRetentionPanel when policy is applied
     // to refresh the Models tab in the Global panel.
     public void refreshGlobalModelsPanelPostPolicyChange() {
-        globalSettingsPanel.loadSettings();
+        loadSettingsInBackground();
     }
 
     @Override

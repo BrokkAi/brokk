@@ -102,7 +102,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private LanguagesTableModel languagesTableModel;
 
     public SettingsProjectPanel(
-            Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
+            Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton, SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -111,7 +112,77 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         setLayout(new BorderLayout());
         initComponents();
-        loadSettings(); // Load settings after components are initialized
+        populateFromData(data); // Populate UI from pre-loaded data (no I/O)
+    }
+
+    /**
+     * Populates UI fields from pre-loaded settings data. No I/O operations.
+     * Must be called on EDT.
+     */
+    public void populateFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        var project = chrome.getProject();
+
+        // General Tab - use pre-loaded data
+        styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
+        commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
+        if (reviewGuideArea != null) {
+            reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
+        }
+
+        // Issues Tab (still requires live project data as it's not in SettingsData)
+        IssueProvider currentProvider = project.getIssuesProvider();
+        issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
+
+        githubOwnerField.setEnabled(false);
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false);
+        githubOverrideCheckbox.setSelected(false);
+
+        switch (currentProvider.type()) {
+            case JIRA:
+                if (currentProvider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig) {
+                    jiraBaseUrlField.setText(jiraConfig.baseUrl());
+                    jiraApiTokenField.setText(jiraConfig.apiToken());
+                    jiraProjectKeyField.setText(jiraConfig.projectKey());
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
+                break;
+            case GITHUB:
+                if (currentProvider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
+                    if (!githubConfig.isDefault()) {
+                        githubOwnerField.setText(githubConfig.owner());
+                        githubRepoField.setText(githubConfig.repo());
+                        githubHostField.setText(githubConfig.host());
+                        githubOwnerField.setEnabled(true);
+                        githubRepoField.setEnabled(true);
+                        githubHostField.setEnabled(true);
+                        githubOverrideCheckbox.setSelected(true);
+                    } else {
+                        githubOwnerField.setText("");
+                        githubRepoField.setText("");
+                        githubHostField.setText("");
+                    }
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
+                break;
+            case NONE:
+            default:
+                issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
+                break;
+        }
+
+        loadCodeIntelligenceSettings();
+
+        // Build details - use pre-loaded data
+        if (data.buildDetails() != null) {
+            updateExcludedDirectories(data.buildDetails().excludedDirectories());
+        } else {
+            updateExcludedDirectories(List.of());
+        }
+
+        // Build Tab - delegate to buildPanelInstance
+        buildPanelInstance.loadBuildPanelSettings();
     }
 
     private void initComponents() {
