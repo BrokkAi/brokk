@@ -114,16 +114,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
                             StringBuilder combinedText = new StringBuilder();
                             for (var f : seg.fragments) {
-                                try {
-                                    if (f instanceof ContextFragment.ComputedFragment cf) {
-                                        combinedText
-                                                .append(cf.computedText().renderNowOr("(Loading summary...)"))
-                                                .append("\n\n");
-                                    } else {
-                                        combinedText.append(f.text()).append("\n\n");
-                                    }
-                                } catch (Exception ex) {
-                                    logger.debug("Failed reading summary text for preview", ex);
+                                if (f instanceof ContextFragment.ComputedFragment cf) {
+                                    combinedText
+                                            .append(cf.computedText().renderNowOr("(Loading summary...)"))
+                                            .append("\n\n");
+                                } else {
+                                    combinedText.append(f.text()).append("\n\n");
                                 }
                             }
                             var previewPanel = new PreviewTextPanel(
@@ -141,21 +137,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             // Grouped segment (e.g., "Other"): no direct preview action
                             Runnable r = onClick;
                             if (r != null) {
-                                try {
-                                    r.run();
-                                } catch (Exception ex) {
-                                    logger.debug("TokenUsageBar onClick handler threw", ex);
-                                }
+                                r.run();
                             }
                         }
                     } else {
                         Runnable r = onClick;
                         if (r != null) {
-                            try {
-                                r.run();
-                            } catch (Exception ex) {
-                                logger.debug("TokenUsageBar onClick handler threw", ex);
-                            }
+                            r.run();
                         }
                     }
                 }
@@ -166,11 +154,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 Segment prev = hoveredSegment;
                 hoveredSegment = null;
                 if (prev != null && onHoverFragments != null && isEnabled() && !readOnly) {
-                    try {
-                        onHoverFragments.accept(prev.getFragments(), false);
-                    } catch (Exception ex) {
-                        logger.trace("onHoverFragments exit callback threw", ex);
-                    }
+                    onHoverFragments.accept(prev.getFragments(), false);
                 }
             }
 
@@ -184,18 +168,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     Segment prev = hoveredSegment;
                     hoveredSegment = seg;
                     if (prev != null && onHoverFragments != null) {
-                        try {
-                            onHoverFragments.accept(prev.getFragments(), false);
-                        } catch (Exception ex) {
-                            logger.trace("onHoverFragments exit callback threw", ex);
-                        }
+                        onHoverFragments.accept(prev.getFragments(), false);
                     }
                     if (seg != null && onHoverFragments != null) {
-                        try {
-                            onHoverFragments.accept(seg.getFragments(), true);
-                        } catch (Exception ex) {
-                            logger.trace("onHoverFragments enter callback threw", ex);
-                        }
+                        onHoverFragments.accept(seg.getFragments(), true);
                     }
                 }
             }
@@ -306,19 +282,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             protected Void doInBackground() {
                 for (var f : frags) {
-                    try {
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            // Kick off computations eagerly
-                            cf.computedText().start();
-                            cf.computedDescription().start();
-                            cf.computedFiles().start();
-                        }
-                        if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment (non-blocking text path)
-                            tokensForFragment(f);
-                        }
-                    } catch (Exception ignore) {
-                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    if (f instanceof ContextFragment.ComputedFragment cf) {
+                        // Kick off computations eagerly
+                        cf.computedText().start();
+                        cf.computedDescription().start();
+                        cf.computedFiles().start();
+                    }
+                    if (f.isText() || f.getType().isOutput()) {
+                        // This will compute and cache the token count for the fragment (non-blocking text path)
+                        tokensForFragment(f);
                     }
                 }
                 return null;
@@ -424,71 +396,66 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     @Override
     public @Nullable Point getToolTipLocation(MouseEvent event) {
-        try {
-            String text = getToolTipText(event);
-            if (text.isEmpty()) {
-                return null; // default behavior if no tooltip
-            }
-
-            JToolTip tip = createToolTip();
-            tip.setTipText(text);
-            Dimension sz = tip.getPreferredSize();
-
-            int compW = getWidth();
-            int compH = getHeight();
-
-            // Prefer centering over the hovered segment; otherwise around the mouse x
-            int anchorX;
-            Segment seg = findSegmentAt(event.getX());
-            if (seg != null) {
-                anchorX = seg.startX + Math.max(0, seg.widthPx) / 2;
-            } else {
-                anchorX = Math.max(0, Math.min(event.getX(), compW));
-            }
-
-            int x = anchorX - sz.width / 2;
-            x = Math.max(0, Math.min(x, Math.max(0, compW - sz.width)));
-
-            // Place above by default with a small margin; fallback below if not enough room
-            int yAbove = -sz.height - 6;
-
-            Point aboveScreen = new Point(x, yAbove);
-            SwingUtilities.convertPointToScreen(aboveScreen, this);
-
-            Rectangle screenBounds;
-            GraphicsConfiguration gc = getGraphicsConfiguration();
-            if (gc != null) {
-                screenBounds = gc.getBounds();
-            } else {
-                Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
-                screenBounds = new Rectangle(0, 0, scr.width, scr.height);
-            }
-
-            boolean fitsAbove = aboveScreen.y >= screenBounds.y;
-
-            int yBelow = compH + 6;
-            Point belowScreen = new Point(x, yBelow);
-            SwingUtilities.convertPointToScreen(belowScreen, this);
-            boolean fitsBelow = (belowScreen.y + sz.height) <= (screenBounds.y + screenBounds.height);
-
-            int y = (fitsAbove || !fitsBelow) ? yAbove : yBelow;
-
-            // Clamp horizontally to on-screen bounds as well
-            Point finalScreen = new Point(x, y);
-            SwingUtilities.convertPointToScreen(finalScreen, this);
-            int minX = screenBounds.x;
-            int maxX = screenBounds.x + screenBounds.width - sz.width;
-            if (finalScreen.x < minX) {
-                x += (minX - finalScreen.x);
-            } else if (finalScreen.x > maxX) {
-                x -= (finalScreen.x - maxX);
-            }
-
-            return new Point(x, y);
-        } catch (Exception ex) {
-            logger.trace("Failed to compute tooltip location for TokenUsageBar", ex);
-            return null; // default placement
+        String text = getToolTipText(event);
+        if (text.isEmpty()) {
+            return null; // default behavior if no tooltip
         }
+
+        JToolTip tip = createToolTip();
+        tip.setTipText(text);
+        Dimension sz = tip.getPreferredSize();
+
+        int compW = getWidth();
+        int compH = getHeight();
+
+        // Prefer centering over the hovered segment; otherwise around the mouse x
+        int anchorX;
+        Segment seg = findSegmentAt(event.getX());
+        if (seg != null) {
+            anchorX = seg.startX + Math.max(0, seg.widthPx) / 2;
+        } else {
+            anchorX = Math.max(0, Math.min(event.getX(), compW));
+        }
+
+        int x = anchorX - sz.width / 2;
+        x = Math.max(0, Math.min(x, Math.max(0, compW - sz.width)));
+
+        // Place above by default with a small margin; fallback below if not enough room
+        int yAbove = -sz.height - 6;
+
+        Point aboveScreen = new Point(x, yAbove);
+        SwingUtilities.convertPointToScreen(aboveScreen, this);
+
+        Rectangle screenBounds;
+        GraphicsConfiguration gc = getGraphicsConfiguration();
+        if (gc != null) {
+            screenBounds = gc.getBounds();
+        } else {
+            Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
+            screenBounds = new Rectangle(0, 0, scr.width, scr.height);
+        }
+
+        boolean fitsAbove = aboveScreen.y >= screenBounds.y;
+
+        int yBelow = compH + 6;
+        Point belowScreen = new Point(x, yBelow);
+        SwingUtilities.convertPointToScreen(belowScreen, this);
+        boolean fitsBelow = (belowScreen.y + sz.height) <= (screenBounds.y + screenBounds.height);
+
+        int y = (fitsAbove || !fitsBelow) ? yAbove : yBelow;
+
+        // Clamp horizontally to on-screen bounds as well
+        Point finalScreen = new Point(x, y);
+        SwingUtilities.convertPointToScreen(finalScreen, this);
+        int minX = screenBounds.x;
+        int maxX = screenBounds.x + screenBounds.width - sz.width;
+        if (finalScreen.x < minX) {
+            x += (minX - finalScreen.x);
+        } else if (finalScreen.x > maxX) {
+            x -= (finalScreen.x - maxX);
+        }
+
+        return new Point(x, y);
     }
 
     @Nullable
@@ -904,28 +871,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private int tokensForFragment(ContextFragment f) {
-        try {
-            return tokenCache.computeIfAbsent(f.id(), id -> {
-                if (f.isText() || f.getType().isOutput()) {
-                    try {
-                        String text;
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            text = cf.computedText().renderNowOr("(Loading)");
-                        } else {
-                            text = f.text();
-                        }
-                        return Messages.getApproximateTokens(text);
-                    } catch (Exception e) {
-                        logger.trace("Failed to compute token count for fragment", e);
-                        return 0;
-                    }
+        return tokenCache.computeIfAbsent(f.id(), id -> {
+            if (f.isText() || f.getType().isOutput()) {
+                String text;
+                if (f instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("(Loading)");
+                } else {
+                    text = f.text();
                 }
-                return 0;
-            });
-        } catch (Exception e) {
-            logger.trace("Failed to cache token count for fragment", e);
+                return Messages.getApproximateTokens(text);
+            }
             return 0;
-        }
+        });
     }
 
     private static class Segment {

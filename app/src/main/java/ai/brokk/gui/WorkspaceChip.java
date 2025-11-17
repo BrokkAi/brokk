@@ -541,14 +541,10 @@ public class WorkspaceChip extends JPanel {
 
     protected void dropSingleFragment(ContextFragment fragment) {
         contextManager.submitContextTask(() -> {
-            try {
-                if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
-                    contextManager.dropWithHistorySemantics(List.of(fragment));
-                } else {
-                    onRemoveFragment.accept(fragment);
-                }
-            } catch (Exception ex) {
-                logger.error("Failed to drop fragment {}", fragment, ex);
+            if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                contextManager.dropWithHistorySemantics(List.of(fragment));
+            } else {
+                onRemoveFragment.accept(fragment);
             }
         });
     }
@@ -575,32 +571,15 @@ public class WorkspaceChip extends JPanel {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
             newLabelText = fragment.shortDescription();
         } else if (kind == ChipKind.OTHER) {
-            String sd;
-            try {
-                sd = fragment.shortDescription();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
-            newLabelText = capitalizeFirst(sd);
+            newLabelText = capitalizeFirst(fragment.shortDescription());
         } else {
-            String sd;
-            try {
-                sd = fragment.shortDescription();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
+            var sd = fragment.shortDescription();
             newLabelText = sd.isBlank() ? label.getText() : sd;
         }
         label.setText(newLabelText);
 
-        try {
-            label.setToolTipText(buildDefaultTooltip(fragment));
-            label.getAccessibleContext().setAccessibleDescription(fragment.description());
-        } catch (Exception ex) {
-            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
-        }
+        label.setToolTipText(buildDefaultTooltip(fragment));
+        label.getAccessibleContext().setAccessibleDescription(fragment.description());
     }
 
     private Icon buildCloseIcon(Color chipBackground) {
@@ -665,38 +644,30 @@ public class WorkspaceChip extends JPanel {
 
     private Icon fitIconToChip(Icon base, JComponent reference) {
         int target = Math.max(12, reference.getPreferredSize().height - 4);
-        try {
-            if (base instanceof SwingUtil.ThemedIcon themed) {
-                return themed.withSize(target);
-            }
-            int w = Math.max(1, base.getIconWidth());
-            int h = Math.max(1, base.getIconHeight());
-            BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2 = buf.createGraphics();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            base.paintIcon(null, g2, 0, 0);
-            g2.dispose();
-            Image scaled = buf.getScaledInstance(target, target, Image.SCALE_SMOOTH);
-            return new ImageIcon(scaled);
-        } catch (Throwable t) {
-            return base;
+        if (base instanceof SwingUtil.ThemedIcon themed) {
+            return themed.withSize(target);
         }
+        int w = Math.max(1, base.getIconWidth());
+        int h = Math.max(1, base.getIconHeight());
+        BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = buf.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        base.paintIcon(null, g2, 0, 0);
+        g2.dispose();
+        Image scaled = buf.getScaledInstance(target, target, Image.SCALE_SMOOTH);
+        return new ImageIcon(scaled);
     }
 
     // Context menu helpers
 
     private static boolean isDropAction(Object actionOrItem) {
-        try {
-            if (actionOrItem instanceof JMenuItem mi) {
-                String text = mi.getText();
-                return "Drop".equals(text);
-            }
-            if (actionOrItem instanceof Action a) {
-                Object name = a.getValue(Action.NAME);
-                return name instanceof String s && "Drop".equals(s);
-            }
-        } catch (Exception ex) {
-            logger.debug("Error inspecting action/menu item for 'Drop'", ex);
+        if (actionOrItem instanceof JMenuItem mi) {
+            String text = mi.getText();
+            return "Drop".equals(text);
+        }
+        if (actionOrItem instanceof Action a) {
+            Object name = a.getValue(Action.NAME);
+            return name instanceof String s && "Drop".equals(s);
         }
         return false;
     }
@@ -736,71 +707,53 @@ public class WorkspaceChip extends JPanel {
             addedAnyAction = true;
         }
 
-        try {
-            JMenuItem dropOther = new JMenuItem("Drop Others");
-            try {
-                dropOther.getAccessibleContext().setAccessibleName("Drop Others");
-            } catch (Exception ex) {
-                logger.trace("Failed to set accessible name for 'Drop Others' menu item", ex);
-            }
+        JMenuItem dropOther = new JMenuItem("Drop Others");
+        dropOther.getAccessibleContext().setAccessibleName("Drop Others");
 
-            try {
-                var selected = contextManager.selectedContext();
-                if (selected == null) {
-                    dropOther.setEnabled(false);
-                } else {
-                    var possible = selected.getAllFragmentsInDisplayOrder().stream()
-                            .filter(f -> !Objects.equals(f, fragment))
-                            .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                            .toList();
-                    dropOther.setEnabled(!possible.isEmpty());
-                }
-            } catch (Exception ex) {
-                dropOther.setEnabled(true);
-            }
-
-            dropOther.addActionListener(e -> {
-                if (!ensureMutatingAllowed()) {
-                    return;
-                }
-                var selected = contextManager.selectedContext();
-                if (selected == null) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No context available");
-                    return;
-                }
-
-                var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
+        {
+            var selected = contextManager.selectedContext();
+            if (selected == null) {
+                dropOther.setEnabled(false);
+            } else {
+                var possible = selected.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !Objects.equals(f, fragment))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
-
-                if (toDrop.isEmpty()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
-                    return;
-                }
-
-                contextManager.submitContextTask(() -> {
-                    try {
-                        contextManager.dropWithHistorySemantics(toDrop);
-                    } catch (Exception ex) {
-                        logger.error("Drop Others action failed", ex);
-                    }
-                });
-            });
-
-            if (addedAnyAction) {
-                menu.addSeparator();
+                dropOther.setEnabled(!possible.isEmpty());
             }
-            menu.add(dropOther);
-        } catch (Exception ex) {
-            logger.debug("Failed to add 'Drop Others' action to chip popup", ex);
         }
 
-        try {
-            chrome.themeManager.registerPopupMenu(menu);
-        } catch (Exception ex) {
-            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        dropOther.addActionListener(e -> {
+            if (!ensureMutatingAllowed()) {
+                return;
+            }
+            var selected = contextManager.selectedContext();
+            if (selected == null) {
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No context available");
+                return;
+            }
+
+            var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
+                    .filter(f -> !Objects.equals(f, fragment))
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+
+            if (toDrop.isEmpty()) {
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
+                return;
+            }
+
+            contextManager.submitContextTask(() -> {
+                contextManager.dropWithHistorySemantics(toDrop);
+            });
+        });
+
+        if (addedAnyAction) {
+            menu.addSeparator();
         }
+        menu.add(dropOther);
+
+        chrome.themeManager.registerPopupMenu(menu);
 
         return menu;
     }
@@ -819,20 +772,16 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static String buildMetricsHtml(ContextFragment fragment) {
-        try {
-            if (fragment.isText() || fragment.getType().isOutput()) {
-                String text;
-                if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                    text = cf.computedText().renderNowOr("");
-                } else {
-                    text = fragment.text();
-                }
-                int loc = text.split("\\r?\\n", -1).length;
-                int tokens = Messages.getApproximateTokens(text);
-                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
+        if (fragment.isText() || fragment.getType().isOutput()) {
+            String text;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                text = cf.computedText().renderNowOr("");
+            } else {
+                text = fragment.text();
             }
-        } catch (Exception ex) {
-            logger.trace("Failed to compute metrics for fragment {}", fragment, ex);
+            int loc = text.split("\\r?\\n", -1).length;
+            int tokens = Messages.getApproximateTokens(text);
+            return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
         }
         return "";
     }
@@ -959,11 +908,7 @@ public class WorkspaceChip extends JPanel {
                 public void mouseEntered(MouseEvent e) {
                     if (hoverCounter[0]++ == 0) {
                         for (var summary : summaryFragments) {
-                            try {
-                                hoverCallback.accept(summary, true);
-                            } catch (Exception ex) {
-                                logger.trace("onHover callback threw", ex);
-                            }
+                            hoverCallback.accept(summary, true);
                         }
                     }
                 }
@@ -972,11 +917,7 @@ public class WorkspaceChip extends JPanel {
                 public void mouseExited(MouseEvent e) {
                     if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
                         for (var summary : summaryFragments) {
-                            try {
-                                hoverCallback.accept(summary, false);
-                            } catch (Exception ex) {
-                                logger.trace("onHover callback threw", ex);
-                            }
+                            hoverCallback.accept(summary, false);
                         }
                     }
                 }
@@ -1010,12 +951,8 @@ public class WorkspaceChip extends JPanel {
         protected void updateTextAndTooltip(ContextFragment fragment) {
             String text = buildSummaryLabel();
             label.setText(text);
-            try {
-                label.setToolTipText(buildAggregateSummaryTooltip());
-                label.getAccessibleContext().setAccessibleDescription("All summaries combined");
-            } catch (Exception ex) {
-                logger.warn("Failed to set tooltip for synthetic summary chip", ex);
-            }
+            label.setToolTipText(buildAggregateSummaryTooltip());
+            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
         }
 
         private String buildSummaryLabel() {
@@ -1051,25 +988,21 @@ public class WorkspaceChip extends JPanel {
 
             int totalLoc = 0;
             int totalTokens = 0;
-            try {
-                for (var summary : summaryFragments) {
-                    String text;
-                    if (summary instanceof ContextFragment.ComputedFragment cf) {
-                        text = cf.computedText().renderNowOr("");
-                    } else {
-                        text = summary.text();
-                    }
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
+            for (var summary : summaryFragments) {
+                String text;
+                if (summary instanceof ContextFragment.ComputedFragment cf) {
+                    text = cf.computedText().renderNowOr("");
+                } else {
+                    text = summary.text();
                 }
-                body.append("<div>")
-                        .append(formatCount(totalLoc))
-                        .append(" LOC \u2022 ~")
-                        .append(formatCount(totalTokens))
-                        .append(" tokens</div><br/>");
-            } catch (Exception e) {
-                logger.error(e);
+                totalLoc += text.split("\\r?\\n", -1).length;
+                totalTokens += Messages.getApproximateTokens(text);
             }
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC \u2022 ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
 
             body.append("<div><b>Summaries</b></div>");
             body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
@@ -1119,11 +1052,7 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             }
 
-            try {
-                chrome.themeManager.registerPopupMenu(menu);
-            } catch (Exception ex) {
-                logger.debug("Failed to register synthetic chip popup menu with theme manager", ex);
-            }
+            chrome.themeManager.registerPopupMenu(menu);
             return menu;
         }
 
@@ -1213,11 +1142,7 @@ public class WorkspaceChip extends JPanel {
 
         private void executeSyntheticChipDrop() {
             contextManager.submitContextTask(() -> {
-                try {
-                    contextManager.dropWithHistorySemantics(summaryFragments);
-                } catch (Exception ex) {
-                    logger.error("Failed to drop summary fragments", ex);
-                }
+                contextManager.dropWithHistorySemantics(summaryFragments);
             });
         }
     }
