@@ -1507,4 +1507,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             saveButton.setEnabled(false);
         }
     }
+
+    /**
+     * Updates only the syntax style of the text area without modifying the current text content
+     * or toggling the save/dirty state. Safe to call from the EDT.
+     *
+     * @param syntaxStyle The syntax style to apply; if null, no change is made.
+     */
+    public void setStyleOnly(@Nullable String syntaxStyle) {
+        if (syntaxStyle == null) {
+            return; // No change requested
+        }
+        if (Objects.equals(textArea.getSyntaxEditingStyle(), syntaxStyle)) {
+            return; // Already applied
+        }
+        textArea.setSyntaxEditingStyle(syntaxStyle);
+    }
 }

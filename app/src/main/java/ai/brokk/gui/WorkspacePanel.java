@@ -15,10 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
-import ai.brokk.gui.dialogs.AttachContextDialog;
-import ai.brokk.gui.dialogs.CallGraphDialog;
-import ai.brokk.gui.dialogs.DropActionDialog;
-import ai.brokk.gui.dialogs.SymbolSelectionDialog;
+import ai.brokk.gui.dialogs.*;
 import ai.brokk.gui.util.ContextMenuUtils;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.prompts.CopyExternalPrompts;
@@ -1585,7 +1582,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create the initial preview panel
         var title = fragment.shortDescription().isBlank() ? "Preview" : fragment.shortDescription();
-        var panel = new ai.brokk.gui.dialogs.PreviewTextPanel(
+        var panel = new PreviewTextPanel(
                 contextManager, associatedFile, initialText, initialSyntax, chrome.getTheme(), fragment);
 
         // Show the frame immediately with placeholder content
@@ -1609,8 +1606,7 @@ public class WorkspacePanel extends JPanel {
             // If syntax style completes separately later, update it without changing text
             cf.computedSyntaxStyle().onComplete((style, ex) -> {
                 if (ex == null) {
-                    SwingUtilities.invokeLater(
-                            () -> panel.setContentAndStyle(panel.getTextArea().getText(), style));
+                    SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
                 } else {
                     logger.warn("Error computing fragment syntax style for {}", fragment, ex);
                 }
