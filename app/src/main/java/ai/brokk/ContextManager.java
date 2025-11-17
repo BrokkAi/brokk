@@ -103,7 +103,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public static final String DEFAULT_SESSION_NAME = "New Session";
     // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
     private static final long TASKLIST_MIGRATION_CUTOFF_MS =
-            Instant.parse("2025-11-24T00:00:00Z").toEpochMilli();
+            Instant.parse("2025-11-30T00:00:00Z").toEpochMilli();
 
     public static boolean isTestFile(ProjectFile file) {
 
