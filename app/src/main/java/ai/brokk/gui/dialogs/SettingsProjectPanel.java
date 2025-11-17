@@ -102,20 +102,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private LanguagesTableModel languagesTableModel;
 
     /**
-     * Constructor for creating panel with pre-loaded data.
-     */
-    public SettingsProjectPanel(
-            Chrome chrome,
-            SettingsDialog parentDialog,
-            JButton okButton,
-            JButton cancelButton,
-            JButton applyButton,
-            SettingsData data) {
-        this(chrome, parentDialog, okButton, cancelButton, applyButton);
-        populateFromData(data);
-    }
-
-    /**
      * Constructor for creating panel without data (will be populated later).
      * Panel starts in disabled state until data is loaded.
      */
@@ -147,7 +133,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         populateGeneralTab(data);
         populateIssuesTab();
-        populateCodeIntelligenceTab();
+        loadCodeIntelligenceSettings();
         populateBuildTab(data);
     }
 
@@ -204,10 +190,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
                 break;
         }
-    }
-
-    private void populateCodeIntelligenceTab() {
-        loadCodeIntelligenceSettings();
     }
 
     private void populateBuildTab(SettingsData data) {
@@ -331,9 +313,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 migrateButton.setEnabled(false);
                 boolean success = mainProject.performStyleMdToAgentsMdMigration(chrome);
                 if (success) {
-                    // Migration succeeded - hide button and refresh UI
+                    // Migration succeeded - hide button and reload settings from parent dialog
                     migrateButton.setVisible(false);
-                    SwingUtilities.invokeLater(() -> loadSettings());
+                    SwingUtilities.invokeLater(() -> parentDialog.loadSettingsInBackground());
                 } else {
                     // Migration failed - re-enable button
                     SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
@@ -1064,83 +1046,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         worker.execute();
     }
 
-    public void loadSettings() {
-        var project = chrome.getProject();
-
-        // General Tab
-        styleGuideArea.setText(project.getStyleGuide());
-        commitFormatArea.setText(project.getCommitMessageFormat());
-        if (reviewGuideArea != null) {
-            reviewGuideArea.setText(project.getReviewGuide());
-        }
-
-        // Issues Tab
-        IssueProvider currentProvider = project.getIssuesProvider();
-        issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
-
-        githubOwnerField.setEnabled(false); // Default state
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false); // Default state for host field
-        githubOverrideCheckbox.setSelected(false);
-
-        switch (currentProvider.type()) {
-            case JIRA:
-                if (currentProvider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig) {
-                    jiraBaseUrlField.setText(jiraConfig.baseUrl());
-                    jiraApiTokenField.setText(jiraConfig.apiToken());
-                    jiraProjectKeyField.setText(jiraConfig.projectKey());
-                }
-                issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
-                break;
-            case GITHUB:
-                if (currentProvider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
-                    if (!githubConfig.isDefault()) {
-                        githubOwnerField.setText(githubConfig.owner());
-                        githubRepoField.setText(githubConfig.repo());
-                        githubHostField.setText(githubConfig.host()); // Load host
-                        githubOwnerField.setEnabled(true);
-                        githubRepoField.setEnabled(true);
-                        githubHostField.setEnabled(true); // Enable host field if override is active
-                        githubOverrideCheckbox.setSelected(true);
-                    } else {
-                        // Fields remain disabled and empty, checkbox unchecked
-                        githubOwnerField.setText("");
-                        githubRepoField.setText("");
-                        githubHostField.setText("");
-                    }
-                }
-                issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
-                break;
-            case NONE:
-            default:
-                issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
-                break;
-        }
-
-        loadCodeIntelligenceSettings();
-        loadCiExclusionsFromBuildDetails();
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
-    }
-
     private void loadCodeIntelligenceSettings() {
         var project = chrome.getProject();
         currentAnalyzerLanguagesForDialog.clear();
         currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
-        }
-    }
-
-    private void loadCiExclusionsFromBuildDetails() {
-        var project = chrome.getProject();
-        try {
-            BuildDetails details = project.loadBuildDetails();
-            updateExcludedDirectories(details.excludedDirectories());
-        } catch (Exception ex) {
-            logger.warn("Failed to load BuildDetails for CI exclusions: {}", ex.getMessage(), ex);
-            updateExcludedDirectories(List.of());
         }
     }
 

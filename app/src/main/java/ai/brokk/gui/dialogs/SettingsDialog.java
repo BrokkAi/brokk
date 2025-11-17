@@ -59,8 +59,6 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
 
-        updateProjectPanelEnablement();
-
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
@@ -122,8 +120,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
      * Loads all settings in background thread and populates UI on EDT when complete.
      * This prevents EDT blocking from file I/O and network operations.
      * Panels are already created and disabled; this method just populates them with data.
+     * Package-private to allow access from settings panels for refreshing after changes.
      */
-    private void loadSettingsInBackground() {
+    void loadSettingsInBackground() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         var worker = new SwingWorker<SettingsData, Void>() {
@@ -170,14 +169,6 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
     public Chrome getChrome() {
         return chrome;
-    }
-
-    private void updateProjectPanelEnablement() {
-        projectSettingsPanel.setEnabled(true);
-        int projectTabIndex = tabbedPane.indexOfComponent(projectSettingsPanel);
-        if (projectTabIndex != -1) {
-            tabbedPane.setEnabledAt(projectTabIndex, true);
-        }
     }
 
     private boolean applySettings() {
