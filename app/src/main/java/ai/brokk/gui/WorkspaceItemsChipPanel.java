@@ -14,6 +14,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Messages;
+import ai.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -338,7 +339,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
         var summaries = visibleFragments.stream()
                 .filter(f -> classify(f) == ChipKind.SUMMARY)
                 .toList();
-        var others = visibleFragments.stream()
+        var nonsummaries = visibleFragments.stream()
                 .filter(f -> classify(f) != ChipKind.SUMMARY)
                 .toList();
 
@@ -346,12 +347,12 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
                 visibleFragments.size(),
                 summaries.size(),
-                others.size(),
+                nonsummaries.size(),
                 fragments.size());
 
         // Build a new map for others (non-summaries) by id, preserving order
         Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
-        for (var f : others) {
+        for (var f : nonsummaries) {
             newOthersById.put(f.id(), f);
         }
 
@@ -386,7 +387,7 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
 
         // 3) Reorder chips to match 'others' order
         int z = 0;
-        for (var f : others) {
+        for (var f : nonsummaries) {
             var chip = chipById.get(f.id());
             if (chip != null) {
                 try {
@@ -394,6 +395,61 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                 } catch (Exception ex) {
                     logger.debug("Failed to set component z-order for fragment: {}", f.id(), ex);
                 }
+            }
+        }
+
+        // 3b) Rebind computed fragments on retained chips to new fragment instances (no component recreation)
+        for (var f : nonsummaries) {
+            var chip = chipById.get(f.id());
+            if (chip == null) continue;
+            if (!(f instanceof ContextFragment.ComputedFragment)) {
+                continue;
+            }
+
+            // Get currently associated fragment (if any)
+            ContextFragment currentFrag = null;
+            Object fragsObj = chip.getClientProperty("brokk.fragments");
+            if (fragsObj instanceof Set<?> fragSet && !fragSet.isEmpty()) {
+                Object first = fragSet.iterator().next();
+                if (first instanceof ContextFragment cf) {
+                    currentFrag = cf;
+                }
+            }
+
+            if (currentFrag == f) {
+                continue;
+            }
+
+            // If association is stale, update the chip to point to the new fragment instance
+            chip.putClientProperty("brokk.fragments", Set.of(f));
+
+            // Dispose any previous computed subscriptions registered to this chip
+            @SuppressWarnings("unchecked")
+            var subs = (List<ComputedValue.Subscription>) chip.getClientProperty("brokk.cv.subs");
+            if (subs != null) {
+                for (var sub : subs) {
+                    sub.dispose();
+                }
+                subs.clear();
+                chip.putClientProperty("brokk.cv.subs", null);
+            }
+
+            // Rebind computed updates and refresh label/tooltip
+            Object labelObj = chip.getClientProperty("brokk.chip.label");
+            if (labelObj instanceof JLabel lbl) {
+                try {
+                    subscribeToComputedUpdates(f, chip, lbl);
+                    refreshChipLabelAndTooltip(chip, lbl, f);
+                } catch (Exception ex) {
+                    logger.debug("Failed to rebind computed updates for {}", f.id(), ex);
+                }
+            }
+
+            // Ensure RO icon reflects current context read-only state
+            try {
+                updateReadOnlyIcon(chip, f);
+            } catch (Exception ex) {
+                logger.debug("Failed to update read-only icon for {}", f.id(), ex);
             }
         }
 
@@ -444,6 +500,10 @@ public class WorkspaceItemsChipPanel extends JPanel implements ThemeAware, Scrol
                     }
                 }
                 syntheticSummaryChip.putClientProperty("brokk.summary.ids", nowIds);
+                // Keep the chip's fragment association up to date for hover/preview semantics
+                syntheticSummaryChip.putClientProperty(
+                        "brokk.fragments",
+                        Set.copyOf(summaries));
             }
 
             // Keep synthetic at end
