@@ -144,9 +144,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // General Tab - use pre-loaded data
         styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
+        styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
+        commitFormatArea.setCaretPosition(0); // Reset scroll position to top
         if (reviewGuideArea != null) {
             reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
+            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
         }
 
         // Issues Tab (still requires live project data as it's not in SettingsData)
@@ -1052,9 +1055,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // General Tab
         styleGuideArea.setText(project.getStyleGuide());
+        styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(project.getCommitMessageFormat());
+        commitFormatArea.setCaretPosition(0); // Reset scroll position to top
         if (reviewGuideArea != null) {
             reviewGuideArea.setText(project.getReviewGuide());
+            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
         }
 
         // Issues Tab
