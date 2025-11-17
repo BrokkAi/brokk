@@ -405,7 +405,9 @@ public class WorkspaceTools {
             Requirements (apply to EACH task):
             - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
             - Size target: ~2 hours for an experienced contributor across < 10 files.
-            - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior; if automation is not a good fit, you may omit tests rather than prescribe manual steps.
+            - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior;
+              if automation is not a good fit, you may omit tests rather than prescribe manual steps. Tests should
+              be completed as part of each task, not bolted on separately at the end.
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
             - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
