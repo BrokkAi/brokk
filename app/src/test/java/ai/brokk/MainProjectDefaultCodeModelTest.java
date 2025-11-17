@@ -48,7 +48,8 @@ class MainProjectDefaultCodeModelTest {
             Files.walk(tempDir).sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
                     Files.deleteIfExists(path);
-                } catch (IOException ignored) {
+                } catch (IOException e) {
+                    System.err.println("Failed to delete " + path + ": " + e.getMessage());
                 }
             });
         }
