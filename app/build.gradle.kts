@@ -100,7 +100,6 @@ dependencies {
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     implementation(libs.pcollections)
-    implementation("com.google.guava:guava:33.2.1-jre")
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 
