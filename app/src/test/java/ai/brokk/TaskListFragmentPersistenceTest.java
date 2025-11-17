@@ -27,7 +27,7 @@ public class TaskListFragmentPersistenceTest {
         var initial = new Context(cm, (String) null);
 
         var data = new TaskList.TaskListData(
-                List.of(new TaskList.TaskItem("Do A", false), new TaskList.TaskItem("Do B", true)));
+                List.of(new TaskList.TaskItem("Do A", "Do A", false), new TaskList.TaskItem("Do B", "Do B", true)));
 
         // When: we apply the Task List via Context API and push into history
         var after = initial.withTaskList(data);
