@@ -1,5 +1,8 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
 import ai.brokk.AbstractService.ModelConfig;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -12,9 +15,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Tests that verify the default code model configuration fallback when no user-specified
@@ -43,30 +43,28 @@ class MainProjectDefaultCodeModelTest {
             testProject.close();
         }
         setGlobalPropertiesCache(originalGlobalPropertiesCache);
-        
+
         if (Files.exists(tempDir)) {
-            Files.walk(tempDir)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException ignored) {
-                        }
-                    });
+            Files.walk(tempDir).sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                }
+            });
         }
     }
 
     @Test
     void testDefaultCodeModelIsClaudeHaiku45() {
         ModelConfig config = testProject.getCodeModelConfig();
-        
+
         assertNotNull(config, "Code model config should not be null");
-        assertEquals("claude-haiku-4-5", config.name(), 
+        assertEquals(
+                "claude-haiku-4-5",
+                config.name(),
                 "Default code model should be claude-haiku-4-5 when no codeConfig is set");
-        assertEquals(Service.ReasoningLevel.DEFAULT, config.reasoning(),
-                "Default reasoning level should be DEFAULT");
-        assertEquals(Service.ProcessingTier.DEFAULT, config.tier(),
-                "Default processing tier should be DEFAULT");
+        assertEquals(Service.ReasoningLevel.DEFAULT, config.reasoning(), "Default reasoning level should be DEFAULT");
+        assertEquals(Service.ProcessingTier.DEFAULT, config.tier(), "Default processing tier should be DEFAULT");
     }
 
     private Properties captureGlobalPropertiesCache() throws Exception {
