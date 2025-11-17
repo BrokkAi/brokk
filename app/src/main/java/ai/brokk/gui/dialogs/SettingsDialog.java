@@ -39,7 +39,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         super(owner, "Settings", true);
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(620, 600);
+        setSize(1100, 600);
         setLocationRelativeTo(owner);
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
