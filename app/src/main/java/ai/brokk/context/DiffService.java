@@ -173,17 +173,18 @@ public final class DiffService {
             // No matching fragment in 'other'
             // - For non-text fragments (e.g., images), don't emit a diff here.
             // - For PathFragments: only show a diff if it's a new, untracked file in Git.
-            // - For non-path text fragments (e.g., StringFragment, TaskFragment): show diff vs. empty content.
             if (!thisFragment.isText()) {
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (thisFragment instanceof ContextFragment.PathFragment) {
-                var repo = curr.getContextManager().getRepo();
-                if (!isNewFileInGit(thisFragment, repo)) {
-                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                    return CompletableFuture.completedFuture(null);
-                }
+            if (!(thisFragment instanceof ContextFragment.PathFragment)) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            var repo = curr.getContextManager().getRepo();
+            if (!isNewFileInGit(thisFragment, repo)) {
+                // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                return CompletableFuture.completedFuture(null);
             }
 
             // Text fragment newly added: diff against empty
