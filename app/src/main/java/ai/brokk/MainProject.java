@@ -43,6 +43,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
+import com.google.common.annotations.VisibleForTesting;
 import org.jetbrains.annotations.Nullable;
 
 public final class MainProject extends AbstractProject {
@@ -117,7 +118,8 @@ public final class MainProject extends AbstractProject {
     private static volatile Boolean isDataShareAllowedCache = null;
 
     @Nullable
-    private static Properties globalPropertiesCache = null; // protected by synchronized
+    @VisibleForTesting
+    static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");

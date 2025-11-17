@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.AbstractService.ModelConfig;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -30,8 +29,10 @@ class MainProjectDefaultCodeModelTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        originalGlobalPropertiesCache = captureGlobalPropertiesCache();
-        setGlobalPropertiesCache(new Properties());
+        originalGlobalPropertiesCache = MainProject.globalPropertiesCache != null
+                ? (Properties) MainProject.globalPropertiesCache.clone()
+                : null;
+        MainProject.globalPropertiesCache = new Properties();
 
         Git.init().setDirectory(tempDir.toFile()).call().close();
         testProject = new MainProject(tempDir);
@@ -42,7 +43,9 @@ class MainProjectDefaultCodeModelTest {
         if (testProject != null) {
             testProject.close();
         }
-        setGlobalPropertiesCache(originalGlobalPropertiesCache);
+        MainProject.globalPropertiesCache = originalGlobalPropertiesCache != null
+                ? (Properties) originalGlobalPropertiesCache.clone()
+                : null;
 
         if (Files.exists(tempDir)) {
             Files.walk(tempDir).sorted(Comparator.reverseOrder()).forEach(path -> {
@@ -65,18 +68,5 @@ class MainProjectDefaultCodeModelTest {
                 "Default code model should be claude-haiku-4-5 when no codeConfig is set");
         assertEquals(Service.ReasoningLevel.DEFAULT, config.reasoning(), "Default reasoning level should be DEFAULT");
         assertEquals(Service.ProcessingTier.DEFAULT, config.tier(), "Default processing tier should be DEFAULT");
-    }
-
-    private Properties captureGlobalPropertiesCache() throws Exception {
-        Field cacheField = MainProject.class.getDeclaredField("globalPropertiesCache");
-        cacheField.setAccessible(true);
-        Properties cached = (Properties) cacheField.get(null);
-        return cached != null ? (Properties) cached.clone() : null;
-    }
-
-    private void setGlobalPropertiesCache(Properties props) throws Exception {
-        Field cacheField = MainProject.class.getDeclaredField("globalPropertiesCache");
-        cacheField.setAccessible(true);
-        cacheField.set(null, props != null ? (Properties) props.clone() : null);
     }
 }
