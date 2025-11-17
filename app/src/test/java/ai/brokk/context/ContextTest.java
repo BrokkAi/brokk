@@ -177,6 +177,20 @@ class ContextTest {
     }
 
     @Test
+    void testBuildResultFragmentIsNonEditableButShownAsReadonly() {
+        var ctx = new Context(contextManager, "init").withBuildResult(false, "Build failed: something went wrong");
+        var buildFrag = ctx.getBuildFragment().orElseThrow();
+
+        // Build fragment should be part of the read-only workspace view, but not editable.
+        assertTrue(
+                ctx.getReadonlyFragments().anyMatch(f -> f.equals(buildFrag)),
+                "Build result fragment should appear in the readonly fragments view");
+        assertFalse(
+                ctx.getEditableFragments().anyMatch(f -> f.equals(buildFrag)),
+                "Build result fragment should not be editable");
+    }
+
+    @Test
     void testIsAiResultDetection() {
         List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
         var tf = new ContextFragment.TaskFragment(contextManager, msgs, "task");

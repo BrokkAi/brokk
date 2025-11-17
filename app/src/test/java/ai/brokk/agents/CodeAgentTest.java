@@ -10,6 +10,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -805,6 +806,27 @@ class CodeAgentTest {
                 countingModel.getPreprocessingCallCount(),
                 "BuildOutputPreprocessor.processForLlm should only be called once per build failure "
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
+    }
+
+    // Ensure that build errors recorded in Context are surfaced in the workspace prompt
+    @Test
+    void testBuildErrorIsIncludedInWorkspacePrompt() throws InterruptedException {
+        var ctx = contextManager.liveContext().withBuildResult(false, "Simulated build error for prompt");
+        var prologue = List.<ChatMessage>of();
+        var taskMessages = new ArrayList<ChatMessage>();
+        var nextRequest = new UserMessage("Please fix the build");
+        var changedFiles = Collections.<ProjectFile>emptySet();
+
+        var messages = CodePrompts.instance.collectCodeMessages(
+                new Service.UnavailableStreamingModel(), ctx, prologue, taskMessages, nextRequest, changedFiles);
+
+        boolean found = messages.stream()
+                .map(Messages::getText)
+                .anyMatch(text -> text.contains("Simulated build error for prompt"));
+
+        assertTrue(
+                found,
+                "Workspace messages for the LLM should include the latest build error text from Context.withBuildResult");
     }
 
     // REQ-1: requestPhase with partial response + error should continue, not exit fatally
