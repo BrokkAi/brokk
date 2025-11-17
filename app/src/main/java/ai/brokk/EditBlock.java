@@ -2,21 +2,12 @@ package ai.brokk;
 
 import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.*;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -159,7 +150,20 @@ public class EditBlock {
                 var reason = (ex instanceof NoMatchException)
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
-                failed.add(new FailedBlock(block, reason, ""));
+
+                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent prelint
+                // style.
+                if (ex instanceof NoMatchException) {
+                    var marker = effectiveBefore.strip();
+                    var message = "Failed to resolve BRK snippet in edit block for "
+                            + rawFileName + ": "
+                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                    contextManager.reportException(
+                            new BrkSnippetNoMatchException(message, ex),
+                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                }
+
+                failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
                 continue;
             }
 
@@ -328,6 +332,13 @@ public class EditBlock {
     public static class AmbiguousMatchException extends Exception {
         public AmbiguousMatchException(String message) {
             super(message);
+        }
+    }
+
+    /** Exception type used to report BRK snippet NoMatch telemetry with context. */
+    static class BrkSnippetNoMatchException extends RuntimeException {
+        BrkSnippetNoMatchException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -719,6 +730,8 @@ public class EditBlock {
      */
     private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
+        // Only support BRK markers for Java entities. In multi-language projects, we restrict resolution to Java
+        // so that syntax-aware edits don't unexpectedly target other languages.
         var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
         if (!markerMatcher.matches()) {
             return null;
@@ -726,34 +739,63 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-
         var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
+        var scp = scpOpt.get();
 
+        // Only Java is supported right now
+        var supportedAnalyzerOpt = analyzer.subAnalyzer(Languages.JAVA);
+        var supportedExt = Languages.JAVA.getExtensions();
+        Predicate<String> isSupportedExt = extension -> supportedExt.contains(extension.toLowerCase(Locale.ROOT));
+
+        // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
+        var editableFiles = contextManager.getFilesInContext();
+        // if this boolean check is aliased to a variable, the `.get()` below will be flagged by Error Prone
+        if (!(supportedAnalyzerOpt.isPresent()
+                && !editableFiles.isEmpty()
+                && editableFiles.stream().allMatch(f -> isSupportedExt.test(f.extension())))) {
+            throw new AssertionError(
+                    "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
+        }
+
+        var supportedAnalyzer = supportedAnalyzerOpt.get();
+
+        String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
-            Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);
-            if (opt.isEmpty()) {
-                var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
-                var suggestions = analyzer.searchDefinitions(shortName).stream()
-                        .map(CodeUnit::fqName)
-                        .filter(n -> {
-                            int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
-                            return n.substring(idx + 1).equals(shortName);
-                        })
-                        .limit(3)
-                        .toList();
-                var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
-                throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+            // Prefer exact definition lookup, then ensure it's a Java class.
+            var def = supportedAnalyzer.getDefinition(fqName);
+            if (def.isPresent()) {
+                var cu = def.get();
+                if (!isSupportedExt.test(cu.source().extension())) {
+                    throw new NoMatchException("BRK_CLASS is only supported for Java in this workspace. "
+                            + "Found a non-Java symbol with that name. Use a line-based SEARCH instead.");
+                }
+                var src = scp.getClassSource(cu, true);
+                if (src.isEmpty()) {
+                    throw new NoMatchException("No class source found for '" + fqName + "'.");
+                }
+                return src.get();
             }
-            return opt.get();
+
+            // No exact match; suggest up to 3 similarly named Java classes
+            var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
+                    .filter(cu -> isSupportedExt.test(cu.source().extension()))
+                    .map(CodeUnit::fqName)
+                    .filter(n -> {
+                        int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
+                        return n.substring(idx + 1).equals(shortName);
+                    })
+                    .limit(3)
+                    .toList();
+            var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+            throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
-            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
+            Set<String> sources = AnalyzerUtil.getMethodSources(supportedAnalyzer, fqName, true);
             if (sources.isEmpty()) {
-                var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
-                var suggestions = analyzer.searchDefinitions(methodKey).stream()
+                var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)
                         .limit(3)
                         .toList();

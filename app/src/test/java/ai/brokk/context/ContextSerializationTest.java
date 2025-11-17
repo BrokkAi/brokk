@@ -1324,4 +1324,199 @@ public class ContextSerializationTest {
                 Service.ReasoningLevel.DEFAULT,
                 loadedEntry.meta().primaryModel().reasoning());
     }
+
+    @Test
+    void testReadOnlyRoundTripForEditableFragments() throws Exception {
+        // Create editable ProjectPathFragment and CodeFragment, plus non-editable StringFragment
+        var projectFile = new ProjectFile(tempDir, "src/RoTest.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class RoTest {}");
+
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+
+        var codeUnit = createTestCodeUnit(
+                "com.example.CodeFragmentTarget", new ProjectFile(tempDir, "src/CodeFragmentTarget.java"));
+        var codeFrag = new ContextFragment.CodeFragment(mockContextManager, codeUnit);
+
+        var sf = new ContextFragment.StringFragment(
+                mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(mockContextManager, "ctx-ro")
+                .addPathFragments(List.of(ppf))
+                .addVirtualFragment(codeFrag)
+                .addVirtualFragment(sf);
+        // Toggle read-only via Context
+        ctx = ctx.setReadonly(ppf, true);
+        ctx = ctx.setReadonly(codeFrag, true);
+
+        ContextHistory ch = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("readonly_roundtrip.zip");
+        HistoryIo.writeZip(ch, zipFile);
+
+        // Verify serialization: contexts.jsonl contains readonly IDs for ppf and codeFrag
+        var readonlyIds = readReadonlyIdsFromZip(zipFile);
+        assertTrue(readonlyIds.contains(ppf.id()), "readonly should contain ProjectPathFragment id");
+        assertTrue(readonlyIds.contains(codeFrag.id()), "readonly should contain CodeFragment id");
+        assertFalse(readonlyIds.contains(sf.id()), "readonly should not contain non-editable StringFragment id");
+
+        // Verify deserialization preserves readOnly flags for editable fragments
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+        var loadedCtx = loaded.getHistory().getFirst();
+
+        var loadedPpf = loadedCtx
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedCtx.isReadOnly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
+
+        var loadedCode = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.CodeFragment)
+                .map(f -> (ContextFragment.CodeFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedCtx.isReadOnly(loadedCode), "Loaded CodeFragment should be read-only");
+    }
+
+    @Test
+    void testReadOnlyBackwardCompatibilityLongerAndShorterLists() throws Exception {
+        // Build a simple context with one editable and one non-editable fragment
+        var projectFile = new ProjectFile(tempDir, "src/BC.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class BC {}");
+
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        var sf = new ContextFragment.StringFragment(mockContextManager, "s", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(mockContextManager, "ctx-bc")
+                .addPathFragments(List.of(ppf))
+                .addVirtualFragment(sf);
+
+        ContextHistory ch = new ContextHistory(ctx);
+        Path original = tempDir.resolve("bc_original.zip");
+        HistoryIo.writeZip(ch, original);
+
+        // Case 1: Longer list (add unknown id and non-editable id)
+        Path longerZip = tempDir.resolve("bc_longer.zip");
+        rewriteContextsInZip(original, longerZip, line -> {
+            try {
+                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                @SuppressWarnings("unchecked")
+                List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
+                readonly = new ArrayList<>(readonly);
+                readonly.add("bogus-id-not-present");
+                readonly.add(sf.id()); // include non-editable fragment ID
+                obj.put("readonly", readonly);
+                return mapper.writeValueAsString(obj);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ContextHistory loadedLonger = HistoryIo.readZip(longerZip, mockContextManager);
+        var loadedPpf = loadedLonger
+                .getHistory()
+                .getFirst()
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        // Since original readonly list was empty, and we only added ids (including non-editable), ProjectPath remains
+        // not read-only
+        assertFalse(
+                loadedLonger.getHistory().getFirst().isReadOnly(loadedPpf),
+                "Editable fragment should remain not read-only when list contains unknown/non-editable ids only");
+
+        // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
+        // Set readOnly via Context and serialize
+        var ctx2 = new Context(mockContextManager, "ctx-bc2").addPathFragments(List.of(ppf));
+        ctx2 = ctx2.setReadonly(ppf, true);
+        ContextHistory ch2 = new ContextHistory(ctx2);
+        Path marked = tempDir.resolve("bc_marked.zip");
+        HistoryIo.writeZip(ch2, marked);
+
+        // Now remove ID from readonly to simulate shorter list
+        Path shorterZip = tempDir.resolve("bc_shorter.zip");
+        rewriteContextsInZip(marked, shorterZip, line -> {
+            try {
+                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                obj.put("readonly", new ArrayList<>()); // clear readonly list
+                return mapper.writeValueAsString(obj);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ContextHistory loadedShorter = HistoryIo.readZip(shorterZip, mockContextManager);
+        var loadedPpf2 = loadedShorter
+                .getHistory()
+                .getFirst()
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertFalse(
+                loadedShorter.getHistory().getFirst().isReadOnly(loadedPpf2),
+                "Editable fragment should default to not read-only when id absent");
+    }
+
+    // Helper: read readonly IDs from contexts.jsonl inside zip
+    private Set<String> readReadonlyIdsFromZip(Path zip) throws IOException {
+        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(zip))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if ("contexts.jsonl".equals(entry.getName())) {
+                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String firstLine = content.lines()
+                            .filter(s -> !s.isBlank())
+                            .findFirst()
+                            .orElse("");
+                    if (firstLine.isEmpty()) return Set.of();
+                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
+                    @SuppressWarnings("unchecked")
+                    List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
+                    return new java.util.HashSet<>(readonly);
+                }
+            }
+        }
+        return Set.of();
+    }
+
+    // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
+    private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
+            throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(source))) {
+            java.util.zip.ZipEntry e;
+            while ((e = zis.getNextEntry()) != null) {
+                if (e.getName().equals("contexts.jsonl")) {
+                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    List<String> lines = content.lines().toList();
+                    List<String> transformed = lines.stream()
+                            .filter(s -> !s.isBlank())
+                            .map(transform)
+                            .toList();
+                    String newContent = String.join("\n", transformed) + "\n";
+                    entries.put(e.getName(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } else {
+                    entries.put(e.getName(), zis.readAllBytes());
+                }
+            }
+        }
+        try (var zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(target))) {
+            for (var en : entries.entrySet()) {
+                zos.putNextEntry(new java.util.zip.ZipEntry(en.getKey()));
+                zos.write(en.getValue());
+                zos.closeEntry();
+            }
+        }
+    }
 }

@@ -4,14 +4,14 @@ import ai.brokk.IProject;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ScalaAnalyzer;
-import java.util.List;
+import java.util.Set;
 
 public class ScalaLanguage implements Language {
 
-    private final List<String> extensions = List.of("scala");
+    private final Set<String> extensions = Set.of("scala");
 
     @Override
-    public List<String> getExtensions() {
+    public Set<String> getExtensions() {
         return extensions;
     }
 

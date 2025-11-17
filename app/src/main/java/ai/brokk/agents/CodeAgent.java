@@ -22,6 +22,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -733,6 +735,19 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
+        // Guardrail: block edits to files designated read-only in the current context
+        var readOnlyPaths = computeReadOnlyPaths(context);
+        var violating = es.pendingBlocks().stream()
+                .map(EditBlock.SearchReplaceBlock::rawFileName)
+                .filter(readOnlyPaths::contains)
+                .collect(Collectors.toSet());
+        if (!violating.isEmpty()) {
+            var message = "Task aborted; agent attempted to modify read-only file(s):\n"
+                    + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
+            io.toolError(message);
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
+        }
+
         EditBlock.EditResult editResult;
         int updatedConsecutiveApplyFailures = es.consecutiveApplyFailures();
         EditState esForStep; // Will be updated
@@ -1442,6 +1457,24 @@ public class CodeAgent {
         }
     }
 
+    private static Set<String> computeReadOnlyPaths(Context ctx) {
+        // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
+        // Our priority is:
+        // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
+        // 2. Files referred to by other editable Fragments should not be in our Set.
+        // 3. Files referred to by other read-only Fragments should be in our Set.
+        var readonlyPaths = ctx.getReadonlyFragments()
+                .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
+                .flatMap(cf -> cf.files().stream())
+                .collect(Collectors.toSet());
+        var editableAll =
+                ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var readonly =
+                ctx.getReadonlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
+        return files.map(ProjectFile::toString).collect(Collectors.toSet());
+    }
+
     private static int clamp(int v, int lo, int hi) {
         return Math.max(lo, Math.min(hi, v));
     }
@@ -1468,7 +1501,7 @@ public class CodeAgent {
         return s.endsWith("\n") ? s : s + "\n";
     }
 
-    private static class Metrics {
+    static class Metrics {
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
         final long startNanos = System.nanoTime();
