@@ -51,13 +51,15 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         SwingUtil.applyPrimaryButtonStyle(okButton);
 
-        // Create loading panel to show while settings load
-        var loadingPanel = new JPanel(new GridBagLayout());
-        var loadingLabel = new JLabel("Loading settings...");
-        loadingLabel.setFont(loadingLabel.getFont().deriveFont(Font.PLAIN, 14f));
-        loadingPanel.add(loadingLabel);
+        // Create panels immediately (without data) to get proper layout/size
+        // Panels will be disabled until data loads
+        globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
+        tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
 
-        tabbedPane.addTab("Loading", null, loadingPanel, "Loading settings");
+        projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
+        tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
+
+        updateProjectPanelEnablement();
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -119,17 +121,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     /**
      * Loads all settings in background thread and populates UI on EDT when complete.
      * This prevents EDT blocking from file I/O and network operations.
+     * Panels are already created and disabled; this method just populates them with data.
      */
     private void loadSettingsInBackground() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        // Disable panels during load
-        if (globalSettingsPanel != null) {
-            globalSettingsPanel.setEnabled(false);
-        }
-        if (projectSettingsPanel != null) {
-            projectSettingsPanel.setEnabled(false);
-        }
 
         var worker = new SwingWorker<SettingsData, Void>() {
             @Override
@@ -155,35 +150,19 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
     /**
      * Populates UI panels with loaded settings data. Must be called on EDT.
+     * Panels are already created; this method populates them and enables buttons.
      */
     private void populateUIFromData(SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        // Remove loading tab if this is initial load
-        if (globalSettingsPanel == null) {
-            tabbedPane.removeAll();
+        // Populate panels with data (this also enables them)
+        globalSettingsPanel.populateFromData(data);
+        projectSettingsPanel.populateFromData(data);
 
-            // Create panels with data
-            globalSettingsPanel = new SettingsGlobalPanel(chrome, this, data);
-            tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
-
-            projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton, data);
-            tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
-
-            updateProjectPanelEnablement();
-
-            // Enable buttons now that panels are loaded
-            okButton.setEnabled(true);
-            cancelButton.setEnabled(true);
-            applyButton.setEnabled(true);
-        } else {
-            // This is a reload after Apply - just refresh panel data
-            globalSettingsPanel.populateFromData(data);
-            projectSettingsPanel.populateFromData(data);
-            globalSettingsPanel.setEnabled(true);
-            projectSettingsPanel.setEnabled(true);
-            handleProxyRestartIfNeeded();
-        }
+        // Enable buttons now that data is loaded
+        okButton.setEnabled(true);
+        cancelButton.setEnabled(true);
+        applyButton.setEnabled(true);
 
         revalidate();
         repaint();

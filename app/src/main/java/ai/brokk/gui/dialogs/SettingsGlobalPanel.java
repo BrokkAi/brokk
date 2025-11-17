@@ -134,13 +134,30 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
+    /**
+     * Constructor for creating panel with pre-loaded data.
+     */
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog, SettingsData data) {
+        this(chrome, parentDialog);
+        populateFromData(data);
+    }
+
+    /**
+     * Constructor for creating panel without data (will be populated later).
+     * Panel starts in disabled state until data is loaded.
+     */
+    public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
-        populateFromData(data); // Populate UI from pre-loaded data (no I/O)
+
+        // Set loading state for fields that will be populated later
+        balanceField.setText("Loading...");
+
+        // Disable panel until data is loaded
+        setEnabled(false);
 
         // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
         parentDialog.addWindowListener(new WindowAdapter() {
@@ -160,10 +177,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     /**
      * Populates UI fields from pre-loaded settings data. No I/O operations.
-     * Must be called on EDT.
+     * Must be called on EDT. Enables the panel after populating.
      */
     public void populateFromData(SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Enable panel now that we have data
+        setEnabled(true);
 
         // General Tab - JVM Memory
         try {

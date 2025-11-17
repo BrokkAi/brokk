@@ -101,8 +101,21 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
+    /**
+     * Constructor for creating panel with pre-loaded data.
+     */
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton, SettingsData data) {
+        this(chrome, parentDialog, okButton, cancelButton, applyButton);
+        populateFromData(data);
+    }
+
+    /**
+     * Constructor for creating panel without data (will be populated later).
+     * Panel starts in disabled state until data is loaded.
+     */
+    public SettingsProjectPanel(
+            Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
@@ -112,15 +125,21 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         setLayout(new BorderLayout());
         initComponents();
-        populateFromData(data); // Populate UI from pre-loaded data (no I/O)
+
+        // Disable panel until data is loaded
+        setEnabled(false);
     }
 
     /**
      * Populates UI fields from pre-loaded settings data. No I/O operations.
-     * Must be called on EDT.
+     * Must be called on EDT. Enables the panel after populating.
      */
     public void populateFromData(SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Enable panel now that we have data
+        setEnabled(true);
+
         var project = chrome.getProject();
 
         // General Tab - use pre-loaded data
