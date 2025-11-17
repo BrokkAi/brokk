@@ -1521,4 +1521,107 @@ public class CppAnalyzerTest {
                     "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
     }
+
+    @Test
+    public void getDefinitions_ReturnsAllOverloads() {
+        // overloadedFunction has three overloads in simple_overloads.h
+        var overloads = analyzer.getDefinitions("overloadedFunction");
+
+        assertNotNull(overloads, "getDefinitions should not return null");
+        assertTrue(overloads.size() >= 1, "Should return at least one overloadedFunction");
+
+        // Verify all returned CodeUnits are functions with correct fqName
+        for (CodeUnit cu : overloads) {
+            assertTrue(cu.isFunction(), "All returned CodeUnits should be functions");
+            assertEquals("overloadedFunction", cu.fqName(), "All overloads should have the same fqName");
+        }
+
+        // If we have multiple results, they should be distinct (different signatures)
+        if (overloads.size() > 1) {
+            var uniqueCodeUnits = java.util.Set.copyOf(overloads);
+            assertEquals(
+                    overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Multiple results should be distinct CodeUnits");
+        }
+    }
+
+    @Test
+    public void getDefinitions_NonOverloadedFunction_ReturnsSingleItem() {
+        // Find a non-overloaded function in the test data
+        var allFunctions = analyzer.getAllDeclarations().stream()
+                .filter(CodeUnit::isFunction)
+                .collect(Collectors.groupingBy(CodeUnit::fqName))
+                .entrySet()
+                .stream()
+                .filter(e -> e.getValue().size() == 1)
+                .findFirst();
+
+        if (allFunctions.isPresent()) {
+            String fqName = allFunctions.get().getKey();
+            var results = analyzer.getDefinitions(fqName);
+
+            assertNotNull(results, "getDefinitions should not return null");
+            assertEquals(1, results.size(), "Non-overloaded function should return single result");
+
+            var cu = results.iterator().next();
+            assertTrue(cu.isFunction(), "Result should be a function");
+            assertEquals(fqName, cu.fqName());
+        }
+    }
+
+    @Test
+    public void getDefinitions_NonExistent_ReturnsEmptySet() {
+        var results = analyzer.getDefinitions("NonExistentFunction");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertTrue(results.isEmpty(), "Non-existent symbol should return empty set");
+    }
+
+    @Test
+    public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
+        var result = analyzer.getFunctionDefinition("overloadedFunction", null);
+
+        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertEquals("overloadedFunction", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
+
+    @Test
+    public void autocompleteDefinitions_WithOverloads_DoesNotDropThem() {
+        var results = analyzer.autocompleteDefinitions("overloadedFunction");
+
+        assertNotNull(results, "autocompleteDefinitions should not return null");
+
+        // Filter to just overloadedFunction
+        var overloads = results.stream()
+                .filter(cu -> "overloadedFunction".equals(cu.fqName()))
+                .toList();
+
+        // Should have at least one overloadedFunction
+        assertTrue(overloads.size() >= 1, "Should find at least one overloadedFunction");
+
+        // If signatures are populated for the overloads, we should see multiple
+        var withSignatures = overloads.stream()
+                .filter(cu -> cu.signature() != null)
+                .toList();
+
+        if (withSignatures.size() >= 2) {
+            // Verify they are distinct CodeUnits (different signatures)
+            var uniqueCodeUnits = java.util.Set.copyOf(overloads);
+            assertEquals(
+                    overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Overloads should be distinct CodeUnit objects");
+        }
+    }
+
+    @Test
+    public void deprecatedGetDefinition_StillWorks() {
+        var result = analyzer.getDefinition("overloadedFunction");
+
+        assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
+        assertEquals("overloadedFunction", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
 }

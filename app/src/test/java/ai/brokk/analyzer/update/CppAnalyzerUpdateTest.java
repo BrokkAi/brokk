@@ -41,9 +41,9 @@ class CppAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        // Note: C++ function names include parameter signatures, e.g., "foo()"
-        assertTrue(analyzer.getDefinition("foo()").isPresent());
-        assertTrue(analyzer.getDefinition("bar()").isEmpty());
+        // New behavior: fqName is WITHOUT signature
+        assertTrue(analyzer.getDefinition("foo").isPresent());
+        assertTrue(analyzer.getDefinition("bar").isEmpty());
 
         // mutate
         new ProjectFile(project.getRoot(), "A.cpp")
@@ -53,11 +53,11 @@ class CppAnalyzerUpdateTest {
                 int bar() { return 2; }
                 """);
 
-        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "foo()");
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "foo");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
-        assertTrue(analyzer.getDefinition("bar()").isPresent());
+        assertTrue(analyzer.getDefinition("bar").isPresent());
     }
 
     @Test
@@ -69,17 +69,17 @@ class CppAnalyzerUpdateTest {
                 int baz() { return 3; }
                 """);
         analyzer = analyzer.update();
-        // Note: C++ function names include parameter signatures, e.g., "baz()"
-        assertTrue(analyzer.getDefinition("baz()").isPresent());
+        // New behavior: fqName is WITHOUT signature
+        assertTrue(analyzer.getDefinition("baz").isPresent());
 
-        var file = AnalyzerUtil.getFileFor(analyzer, "foo()").orElseThrow();
+        var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("foo()").isEmpty());
+        assertTrue(analyzer.getDefinition("foo").isEmpty());
     }
 
     @Test
-    void backCompatZeroArgLookup() throws IOException {
+    void fqNameLookupWithoutSignature() throws IOException {
         // Create an isolated temporary project with a single zero-arg function 'foo'
         var tmp = UpdateTestUtil.newTempDir();
         UpdateTestUtil.writeFile(tmp, "B.cpp", "int foo() { return 1; }\n");
@@ -88,13 +88,16 @@ class CppAnalyzerUpdateTest {
         try (proj) {
             var localAnalyzer = new CppAnalyzer(proj);
 
-            var withParen = localAnalyzer.getDefinition("foo()");
+            // New behavior: fqName is WITHOUT signature
+            // "foo()" is not a valid fqName - it mixes fqName with signature
             var withoutParen = localAnalyzer.getDefinition("foo");
+            assertTrue(withoutParen.isPresent(), "Should find function by fqName 'foo'");
+            assertEquals("foo", withoutParen.get().fqName());
 
-            // Both should be present or both absent, and when present they should refer to the same definition
-            assertEquals(withParen.isPresent(), withoutParen.isPresent(), "Presence should match for 'foo' vs 'foo()'");
-            assertEquals(
-                    withParen, withoutParen, "Definition lookup should return the same result for 'foo' and 'foo()'");
+            // For signature-aware lookup, use getFunctionDefinition
+            var funcDef = localAnalyzer.getFunctionDefinition("foo", null);
+            assertTrue(funcDef.isPresent(), "Should find function via getFunctionDefinition");
+            assertEquals("foo", funcDef.get().fqName());
         }
     }
 }

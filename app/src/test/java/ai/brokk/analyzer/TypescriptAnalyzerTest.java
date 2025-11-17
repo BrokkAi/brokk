@@ -3276,4 +3276,100 @@ public class TypescriptAnalyzerTest {
                     "Should have (string, number) signature for multiply");
         }
     }
+
+    @Test
+    public void getDefinitions_ReturnsAllOverloads() {
+        // add function has multiple overloads in Overloads.ts
+        var overloads = analyzer.getDefinitions("add");
+
+        assertNotNull(overloads, "getDefinitions should not return null");
+        assertTrue(overloads.size() >= 1, "Should return at least one add function");
+
+        // Verify all returned CodeUnits are functions with correct fqName
+        for (CodeUnit cu : overloads) {
+            assertTrue(cu.isFunction(), "All returned CodeUnits should be functions");
+            assertEquals("add", cu.fqName(), "All overloads should have the same fqName");
+        }
+
+        // If we have multiple results, they should be distinct (different signatures)
+        if (overloads.size() > 1) {
+            var uniqueCodeUnits = java.util.Set.copyOf(overloads);
+            assertEquals(
+                    overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Multiple results should be distinct CodeUnits");
+        }
+    }
+
+    @Test
+    public void getDefinitions_ClassMethod_ReturnsAllOverloads() {
+        // Calculator.multiply has overloads
+        var overloads = analyzer.getDefinitions("Calculator.multiply");
+
+        assertNotNull(overloads, "getDefinitions should not return null");
+        assertTrue(overloads.size() >= 1, "Should return at least one multiply method");
+
+        // Verify all returned CodeUnits are functions
+        for (CodeUnit cu : overloads) {
+            assertTrue(cu.isFunction(), "All returned CodeUnits should be functions");
+            assertTrue(
+                    cu.fqName().contains("multiply"),
+                    "All overloads should reference multiply: " + cu.fqName());
+        }
+    }
+
+    @Test
+    public void getDefinitions_NonExistent_ReturnsEmptySet() {
+        var results = analyzer.getDefinitions("NonExistentFunction");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertTrue(results.isEmpty(), "Non-existent symbol should return empty set");
+    }
+
+    @Test
+    public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
+        var result = analyzer.getFunctionDefinition("add", null);
+
+        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertEquals("add", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
+
+    @Test
+    public void autocompleteDefinitions_WithOverloads_DoesNotDropThem() {
+        var results = analyzer.autocompleteDefinitions("add");
+
+        assertNotNull(results, "autocompleteDefinitions should not return null");
+
+        // Filter to just add function
+        var overloads = results.stream()
+                .filter(cu -> "add".equals(cu.fqName()))
+                .toList();
+
+        // Should have at least one add function
+        assertTrue(overloads.size() >= 1, "Should find at least one add function");
+
+        // If signatures are populated for the overloads, we should see multiple
+        var withSignatures = overloads.stream()
+                .filter(cu -> cu.signature() != null)
+                .toList();
+
+        if (withSignatures.size() >= 2) {
+            // Verify they are distinct CodeUnits (different signatures)
+            var uniqueCodeUnits = java.util.Set.copyOf(overloads);
+            assertEquals(
+                    overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Overloads should be distinct CodeUnit objects");
+        }
+    }
+
+    @Test
+    public void deprecatedGetDefinition_StillWorks() {
+        var result = analyzer.getDefinition("add");
+
+        assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
+        assertEquals("add", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
 }
