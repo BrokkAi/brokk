@@ -58,7 +58,7 @@ class DiffServiceTest {
         assertEquals(1, diffs.size(), "Expected a single diff for the changed project file");
         var de = diffs.getFirst();
         assertEquals(ContextFragment.FragmentType.PROJECT_PATH, de.fragment().getType());
-        assertTrue(de.linesAdded() >= 1, "Expected at least one added line");
+        assertEquals(1, de.linesAdded(), "Expected exactly one added line");
     }
 
     @Test
