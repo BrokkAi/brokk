@@ -716,7 +716,7 @@ public class MenuBar {
         sendFeedbackItem.addActionListener(e -> {
             // Validate API key in background to avoid EDT blocking
             new SwingWorker<Boolean, Void>() {
-                private String errorMessage = null;
+                private @Nullable String errorMessage = null;
 
                 @Override
                 protected Boolean doInBackground() {
@@ -847,8 +847,8 @@ public class MenuBar {
                     }
 
                     var sorted = map.entrySet().stream()
-                            .sorted((a, b) ->
-                                    Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
+                            .sorted((a, b) -> Long.compare(
+                                    b.getValue().lastOpened(), a.getValue().lastOpened()))
                             .limit(5)
                             .toList();
 

@@ -76,9 +76,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField githubRepoField = new JTextField(20);
     private JTextField githubHostField = new JTextField(20);
     private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
-    private JLabel githubOwnerLabel;
-    private JLabel githubRepoLabel;
-    private JLabel githubHostLabel;
+    private JLabel githubOwnerLabel = new JLabel("Owner:");
+    private JLabel githubRepoLabel = new JLabel("Repository:");
+    private JLabel githubHostLabel = new JLabel("Host (optional):");
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
@@ -108,7 +108,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * Constructor for creating panel with pre-loaded data.
      */
     public SettingsProjectPanel(
-            Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton, SettingsData data) {
+            Chrome chrome,
+            SettingsDialog parentDialog,
+            JButton okButton,
+            JButton cancelButton,
+            JButton applyButton,
+            SettingsData data) {
         this(chrome, parentDialog, okButton, cancelButton, applyButton);
         populateFromData(data);
     }
@@ -499,7 +504,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubOwnerLabel = new JLabel("Owner:");
         gitHubCard.add(githubOwnerLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -511,7 +515,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubRepoLabel = new JLabel("Repository:");
         gitHubCard.add(githubRepoLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -523,7 +526,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        githubHostLabel = new JLabel("Host (optional):");
         gitHubCard.add(githubHostLabel, gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
