@@ -577,43 +577,111 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        final String normalizedFqName = normalizeFullName(fqName);
+        // Normalize generics / anonymous / location suffixes as before.
+        String normalizedFqName = normalizeFullName(fqName);
 
-        // First try exact match on fqName
-        List<CodeUnit> matches = this.state.codeUnitState.keySet().stream()
-                .filter(cu -> cu.fqName().equals(normalizedFqName))
-                .toList();
+        // Split out any signature suffix "(...)" from the base name used for index lookup.
+        int parenIndex = normalizedFqName.indexOf('(');
+        String baseName;
+        String searchSignature;
+        if (parenIndex >= 0) {
+            baseName = normalizedFqName.substring(0, parenIndex);
+            searchSignature = normalizedFqName.substring(parenIndex);
+        } else {
+            baseName = normalizedFqName;
+            searchSignature = null;
+        }
 
-        // If no exact match and search string contains "(", try signature-aware matching for backward compatibility
-        // This handles cases like searching for "foo()" when fqName="foo" and signature="()"
-        if (matches.isEmpty() && normalizedFqName.contains("(")) {
-            int parenIndex = normalizedFqName.indexOf('(');
-            String baseName = normalizedFqName.substring(0, parenIndex);
-            String searchSignature = normalizedFqName.substring(parenIndex);
+        if (baseName.isEmpty()) {
+            return Optional.empty();
+        }
 
-            // Try exact signature match first
-            matches = this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().equals(baseName))
+        // Use symbolIndex to pre-filter candidates instead of scanning all CodeUnits.
+        Set<CodeUnit> candidates = lookupCandidatesByFqName(baseName);
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        final String finalBaseName = baseName;
+        final String finalSearchSignature = searchSignature;
+
+        List<CodeUnit> matches;
+
+        if (finalSearchSignature != null) {
+            // Caller supplied a signature: first try exact fqName + signature match.
+            matches = candidates.stream()
+                    .filter(cu -> cu.fqName().equals(finalBaseName))
                     .filter(cu -> {
                         String cuSig = cu.signature();
-                        return cuSig != null && cuSig.equals(searchSignature);
+                        return cuSig != null && cuSig.equals(finalSearchSignature);
                     })
                     .toList();
 
-            // If no exact signature match, return any CodeUnit with matching baseName
+            // If no exact signature match, fall back to base-name-only matches.
             if (matches.isEmpty()) {
-                matches = this.state.codeUnitState.keySet().stream()
-                        .filter(cu -> cu.fqName().equals(baseName))
+                matches = candidates.stream()
+                        .filter(cu -> cu.fqName().equals(finalBaseName))
                         .toList();
             }
+        } else {
+            // No signature provided: match by base FQN only.
+            matches = candidates.stream()
+                    .filter(cu -> cu.fqName().equals(finalBaseName))
+                    .toList();
         }
 
         if (matches.isEmpty()) {
             return Optional.empty();
         }
 
-        // Allow languages to prioritize which definition we return
+        // Allow languages to prioritize which definition we return.
         return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
+    }
+
+    /**
+     * Collects candidate CodeUnits for a fully qualified name using the existing symbolIndex.
+     *
+     * <p>The keys stored in symbolIndex are derived from {@link CodeUnit#identifier()} and, when different,
+     * {@link CodeUnit#shortName()}. For classes and modules this is typically the shortName (FQN minus package),
+     * and for functions/fields it includes both the bare member name and the "Class.member" shortName.</p>
+     *
+     * <p>To stay language-agnostic, this method derives potential symbol keys from the normalized base FQN by
+     * taking the full name and each suffix after a '.' character. This matches how shortName and identifier values
+     * are constructed from {@link CodeUnit#fqName()} across analyzers.</p>
+     *
+     * @param baseName normalized FQN without any parameter signature suffix
+     * @return a set of candidate CodeUnits whose identifier/shortName could correspond to the given FQN
+     */
+    private Set<CodeUnit> lookupCandidatesByFqName(String baseName) {
+        if (baseName.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        var index = this.state.symbolIndex();
+        if (index.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        var result = new LinkedHashSet<CodeUnit>();
+
+        // Candidate symbol keys: the full baseName and each suffix after a '.'.
+        var candidateKeys = new LinkedHashSet<String>();
+        candidateKeys.add(baseName);
+
+        int dot = baseName.indexOf('.');
+        while (dot >= 0 && dot + 1 < baseName.length()) {
+            candidateKeys.add(baseName.substring(dot + 1));
+            dot = baseName.indexOf('.', dot + 1);
+        }
+
+        for (var key : candidateKeys) {
+            var bucket = index.get(key);
+            if (bucket != null && !bucket.isEmpty()) {
+                result.addAll(bucket);
+            }
+        }
+
+        return result;
     }
 
     @Override
@@ -2128,6 +2196,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             List.copyOf(rawSupers),
                             List.of(),
                             hasBody));
+        }
+
+        // Ensure all CodeUnits (including MODULEs created in createModulesFromImports) are indexed
+        // in the local symbol map. This guarantees getDefinition() can resolve them via symbolIndex.
+        for (var cu : localStates.keySet()) {
+            String identifierKey = cu.identifier();
+            var bucket = localCodeUnitsBySymbol.computeIfAbsent(identifierKey, k -> new ArrayList<>());
+            if (!bucket.contains(cu)) {
+                bucket.add(cu);
+            }
+            if (!cu.shortName().equals(identifierKey)) {
+                var shortBucket = localCodeUnitsBySymbol.computeIfAbsent(cu.shortName(), k -> new ArrayList<>());
+                if (!shortBucket.contains(cu)) {
+                    shortBucket.add(cu);
+                }
+            }
         }
 
         // Deduplicate top-level CodeUnits to avoid downstream duplicate-key issues
