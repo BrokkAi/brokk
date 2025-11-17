@@ -1,6 +1,5 @@
 package dev.langchain4j.agent.tool;
 
-import static dev.langchain4j.internal.Utils.isNullOrBlank;
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
@@ -78,9 +77,7 @@ public class ToolSpecifications {
 
         Tool annotation = method.getAnnotation(Tool.class);
 
-        String name = isNullOrBlank(annotation.name()) ? method.getName() : annotation.name();
-
-        String description = String.join("\n", annotation.value());
+        String description = annotation.value();
         if (description.isEmpty()) {
             description = null;
         }
@@ -88,7 +85,7 @@ public class ToolSpecifications {
         JsonObjectSchema parameters = parametersFrom(method.getParameters());
 
         return ToolSpecification.builder()
-                .name(name)
+                .name(method.getName())
                 .description(description)
                 .parameters(parameters)
                 .build();

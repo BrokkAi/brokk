@@ -4,6 +4,7 @@
   import { rendererPlugins } from '../lib/renderer-plugins';
   import type { BubbleState } from '../stores/bubblesStore';
   import type {Bubble} from "@/types";
+  import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
   import { createLogger } from '../lib/logging';
 
   export let bubble: Bubble;
@@ -33,23 +34,13 @@
     }
   }
 
-  /* Map bubble type to CSS variable names for highlight and background colors */
-  const hlVar = {
-    AI: '--message-border-ai',
-    USER: '--message-border-user',
-    CUSTOM: '--message-border-custom',
-    SYSTEM: '--message-border-custom',
-  }[bubble.type] ?? '--message-border-custom';
-
-  const bgVar = bubble.type === 'CUSTOM' ? '--custom-message-background' : '--message-background';
-
-  /* Default titles and icons per bubble type */
-  const defaultTitles = { USER: 'You', AI: 'Brokk', SYSTEM: 'System', CUSTOM: 'Custom' };
-  const defaultIcons = { USER: 'mdi:account', AI: 'mdi:robot', SYSTEM: 'mdi:cog', CUSTOM: 'mdi:wrench' };
+  $: defaults = getBubbleDisplayDefaults(bubble.type);
+  $: hlVar = defaults.hlVar;
+  $: bgVar = defaults.bgVar;
 
   /* Use provided title/icon if available, otherwise fall back to defaults */
-  const title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
-  const iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
+  $: title = bubble.title ?? defaults.title;
+  $: iconId = bubble.iconId ?? defaults.iconId;
 </script>
 
 <div
@@ -93,11 +84,17 @@
     word-break: break-word;
   }
 
+  /* High contrast mode: add a subtle dotted border around the entire bubble */
+  :global(.theme-high-contrast) .message-bubble {
+    border: 1px dotted rgba(230, 230, 230, 0.3);
+    border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
+  }
+
   .header {
     display: flex;
     align-items: center;
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.95em;
   }
 
 </style>

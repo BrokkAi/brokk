@@ -1,19 +1,21 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
-import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
+import {reparseAll as reparseAllBubbles} from '../stores/bubblesStore';
+import {reparseAll as reparseAllHistory} from '../stores/historyStore';
+import {onWorkerResult} from './parseRouter';
 import { createLogger } from '../lib/logging';
 
-// Environment detection
+/* Environment detection */
 const isDevMode = typeof window !== 'undefined' && !window.javaBridge;
 
-console.log('MAIN: Creating worker with URL:', __WORKER_URL__);
+/* Tagged logger for this module (declare early for consistent logging) */
+const log = createLogger('worker-bridge');
+
+log.info('MAIN: Creating worker with URL:', __WORKER_URL__);
 const worker = new Worker(__WORKER_URL__, { type: 'module' });
-console.log('MAIN: Worker created successfully');
+log.info('MAIN: Worker created successfully');
 
 // Expose worker globally for Java bridge access
 (window as any).worker = worker;
-
-
-const log = createLogger('worker-bridge');
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
@@ -42,6 +44,19 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
   });
 }
 
+export function collapseDiff(markdown: string, bubbleId: number, blockId: string) {
+  // 1. Ask worker to mark this block as "collapsed" by user
+  worker.postMessage(<InboundToWorker>{ type: 'collapse-diff', bubbleId, blockId });
+  // 2. Trigger a slow parse to reflect the collapsed state, without touching the worker buffer
+  worker.postMessage(<InboundToWorker>{
+    type: 'parse',
+    seq: bubbleId,
+    text: markdown,
+    fast: false,
+    updateBuffer: false
+  });
+}
+
 /* context helper -------------------------------------------------- */
 function getContextId(): string {
   // Use constant context ID
@@ -54,36 +69,30 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
-      reparseAll();
+      reparseAllBubbles();
+      reparseAllHistory();
       break;
     case 'result':
       onWorkerResult(msg);
       break;
-    case 'log':
-      window.javaBridge?.jsLog(msg.level, msg.message);
+    case 'worker-log':
+      switch (msg.level) {
+        case 'error':
+          log.error(msg.message);
+          break;
+        case 'warn':
+          log.warn(msg.message);
+          break;
+        case 'info':
+          log.info(msg.message);
+          break;
+        case 'debug':
+          log.debug(msg.message);
+          break;
+      }
       break;
     case 'error':
       log.error('md-worker:', msg.message + '\n' + msg.stack);
-      break;
-    // Legacy case removed - symbol lookup now handled by reactive components
-    case 'worker-log':
-      const workerMsg = `${msg.message}`;
-      switch (msg.level.toLowerCase()) {
-        case 'error':
-          log.debug(`[bridge] Received error from worker ${workerMsg}`);
-          console.error(workerMsg);
-          break;
-        case 'warn':
-          console.warn(workerMsg);
-          break;
-        case 'info':
-          console.info(workerMsg);
-          break;
-        case 'debug':
-        default:
-          console.log(workerMsg);
-          break;
-      }
       break;
   }
 };

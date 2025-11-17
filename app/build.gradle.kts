@@ -1,5 +1,6 @@
 import net.ltgt.gradle.errorprone.errorprone
 import java.time.Duration
+import org.gradle.process.CommandLineArgumentProvider
 
 plugins {
     java
@@ -12,7 +13,7 @@ plugins {
     alias(libs.plugins.node)
 }
 
-group = "io.github.jbellis"
+group = "ai.brokk"
 
 java {
     toolchain {
@@ -21,12 +22,12 @@ java {
 }
 
 application {
-    mainClass.set("io.github.jbellis.brokk.Brokk")
+    mainClass.set("ai.brokk.Brokk")
     applicationDefaultJvmArgs = listOf(
-        "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",  // Vector API support
-        "-Dbrokk.devmode=true",  // Development mode flag
-        "-Dbrokk.servicetiers=true",  // Development mode flag
+        // enable feature flags; JavaExec baseline supplies other args
+        "-Dbrokk.servicetiers=true",
+        "-Dbrokk.architectshell=true",
+        "-Dwatch.service.polling=true"
     )
 }
 
@@ -37,15 +38,27 @@ javafx {
 
 node {
     version.set(libs.versions.nodejs.get())
-    npmVersion.set(libs.versions.npm.get())
+    npmVersion.set("")
+    pnpmVersion.set(libs.versions.pnpm.get())
     download.set(true)
     workDir.set(file("${project.rootDir}/.gradle/nodejs"))
     npmWorkDir.set(file("${project.rootDir}/.gradle/npm"))
+    pnpmWorkDir.set(file("${project.rootDir}/.gradle/pnpm"))
     nodeProjectDir.set(file("${project.rootDir}/frontend-mop"))
 }
 
+tasks.named("pnpmInstall") {
+    inputs.file("${project.rootDir}/frontend-mop/package.json")
+    inputs.file("${project.rootDir}/frontend-mop/pnpm-lock.yaml")
+    outputs.dir("${project.rootDir}/frontend-mop/node_modules")
+}
+
 repositories {
+    // Use local Maven cache first to minimize network calls
+    mavenLocal()
+
     mavenCentral()
+
     // Additional repositories for dependencies
     maven {
         url = uri("https://repo.gradle.org/gradle/libs-releases")
@@ -55,17 +68,21 @@ repositories {
     }
 }
 
-dependencies {
-    // API interfaces and supporting classes
-    implementation(project(":analyzer-api"))
+// Create a resolvable configuration for Error Prone that extends the declarable 'errorprone' configuration
+// This is needed for our custom compileJavaErrorProne task
+val errorproneCompile by configurations.creating {
+    extendsFrom(configurations.getByName("errorprone"))
+    isCanBeResolved = true
+    isCanBeConsumed = false
+}
 
+dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
     implementation(libs.okhttp)
 
     implementation(libs.jtokkit)
-    implementation(libs.jlama.core)
 
     // Console and logging
     implementation(libs.bundles.logging)
@@ -80,6 +97,11 @@ dependencies {
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
     implementation(libs.disklrucache)
+    implementation(libs.uuid.creator)
+    implementation(libs.mcp.sdk)
+    implementation(libs.pcollections)
+    // For JSON serialization interfaces (used by CodeUnit)
+    api(libs.jackson.annotations)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -94,8 +116,8 @@ dependencies {
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
 
-    // Eclipse LSP
-    implementation(libs.bundles.eclipse.lsp)
+    // Eclipse JDT Core for Java parse without classpath
+    implementation(libs.eclipse.jdt.core)
 
     // Java Decompiler
     implementation(libs.java.decompiler)
@@ -115,6 +137,7 @@ dependencies {
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
     "errorprone"(libs.dataflow.errorprone)
+    "errorprone"(project(":errorprone-checks"))
     compileOnly(libs.checker.qual)
 }
 
@@ -132,20 +155,12 @@ val actualVersion = project.rootProject.version.toString().ifEmpty {
 
 buildConfig {
     buildConfigField("String", "version", "\"$actualVersion\"")
-    packageName("io.github.jbellis.brokk")
+    packageName("ai.brokk")
     className("BuildInfo")
 }
 
-tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    args.set(listOf("install", "--silent"))
-    inputs.file("${project.rootDir}/frontend-mop/package.json")
-    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
-    outputs.dir("${project.rootDir}/frontend-mop/node_modules")
-    outputs.cacheIf { true }
-}
-
 tasks.register("frontendPatch") {
-    dependsOn("frontendInstall")
+    dependsOn(tasks.pnpmInstall)
 
     inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
     outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
@@ -161,10 +176,10 @@ tasks.register("frontendPatch") {
     }
 }
 
-tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
+tasks.register<com.github.gradle.node.pnpm.task.PnpmTask>("frontendBuild") {
     description = "Build frontend with Vite"
     group = "frontend"
-    dependsOn("frontendInstall", "frontendPatch")
+    dependsOn(tasks.pnpmInstall, "frontendPatch")
 
     args.set(listOf("run", "build"))
 
@@ -207,7 +222,29 @@ val errorProneJvmArgs = listOf(
     "--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED"
 )
 
-// Configure main source compilation with ErrorProne/NullAway
+// Baseline JVM args provider; composes with applicationDefaultJvmArgs and other providers
+val baselineJvmArgsProvider = object : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf(
+        "-ea",  // Enable assertions
+        "-Dbrokk.devmode=true"
+    )
+}
+
+val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> {
+        // Only enable debugging when explicitly requested
+        val enableDebug = (project.findProperty("enableDebug") as String?)?.toBoolean() ?: false
+        if (!enableDebug) {
+            return emptyList()
+        }
+
+        val port = (project.findProperty("debugPort") as String?) ?: "5005"
+        // Use "*" so it works on macOS 13+/JDK 21+ where "address=*:5005" is the recommended form.
+        return listOf("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$port")
+    }
+}
+
+// Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
     options.isIncremental = true
     options.isFork = true
@@ -221,42 +258,97 @@ tasks.named<JavaCompile>("compileJava") {
         "-parameters",  // Preserve method parameter names
         "-g:source,lines,vars",  // Generate full debugging information
         "-Xmaxerrs", "500",  // Maximum error count
-        "-XDcompilePolicy=simple",  // Error Prone compilation policy
-        "--should-stop=ifError=FLOW",  // Stop compilation policy
         "-Werror",  // Treat warnings as errors
         "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
     ))
 
-    // Enhanced ErrorProne configuration with NullAway
+    // ErrorProne is disabled for regular builds via line 353
+    // This configuration block is still needed for the plugin but has no effect when disabled
     options.errorprone {
-        // Disable specific Error Prone checks that are handled in SBT config
+        // Exclude dev/ and eu/ directories
+        excludedPaths = ".*/src/main/java/(dev/|eu/).*"
+    }
+}
+
+// Separate task for Error Prone analysis (runs during analyze and check tasks)
+tasks.register<JavaCompile>("compileJavaErrorProne") {
+    group = "verification"
+    description = "Compile with Error Prone and NullAway enabled"
+
+    // Ensure generated sources (e.g., BuildConfig) exist before compiling
+    dependsOn("generateBuildConfig")
+
+    // Use same sources as main compilation
+    source = sourceSets.main.get().java
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("${layout.buildDirectory.get()}/classes/java/errorprone"))
+
+    options.isIncremental = false  // Disable incremental for Error Prone
+    options.isFork = true
+    options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
+        "-Xmx2g",  // Increase compiler heap size
+        "-XX:+UseG1GC"  // Use G1 GC for compiler
+    ))
+
+    options.compilerArgs.addAll(listOf(
+        "-parameters",
+        "-g:source,lines,vars",
+        "-Xmaxerrs", "500",
+        "-XDcompilePolicy=simple",
+        "--should-stop=ifError=FLOW",
+        "-Werror",
+        "-Xlint:deprecation,unchecked"
+    ))
+
+    // Enable ErrorProne and NullAway
+    options.errorprone {
+        // Disable specific Error Prone checks
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
         disable("EmptyBlockTag")
         disable("NonCanonicalType")
 
-        // Enable NullAway with comprehensive configuration
-        error("NullAway")
-
         // Exclude dev/ directory from all ErrorProne checks
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
+        // Always enable NullAway in this task
+        error("NullAway")
+        enable("RedundantNullCheck")
+
+
         // Core NullAway options
-        option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
+        option("NullAway:AnnotatedPackages", "ai.brokk")
         option("NullAway:ExcludedFieldAnnotations",
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
         option("NullAway:ExcludedClassAnnotations",
                "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
         option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
-        option("NullAway:JarInferStrictMode", "true")
         option("NullAway:CheckOptionalEmptiness", "true")
         option("NullAway:KnownInitializers",
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
+    }
+}
 
-        // RedundantNullCheck
-        enable("RedundantNullCheck")
+// Manually wire up Error Prone for tasks that need it
+// The Error Prone Gradle plugin doesn't auto-configure lazily-registered custom tasks,
+// so we need to explicitly enable it and configure the processor path.
+tasks.withType<JavaCompile>().configureEach {
+    // Configure annotation processor path for both compilation tasks
+    // Both need ErrorProne JARs on the processor path, but only compileJavaErrorProne enables the plugin
+    if (name == "compileJava" || name == "compileJavaErrorProne") {
+        // Only enable ErrorProne plugin for compileJavaErrorProne (used by analyze/check tasks)
+        // Regular compileJava disables the plugin but still needs the processor path configured
+        options.errorprone.isEnabled = (name == "compileJavaErrorProne")
+
+        // Add Error Prone JARs to annotation processor path so the compiler can find the plugin
+        // This is what the Error Prone Gradle plugin normally does automatically
+        options.annotationProcessorPath = files(
+            options.annotationProcessorPath ?: files(),
+            errorproneCompile
+        )
     }
 }
 
@@ -275,25 +367,42 @@ tasks.named<JavaCompile>("compileTestJava") {
     options.errorprone.isEnabled = false
 }
 
-tasks.withType<JavaExec> {
-    jvmArgs = listOf(
-        "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",
-        "-Dbrokk.devmode=true"
-    )
+tasks.withType<JavaExec>().configureEach {
+    // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
+    jvmArgumentProviders.add(baselineJvmArgsProvider)
+    jvmArgumentProviders.add(jdwpDebugArgsProvider)
 }
+
+// Static analysis task without tests (fast, for git hooks)
+tasks.register("analyze") {
+    group = "verification"
+    description = "Run static analysis (NullAway + spotless) without tests"
+
+    dependsOn("compileJavaErrorProne", "spotlessCheck")
+}
+
+// Make check task run ErrorProne compilation for CI validation
+tasks.named("check") {
+    dependsOn("compileJavaErrorProne")
+}
+
 
 tasks.withType<Test> {
     useJUnitPlatform()
 
-    // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    // On Windows, use only 1 fork to avoid CI issues; on other platforms use 6
-    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else 6
+    // Exclude GitRepoTest on Windows when property is set
+    if (project.hasProperty("excludeGitRepoTest")) {
+        exclude("**/GitRepo*.class")
+    }
+
+    // On Windows, use only 1 fork to avoid CI issues; on other platforms use half core count
+    // (half b/c spinning up JVMs is also slow so right now this is a good balance; as we add tests we will want to revisit)
+    maxParallelForks = if (System.getProperty("os.name").lowercase().contains("windows")) 1 else maxOf(6, Runtime.getRuntime().availableProcessors() / 2)
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(
         "-ea",  // Enable assertions
-        "--add-modules=jdk.incubator.vector",
+        "-Xmx1G",  // minimum heap size
         "-Dbrokk.devmode=true",
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=./build/test-heap-dumps/"
@@ -313,6 +422,28 @@ tasks.withType<Test> {
     val failedTests = mutableListOf<String>()
     val testOutputs = mutableMapOf<String, String>()
 
+    // Helper function to format exception with full cause chain
+    fun formatExceptionWithCauses(e: Throwable?): String {
+        if (e == null) return "Unknown error"
+        val sb = StringBuilder()
+        var current: Throwable? = e
+        var isFirst = true
+        while (current != null) {
+            if (!isFirst) {
+                sb.append("\n   Caused by: ")
+            } else {
+                isFirst = false
+            }
+            sb.append(current.message ?: current.javaClass.name)
+            sb.append("\n")
+            current.stackTrace.forEach { frame ->
+                sb.append("      at $frame\n")
+            }
+            current = current.cause
+        }
+        return sb.toString().trimEnd()
+    }
+
     // Capture test output for failed tests
     addTestOutputListener(object : TestOutputListener {
         override fun onOutput(testDescriptor: TestDescriptor, outputEvent: TestOutputEvent) {
@@ -328,10 +459,9 @@ tasks.withType<Test> {
     afterTest(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
         if (result.resultType == TestResult.ResultType.FAILURE) {
             val testKey = "${desc.className}.${desc.name}"
-            val errorMessage = result.exception?.message ?: "Unknown error"
-            val stackTrace = result.exception?.stackTrace?.joinToString("\n") { "      at $it" } ?: ""
+            val exceptionDetails = formatExceptionWithCauses(result.exception)
             val output = testOutputs[testKey]?.let { "\n   Output:\n$it" } ?: ""
-            failedTests.add("❌ $testKey\n   Error: $errorMessage\n$stackTrace$output")
+            failedTests.add("❌ $testKey\n   $exceptionDetails$output")
         }
     }))
 
@@ -369,43 +499,55 @@ tasks.withType<Test> {
 tasks.register<JavaExec>("runCli") {
     group = "application"
     description = "Runs the Brokk CLI"
-    mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
+    mainClass.set("ai.brokk.cli.BrokkCli")
     classpath = sourceSets.main.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Dbrokk.devmode=true"
-    )
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
+}
+
+tasks.register<JavaExec>("runHeadlessExecutor") {
+    group = "application"
+    description = "Runs the Brokk Headless Executor"
+    mainClass.set("ai.brokk.executor.HeadlessExecutorMain")
+    classpath = sourceSets.main.get().runtimeClasspath
+    
+    // Configuration via environment variables:
+    // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
+    systemProperty("brokk.devmode", "false")
 }
 
 tasks.register<JavaExec>("runSkeletonPrinter") {
     group = "application"
     description = "Runs the SkeletonPrinter tool"
-    mainClass.set("io.github.jbellis.brokk.tools.SkeletonPrinter")
+    mainClass.set("ai.brokk.tools.SkeletonPrinter")
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Dbrokk.devmode=true"
-    )
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
 }
 
+tasks.register<JavaExec>("generateThemeCss") {
+    group = "application"
+    description = "Generates theme CSS variables from ThemeColors"
+    mainClass.set("ai.brokk.tools.GenerateThemeCss")
+    classpath = sourceSets.main.get().runtimeClasspath
+    args = listOf("${project.rootDir}/frontend-mop/src/styles/theme-colors.generated.scss")
+}
+
 tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     group = "application"
     description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
-    mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
+    mainClass.set("ai.brokk.tools.TreeSitterRepoRunner")
     classpath = sourceSets.test.get().runtimeClasspath
-    jvmArgs = listOf(
-        "-ea",
-        "-Xmx8g",
-        "-XX:+UseZGC",
-        "-XX:+UnlockExperimentalVMOptions",
-        "-Dbrokk.devmode=true"
-    )
+    // Additional JVM args specific to repository runner; baseline adds -ea and -Dbrokk.devmode=true
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf(
+            "-Xmx8g",
+            "-XX:+UseZGC",
+            "-XX:+UnlockExperimentalVMOptions"
+        )
+    })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
     }
@@ -427,7 +569,7 @@ tasks.shadowJar {
     exclude("META-INF/MANIFEST.MF")
 
     manifest {
-        attributes["Main-Class"] = "io.github.jbellis.brokk.Brokk"
+        attributes["Main-Class"] = "ai.brokk.Brokk"
     }
 }
 

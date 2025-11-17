@@ -1,6 +1,7 @@
 rootProject.name = "brokk"
 
-include("analyzer-api", "app")
+include("app")
+include("errorprone-checks")
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)

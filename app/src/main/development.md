@@ -37,7 +37,8 @@ Dependencies:
 ## Essential Gradle Tasks for New Developers
 
 ### Quick Start
-- `./gradlew run` - Run the application (from app)
+- `./gradlew run` - Run the application (from app) without debugging
+- `./gradlew run -PenableDebug=true` - Run with debugging enabled on port 5005
 - `./gradlew build` - Full build (compile, test, check) - all modules + frontend
 - `./gradlew assemble` - Build without tests - all modules + frontend
 
@@ -45,33 +46,37 @@ Dependencies:
 - `./gradlew clean` - Clean build artifacts for all modules + frontend
 - `./gradlew classes` - Compile all main sources (fastest for development)
 - `./gradlew shadowJar` - Create fat JAR for distribution (explicit only)
+- `./gradlew generateThemeCss` - Generate theme CSS variables from ThemeColors.java
 
 ### Frontend Build Tasks
 
 #### Gradle Tasks (Recommended)
-- `./gradlew frontendBuild` - Build frontend with Vite (includes npm install)
+- `./gradlew frontendBuild` - Build frontend with Vite (includes pnpm install)
 - `./gradlew frontendClean` - Clean frontend build artifacts and node_modules
 
-#### Direct npm Commands (Development)
+#### Direct pnpm Commands (Development)
 For frontend-only development, you can work directly in the `frontend-mop/` directory:
 
 ```bash
 cd frontend-mop/
 
+# Use Gradle-installed pnpm (recommended)
+alias pnpm='../.gradle/pnpm/pnpm-v9.15.4/bin/pnpm'
+
 # Install dependencies
-npm install
+pnpm install
 
 # Development server with hot reload
-npm run dev
+pnpm run dev
 
 # Production build (outputs to app/src/main/resources/mop-web/)
-npm run build
+pnpm run build
 
 # Preview production build
-npm run preview
+pnpm run preview
 ```
 
-**Note**: The npm `build` script runs both worker and main builds via Vite. Gradle automatically handles npm commands during the main build process.
+**Note**: The project uses **pnpm** (not npm) for faster installs and better disk usage. The `build` script runs both worker and main builds via Vite. Gradle automatically handles pnpm via the `pnpmInstall` task. Configuration is in `frontend-mop/.npmrc` (shamefully-hoist mode for compatibility).
 
 ### Development Workflow - Individual Projects
 - `./gradlew :analyzer-api:compileJava` - Compile API interfaces only
@@ -93,7 +98,7 @@ npm run preview
 - `./gradlew test --tests "*AnalyzerTest"` - Run all analyzer tests (includes TreeSitter)
 - `./gradlew test --tests "*.EditBlockTest"` - Run specific test class
 - `./gradlew test --tests "*EditBlock*"` - Run tests matching pattern
-- `./gradlew test --tests "io.github.jbellis.brokk.git.*"` - Run tests in package
+- `./gradlew test --tests "ai.brokk.git.*"` - Run tests in package
 - `./gradlew test --tests "*TypescriptAnalyzerTest"` - Run TreeSitter analyzer tests
 
 #### Project-Specific Test Patterns
@@ -134,14 +139,49 @@ The dependency analysis runs automatically in CI and will fail builds on critica
 
 ### Static Analysis
 
-#### ErrorProne (Java modules: analyzer-api, app)
-- **Configuration**: Custom checks enabled in `build.gradle.kts` for enhanced error detection
-- **Scope**: Applied to analyzer-api and app modules (Java code only)
+The build uses ErrorProne for compile-time bug detection with conditional NullAway analysis:
 
-#### NullAway (app module)
-- **Null safety analysis**: Static analysis to prevent NullPointerExceptions
-- **Configuration**: Configured with project-specific null safety rules
-- **Scope**: Applied to app module only where most business logic resides
+#### ErrorProne & NullAway
+
+- **Regular builds** (`./gradlew build`, `test`): Fast - ErrorProne completely disabled (0% overhead)
+- **Full analysis** (`./gradlew check`): Slow - includes ErrorProne + NullAway dataflow analysis (~20-50% overhead)
+
+#### Running Static Analysis Locally
+
+```bash
+# Fast: NullAway + spotless only (no tests, ~1-2 min)
+./gradlew analyze
+
+# Slow: Full verification with tests (complete CI validation)
+./gradlew check
+```
+
+#### Git Hook Setup (Pre-Push)
+
+To automatically run static analysis before pushing (recommended):
+
+```bash
+# Method 1: Multi-line heredoc (copy all lines together)
+cat > .git/hooks/pre-push << 'EOF'
+#!/bin/sh
+echo "Running static analysis (NullAway + spotless)..."
+./gradlew analyze spotlessCheck
+EOF
+chmod +x .git/hooks/pre-push
+
+# Method 2: One-liner (easier to copy-paste)
+echo '#!/bin/sh\necho "Running static analysis (NullAway + spotless)..."\n./gradlew analyze spotlessCheck' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+```
+
+The pre-push hook will block the push if any errors are found, ensuring code quality before sharing changes.
+
+#### Usage Summary
+
+- `./gradlew build` → Fast compilation, no static analysis overhead
+- `./gradlew test` → Fast tests, no static analysis overhead
+- `./gradlew analyze` → Static analysis only (ErrorProne + NullAway + spotless, no tests)
+- `./gradlew check` → Full verification (tests + ErrorProne + NullAway + spotless)
+- CI should run `check` for complete validation
 
 The build system uses aggressive multi-level caching for optimal performance:
 
@@ -165,6 +205,29 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Compiler uses 2GB heap with G1GC for faster compilation
 - File system watching enabled for better incremental builds
 - Frontend build uses Gradle cache and incremental compilation for faster rebuilds
+
+### Debugging Configuration
+
+Debugging is disabled by default and must be explicitly enabled when needed. This prevents conflicts with IDE debuggers.
+
+#### Debugging Options
+- **Default**: `./gradlew run` - Run without debugging
+- **Enable debugging**: `./gradlew run -PenableDebug=true` - Enable JDWP debugging on port 5005
+- **Custom port**: `./gradlew run -PenableDebug=true -PdebugPort=8000` - Use different debug port
+- **IntelliJ integration**: Debug normally from IntelliJ - no conflicts with Gradle
+
+#### Multiple Instances
+To run multiple instances simultaneously, enable debugging only on specific instances:
+```bash
+# Instance 1 without debugging
+./gradlew run
+
+# Instance 2 with debugging on port 5005
+./gradlew run -PenableDebug=true
+
+# Instance 3 with debugging on custom port
+./gradlew run -PenableDebug=true -PdebugPort=5006
+```
 
 ### JAR Creation
 - **Development builds** (`build`, `assemble`) skip JAR creation for speed
@@ -285,6 +348,20 @@ jDeploy detects pre-releases based on semantic versioning:
 
 Prereleases are marked appropriately in GitHub releases and distribution channels.
 
+### Development Builds
+
+Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.
+
+**Accessing Development Builds:**
+- Development builds are available at: https://github.com/BrokkAi/brokk/releases/tag/master-snapshot
+- The `master` tag is automatically updated after each commit to `master`
+- Platform-specific installers (macOS, Windows, Linux) are available for download
+
+**Auto-Update Behavior:**
+- If installed with auto-update enabled, the application will download the latest build each time it's launched
+- This keeps the development version synchronized with the current state of the `master` branch
+- Version numbers in development builds include git commit information (e.g., `0.12.1-30-g77dcc897`)
+
 ## Performance Baseline Testing
 
 The TreeSitterRepoRunner provides comprehensive performance analysis for TreeSitter analyzers across major open source projects.
@@ -306,51 +383,145 @@ scripts/run-treesitter-repos.sh openjdk-java --max-files 500
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:
-- GUI browser: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil icons"`
-- Console list: `./gradlew run --args="io.github.jbellis.brokk.gui.SwingIconUtil"`
+- GUI browser: `./gradlew run --args="ai.brokk.gui.SwingIconUtil icons"`
+- Console list: `./gradlew run --args="ai.brokk.gui.SwingIconUtil"`
 
 Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
 
+## Theme System
+
+The application uses a unified theme system that synchronizes colors between Java Swing components and the frontend web interface.
+
+### Theme Generation Workflow
+
+1. **Java Theme Definition**: Colors are defined in `ThemeColors.java` with separate maps for dark and light themes
+2. **CSS Generation**: Run `./gradlew generateThemeCss` to generate CSS variables from Java colors
+3. **Frontend Integration**: Generated CSS is written to `frontend-mop/src/styles/theme-colors.generated.scss`
+
+### Key Files
+
+- **`app/src/main/java/io/github/jbellis/brokk/gui/mop/ThemeColors.java`** - Master theme color definitions
+- **`app/src/main/java/io/github/jbellis/brokk/tools/GenerateThemeCss.java`** - CSS generation tool
+- **`frontend-mop/src/styles/theme-colors.generated.scss`** - Auto-generated CSS variables
+
+### Adding New Theme Colors
+
+1. Add color to appropriate theme map in `ThemeColors.java`:
+   ```java
+   DARK_COLORS.put("my_new_color", Color.decode("#123456"));
+   LIGHT_COLORS.put("my_new_color", Color.decode("#654321"));
+   ```
+
+2. Regenerate CSS variables:
+   ```bash
+   ./gradlew generateThemeCss
+   ```
+
+3. Use in frontend SCSS:
+   ```scss
+   .my-component {
+     color: var(--my-new-color);
+   }
+   ```
+
+### Theme Naming Conventions
+
+- Use snake_case in Java: `inline_code_color`
+- Converts to kebab-case in CSS: `--inline-code-color`
+- Colors are automatically sorted alphabetically in generated CSS
+
 ## Environment Variables
 
-### BRK_NO_LSP
+### BRK_USAGE_BOOL
 
-Controls whether the Java Language Server (JDT LSP) is started. When disabled, the app runs in TSA-only mode (TreeSitter
-analyzers only) which improves startup time and reduces memory usage, but advanced Java analysis (call graph, usages, 
-linting via JDT) will not be available.
+Controls whether usage relevance classification is requested/handled as a boolean (yes/no) or as the default real-number score.
 
-- Name: BRK_NO_LSP
+- Name: BRK_USAGE_BOOL
 - Type: Boolean (case-insensitive)
 - Recognized truthy values: 1, true, t, yes, y, on
 - Recognized falsy values: 0, false, f, no, n, off
-- Empty string: treated as true (disables LSP)
-- Unrecognized values: defaults to true (disables LSP) and logs a warning
-- Unset: treated as false (LSP enabled)
+- Empty string: treated as true (enables boolean mode)
+- Unrecognized values: defaults to false (numeric score mode) and logs a warning
+- Unset: treated as false (numeric score mode)
 
-Notes:
-- Parsing is case-insensitive and uses Locale.ROOT.
-- When disabled, a message is logged and the JDT LSP is not started.
-- Methods relying on JDT capabilities degrade gracefully and return empty/no-op results.
+Behavior:
+- When true, the analyzer requests boolean relevance from the model and maps results to UsageHit.confidence:
+  - true → confidence = 1.0
+  - false → confidence = 0.0
+- When false/unset, the analyzer requests a real-valued relevance score in [0.0, 1.0] (existing behavior).
+
+APIs:
+- Java:
+  - ai.brokk.analyzer.usages.UsageConfig.isBooleanUsageMode() — returns boolean mode snapshot.
+  - ai.brokk.agents.RelevanceClassifier.relevanceBooleanBatch(...) — batch boolean relevance.
+  - Existing ai.brokk.agents.RelevanceClassifier.relevanceScoreBatch(...) remains unchanged.
+- Prompting:
+  - ai.brokk.analyzer.usages.UsagePromptBuilder builds prompts that include a <candidates> section of other plausible CodeUnits (excluding the target). The filter description adapts to boolean vs numeric mode accordingly.
 
 Examples:
 ```bash
-# Disable LSP (preferred explicit)
-export BRK_NO_LSP=true
+# Enable boolean relevance classification
+export BRK_USAGE_BOOL=true
 
-# Disable LSP (any of these are equivalent)
-export BRK_NO_LSP=1
-export BRK_NO_LSP=YES
-export BRK_NO_LSP=on
+# Disable boolean classification (use numeric score)
+export BRK_USAGE_BOOL=false
 
-# Enable LSP explicitly
-export BRK_NO_LSP=false
-export BRK_NO_LSP=0
-export BRK_NO_LSP=off
-
-# Unset => LSP enabled (default)
-unset BRK_NO_LSP
-
-# Empty or invalid => LSP disabled (with warning on invalid)
-export BRK_NO_LSP=""
-export BRK_NO_LSP="maybe"  # logs warning, disables LSP
+# Empty/invalid values
+export BRK_USAGE_BOOL=""        # treated as true
+export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```
+
+## Style Guide Aggregation (AGENTS.md)
+
+Brokk aggregates nested AGENTS.md files to build the style guide used in prompts.
+
+- Precedence: nearest-first per context file (walk up to the project master root). Across multiple files, sections are interleaved by depth and de-duplicated (a given AGENTS.md appears once).
+- Fallback: if no AGENTS.md is found near context files, Brokk falls back to the root AGENTS.md or the legacy project style guide.
+- Where to place guides: put an AGENTS.md in each subproject root you want to influence (e.g., `apps/web/AGENTS.md`, `services/api/AGENTS.md`, `packages/foo/AGENTS.md`). The resolver will pick these up automatically.
+- Limits: to protect prompt budget, aggregation caps at 8 sections and ~20k characters by default. Override via system properties:
+  - -Dbrokk.style.guide.maxSections=NN
+  - -Dbrokk.style.guide.maxChars=NNNNN
+
+### Blocking policy and non-blocking usage
+
+To prevent UI stalls and unintended analyzer/I/O work on hot paths, we now use JetBrains annotations and the computed API:
+
+- Annotate concrete synchronous methods that may block or be expensive with `@org.jetbrains.annotations.Blocking` (for example, `ContextFragment.files()`, `ContextFragment.sources()`, `PathFragment.text()`).
+- Do not annotate overrides that are trivially cheap (in-memory only). If an override does no I/O and no analysis, leave it unannotated.
+- Prefer the non-blocking accessors on `ContextFragment.ComputedFragment`:
+  - `computedText()`, `computedDescription()`, `computedSyntaxStyle()`
+  - `computedFiles()`, `computedSources()`
+  These return `ComputedValue<T>` and are safe to use from the UI or other latency-sensitive code.
+
+Implementation notes:
+- Default implementations in `ComputedFragment` bridge existing code by returning a completed `ComputedValue` based on the current blocking methods (`files()/sources()/text()`), preserving backward compatibility while enabling incremental adoption of true async implementations.
+- There is no Brokk-specific Error Prone checker anymore. We rely on standard Error Prone + NullAway, code review, and the `@Blocking` signal to guide call sites away from blocking the EDT.
+
+Usage guidelines:
+- Use `ComputedValue` helpers:
+  - Non-blocking probes via `tryGet()` or `renderNowOr(placeholder)`
+  - Bounded waits via `await(Duration)` that never block the Swing EDT
+  - Asynchronous callbacks via `onComplete(...)`
+- If the fragment type is not known at compile time, gate computed usage with `instanceof ContextFragment.ComputedFragment`.
+
+Example (safe usage from UI):
+```java
+void showFilesLabel(ContextFragment cf, javax.swing.JLabel label) {
+    if (cf instanceof ContextFragment.ComputedFragment cc) {
+        cc.computedFiles().onComplete((files, error) -> {
+            if (error == null && files != null) {
+                javax.swing.SwingUtilities.invokeLater(() ->
+                    label.setText("Files: " + files.size()));
+            }
+        });
+    } else {
+        // Fallback, avoid blocking UI: show placeholder
+        label.setText("Files: …");
+    }
+}
+```
+
+Notes:
+- Do not block the Swing EDT. `ComputedValue.await` returns empty immediately if called from the EDT.
+- For quick rendering paths, use `renderNowOr("…")` to avoid stalls and update later via `onComplete`.
+- When migrating legacy call sites, prefer `computed*()` accessors first; if the fragment type is not known to be a `ComputedFragment`, gate the call with an `instanceof` check, as shown above.

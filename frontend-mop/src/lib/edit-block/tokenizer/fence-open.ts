@@ -39,11 +39,7 @@ export const tokenizeFenceOpen: Tokenizer = function (effects, ok, nok) {
       return fx.nok(code);
     }
 
-    // Reject if there's a space or tab right after the fence (eager recognition)
-    if (code === codes.space || code === codes.horizontalTab) {
-      fx.exit('editBlockFenceOpen');
-      return fx.nok(code);
-    }
+    
 
     fx.exit('editBlockFenceOpen');
 

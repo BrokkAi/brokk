@@ -7,7 +7,6 @@
 
     <logger name="*" level="ERROR"/>
     <logger name="io" level="ERROR"/>
-    <logger name="flatgraph" level="ERROR"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>

@@ -2,7 +2,7 @@
   "catalogs": {},
   "aliases": {
     "brokk": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.13.4/brokk-0.13.4.jar",
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.14.1/brokk-0.14.1.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector"
@@ -12,13 +12,6 @@
         "org.openjfx:javafx-fxml:22.0.1",
         "org.openjfx:javafx-swing:22.0.1",
         "org.openjfx:javafx-web:22.0.1"
-      ]
-    },
-    "brokk-0.14.0-beta2": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.14.0-beta2/brokk-0.14.0-beta2.jar",
-      "java": "21",
-      "java-options": [
-        "--add-modules=jdk.incubator.vector"
       ]
     },
     "brokk-0.13.3": {

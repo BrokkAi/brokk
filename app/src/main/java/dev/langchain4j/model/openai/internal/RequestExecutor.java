@@ -4,7 +4,7 @@ import dev.langchain4j.http.client.HttpClient;
 import dev.langchain4j.http.client.HttpRequest;
 import java.util.function.Consumer;
 
-class RequestExecutor<Response> implements SyncOrAsyncOrStreaming<Response> {
+public class RequestExecutor<Response> implements SyncOrAsyncOrStreaming<Response> {
 
     private final HttpClient httpClient;
     private final HttpRequest httpRequest;
@@ -18,7 +18,7 @@ class RequestExecutor<Response> implements SyncOrAsyncOrStreaming<Response> {
         this.responseClass = responseClass;
     }
 
-    RequestExecutor(
+    public RequestExecutor(
             HttpClient httpClient,
             HttpRequest httpRequest,
             HttpRequest streamingHttpRequest,

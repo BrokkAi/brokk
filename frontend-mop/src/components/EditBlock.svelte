@@ -1,10 +1,7 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
-    import {expandDiff} from '../worker/worker-bridge';
-    import type {BubbleState} from '../stores/bubblesStore';
-    import { bubblesStore } from '../stores/bubblesStore';
-    import { get } from 'svelte/store';
-
+    import {expandDiff, collapseDiff} from '../worker/worker-bridge';
+    import { findMarkdownBySeq } from '../stores/lookup';
     import type { EditBlockProperties } from '../worker/shared';
 
     let {
@@ -21,14 +18,29 @@
 
     const basename = $derived(filename.split(/[\\/]/).pop() ?? filename);
 
-    let showDetails = $state(false);
+    // Show state: open when worker marks the block expanded; otherwise stay as user chooses.
+    let showDetails = $state(isExpanded);
+
+    // Track previous expanded prop to detect rising edge without reading/writing showDetails in same effect
+    let prevIsExpanded = isExpanded;
+
+    // One-way sync: if worker decides expanded (auto/manual), open once on rising edge.
+    $effect(() => {
+        if (isExpanded && !prevIsExpanded) {
+            showDetails = true;
+        }
+        prevIsExpanded = isExpanded;
+    });
 
     function toggleDetails() {
         showDetails = !showDetails;
+        const markdown = findMarkdownBySeq(bubbleId) ?? '';
         if (showDetails) {
-            const markdown =
-                get(bubblesStore).find(b => b.seq === bubbleId)?.markdown ?? '';
+            // User opened: expand in worker and render body
             expandDiff(markdown, bubbleId, id);
+        } else {
+            // User closed: persist collapse to suppress auto-expansion and avoid worker render
+            collapseDiff(markdown, bubbleId, id);
         }
     }
 
@@ -48,9 +60,17 @@
                 {/if}
             </div>
             <div class="spacer"></div>
-            <Icon icon={showDetails ? 'mdi:chevron-up' : 'mdi:chevron-down'} class="toggle-icon"/>
-        </header>
 
+            {#if showDetails}
+                <Icon icon="mdi:chevron-up" class="toggle-icon" />
+            {/if}
+            {#if !showDetails}
+                <Icon icon="mdi:chevron-down" class="toggle-icon" />
+            {/if}
+        </header>
+        <!-- Use two icons instead of toggling a single Iconify prop to avoid an intermittent @iconify/svelte update crash (“null attributes”) during rapid subtree updates when edit-blocks auto-expand.
+        This forces a clean unmount/mount and prevents the render flush from aborting (which made the next bubble look empty).
+        Do not refactor unless Iconify fixes this or you switch to a single static icon with CSS rotation. -->
         {#if showDetails}
             <div class="edit-block-body">
                 <slot></slot>
@@ -61,10 +81,6 @@
 
 <style>
     .edit-block-wrapper {
-        --diff-add: #28a745;
-        --diff-del: #dc3545;
-        --diff-add-bg: rgba(40, 167, 69, 0.1);
-        --diff-del-bg: rgba(220, 53, 69, 0.1);
         border: 1px solid var(--message-border-custom);
         border-radius: 8px;
         margin: 1em 0;
@@ -128,17 +144,11 @@
         font-size: 0.85em;
     }
 
-    .edit-block-body :global(.custom-code-block) {
-        margin-left: 10px;
-        margin-right: 10px;
-    }
-
     .edit-block-body :global(pre) {
         margin: 0;
         /* Shiki adds a background color, which is fine. */
         /* It also adds horizontal padding, which we override on lines. */
-        padding-top: 0.8em;
-        padding-bottom: 0.8em;
+        padding: 0;
         white-space: inherit;
         font-size: 0;
     }
@@ -147,7 +157,7 @@
         display: block;
         padding-left: 0.8em;
         padding-right: 0.8em;
-        font-size: 0.8rem;
+        font-size: calc(0.9 * 14px * var(--zoom-level, 1));
         line-height: 1.4;
     }
 
@@ -157,6 +167,26 @@
 
     .edit-block-body :global(.diff-del) {
         background-color: var(--diff-del-bg);
+    }
+
+    /* Diff markers (+/-) before each line using CSS-only */
+    .edit-block-body :global(.diff-line)::before {
+        content: '';
+        display: inline-block;
+        width: 1.25ch;           /* gutter width for marker */
+        margin-right: 0.5ch;     /* space between marker and code */
+        font-family: monospace;  /* align with code */
+        opacity: 0.9;
+    }
+
+    .edit-block-body :global(.diff-add)::before {
+        content: '+';
+        color: var(--diff-add);
+    }
+
+    .edit-block-body :global(.diff-del)::before {
+        content: '-';
+        color: var(--diff-del);
     }
 
 </style>

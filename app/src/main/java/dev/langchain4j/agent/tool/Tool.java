@@ -21,19 +21,9 @@ import java.lang.annotation.Target;
 @Retention(RUNTIME)
 @Target({METHOD})
 public @interface Tool {
-
     /**
-     * Name of the tool. If not provided, method name will be used.
-     *
-     * @return name of the tool.
+     * Instructions for using the tool. It should be clear and descriptive to allow language model to understand the
+     * tool's purpose and its intended use.
      */
-    String name() default "";
-
-    /**
-     * Description of the tool. It should be clear and descriptive to allow language model to understand the tool's
-     * purpose and its intended use.
-     *
-     * @return description of the tool.
-     */
-    String[] value() default "";
+    String value();
 }

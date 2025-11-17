@@ -1,7 +1,7 @@
 import java.util.function.Function;
 
 public class A {
-    public void method1() {
+    void method1() {
         System.out.println("hello");
     }
 
@@ -46,7 +46,7 @@ public class A {
 
     public static class AInnerStatic {}
 
-    public void usesInnerClass() {
+    private void usesInnerClass() {
         System.out.println(new AInner());
     }
 }

@@ -90,12 +90,22 @@ dependencyAnalysis {
 }
 
 allprojects {
-    group = "io.github.jbellis"
+    group = "ai.brokk"
     version = getVersionFromGit()
 
     repositories {
         mavenCentral()
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/")
+        maven("https://repo.eclipse.org/content/groups/releases/")
+    }
+
+    configurations.all {
+        resolutionStrategy {
+            // Cache dynamic versions for 24 hours instead of default 24 minutes
+            cacheDynamicVersionsFor(24, java.util.concurrent.TimeUnit.HOURS)
+            // Cache changing modules for 24 hours
+            cacheChangingModulesFor(24, java.util.concurrent.TimeUnit.HOURS)
+        }
     }
 }
 
@@ -116,6 +126,7 @@ tasks.register("tidy") {
     )
 }
 
+
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "com.autonomousapps.dependency-analysis")
@@ -129,7 +140,7 @@ subprojects {
             targetExclude("**/build/**", "**/test/resources/**", "**/generated/**")
             // Use Palantir Java Format (opinionated formatter similar to Google Java Format,
             // but with improved blank-line and lambda indentation handling)
-            palantirJavaFormat(libs.versions.palantirJavaFormat.get()).formatJavadoc(true)
+            palantirJavaFormat(libs.versions.palantirJavaFormat.get())
             removeUnusedImports()
         }
     }
@@ -142,6 +153,9 @@ subprojects {
         }
         maven {
             url = uri("https://www.jetbrains.com/intellij-repository/releases")
+        }
+        maven {
+            url = uri("https://repo.eclipse.org/content/groups/releases/")
         }
     }
 

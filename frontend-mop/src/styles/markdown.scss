@@ -14,6 +14,9 @@
   --shiki-token-string-expression: #d66e05;
   --shiki-token-punctuation: #9eacba;
   --shiki-token-link: #4ec9b0;
+  --code-block-font-weight: initial;
+  --ai-reasoning-header-foreground: #ffffff;
+  --message-border-ai-reasoning: #8c52c9;
 }
 
 /* Shiki CSS variables for light theme */
@@ -29,6 +32,27 @@
   --shiki-token-string-expression: #d248ae;
   --shiki-token-punctuation: #131313;
   --shiki-token-link: #3200f9;
+  --code-block-font-weight: 700;
+  --ai-reasoning-header-foreground: #333333;
+  --message-border-ai-reasoning: #8c52c9;
+}
+
+/* Shiki CSS variables for high-contrast theme */
+.theme-high-contrast {
+  --shiki-foreground: #ffffff;
+  --shiki-background: #000000;
+  --shiki-token-constant: #00eaff;
+  --shiki-token-string: #ffd333;
+  --shiki-token-comment: #808080;
+  --shiki-token-keyword: #00e61f;
+  --shiki-token-parameter: #ffffff;
+  --shiki-token-function: #00eaff;
+  --shiki-token-string-expression: #ffd333;
+  --shiki-token-punctuation: #ffffff;
+  --shiki-token-link: #1aebff;
+  --code-block-font-weight: initial;
+  --ai-reasoning-header-foreground: #ffffff;
+  --message-border-ai-reasoning: #8c52c9;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -93,12 +117,39 @@ li > p {
   border: 1px solid var(--border-color-hex);
   border-radius: .3em;
   font-size: 0.8em;
+  font-weight: var(--code-block-font-weight);
+}
+
+/* Content lookup styling for inline code that exists in project (symbols and file paths) */
+:not(pre) > code.content-exists {
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* Symbol lookup styling for inline code that exists in project */
- :not(pre) > code.symbol-exists {
+:not(pre) > code.symbol-exists {
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* File path styling for inline code that represents existing files */
+:not(pre) > code.file-path-exists {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Hover effects for content that exists (file paths and symbols) */
+:not(pre) > code.content-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+/* Hover effects for file paths */
+:not(pre) > code.file-path-exists:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 /* Hover effects only for exact matches (exclude partial matches) */
@@ -114,7 +165,7 @@ li > p {
   cursor: default; /* Remove pointer cursor from entire element */
   contain: style;
   color: var(--link-color-hex); /* Match the base symbol-exists color */
-  font-weight: normal;
+  font-weight: var(--code-block-font-weight);
 }
 
 :not(pre) > code.symbol-exists.partial-match::after {
@@ -132,18 +183,34 @@ li > p {
   cursor: pointer; /* Make highlighted spans clickable */
 }
 
+/* File path highlighting - same styling as symbols */
+.file-path-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+  color: var(--link-color-hex);
+}
+
+/* Hover effects for file path highlights */
+.file-path-highlight:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
 /* Enhanced partial match styling - use same styling as exact matches */
 :not(pre) > code.symbol-exists.partial-match .symbol-highlight {
   text-decoration: underline;
   text-decoration-color: var(--link-color-hex);
   cursor: pointer; /* Ensure partial match highlights are clickable */
   color: var(--link-color-hex); /* Match exact match color */
-  font-weight: normal; /* Match exact match base font weight */
+  font-weight: var(--code-block-font-weight); /* Match exact match base font weight */
 }
 
 /* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
 .symbol-non-highlight {
   cursor: default;
+  font-weight: var(--code-block-font-weight);
 }
 
 .symbol-non-highlight:hover {
@@ -165,6 +232,7 @@ li > p {
 pre > code {
   font-size: 0.9em;
   white-space: inherit;
+  font-weight: var(--code-block-font-weight);
 }
 
 pre {
@@ -175,6 +243,7 @@ pre {
   overflow-x: scroll;
   overflow-y: hidden;
   scrollbar-width: thin; /* Firefox */
+  font-size: inherit; /* Ensure pre elements inherit font-size from parent */
 }
 
 /* WebKit scrollbar styling for horizontal scrollbars */
@@ -237,6 +306,23 @@ html.code-wrap-mode .edit-block-body .custom-code-block pre {
   overflow: visible;
 }
 
+/* Remove border and header from code blocks inside edit blocks to avoid double borders */
+.edit-block-wrapper {
+  .edit-block-body .custom-code-block {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .edit-block-body .custom-code-header {
+    display: none;
+  }
+
+  .edit-block-body .custom-code-block pre {
+    border-radius: 0;
+  }
+}
+
 /* Fix diff line backgrounds to extend full width in scroll mode */
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
   /* Make code container expand to full content width */
@@ -247,14 +333,7 @@ html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
   /* Reset diff line styling */
   display: block;
-  padding-left: 0.8em;
-  padding-right: 0.8em;
   position: relative;
-  /* Extend background to full width using negative margins */
-  margin-left: -0.8em;
-  margin-right: -0.8em;
-  padding-left: 1.6em;
-  padding-right: 1.6em;
   /* Force all lines to be same width as code container */
   width: 100%;
   box-sizing: border-box;

@@ -188,15 +188,6 @@ public class Utils {
     }
 
     /**
-     * Returns a random UUID.
-     *
-     * @return a UUID.
-     */
-    public static String randomUUID() {
-        return UUID.randomUUID().toString();
-    }
-
-    /**
      * Internal method to get a SHA-256 instance of {@link MessageDigest}.
      *
      * @return a {@link MessageDigest}.

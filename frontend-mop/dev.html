@@ -1,17 +1,19 @@
 <!DOCTYPE html>
-<html class="theme-light">
+<html class="theme-dark">
 <head>
     <meta charset="utf-8">
     <title>Brokk MOP - Dev Mode</title>
 </head>
 <style>
     #mop-root {
-        top: 450px !important;
+        top: 550px !important;
     }
 
     #dev-tools {
         margin: 1em;
     }
+
+    /* Zoom Widget styles are now in global.scss */
 </style>
 <body>
 <div id="dev-tools">
@@ -22,9 +24,8 @@
     <button onclick="streamEdit()">Stream "Edit"</button>
     <button onclick="showAskMd()">Show "ask" MD</button>
     <button onclick="showEditMd()">Show "edit" MD</button>
-    <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle
-        Theme
-    </button>
+    <button onclick="cycleTheme()">Cycle Theme</button>
+    <span id="current-theme-display" style="margin-left:6px; color:#666;">(dark)</span>
     <button onclick="window.brokk.clear()">Clear Log</button>
     <button onclick="window.brokk.showSpinner('Testing spinner...'); window.brokk.hideSpinner">
         Test Spinner
@@ -32,9 +33,6 @@
     <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
     <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
-    <br>
-    <button onclick="window.brokk.setTheme(false, false, true)">Test Java SetTheme (Light + Wrap)</button>
-    <button onclick="window.brokk.setTheme(true, false, false)">Test Java SetTheme (Dark + Scroll)</button>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
@@ -48,13 +46,9 @@
 
     <h3>Symbol Lookup Testing</h3>
     <div id="symbol-test-controls">
-        <button onclick="showSymbolTestContent()">Load Symbol Test Content</button>
+        <button onclick="showSymbolTestContent()">Load Test Content</button>
         <button onclick="streamSymbolTestContent()">Stream Symbol Test Content</button>
         <button onclick="showPartialMatchTest()">🆕 Test Partial Matches</button>
-        <button onclick="showJavaSymbols()">Show Java Symbols</button>
-        <button onclick="showPythonSymbols()">Show Python Symbols</button>
-        <button onclick="showJavaScriptSymbols()">Show JavaScript Symbols</button>
-        <button onclick="showMixedSymbols()">Show Mixed Symbols</button>
         <button onclick="listMockSymbols()">List Mock Database</button>
     </div>
     <div id="symbol-status" style="margin: 10px 0; font-family: monospace; font-size: 12px; color: #666;">
@@ -202,7 +196,7 @@
 
         // Auto-generate title/body if blank
         if (title == null || title.isBlank() || body == null || body.isBlank()) {
-          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch, io);
           if (title == null || title.isBlank()) title = suggestion.title();
           if (body  == null || body.isBlank())  body  = suggestion.description();
         }
@@ -310,7 +304,7 @@ Both approaches:
 
     function streamAsk() {
         let index = 0;
-        // simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true, reasoning: false})
+
         const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
         const interval = setInterval(() => {
             if (index < chunks.length) {
@@ -324,6 +318,8 @@ Both approaches:
     }
 
     function showAskMd() {
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
         simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})
@@ -722,12 +718,20 @@ window.brokk = {
   clear: () => {
     eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
   },
-  setTheme: (dark) => {
+  setTheme: (dark, isDevMode, zoom) => {
     themeStore.set(dark);
     if (dark) {
       document.body.classList.add('theme-dark');
     } else {
       document.body.classList.remove('theme-dark');
+    }
+    if (zoom !== undefined) {
+      console.log('[Mock setTheme] Setting zoom:', zoom);
+      try {
+        localStorage.setItem('brokk.zoom', String(zoom));
+      } catch (e) {
+        // ignore
+      }
     }
   },
   showSpinner: (message) => {
@@ -782,12 +786,20 @@ window.brokk = {
   clear: () => {
     eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
   },
-  setTheme: (dark) => {
+  setTheme: (dark, isDevMode, zoom) => {
     themeStore.set(dark);
     if (dark) {
       document.body.classList.add('theme-dark');
     } else {
       document.body.classList.remove('theme-dark');
+    }
+    if (zoom !== undefined) {
+      console.log('[Mock setTheme] Setting zoom:', zoom);
+      try {
+        localStorage.setItem('brokk.zoom', String(zoom));
+      } catch (e) {
+        // ignore
+      }
     }
   },
   showSpinner: (message) => {
@@ -894,6 +906,16 @@ Built-ins: \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`document\`, \`wind
 Concepts: \`parser\`, \`lexer\`, \`token\`, \`node\`, \`tree\`, \`visitor\`
 Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
 
+## File Path Test Cases (Should be highlighted if they exist)
+Basic files: \`src/main/App.java\`, \`package.json\`, \`README.md\`, \`index.html\`, \`dev.html\`
+With line numbers: \`App.java:25\`, \`package.json:15-20\`, \`main.py:42\`, \`index.ts:100\`
+Nested paths: \`src/components/Button.tsx\`, \`tests/unit/parser.test.js\`, \`frontend-mop/src/index.ts\`
+Project files: \`vite.config.mjs\`, \`tsconfig.json\`, \`build.gradle\`, \`pom.xml\`
+
+## File Path vs Symbol Test (Should NOT be highlighted - fake files)
+Fake files: \`src/fake/Missing.java\`, \`nonexistent.json\`, \`invalid/path.ts\`
+Invalid formats: \`NoExtension\`, \`justtext\`, \`not.a.real.extension\`
+
 ## Unknown Symbols (Should NOT be highlighted)
 These should appear normal: \`fakeSymbol\`, \`nonExistent\`, \`madeUpClass\`, \`bogusMethod\`
 Invalid partials: \`FakeClass.method\`, \`NotReal.function\`, \`missing.call\`
@@ -901,10 +923,12 @@ Invalid partials: \`FakeClass.method\`, \`NotReal.function\`, \`missing.call\`
 ## Mixed Test
 Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
 Partial vs Exact: \`List\` (exact, solid underline) vs \`List.add\` (partial, dotted underline + ◦)
+Files vs Symbols: \`package.json\` (file) vs \`String\` (symbol) - different highlighting styles
 
 **Instructions:**
 - Exact matches: solid underlines, solid borders
 - Partial matches: dotted underlines, dashed borders, ◦ indicator
+- File paths: file-specific highlighting with context menu on click
 - Click to test interactions!`;
 
         window.brokk.clear();
@@ -1004,126 +1028,7 @@ When backend supports multiple ranges:
         simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false });
     }
 
-    function showJavaSymbols() {
-        const content = `# Java Symbol Test
 
-\`\`\`java
-public class Example {
-    private List<String> items = new ArrayList<>();
-    private Map<String, Object> data = new HashMap<>();
-
-    public void addItem(String item) {
-        items.add(item);
-        data.put("count", items.size());
-    }
-
-    public String toString() {
-        return items.toString();
-    }
-
-    public boolean isEmpty() {
-        return items.isEmpty();
-    }
-}
-\`\`\`
-
-**Inline Java symbols to test:** \`String\`, \`List\`, \`ArrayList\`, \`Map\`, \`HashMap\`, \`Object\`
-
-**Methods:** \`add\`, \`put\`, \`get\`, \`size\`, \`toString\`, \`isEmpty\`, \`contains\`, \`remove\`
-
-**Core classes:** \`Class\`, \`Exception\`, \`Thread\`, \`Runnable\`, \`Collection\``;
-
-        window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
-    }
-
-    function showPythonSymbols() {
-        const content = `# Python Symbol Test
-
-\`\`\`python
-def process_data():
-    items = list()
-    data = dict()
-
-    for i in range(10):
-        items.append(str(i))
-
-    data['items'] = items
-    data['count'] = len(items)
-
-    print(data.keys())
-    return data.values()
-\`\`\`
-
-**Inline Python symbols to test:** \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`range\`, \`len\`
-
-**Methods:** \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
-
-**Functions:** \`print\`, \`input\`, \`open\`, \`close\`, \`read\`, \`write\``;
-
-        window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
-    }
-
-    function showJavaScriptSymbols() {
-        const content = `# JavaScript/TypeScript Symbol Test
-
-\`\`\`javascript
-async function processData() {
-    const items = new Array();
-    let data = {};
-
-    for (let i = 0; i < 10; i++) {
-        items.push(i);
-    }
-
-    const promise = new Promise(resolve => {
-        setTimeout(() => resolve(items), 100);
-    });
-
-    const result = await promise;
-    console.log(result);
-    return result;
-}
-\`\`\`
-
-**Inline JS symbols to test:** \`var\`, \`let\`, \`const\`, \`function\`, \`class\`, \`async\`, \`await\`
-
-**Built-ins:** \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`setTimeout\`, \`setInterval\`
-
-**Browser:** \`document\`, \`window\`
-
-**TypeScript:** \`interface\`, \`type\``;
-
-        window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
-    }
-
-    function showMixedSymbols() {
-        const content = `# Mixed Symbol Test - Real vs Fake
-
-## Should be highlighted (exist in mock DB):
-Java: \`String\`, \`List\`, \`Map\`, \`ArrayList\`
-Python: \`list\`, \`dict\`, \`len\`, \`append\`
-JavaScript: \`var\`, \`function\`, \`Array\`, \`Promise\`
-Programming: \`parser\`, \`lexer\`, \`token\`, \`handler\`
-
-## Should NOT be highlighted (don't exist):
-Fake Java: \`FakeString\`, \`BogusList\`, \`WrongMap\`
-Fake Python: \`fakelist\`, \`wrongdict\`, \`badlen\`
-Fake JS: \`fakevar\`, \`bogusfunction\`, \`wrongarray\`
-Fake terms: \`fakeparser\`, \`wronglexer\`, \`badtoken\`
-
-## Realistic mixed context:
-"The \`parser\` uses a \`lexer\` to create \`token\` objects, but \`fakeparser\` and \`wronglexer\` don't exist."
-
-"Initialize a \`List\` with \`ArrayList\`, not with \`FakeList\` or \`BogusList\`."
-
-This tests the visual difference between real and fake symbols!`;
-
-        window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
-    }
 
     function listMockSymbols() {
         const symbols = Array.from(window.javaBridge?._mockSymbolsSet || []).sort();
@@ -1159,10 +1064,6 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
     window.showSymbolTestContent = showSymbolTestContent;
     window.streamSymbolTestContent = streamSymbolTestContent;
     window.showPartialMatchTest = showPartialMatchTest;
-    window.showJavaSymbols = showJavaSymbols;
-    window.showPythonSymbols = showPythonSymbols;
-    window.showJavaScriptSymbols = showJavaScriptSymbols;
-    window.showMixedSymbols = showMixedSymbols;
     window.listMockSymbols = listMockSymbols;
     window.updateSymbolCount = updateSymbolCount;
 
@@ -1186,6 +1087,45 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
         getSearchStateAndDisplay();
         updateSymbolCount();
     })();
+
+// ----- Theme helpers ---------------------------------------------------------
+
+function getCurrentTheme() {
+    const html = document.documentElement;
+    if (html.classList.contains('theme-light')) return 'light';
+    if (html.classList.contains('theme-high-contrast')) return 'high-contrast';
+    return 'dark'; // default
+}
+
+function setTheme(themeName) {
+    const html = document.documentElement;
+    html.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast');
+    html.classList.add('theme-' + themeName);
+
+    // Update display
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + themeName + ')';
+    }
+
+    console.log('[Dev] Theme set to:', themeName);
+}
+
+function cycleTheme() {
+    const themes = ['light', 'dark', 'high-contrast'];
+    const current = getCurrentTheme();
+    const currentIndex = themes.indexOf(current);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setTheme(themes[nextIndex]);
+}
+
+// Initialize theme display on load
+(function() {
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + getCurrentTheme() + ')';
+    }
+})();
 
 // ----- Code wrap helpers and demo ---------------------------------------------------------
 

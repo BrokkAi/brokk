@@ -26,7 +26,13 @@ export interface ExpandDiffMsg {
     bubbleId: number;  // owning bubble
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg;
+export interface CollapseDiffMsg {
+    type: 'collapse-diff';
+    blockId: string;   // <edit-block data-id="…">
+    bubbleId: number;  // owning bubble
+}
+
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | CollapseDiffMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
@@ -56,13 +62,7 @@ export interface WorkerLogMsg {
     message: string;
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg | LogMsg;
-
-export interface LogMsg {
-    type: 'log';
-    level: 'log' | 'warn' | 'error' | 'debug' | 'info';
-    message: string;
-}
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg;
 
 // shared by both
 
@@ -76,5 +76,16 @@ export interface EditBlockProperties {
     search?: string;
     replace?: string;
     headerOk: boolean;
+    complete?: boolean; // set when block is structurally closed (tail/fence/etc)
     isGitDiff?: boolean;
+}
+
+/* Augment unist.Data so tree.data is strongly typed for our rehype pipeline */
+import 'unist';
+
+declare module 'unist' {
+  interface Data {
+    diffSummary?: { adds: number; dels: number };
+    detectedDiffLangs?: Set<string>;
+  }
 }
