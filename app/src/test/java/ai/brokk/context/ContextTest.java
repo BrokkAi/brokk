@@ -131,7 +131,7 @@ class ContextTest {
         assertEquals(projectFragB, editable.get(3), "Newer project file should be last");
 
         // Mark CodeFragment as read-only and verify it drops from editable
-        var ctx2 = ctx.setReadOnly(codeFrag, true);
+        var ctx2 = ctx.setReadonly(codeFrag, true);
         var editable2 = ctx2.getEditableFragments().toList();
         assertEquals(3, editable2.size(), "Read-only fragments should be filtered out");
         assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragment.CodeFragment));
@@ -146,7 +146,7 @@ class ContextTest {
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
-        ctx = ctx.setReadOnly(ppf, true);
+        ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isReadOnly(ppf));
 
         // Remove fragment
@@ -228,7 +228,7 @@ class ContextTest {
 
         var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
         // Mark the fragment read-only
-        ctx = ctx.setReadOnly(ppf, true);
+        ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isReadOnly(ppf), "Precondition: fragment should be read-only");
 
         // Trigger refresh

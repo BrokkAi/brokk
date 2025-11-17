@@ -1346,8 +1346,8 @@ public class ContextSerializationTest {
                 .addVirtualFragment(codeFrag)
                 .addVirtualFragment(sf);
         // Toggle read-only via Context
-        ctx = ctx.setReadOnly(ppf, true);
-        ctx = ctx.setReadOnly(codeFrag, true);
+        ctx = ctx.setReadonly(ppf, true);
+        ctx = ctx.setReadonly(codeFrag, true);
 
         ContextHistory ch = new ContextHistory(ctx);
 
@@ -1435,7 +1435,7 @@ public class ContextSerializationTest {
         // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
         // Set readOnly via Context and serialize
         var ctx2 = new Context(mockContextManager, "ctx-bc2").addPathFragments(List.of(ppf));
-        ctx2 = ctx2.setReadOnly(ppf, true);
+        ctx2 = ctx2.setReadonly(ppf, true);
         ContextHistory ch2 = new ContextHistory(ctx2);
         Path marked = tempDir.resolve("bc_marked.zip");
         HistoryIo.writeZip(ch2, marked);

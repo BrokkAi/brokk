@@ -3,7 +3,6 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.*;
 import ai.brokk.EditBlock;
 import ai.brokk.IProject;
 import ai.brokk.Llm;
@@ -864,7 +863,7 @@ class CodeAgentTest {
         // Build a context with a ProjectPathFragment for the file, mark it read-only
         var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
         var ctx = contextManager.liveContext().addPathFragments(List.of(roFrag));
-        ctx = ctx.setReadOnly(roFrag, true);
+        ctx = ctx.setReadonly(roFrag, true);
 
         ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
         // Scripted model proposes an edit to the read-only file

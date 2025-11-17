@@ -462,7 +462,7 @@ public class Context {
                 Set.of());
     }
 
-    public Context setReadOnly(ContextFragment fragment, boolean readonly) {
+    public Context setReadonly(ContextFragment fragment, boolean readonly) {
         assert fragment.getType().isEditable();
         assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
 
