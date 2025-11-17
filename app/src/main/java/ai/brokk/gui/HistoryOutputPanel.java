@@ -2858,7 +2858,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 files = filesOpt.get();
                             }
                             // Ensure table repaints when files become available/computed
-                            ComputedSubscription.bind(cf, HistoryOutputPanel.this.historyTable, HistoryOutputPanel.this.historyTable::repaint);
+                            ComputedSubscription.bind(
+                                    cf,
+                                    HistoryOutputPanel.this.historyTable,
+                                    HistoryOutputPanel.this.historyTable::repaint);
                         } else {
                             // Non-computed fragments: safe to call files() directly
                             files = fragment.files();

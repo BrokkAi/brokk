@@ -42,8 +42,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.commons.text.StringEscapeUtils;
@@ -283,8 +283,7 @@ public class WorkspaceChip extends JPanel {
 
     private void handlePopup(MouseEvent e, Component invoker) {
         if (isPanelReadOnly()) {
-            chrome.systemNotify(
-                    WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.systemNotify(WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
             e.consume();
             return;
         }
@@ -304,8 +303,7 @@ public class WorkspaceChip extends JPanel {
 
     protected void onCloseClick() {
         if (!closeEnabled) {
-            chrome.systemNotify(
-                    WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.systemNotify(WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         if (!ensureMutatingAllowed()) {
@@ -535,8 +533,7 @@ public class WorkspaceChip extends JPanel {
 
     protected boolean ensureMutatingAllowed() {
         if (isPanelReadOnly() || !isOnLatestContext()) {
-            chrome.systemNotify(
-                    WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.systemNotify(WorkspaceItemsChipPanel.READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
         return true;
@@ -778,8 +775,7 @@ public class WorkspaceChip extends JPanel {
                         .toList();
 
                 if (toDrop.isEmpty()) {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
                     return;
                 }
 
@@ -833,8 +829,7 @@ public class WorkspaceChip extends JPanel {
                 }
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
-                return String.format(
-                        "<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
+                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
             }
         } catch (Exception ex) {
             logger.trace("Failed to compute metrics for fragment {}", fragment, ex);
@@ -1077,17 +1072,14 @@ public class WorkspaceChip extends JPanel {
             }
 
             body.append("<div><b>Summaries</b></div>");
-            body.append(
-                    "<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
 
             if (allFiles.isEmpty()) {
                 body.append("Multiple summaries");
             } else {
                 body.append("<ul style='margin:0;padding-left:16px'>");
                 for (var f : allFiles) {
-                    body.append("<li>")
-                            .append(StringEscapeUtils.escapeHtml4(f))
-                            .append("</li>");
+                    body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
                 }
                 body.append("</ul>");
             }
@@ -1140,12 +1132,12 @@ public class WorkspaceChip extends JPanel {
                             ? cff.computedFiles().renderNowOr(Set.of())
                             : fragment.files())
                     .stream()
-                    .map(pf -> {
-                        String path = pf.toString();
-                        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                    })
-                    .toList();
+                            .map(pf -> {
+                                String path = pf.toString();
+                                int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                                return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                            })
+                            .toList();
 
             if (files.isEmpty()) {
                 return "Drop: no files";

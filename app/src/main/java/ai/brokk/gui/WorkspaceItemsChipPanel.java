@@ -19,16 +19,13 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import javax.swing.Action;
 import javax.swing.JComponent;
-import javax.swing.JPopupMenu;
-import javax.swing.Scrollable;
 import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -362,14 +359,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             return null;
         }
         var kind = classify(fragment);
-        var chip = new WorkspaceChip(
-                chrome,
-                contextManager,
-                () -> readOnly,
-                onHover,
-                onRemoveFragment,
-                fragment,
-                kind);
+        var chip = new WorkspaceChip(chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, fragment, kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
         return chip;
     }

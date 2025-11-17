@@ -71,7 +71,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
     private volatile boolean readOnly = false;
 
-
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
     private volatile String unfilledTooltipHtml = null;
@@ -281,9 +280,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         for (var f : this.fragments) {
             if (f instanceof ContextFragment.ComputedFragment cf) {
                 ComputedSubscription.bind(cf, this, () -> {
-                        tokenCache.remove(f.id());
-                        repaint();
-                    });
+                    tokenCache.remove(f.id());
+                    repaint();
+                });
             }
         }
 
@@ -985,7 +984,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private Color getOkColor(boolean dark) {
         return dark ? new Color(0x2EA043) : new Color(0x1F883D);
     }
-
 
     @Override
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
