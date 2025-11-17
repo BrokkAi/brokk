@@ -105,6 +105,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
+    private boolean plannerModelSyncListenerRegistered = false;
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     @Nullable
@@ -1564,18 +1565,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Add listener to sync planner combo when model changes in InstructionsPanel
-        final var favoritesForListener = loadedFavorites;
-        chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
-            for (Service.FavoriteModel favorite : favoritesForListener) {
-                if (favorite.config().name().equals(cfg.name())
-                        && favorite.config().reasoning() == cfg.reasoning()
-                        && favorite.config().tier() == cfg.tier()) {
-                    String alias = favorite.alias();
-                    SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
-                    break;
+        if (!plannerModelSyncListenerRegistered) {
+            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+                try {
+                    // Use the current favorites from the table model to avoid capturing stale state
+                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
+                        if (favorite.config().name().equals(cfg.name())
+                                && favorite.config().reasoning() == cfg.reasoning()
+                                && favorite.config().tier() == cfg.tier()) {
+                            String alias = favorite.alias();
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
+                            break;
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
                 }
-            }
-        });
+            });
+            plannerModelSyncListenerRegistered = true;
+        }
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
