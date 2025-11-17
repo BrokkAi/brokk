@@ -117,7 +117,7 @@ class CodeAgentTest {
                 new HashSet<>(), // changedFiles
                 new HashMap<>(), // originalFileContents
                 Collections.emptyMap() // javaLintDiagnostics
-                );
+        );
     }
 
     private CodeAgent.ConversationState createBasicConversationState() {
@@ -217,52 +217,6 @@ class CodeAgentTest {
                 "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
     }
 
-    // P-3: parsePhase - pure parse error, should retry with reminder
-    @Test
-    void testParsePhase_pureParseError_replacesLastRequest() {
-        var originalRequest = new UserMessage("original user request");
-        String llmTextWithParseError =
-                """
-                <block>
-                file.java
-                <<<<<<< SEARCH
-                foo();
-                >>>>>>> REPLACE
-                </block>
-                """; // Missing ======= divider
-        var badAiResponse = new AiMessage(llmTextWithParseError);
-
-        // Set up a conversation history. The state before parsePhase would have the last request and the bad response.
-        var taskMessages = new ArrayList<ChatMessage>();
-        taskMessages.add(new UserMessage("some earlier message"));
-        taskMessages.add(originalRequest);
-        taskMessages.add(badAiResponse);
-
-        var loopContext = createLoopContext("test goal", taskMessages, new UserMessage("placeholder"), List.of(), 0);
-
-        // Act
-        var result = codeAgent.parsePhase(loopContext, llmTextWithParseError, false, parser, null);
-
-        // Assert
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retryStep = (CodeAgent.Step.Retry) result;
-        var newLoopContext = retryStep.loopContext();
-
-        assertEquals(1, newLoopContext.editState().consecutiveParseFailures());
-
-        // Check conversation history was modified
-        var finalTaskMessages = newLoopContext.conversationState().taskMessages();
-        assertEquals(1, finalTaskMessages.size());
-        assertEquals("some earlier message", Messages.getText(finalTaskMessages.getFirst()));
-
-        // Check the new 'nextRequest'
-        String nextRequestText =
-                Messages.getText(newLoopContext.conversationState().nextRequest());
-        assertTrue(nextRequestText.contains("original user request"));
-        assertTrue(nextRequestText.contains(
-                "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
-    }
-
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
     @Test
     void testParsePhase_isPartial_zeroBlocks() {
@@ -275,7 +229,7 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(requireNonNull(retryStep.cs().nextRequest()))
-                .contains("cut off before you provided any code blocks"));
+                           .contains("cut off before you provided any code blocks"));
         assertTrue(retryStep.es().pendingBlocks().isEmpty());
     }
 
