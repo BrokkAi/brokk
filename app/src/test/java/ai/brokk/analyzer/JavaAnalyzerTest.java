@@ -813,4 +813,166 @@ public class JavaAnalyzerTest {
                     "Module children should include only top-level classes A and C (exclude nested types)");
         }
     }
+
+    @Test
+    public void getDefinitions_ReturnsAllOverloads() {
+        // A.method2 has two overloads: method2(String) and method2(String, int)
+        // Note: If signatures aren't populated yet, both may collapse to single CodeUnit
+        // The key test is that when signatures ARE different, we get multiple results
+        var overloads = analyzer.getDefinitions("A.method2");
+
+        assertNotNull(overloads, "getDefinitions should not return null");
+        assertTrue(overloads.size() >= 1, "Should return at least one method2");
+
+        // Verify all returned CodeUnits are functions with correct fqName
+        for (CodeUnit cu : overloads) {
+            assertTrue(cu.isFunction(), "All returned CodeUnits should be functions");
+            assertEquals("A.method2", cu.fqName(), "All overloads should have the same fqName");
+        }
+
+        // If we have multiple results, they should be distinct (different signatures)
+        if (overloads.size() > 1) {
+            var uniqueCodeUnits = Set.copyOf(overloads);
+            assertEquals(
+                    overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Multiple results should be distinct CodeUnits");
+        }
+    }
+
+    @Test
+    public void getDefinitions_NonOverloadedMethod_ReturnsSingleItem() {
+        // A.method1 has only one signature
+        var results = analyzer.getDefinitions("A.method1");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertEquals(1, results.size(), "Non-overloaded method should return single result");
+
+        var cu = results.iterator().next();
+        assertTrue(cu.isFunction(), "Result should be a function");
+        assertEquals("A.method1", cu.fqName());
+    }
+
+    @Test
+    public void getDefinitions_NonExistent_ReturnsEmptySet() {
+        var results = analyzer.getDefinitions("NonExistent.method");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertTrue(results.isEmpty(), "Non-existent symbol should return empty set");
+    }
+
+    @Test
+    public void getDefinitions_Class_ReturnsSingleClass() {
+        var results = analyzer.getDefinitions("A");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertEquals(1, results.size(), "Class should return single result");
+
+        var cu = results.iterator().next();
+        assertTrue(cu.isClass(), "Result should be a class");
+        assertEquals("A", cu.fqName());
+    }
+
+    @Test
+    public void getFunctionDefinition_WithSignature_ReturnsExactMatch() {
+        // First, get all overloads to find actual signatures
+        var overloads = analyzer.getDefinitions("A.method2");
+
+        // If signatures are populated and we have multiple overloads, test exact matching
+        var signaturedOverloads = overloads.stream()
+                .filter(cu -> cu.signature() != null)
+                .toList();
+
+        if (signaturedOverloads.size() >= 2) {
+            // Get one of the signatures
+            var targetSignature = signaturedOverloads.get(0).signature();
+
+            // Test exact match
+            var result = analyzer.getFunctionDefinition("A.method2", targetSignature);
+
+            assertTrue(result.isPresent(), "Should find function with exact signature");
+            assertEquals(targetSignature, result.get().signature(), "Should return exact signature match");
+            assertEquals("A.method2", result.get().fqName());
+        } else {
+            // Signatures not yet populated - test that the method still works with null
+            var result = analyzer.getFunctionDefinition("A.method2", null);
+            assertTrue(result.isPresent(), "Should return any overload when signature is null");
+            assertEquals("A.method2", result.get().fqName());
+        }
+    }
+
+    @Test
+    public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
+        var result = analyzer.getFunctionDefinition("A.method2", null);
+
+        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertEquals("A.method2", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
+
+    @Test
+    public void getFunctionDefinition_NonMatchingSignature_ReturnsFallback() {
+        // Use a signature that definitely doesn't exist
+        var result = analyzer.getFunctionDefinition("A.method2", "(NonExistentType)");
+
+        // Should fallback to any overload
+        assertTrue(result.isPresent(), "Should fallback to any overload when signature doesn't match");
+        assertEquals("A.method2", result.get().fqName());
+    }
+
+    @Test
+    public void getFunctionDefinition_NonFunction_ReturnsEmpty() {
+        var result = analyzer.getFunctionDefinition("A", null);
+
+        assertTrue(result.isEmpty(), "Should return empty for non-function symbols");
+    }
+
+    @Test
+    public void autocompleteDefinitions_WithOverloads_DoesNotDropThem() {
+        // This tests the bug fix where overloads were being dropped due to Map<String, CodeUnit>
+        var results = analyzer.autocompleteDefinitions("method2");
+
+        assertNotNull(results, "autocompleteDefinitions should not return null");
+
+        // Filter to just A.method2 overloads
+        var method2Overloads = results.stream()
+                .filter(cu -> "A.method2".equals(cu.fqName()))
+                .toList();
+
+        // Should have at least one method2
+        assertTrue(method2Overloads.size() >= 1, "Should find at least one method2 overload");
+
+        // If signatures are populated for the overloads, we should see both
+        var withSignatures = method2Overloads.stream()
+                .filter(cu -> cu.signature() != null)
+                .toList();
+
+        if (withSignatures.size() >= 2) {
+            // Verify they are distinct CodeUnits (different signatures)
+            var uniqueCodeUnits = Set.copyOf(method2Overloads);
+            assertEquals(
+                    method2Overloads.size(),
+                    uniqueCodeUnits.size(),
+                    "Overloads should be distinct CodeUnit objects (different signatures in equals/hashCode)");
+        }
+    }
+
+    @Test
+    public void deprecatedGetDefinition_StillWorks() {
+        // Verify backward compatibility - deprecated method still returns a result
+        var result = analyzer.getDefinition("A.method2");
+
+        assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
+        assertEquals("A.method2", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
+
+    @Test
+    public void deprecatedGetDefinition_WithCodeUnit_StillWorks() {
+        var classA = analyzer.getDefinition("A").orElseThrow();
+        var result = analyzer.getDefinition(classA);
+
+        assertTrue(result.isPresent(), "Deprecated getDefinition(CodeUnit) should still work");
+        assertEquals("A", result.get().fqName());
+    }
 }

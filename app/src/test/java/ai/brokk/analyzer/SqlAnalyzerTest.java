@@ -536,4 +536,75 @@ class SqlAnalyzerTest {
         assertEquals(1, declarations.size());
         assertEquals("modified_table", declarations.get(0).shortName());
     }
+
+    @Test
+    void testGetDefinitions_SingleTable() throws IOException {
+        Path sqlFile = tempDir.resolve("single.sql");
+        Files.writeString(sqlFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        var results = analyzer.getDefinitions("my_table");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertEquals(1, results.size(), "Should find one table");
+
+        var cu = results.iterator().next();
+        assertEquals("my_table", cu.fqName());
+        assertTrue(cu.isClass());
+    }
+
+    @Test
+    void testGetDefinitions_WithSchema() throws IOException {
+        Path sqlFile = tempDir.resolve("schema.sql");
+        Files.writeString(
+                sqlFile, "CREATE VIEW my_schema.my_view AS SELECT 1;", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        var results = analyzer.getDefinitions("my_schema.my_view");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertEquals(1, results.size(), "Should find qualified view");
+
+        var cu = results.iterator().next();
+        assertEquals("my_schema.my_view", cu.fqName());
+        assertEquals("my_schema", cu.packageName());
+        assertEquals("my_view", cu.shortName());
+    }
+
+    @Test
+    void testGetDefinitions_NonExistent_ReturnsEmpty() throws IOException {
+        Path sqlFile = tempDir.resolve("test.sql");
+        Files.writeString(sqlFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        var results = analyzer.getDefinitions("nonexistent");
+
+        assertNotNull(results, "getDefinitions should not return null");
+        assertTrue(results.isEmpty(), "Non-existent table should return empty set");
+    }
+
+    @Test
+    void testDeprecatedGetDefinition_StillWorks() throws IOException {
+        Path sqlFile = tempDir.resolve("test.sql");
+        Files.writeString(sqlFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
+
+        ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
+        var testProject = createTestProject(Set.of(projectFile));
+        SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
+
+        // Test deprecated getDefinition still works
+        var result = analyzer.getDefinition("my_table");
+
+        assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
+        assertEquals("my_table", result.get().fqName());
+    }
 }
