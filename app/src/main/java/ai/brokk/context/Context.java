@@ -429,9 +429,7 @@ public class Context {
 
     public Context removeFragmentsByIds(Collection<String> ids) {
         if (ids.isEmpty()) return this;
-        var toDrop = this.fragments.stream()
-                .filter(f -> ids.contains(f.id()))
-                .collect(Collectors.toList());
+        var toDrop = this.fragments.stream().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
         return removeFragments(toDrop);
     }
 
@@ -1059,11 +1057,13 @@ public class Context {
             if (existing.isEmpty()) {
                 return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
             }
-            return afterClear.removeFragmentsByIds(List.of(existing.get().id())).withAction(
-                    CompletableFuture.completedFuture("Build results cleared (success)"));
+            return afterClear
+                    .removeFragmentsByIds(List.of(existing.get().id()))
+                    .withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
         }
-        return afterClear.putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput).withAction(
-                CompletableFuture.completedFuture("Build results updated (failure)"));
+        return afterClear
+                .putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput)
+                .withAction(CompletableFuture.completedFuture("Build results updated (failure)"));
     }
 
     /**
