@@ -254,8 +254,8 @@ public interface ContextFragment {
     String syntaxStyle();
 
     /**
-     * Return a new instance of this fragment with a fresh ID.
-     * Implementations should create a new instance (so it gets a fresh dynamic ID).
+     * Return a new instance of this fragment with a fresh ID, or if the fragment is not dynamically updateable,
+     * return the original instance.
      */
     ContextFragment copy();
 
