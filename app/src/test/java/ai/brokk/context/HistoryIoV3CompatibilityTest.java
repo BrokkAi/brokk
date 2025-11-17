@@ -116,6 +116,36 @@ class HistoryIoV3CompatibilityTest {
         assertFalse(hasLegacy, "Fragments should resolve to ai.brokk.* runtime classes, not io.github.jbellis.*");
     }
 
+    @Test
+    void testPathFragmentWithoutType_Compatibility() throws IOException, URISyntaxException {
+        // Stage the minimal path-fragment V3 session that omits "type" on files within FrozenFragmentDto
+        var resourceUri = requireNonNull(
+                        HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-path-frag-without-type"))
+                .toURI();
+        var resourcePath = Path.of(resourceUri);
+        var staging = tempDir.resolve("staging-pathfrag");
+        FileUtil.copyDirectory(resourcePath, staging);
+
+        // The fixture already includes the necessary content/ files; just zip and load.
+        Path zipPath = tempDir.resolve("history-pathfrag.zip");
+        FileUtil.zipDirectory(staging, zipPath);
+
+        ContextHistory history = assertDoesNotThrow(
+                () -> HistoryIo.readZip(zipPath, mockContextManager),
+                "Deserialization should not throw for V3 path fragment without 'type' discriminator");
+        assertNotNull(history, "ContextHistory should not be null");
+        assertFalse(history.getHistory().isEmpty(), "Contexts should not be empty");
+
+        Context live = history.liveContext();
+        // Let fragments materialize
+        live.awaitContextsAreComputed(Duration.ofSeconds(10));
+
+        var ppf = findFragment(live, ContextFragment.ProjectPathFragment.class, f -> true);
+        assertNotNull(ppf, "ProjectPathFragment should be present");
+        var description = ppf.computedDescription().renderNowOrNull();
+        assertEquals("EditBlock.java [app/src/main/java/ai/brokk]", description);
+    }
+
     private Path stageBasicSessionZip() throws IOException, URISyntaxException {
         var resourceUri = requireNonNull(
                         HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-small-complete"))

@@ -1,0 +1,57 @@
+diff --git a/app/src/main/java/ai/brokk/EditBlock.java b/app/src/main/java/ai/brokk/EditBlock.java
+index 6fe62aa..f0044a7 100644
+--- a/app/src/main/java/ai/brokk/EditBlock.java
++++ b/app/src/main/java/ai/brokk/EditBlock.java
+@@ -747,24 +747,26 @@
+         var scp = scpOpt.get();
+ 
+         // Only Java is supported right now
+-        var supportedAnalyzer = analyzer.subAnalyzer(Languages.JAVA);
++        var supportedAnalyzerOpt = analyzer.subAnalyzer(Languages.JAVA);
+         var supportedExt = Languages.JAVA.getExtensions();
+         Predicate<String> isSupportedExt = extension -> supportedExt.contains(extension.toLowerCase(Locale.ROOT));
+ 
+         // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
+         var editableFiles = contextManager.getFilesInContext();
+-        var javaOnly = supportedAnalyzer.isPresent()
++        // if this boolean check is aliased to a variable, the `.get()` below will be flagged by Error Prone
++        if (!(supportedAnalyzerOpt.isPresent()
+                 && !editableFiles.isEmpty()
+-                && editableFiles.stream().allMatch(f -> isSupportedExt.test(f.extension()));
+-        if (!javaOnly) {
++                && editableFiles.stream().allMatch(f -> isSupportedExt.test(f.extension())))) {
+             throw new AssertionError(
+                     "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
+         }
+ 
++        var supportedAnalyzer = supportedAnalyzerOpt.get();
++
+         String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+         if ("CLASS".equals(kind)) {
+             // Prefer exact definition lookup, then ensure it's a Java class.
+-            var def = analyzer.getDefinition(fqName);
++            var def = supportedAnalyzer.getDefinition(fqName);
+             if (def.isPresent()) {
+                 var cu = def.get();
+                 if (!isSupportedExt.test(cu.source().extension())) {
+@@ -779,7 +781,7 @@
+             }
+ 
+             // No exact match; suggest up to 3 similarly named Java classes
+-            var suggestions = analyzer.searchDefinitions(shortName).stream()
++            var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
+                     .filter(cu -> isSupportedExt.test(cu.source().extension()))
+                     .map(CodeUnit::fqName)
+                     .filter(n -> {
+@@ -791,9 +793,9 @@
+             var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+             throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+         } else {
+-            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
++            Set<String> sources = AnalyzerUtil.getMethodSources(supportedAnalyzer, fqName, true);
+             if (sources.isEmpty()) {
+-                var suggestions = analyzer.searchDefinitions(shortName).stream()
++                var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
+                         .map(CodeUnit::fqName)
+                         .limit(3)
+                         .toList();

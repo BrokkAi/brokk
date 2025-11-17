@@ -1,0 +1,5 @@
+Context: the behavior to exercise is ai.brokk.EditBlock.resolveBrkSnippet, and the existing unit test ai.brokk.prompts.EditBlockSyntaxAwareAssertionTest currently exercises BRK_FUNCTION in a Java-only scenario.
+
+Request: add a new unit test in ai.brokk.prompts.EditBlockSyntaxAwareAssertionTest that verifies resolveBrkSnippet in a multi-language repository setup, while the actual edits/snippets being resolved are located only within Java files. The test should emulate a workspace that contains files in at least one non-Java language alongside the Java sources, then assert that BRK_FUNCTION resolution and any syntax-aware assertions behave correctly for the Java edits and do not erroneously apply to or fail because of the other languages.
+
+Implementation notes: follow the existing test patterns in EditBlockSyntaxAwareAssertionTest for BRK_FUNCTION and reuse helper/setup code where appropriate. Place the test in the same test class/package (ai.brokk.prompts) and keep assertions focused on ensuring correct resolution for Java files only while confirming the presence of other-language files does not interfere.
