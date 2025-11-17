@@ -2124,7 +2124,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             // Toggle ModelSelector visibility based on Advanced Mode
-            modelSelector.getComponent().setVisible(!advanced);
+            modelSelector.getComponent().setVisible(advanced);
             if (selectorStripPanel != null) {
                 selectorStripPanel.revalidate();
                 selectorStripPanel.repaint();
