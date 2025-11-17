@@ -76,9 +76,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField githubRepoField = new JTextField(20);
     private JTextField githubHostField = new JTextField(20);
     private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
-    private JLabel githubOwnerLabel = new JLabel("Owner:");
-    private JLabel githubRepoLabel = new JLabel("Repository:");
-    private JLabel githubHostLabel = new JLabel("Host (optional):");
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
@@ -148,9 +145,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Enable panel now that we have data
         setEnabled(true);
 
-        var project = chrome.getProject();
+        populateGeneralTab(data);
+        populateIssuesTab();
+        populateCodeIntelligenceTab();
+        populateBuildTab(data);
+    }
 
-        // General Tab - use pre-loaded data
+    private void populateGeneralTab(SettingsData data) {
         styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
         styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
@@ -159,17 +160,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
             reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
         }
+    }
 
-        // Issues Tab (still requires live project data as it's not in SettingsData)
+    private void populateIssuesTab() {
+        var project = chrome.getProject();
         IssueProvider currentProvider = project.getIssuesProvider();
         issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
 
-        githubOwnerLabel.setVisible(false);
-        githubOwnerField.setVisible(false);
-        githubRepoLabel.setVisible(false);
-        githubRepoField.setVisible(false);
-        githubHostLabel.setVisible(false);
-        githubHostField.setVisible(false);
+        githubOwnerField.setEnabled(false);
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false);
         githubOverrideCheckbox.setSelected(false);
 
         switch (currentProvider.type()) {
@@ -187,12 +187,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         githubOwnerField.setText(githubConfig.owner());
                         githubRepoField.setText(githubConfig.repo());
                         githubHostField.setText(githubConfig.host());
-                        githubOwnerLabel.setVisible(true);
-                        githubOwnerField.setVisible(true);
-                        githubRepoLabel.setVisible(true);
-                        githubRepoField.setVisible(true);
-                        githubHostLabel.setVisible(true);
-                        githubHostField.setVisible(true);
+                        githubOwnerField.setEnabled(true);
+                        githubRepoField.setEnabled(true);
+                        githubHostField.setEnabled(true);
                         githubOverrideCheckbox.setSelected(true);
                     } else {
                         githubOwnerField.setText("");
@@ -207,9 +204,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
                 break;
         }
+    }
 
+    private void populateCodeIntelligenceTab() {
         loadCodeIntelligenceSettings();
+    }
 
+    private void populateBuildTab(SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
             updateExcludedDirectories(data.buildDetails().excludedDirectories());
@@ -504,7 +505,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(githubOwnerLabel, gbcGitHub);
+        gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
@@ -515,7 +516,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(githubRepoLabel, gbcGitHub);
+        gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
@@ -526,7 +527,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(githubHostLabel, gbcGitHub);
+        gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -535,7 +536,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gitHubCard.add(githubHostField, gbcGitHub);
 
         var ghInfoLabel = new JLabel(
-                "<html>By default, issues are fetched from this project's GitHub repository using the global GitHub token. Leave 'Host' empty for github.com, or specify a custom host for GitHub Enterprise.</html>");
+                "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
         ghInfoLabel.setFont(ghInfoLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
@@ -545,15 +546,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.insets = new Insets(8, 2, 2, 2);
         gitHubCard.add(ghInfoLabel, gbcGitHub);
 
-        // Show/hide owner/repo/host fields and labels based on checkbox
         githubOverrideCheckbox.addActionListener(e -> {
             boolean selected = githubOverrideCheckbox.isSelected();
-            githubOwnerLabel.setVisible(selected);
-            githubOwnerField.setVisible(selected);
-            githubRepoLabel.setVisible(selected);
-            githubRepoField.setVisible(selected);
-            githubHostLabel.setVisible(selected);
-            githubHostField.setVisible(selected);
+            githubOwnerField.setEnabled(selected);
+            githubRepoField.setEnabled(selected);
+            githubHostField.setEnabled(selected);
             if (!selected) {
                 // Optionally clear or reset fields if needed when unchecked
                 githubOwnerField.setText("");
@@ -561,13 +558,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 githubHostField.setText("");
             }
         });
-        // Initial state - fields and labels hidden until checkbox is selected
-        githubOwnerLabel.setVisible(false);
-        githubOwnerField.setVisible(false);
-        githubRepoLabel.setVisible(false);
-        githubRepoField.setVisible(false);
-        githubHostLabel.setVisible(false);
-        githubHostField.setVisible(false);
+        // Initial state
+        githubOwnerField.setEnabled(false);
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false);
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
@@ -1075,24 +1069,18 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // General Tab
         styleGuideArea.setText(project.getStyleGuide());
-        styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(project.getCommitMessageFormat());
-        commitFormatArea.setCaretPosition(0); // Reset scroll position to top
         if (reviewGuideArea != null) {
             reviewGuideArea.setText(project.getReviewGuide());
-            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
         }
 
         // Issues Tab
         IssueProvider currentProvider = project.getIssuesProvider();
         issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
 
-        githubOwnerLabel.setVisible(false); // Default state - hidden
-        githubOwnerField.setVisible(false);
-        githubRepoLabel.setVisible(false);
-        githubRepoField.setVisible(false);
-        githubHostLabel.setVisible(false); // Default state for host field
-        githubHostField.setVisible(false);
+        githubOwnerField.setEnabled(false); // Default state
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false); // Default state for host field
         githubOverrideCheckbox.setSelected(false);
 
         switch (currentProvider.type()) {
@@ -1110,15 +1098,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         githubOwnerField.setText(githubConfig.owner());
                         githubRepoField.setText(githubConfig.repo());
                         githubHostField.setText(githubConfig.host()); // Load host
-                        githubOwnerLabel.setVisible(true);
-                        githubOwnerField.setVisible(true);
-                        githubRepoLabel.setVisible(true);
-                        githubRepoField.setVisible(true);
-                        githubHostLabel.setVisible(true); // Show host field if override is active
-                        githubHostField.setVisible(true);
+                        githubOwnerField.setEnabled(true);
+                        githubRepoField.setEnabled(true);
+                        githubHostField.setEnabled(true); // Enable host field if override is active
                         githubOverrideCheckbox.setSelected(true);
                     } else {
-                        // Fields and labels remain hidden and empty, checkbox unchecked
+                        // Fields remain disabled and empty, checkbox unchecked
                         githubOwnerField.setText("");
                         githubRepoField.setText("");
                         githubHostField.setText("");
