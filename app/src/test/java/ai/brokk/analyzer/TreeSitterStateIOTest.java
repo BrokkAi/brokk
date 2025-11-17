@@ -54,10 +54,15 @@ public class TreeSitterStateIOTest {
         Path root = Files.createTempDirectory("brokk-java-proj");
         try {
             // Prepare a simple Java source file
-            Path pkgDir = root.resolve("src").resolve("main").resolve("java").resolve("com").resolve("example");
+            Path pkgDir = root.resolve("src")
+                    .resolve("main")
+                    .resolve("java")
+                    .resolve("com")
+                    .resolve("example");
             Files.createDirectories(pkgDir);
             Path javaFilePath = pkgDir.resolve("Hello.java");
-            String src = """
+            String src =
+                    """
                     package com.example;
 
                     public class Hello {
@@ -79,8 +84,7 @@ public class TreeSitterStateIOTest {
             String expectedFq = "com.example.Hello";
             assertTrue(
                     decls.stream().anyMatch(cu -> cu.fqName().equals(expectedFq)),
-                    "Expected fqName " + expectedFq + " in declarations"
-            );
+                    "Expected fqName " + expectedFq + " in declarations");
 
             // Save analyzer state to the standard per-language storage location
             Path storage = Languages.JAVA.getStoragePath(project);
@@ -92,13 +96,14 @@ public class TreeSitterStateIOTest {
             var reDecls = loaded.getAllDeclarations();
             assertFalse(reDecls.isEmpty(), "Reloaded declarations should not be empty");
 
-            Set<String> origFq = new HashSet<>(decls.stream().map(CodeUnit::fqName).toList());
-            Set<String> reFq = new HashSet<>(reDecls.stream().map(CodeUnit::fqName).toList());
+            Set<String> origFq =
+                    new HashSet<>(decls.stream().map(CodeUnit::fqName).toList());
+            Set<String> reFq =
+                    new HashSet<>(reDecls.stream().map(CodeUnit::fqName).toList());
             assertEquals(origFq, reFq, "FQNs after reload should match original");
             assertTrue(
                     reDecls.stream().anyMatch(cu -> cu.fqName().equals(expectedFq)),
-                    "Reloaded analyzer missing expected fqName " + expectedFq
-            );
+                    "Reloaded analyzer missing expected fqName " + expectedFq);
         } finally {
             // Best-effort cleanup of temp dir
             try {

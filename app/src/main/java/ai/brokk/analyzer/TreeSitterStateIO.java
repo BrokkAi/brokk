@@ -1,8 +1,8 @@
 package ai.brokk.analyzer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,8 +43,7 @@ public final class TreeSitterStateIO {
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
-    public static record CodeUnitEntryDto(
-            CodeUnit key, TreeSitterAnalyzer.CodeUnitProperties value) {}
+    public static record CodeUnitEntryDto(CodeUnit key, TreeSitterAnalyzer.CodeUnitProperties value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
@@ -56,9 +55,7 @@ public final class TreeSitterStateIO {
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
     public static record FilePropertiesDto(
-            List<CodeUnit> topLevelCodeUnits,
-            List<String> importStatements,
-            Set<CodeUnit> resolvedImports) {}
+            List<CodeUnit> topLevelCodeUnits, List<String> importStatements, Set<CodeUnit> resolvedImports) {}
 
     /* ================= Public API ================= */
 
@@ -124,9 +121,7 @@ public final class TreeSitterStateIO {
         for (var e : state.fileState().entrySet()) {
             var fileProps = e.getValue();
             var fpDto = new FilePropertiesDto(
-                    fileProps.topLevelCodeUnits(),
-                    fileProps.importStatements(),
-                    fileProps.resolvedImports());
+                    fileProps.topLevelCodeUnits(), fileProps.importStatements(), fileProps.resolvedImports());
             fileEntries.add(new FileStateEntryDto(e.getKey(), fpDto));
         }
 
@@ -136,12 +131,7 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
-        return new AnalyzerStateDto(
-                symbolIndexCopy,
-                cuEntries,
-                fileEntries,
-                symbolKeys,
-                state.snapshotEpochNanos());
+        return new AnalyzerStateDto(symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos());
     }
 
     /**

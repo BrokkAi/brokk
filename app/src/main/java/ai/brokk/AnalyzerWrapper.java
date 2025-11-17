@@ -598,7 +598,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
         var langs = analyzer.languages();
         if (langs == null || langs.isEmpty()) {
-            logger.trace("No languages to persist for analyzer: {}", analyzer.getClass().getSimpleName());
+            logger.trace(
+                    "No languages to persist for analyzer: {}",
+                    analyzer.getClass().getSimpleName());
             return;
         }
 

@@ -61,10 +61,15 @@ public class MultiLanguageStateIOTest {
         Path root = Files.createTempDirectory("brokk-multi-proj");
         try {
             // --- Prepare Java source file ---
-            Path javaDir = root.resolve("src").resolve("main").resolve("java").resolve("com").resolve("example");
+            Path javaDir = root.resolve("src")
+                    .resolve("main")
+                    .resolve("java")
+                    .resolve("com")
+                    .resolve("example");
             Files.createDirectories(javaDir);
             Path javaFilePath = javaDir.resolve("Hello.java");
-            String javaSrc = """
+            String javaSrc =
+                    """
                     package com.example;
 
                     public class Hello {
@@ -74,10 +79,15 @@ public class MultiLanguageStateIOTest {
             Files.writeString(javaFilePath, javaSrc);
 
             // --- Prepare Python source file with a class (to ensure non-empty getAllDeclarations) ---
-            Path pyDir = root.resolve("src").resolve("main").resolve("python").resolve("com").resolve("example");
+            Path pyDir = root.resolve("src")
+                    .resolve("main")
+                    .resolve("python")
+                    .resolve("com")
+                    .resolve("example");
             Files.createDirectories(pyDir);
             Path pyFilePath = pyDir.resolve("mod.py");
-            String pySrc = """
+            String pySrc =
+                    """
                     class World:
                         def greet(self):
                             return "hi"
@@ -138,8 +148,11 @@ public class MultiLanguageStateIOTest {
             assertNotNull(brokkDir, "Expected .brokk directory parent to be non-null");
             List<Path> binFiles;
             try (var list = Files.list(brokkDir)) {
-                binFiles = list.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".bin"))
-                               .toList();
+                binFiles = list.filter(p -> p.getFileName()
+                                .toString()
+                                .toLowerCase(Locale.ROOT)
+                                .endsWith(".bin"))
+                        .toList();
             }
             Set<String> binNames = new HashSet<>();
             for (Path p : binFiles) {
