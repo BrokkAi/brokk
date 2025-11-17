@@ -314,19 +314,8 @@ public final class HistoryIo {
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
             var compactDto = DtoMapper.toCompactDto(ctx, writer, summarizeAction(ctx));
-            // Override readonly list using Context's centralized read-only IDs
-            var rewrittenDto = new CompactContextDto(
-                    compactDto.id(),
-                    compactDto.editable(),
-                    ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList(),
-                    compactDto.virtuals(),
-                    compactDto.tasks(),
-                    compactDto.parsedOutputId(),
-                    compactDto.action(),
-                    compactDto.groupId(),
-                    compactDto.groupLabel());
             contextsJsonlContent
-                    .append(objectMapper.writeValueAsString(rewrittenDto))
+                    .append(objectMapper.writeValueAsString(compactDto))
                     .append('\n');
         }
         byte[] contextsBytes = contextsJsonlContent.toString().getBytes(StandardCharsets.UTF_8);

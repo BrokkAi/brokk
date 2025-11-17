@@ -142,8 +142,7 @@ public class DtoMapper {
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
 
     /**
-     * Build a CompactContextDto for serialization, including readonly IDs for fragments
-     * that implement EditableFragment and have isReadOnly() == true.
+     * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
      */
     public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
         var taskEntryRefs = ctx.getTaskHistory().stream()
@@ -165,19 +164,8 @@ public class DtoMapper {
 
         var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
         var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
-
-        // Collect readonly IDs across both file and virtual fragments, but only for EditableFragment
-        var readonlyIds = new ArrayList<String>();
-        ctx.fileFragments().forEach(f -> {
-            if (ctx.isReadOnly(f)) {
-                readonlyIds.add(f.id());
-            }
-        });
-        ctx.virtualFragments().forEach(vf -> {
-            if (ctx.isReadOnly(vf)) {
-                readonlyIds.add(vf.id());
-            }
-        });
+        var readonlyIds =
+                ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
 
         return new CompactContextDto(
                 ctx.id().toString(),
