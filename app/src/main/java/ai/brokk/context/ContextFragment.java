@@ -265,6 +265,12 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
+    /**
+     * Return a new instance of this fragment with a fresh ID, or if the fragment is not dynamically updateable,
+     * return the original instance.
+     */
+    ContextFragment copy();
+
     default List<TaskEntry> entries() {
         return List.of();
     }
@@ -382,91 +388,6 @@ public interface ContextFragment {
          * Implementations that track external state may override to trigger recomputation.
          */
         ContextFragment refreshCopy();
-
-        /**
-         * Bind this fragment's computed values to a Swing component, automatically managing subscriptions
-         * and running UI updates on the EDT. Starts all relevant computed values (text, description, files)
-         * and registers completion handlers that run uiUpdate on the EDT when any of them complete.
-         * Subscriptions are automatically disposed when the owner component is removed from its parent.
-         *
-         * @param owner the Swing component that owns these subscriptions
-         * @param uiUpdate a runnable to execute on the EDT when any computed value completes
-         */
-        default void bind(javax.swing.JComponent owner, java.lang.Runnable uiUpdate) {
-            computedText().start();
-            computedDescription().start();
-            computedFiles().start();
-
-            // Key for storing subscription list on the component
-            final String CV_SUBS_KEY = "brokk.cv.subs";
-
-            // Helper to register a subscription
-            java.util.function.Consumer<ComputedValue.Subscription> registerSub = sub -> {
-                @SuppressWarnings("unchecked")
-                var existing = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
-                if (existing == null) {
-                    existing = new java.util.ArrayList<>();
-                    owner.putClientProperty(CV_SUBS_KEY, existing);
-                }
-                existing.add(sub);
-            };
-
-            // Helper to run UI update, coalesced onto EDT
-            final boolean[] scheduled = {false};
-            java.lang.Runnable scheduleUpdate = () -> {
-                if (!scheduled[0]) {
-                    scheduled[0] = true;
-                    SwingUtilities.invokeLater(() -> {
-                        scheduled[0] = false;
-                        uiUpdate.run();
-                    });
-                }
-            };
-
-            // Subscribe to text completion
-            var s1 = computedText().onComplete((v, ex) -> scheduleUpdate.run());
-            registerSub.accept(s1);
-
-            // Subscribe to description completion
-            var s2 = computedDescription().onComplete((v, ex) -> scheduleUpdate.run());
-            registerSub.accept(s2);
-
-            // Subscribe to files completion
-            var s3 = computedFiles().onComplete((v, ex) -> scheduleUpdate.run());
-            registerSub.accept(s3);
-
-            // Auto-dispose when owner is removed from parent
-            owner.addAncestorListener(new javax.swing.event.AncestorListener() {
-                private boolean disposed = false;
-
-                @Override
-                public void ancestorAdded(javax.swing.event.AncestorEvent e) {}
-
-                @Override
-                public void ancestorRemoved(javax.swing.event.AncestorEvent e) {
-                    if (!disposed) {
-                        disposed = true;
-                        @SuppressWarnings("unchecked")
-                        var subs = (java.util.List<ComputedValue.Subscription>) owner.getClientProperty(CV_SUBS_KEY);
-                        if (subs != null) {
-                            for (var sub : subs) {
-                                try {
-                                    sub.dispose();
-                                } catch (Exception ex) {
-                                    // best-effort disposal
-                                }
-                            }
-                            subs.clear();
-                            owner.putClientProperty(CV_SUBS_KEY, null);
-                        }
-                        owner.removeAncestorListener(this);
-                    }
-                }
-
-                @Override
-                public void ancestorMoved(javax.swing.event.AncestorEvent e) {}
-            });
-        }
     }
 
     /**
@@ -740,6 +661,11 @@ public interface ContextFragment {
         }
 
         @Override
+        public ContextFragment copy() {
+            return new ProjectPathFragment(file, contextManager);
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof PathFragment op)) {
                 return false;
@@ -833,6 +759,12 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "GitFileFragment('%s' @%s)".formatted(file, id);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
     }
 
@@ -951,6 +883,11 @@ public interface ContextFragment {
             var pa = this.file().absPath().normalize();
             var pb = op.file().absPath().normalize();
             return pa.equals(pb);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ExternalPathFragment(file, contextManager);
         }
     }
 
@@ -1156,6 +1093,11 @@ public interface ContextFragment {
         @Override
         public String toString() {
             return "ImageFileFragment('%s')".formatted(file);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ImageFileFragment(file, contextManager);
         }
     }
 
@@ -1390,6 +1332,12 @@ public interface ContextFragment {
             return description.equals(that.description) && syntaxStyle.equals(that.syntaxStyle);
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -1437,6 +1385,12 @@ public interface ContextFragment {
         public Set<ProjectFile> files() {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment via TaskFragment)
@@ -1617,6 +1571,12 @@ public interface ContextFragment {
             }
             return text.equals(that.text);
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
     class AnonymousImageFragment extends PasteFragment implements ImageFragment { // Non-dynamic, content-hashed
@@ -1741,6 +1701,12 @@ public interface ContextFragment {
         public String shortDescription() {
             return "pasted image";
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
     class StacktraceFragment extends VirtualFragment { // Non-dynamic, content-hashed
@@ -1827,6 +1793,12 @@ public interface ContextFragment {
 
         public String getCode() {
             return code;
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
@@ -1955,6 +1927,12 @@ public interface ContextFragment {
 
         public boolean includeTestFiles() {
             return includeTestFiles;
+        }
+
+        @Override
+        public ContextFragment copy() {
+            var repl = new UsageFragment(getContextManager(), targetIdentifier, includeTestFiles); // fresh dynamic ID
+            return repl;
         }
 
         @Override
@@ -2098,6 +2076,12 @@ public interface ContextFragment {
             return fullyQualifiedName;
         }
 
+        @Override
+        public CodeFragment copy() {
+            var repl = new CodeFragment(getContextManager(), fullyQualifiedName); // fresh dynamic ID
+            return repl;
+        }
+
         public ComputedValue<CodeUnit> computedUnit() {
             return getComputedUnit();
         }
@@ -2222,6 +2206,12 @@ public interface ContextFragment {
             return new CallGraphFragment(id(), getContextManager(), methodName, depth, isCalleeGraph);
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new CallGraphFragment(getContextManager(), methodName, depth, isCalleeGraph);
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2342,6 +2332,12 @@ public interface ContextFragment {
             return new SkeletonFragment(id(), getContextManager(), getTargetIdentifiers(), getSummaryType());
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SkeletonFragment(getContextManager(), getTargetIdentifiers(), getSummaryType());
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2455,6 +2451,12 @@ public interface ContextFragment {
         @Override
         public ContextFragment refreshCopy() {
             return new SummaryFragment(id(), getContextManager(), targetIdentifier, summaryType);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SummaryFragment(getContextManager(), targetIdentifier, summaryType);
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
@@ -2588,6 +2590,12 @@ public interface ContextFragment {
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
         }
 
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
@@ -2712,6 +2720,12 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
 
         // Use identity-based equals (inherited from VirtualFragment)

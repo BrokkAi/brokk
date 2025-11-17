@@ -26,6 +26,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -2857,7 +2858,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 files = filesOpt.get();
                             }
                             // Ensure table repaints when files become available/computed
-                            cf.bind(
+                            ComputedSubscription.bind(
+                                    cf,
                                     HistoryOutputPanel.this.historyTable,
                                     HistoryOutputPanel.this.historyTable::repaint);
                         } else {

@@ -824,8 +824,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        var ids = fragments.stream().map(ContextFragment::id).toList();
-        pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
+        pushContext(currentLiveCtx -> currentLiveCtx.removeFragments(fragments));
         String message = "Remove " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
@@ -1074,7 +1073,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         null,
                         CompletableFuture.completedFuture(actionMessage),
                         currentLiveCtx.getGroupId(),
-                        currentLiveCtx.getGroupLabel());
+                        currentLiveCtx.getGroupLabel(),
+                        currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()));
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);

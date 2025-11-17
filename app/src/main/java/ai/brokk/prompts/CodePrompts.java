@@ -328,9 +328,10 @@ public abstract class CodePrompts {
 
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.
-        var topCtx = cm.liveContext();
-        var projectFiles =
-                topCtx.fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toList());
+        var projectFiles = cm.liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().stream())
+                .collect(Collectors.toList());
 
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
@@ -533,7 +534,7 @@ public abstract class CodePrompts {
         var allContents = new ArrayList<Content>();
 
         // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadOnlyFragments().toList();
+        var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
                         .filter(ContextFragment.SummaryFragment.class::isInstance)

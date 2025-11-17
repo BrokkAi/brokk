@@ -251,9 +251,9 @@ public class WorkspaceTools {
         }
 
         // Apply removal and update DISCARDED_CONTEXT in the local context
-        var next = context.removeFragmentsByIds(droppedIds);
+        var next = context.removeFragments(toDrop);
         if (existingDiscarded.isPresent()) {
-            next = next.removeFragmentsByIds(List.of(existingDiscarded.get().id()));
+            next = next.removeFragments(List.of(existingDiscarded.get()));
         }
         var fragment = new ContextFragment.StringFragment(
                 context.getContextManager(),
@@ -415,7 +415,7 @@ public class WorkspaceTools {
             String prevText = prev.text();
             String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
 
-            var next = context.removeFragmentsByIds(List.of(prev.id()));
+            var next = context.removeFragments(List.of(prev));
             var newFrag =
                     new ContextFragment.StringFragment(context.getContextManager(), combined, description, syntax);
             logger.debug(

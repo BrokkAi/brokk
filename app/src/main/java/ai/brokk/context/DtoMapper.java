@@ -60,7 +60,7 @@ public class DtoMapper {
         var readonlyFragments = dto.readonly().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toSet());
 
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
@@ -119,19 +119,65 @@ public class DtoMapper {
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
-                        Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
-                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                        editableFragments.stream(), virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
         UUID groupUuid = null;
         if (dto.groupId() != null && !dto.groupId().isEmpty()) {
             groupUuid = UUID.fromString(dto.groupId());
         }
+
         return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, groupUuid, dto.groupLabel());
+                ctxId,
+                mgr,
+                combined,
+                taskHistory,
+                parsedOutputFragment,
+                actionFuture,
+                groupUuid,
+                dto.groupLabel(),
+                readonlyFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
+
+    /**
+     * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
+     */
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+        var taskEntryRefs = ctx.getTaskHistory().stream()
+                .map(te -> {
+                    String type = te.meta() != null ? te.meta().type().name() : null;
+                    String pmName = te.meta() != null ? te.meta().primaryModel().name() : null;
+                    String pmReason = te.meta() != null
+                            ? te.meta().primaryModel().reasoning().name()
+                            : null;
+                    return new TaskEntryRefDto(
+                            te.sequence(),
+                            te.log() != null ? te.log().id() : null,
+                            te.summary() != null ? writer.writeContent(te.summary(), null) : null,
+                            type,
+                            pmName,
+                            pmReason);
+                })
+                .toList();
+
+        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
+        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+        var readonlyIds =
+                ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+
+        return new CompactContextDto(
+                ctx.id().toString(),
+                editableIds,
+                readonlyIds,
+                virtualIds,
+                taskEntryRefs,
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
+                action,
+                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
+                ctx.getGroupLabel());
+    }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
     public static @Nullable ContextFragment resolveAndBuildFragment(
