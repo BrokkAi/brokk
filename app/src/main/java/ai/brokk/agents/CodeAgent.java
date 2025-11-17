@@ -1501,7 +1501,7 @@ public class CodeAgent {
         return s.endsWith("\n") ? s : s + "\n";
     }
 
-    private static class Metrics {
+    static class Metrics {
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
         final long startNanos = System.nanoTime();

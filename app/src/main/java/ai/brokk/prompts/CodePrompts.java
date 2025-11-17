@@ -7,6 +7,8 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.JavaLanguage;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -22,6 +24,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,6 +33,8 @@ import org.apache.logging.log4j.Logger;
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
+    private static final Pattern BRK_MARKER_PATTERN =
+            Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     public static final String LAZY_REMINDER =
             """
@@ -93,28 +98,63 @@ public abstract class CodePrompts {
                 ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
+    private static <T extends Language> Optional<Language> filterLanguage(
+            Language possiblyMultiLanguage, Class<T> targetLanguage) {
+        if (targetLanguage.isInstance(possiblyMultiLanguage)) {
+            return Optional.of(targetLanguage.cast(possiblyMultiLanguage));
+        } else if (possiblyMultiLanguage instanceof Language.MultiLanguage multiLanguage) {
+            return multiLanguage.getLanguages().stream()
+                    .filter(targetLanguage::isInstance)
+                    .findFirst();
+        } else {
+            return Optional.empty();
+        }
+    }
+
     public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
         var languages = project.getAnalyzerLanguages();
-
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
-        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
-        var unsupported = fileContents.keySet().stream()
-                .filter(f -> {
-                    var ext = f.extension();
-                    return ext.isEmpty()
-                            || languages.stream()
-                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
-                })
-                .collect(Collectors.toSet());
-        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
-        if (false) {
-            flags.add(InstructionsFlags.SYNTAX_AWARE);
+        var maybeJavaLanguage = languages.stream()
+                .map(lang -> filterLanguage(lang, JavaLanguage.class))
+                .flatMap(Optional::stream)
+                .findFirst();
+
+        if (maybeJavaLanguage.isPresent()) {
+            // Enable SYNTAX_AWARE only if:
+            // (a) editable set is non-empty AND
+            // (b) every editable file is a Java source (by extension) AND
+            // (c) the project analyzer includes Java
+            var javaLang = maybeJavaLanguage.get();
+            var javaExtensions = javaLang.getExtensions().stream()
+                    .map(ext -> ext.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+
+            var nonEmpty = !editableFiles.isEmpty();
+            var editableExtensions = fileContents.keySet().stream()
+                    .map(f -> f.extension().toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+            var allEditableAreJava = editableExtensions.stream().allMatch(javaExtensions::contains);
+
+            if (nonEmpty && allEditableAreJava) {
+                flags.add(InstructionsFlags.SYNTAX_AWARE);
+                logger.debug(
+                        "Syntax-aware edits enabled for Java-only editable set in a {}-language workspace ({} editable file(s)).",
+                        languages.size(),
+                        fileContents.size());
+            } else {
+                if (!nonEmpty) {
+                    logger.debug("Syntax-aware edits disabled: editable set is empty.");
+                } else {
+                    logger.debug(
+                            "Syntax-aware edits disabled: editable set contains non-Java files (requires all editable files to be Java).");
+                }
+            }
         } else {
-            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+            logger.debug("Syntax-aware edits disabled: project analyzer does not include Java.");
         }
 
         // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
@@ -466,14 +506,15 @@ public abstract class CodePrompts {
 
                     String failedBlocksXml = fileFailures.stream()
                             .map(f -> {
-                                var commentaryText = f.commentary().isBlank()
+                                var enriched = enrichSemanticCommentary(f);
+                                var commentaryText = enriched.isBlank()
                                         ? ""
                                         : """
                                                        <commentary>
                                                        %s
                                                        </commentary>
                                                        """
-                                                .formatted(f.commentary());
+                                                .formatted(enriched);
                                 return """
                                        <failed_block reason="%s">
                                        <block>
@@ -520,6 +561,67 @@ public abstract class CodePrompts {
                %s
                """
                 .formatted(instructions, fileDetails, successNote);
+    }
+
+    /**
+     * Enrich commentary for semantic-aware failures (BRK_CLASS / BRK_FUNCTION).
+     * Preserves existing analyzer commentary (which may already include "Did you mean ..." suggestions),
+     * and appends actionable guidance depending on failure reason and marker type.
+     */
+    private static String enrichSemanticCommentary(EditBlock.FailedBlock f) {
+        var base = f.commentary().trim();
+
+        // Try to detect semantic markers in the original SEARCH block
+        var before = f.block().beforeText().strip();
+        var m = BRK_MARKER_PATTERN.matcher(before);
+        if (!m.find()) {
+            // Not a semantic marker; return original commentary
+            return base;
+        }
+
+        var kind = m.group(1); // "CLASS" or "FUNCTION"
+
+        var hints = new ArrayList<String>();
+
+        switch (f.reason()) {
+            case NO_MATCH -> {
+                if ("CLASS".equals(kind)) {
+                    hints.add("- Verify the fully qualified class name (package.ClassName).");
+                    hints.add("- Ensure the class exists in the workspace and the file path is correct.");
+                    hints.add("- If in doubt, open the file and copy the exact class declaration's package and name.");
+                    hints.add(
+                            "- As a fallback, use a line-based SEARCH for the specific class body you want to replace.");
+                } else { // FUNCTION
+                    hints.add("- Verify the fully qualified method name (package.ClassName.method).");
+                    hints.add("- Ensure the owning class exists and is spelled correctly.");
+                    hints.add("- Consider copying the exact method you want to change and using a line-based SEARCH.");
+                }
+            }
+            case AMBIGUOUS_MATCH -> {
+                if ("FUNCTION".equals(kind)) {
+                    hints.add("- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
+                    hints.add(
+                            "- Use a line-based SEARCH that includes enough unique lines from the target method body.");
+                    hints.add(
+                            "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
+                }
+                // For BRK_CLASS ambiguity we don't add extra guidance (not a typical case).
+            }
+            default -> {
+                // No extra guidance for other reasons
+            }
+        }
+
+        if (hints.isEmpty()) {
+            return base;
+        }
+
+        var guidance = ("Suggestions:\n" + String.join("\n", hints)).trim();
+        if (base.isBlank()) {
+            return guidance;
+        }
+        // Append guidance after existing commentary
+        return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
     /**
