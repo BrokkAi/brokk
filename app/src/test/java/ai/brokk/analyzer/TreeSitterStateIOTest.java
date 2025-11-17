@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IProject;
-import java.io.IOException;
+import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -107,21 +107,9 @@ public class TreeSitterStateIOTest {
         } finally {
             // Best-effort cleanup of temp dir
             try {
-                recursiveDelete(root);
+                FileUtil.deleteRecursively(root);
             } catch (Throwable ignored) {
             }
-        }
-    }
-
-    private static void recursiveDelete(Path root) throws IOException {
-        if (root == null || !Files.exists(root)) return;
-        try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.deleteIfExists(p);
-                } catch (IOException ignored) {
-                }
-            });
         }
     }
 }
