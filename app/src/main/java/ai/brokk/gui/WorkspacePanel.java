@@ -15,10 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
-import ai.brokk.gui.dialogs.AttachContextDialog;
-import ai.brokk.gui.dialogs.CallGraphDialog;
-import ai.brokk.gui.dialogs.DropActionDialog;
-import ai.brokk.gui.dialogs.SymbolSelectionDialog;
+import ai.brokk.gui.dialogs.*;
 import ai.brokk.gui.util.ContextMenuUtils;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.prompts.CopyExternalPrompts;
@@ -1560,9 +1557,66 @@ public class WorkspacePanel extends JPanel {
         return textArea;
     }
 
-    /** Shows a preview of the fragment contents */
-    private void showFragmentPreview(ContextFragment fragment) {
-        chrome.openFragmentPreview(fragment);
+    /** Shows a preview of the fragment contents, opening once with "Loading..." and updating in-place when ready. */
+    void showFragmentPreview(ContextFragment fragment) {
+        // If this is an image fragment, let Chrome's centralized preview handle it (proper image panel),
+        // instead of falling back to a text panel that shows "[Image content provided out of band]".
+        if (fragment instanceof ContextFragment.ImageFragment) {
+            chrome.openFragmentPreview(fragment);
+            return;
+        }
+
+        // Determine associated file for better preview semantics (edit button, etc)
+        ProjectFile associatedFile = fragment.files().stream().findFirst().orElse(null);
+
+        // Try to get initial content and syntax style without blocking the EDT
+        String initialText = "(Loading...)";
+        String initialSyntax = null;
+
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            var textOpt = cf.computedText().tryGet();
+            initialText = textOpt.orElse("(Loading...)");
+            var styleOpt = cf.computedSyntaxStyle().tryGet();
+            initialSyntax = styleOpt.orElse(null);
+        }
+
+        // Create the initial preview panel
+        var title = fragment.shortDescription().isBlank() ? "Preview" : fragment.shortDescription();
+        var panel = new PreviewTextPanel(
+                contextManager, associatedFile, initialText, initialSyntax, chrome.getTheme(), fragment);
+
+        // Show the frame immediately with placeholder content
+        chrome.showPreviewFrame(contextManager, title, panel);
+
+        // Now asynchronously load/update the content
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            // Update when text is ready
+            cf.computedText().onComplete((txt, ex) -> {
+                if (ex == null) {
+                    // Try to also fetch syntax style if available (non-blocking)
+                    var styleOpt = cf.computedSyntaxStyle().tryGet();
+                    var syntax = styleOpt.orElse(null);
+                    SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
+                } else {
+                    logger.error("Error computing fragment text for {}", fragment, ex);
+                    SwingUtilities.invokeLater(() -> panel.setContentAndStyle(
+                            "Unable to load content!", org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE));
+                }
+            });
+            // If syntax style completes separately later, update it without changing text
+            cf.computedSyntaxStyle().onComplete((style, ex) -> {
+                if (ex == null) {
+                    SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
+                } else {
+                    logger.warn("Error computing fragment syntax style for {}", fragment, ex);
+                }
+            });
+        } else {
+            // Non-computed fragment: load text off-EDT to avoid blocking
+            contextManager
+                    .submitBackgroundTask("Load preview content", fragment::text)
+                    .thenAccept(text -> SwingUtilities.invokeLater(() -> panel.setContentAndStyle(text, null)));
+        }
     }
 
     // ------------------------------------------------------------------

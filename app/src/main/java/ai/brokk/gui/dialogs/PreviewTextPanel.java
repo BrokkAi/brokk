@@ -1474,4 +1474,53 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     // FontSizeAware implementation uses default methods from interface
+
+    /**
+     * Replace the displayed content and (optionally) the syntax style without marking the document as dirty.
+     * Safe to call from the EDT.
+     */
+    public void setContentAndStyle(String content, @Nullable String syntaxStyle) {
+        // Temporarily remove the save-button document listener to avoid toggling "dirty" state
+        boolean hadListener = false;
+        if (saveButtonDocumentListener != null) {
+            textArea.getDocument().removeDocumentListener(saveButtonDocumentListener);
+            hadListener = true;
+        }
+
+        try {
+            // Update syntax style first to avoid re-parsing twice
+            if (syntaxStyle != null && !Objects.equals(textArea.getSyntaxEditingStyle(), syntaxStyle)) {
+                textArea.setSyntaxEditingStyle(syntaxStyle);
+            }
+            // Replace the content
+            textArea.setText(content);
+            textArea.setCaretPosition(0);
+        } finally {
+            // Restore listener
+            if (hadListener && saveButtonDocumentListener != null) {
+                textArea.getDocument().addDocumentListener(saveButtonDocumentListener);
+            }
+        }
+
+        // Since this is a programmatic refresh, ensure Save remains disabled
+        if (saveButton != null) {
+            saveButton.setEnabled(false);
+        }
+    }
+
+    /**
+     * Updates only the syntax style of the text area without modifying the current text content
+     * or toggling the save/dirty state. Safe to call from the EDT.
+     *
+     * @param syntaxStyle The syntax style to apply; if null, no change is made.
+     */
+    public void setStyleOnly(@Nullable String syntaxStyle) {
+        if (syntaxStyle == null) {
+            return; // No change requested
+        }
+        if (Objects.equals(textArea.getSyntaxEditingStyle(), syntaxStyle)) {
+            return; // Already applied
+        }
+        textArea.setSyntaxEditingStyle(syntaxStyle);
+    }
 }

@@ -85,6 +85,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
+    private JComboBox<String> primaryModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -104,6 +105,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
+    private boolean plannerModelSyncListenerRegistered = false;
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     @Nullable
@@ -1403,7 +1405,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
-        // Create top panel with preferred code model selector
+        // Create top panel with preferred Lutz code model and primary model selectors
         var topPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 10, 0);
@@ -1412,19 +1414,58 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0.0;
-        topPanel.add(new JLabel("Preferred Code Model:"), gbc);
+        topPanel.add(new JLabel("Lutz Code Model:"), gbc);
 
         preferredCodeModelCombo = new JComboBox<>();
         // Will be populated with favorite model aliases in loadSettings()
-        // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
-        var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        comboHolder.add(preferredCodeModelCombo);
+        // Create code model holder with BorderLayout to embed the help icon
+        var codeComboHolder = new JPanel(new BorderLayout(0, 0));
+        codeComboHolder.add(preferredCodeModelCombo, BorderLayout.CENTER);
+
+        // Add help icon for Lutz Code Model directly in the holder
+        var codeHelpButton = new MaterialButton();
+        codeHelpButton.setIcon(Icons.HELP);
+        codeHelpButton.setToolTipText("This model is used by Lutz mode to implement tasks.");
+        codeHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        codeHelpButton.setContentAreaFilled(false);
+        codeHelpButton.setFocusPainted(false);
+        codeHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        codeComboHolder.add(codeHelpButton, BorderLayout.EAST);
 
         gbc.gridx = 1;
-        gbc.weightx = 1.0; // let the holder absorb extra space
+        gbc.weightx = 0.5;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(codeComboHolder, gbc);
+
+        // Add Primary Model (Planner Model) selector
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(new JLabel("Primary Model:"), gbc);
+
+        primaryModelCombo = new JComboBox<>();
+        // Create primary model holder with BorderLayout to embed the help icon
+        var primaryComboHolder = new JPanel(new BorderLayout(0, 0));
+        primaryComboHolder.add(primaryModelCombo, BorderLayout.CENTER);
+
+        // Add help icon for Primary Model directly in the holder
+        var primaryHelpButton = new MaterialButton();
+        primaryHelpButton.setIcon(Icons.HELP);
+        primaryHelpButton.setToolTipText(
+                "This model is used by Lutz mode for planning, coding simple tasks, and answering questions.");
+        primaryHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        primaryHelpButton.setContentAreaFilled(false);
+        primaryHelpButton.setFocusPainted(false);
+        primaryHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        primaryComboHolder.add(primaryHelpButton, BorderLayout.EAST);
+
+        gbc.gridx = 3;
+        gbc.weightx = 0.5;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(0, 10, 10, 0);
-        topPanel.add(comboHolder, gbc);
+        topPanel.add(primaryComboHolder, gbc);
 
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
@@ -1563,6 +1604,227 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return panel;
     }
 
+    public void loadSettings() {
+        // General Tab - JVM Memory
+        try {
+            var mem = MainProject.getJvmMemorySettings();
+            if (mem.automatic()) {
+                memoryAutoRadio.setSelected(true);
+                memorySpinner.setEnabled(false);
+            } else {
+                memoryManualRadio.setSelected(true);
+                memorySpinner.setEnabled(true);
+                try {
+                    int v = mem.manualMb();
+                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+                    int min = ((Number) model.getMinimum()).intValue();
+                    int max = ((Number) model.getMaximum()).intValue();
+                    if (v < min) v = min;
+                    if (v > max) v = max;
+                    int step = model.getStepSize().intValue();
+                    if (step > 0) {
+                        int rem = v % step;
+                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
+                    }
+                    memorySpinner.setValue(v);
+                } catch (Exception ignore) {
+                    // leave spinner as-is
+                }
+            }
+        } catch (Exception ignore) {
+            // Use defaults if there is any problem reading settings
+        }
+
+        // Advanced Mode (General tab)
+        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // Service Tab
+        brokkKeyField.setText(MainProject.getBrokkKey());
+        refreshBalanceDisplay();
+        updateSignupLabelVisibility();
+        if (brokkProxyRadio != null
+                && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                brokkProxyRadio.setSelected(true);
+            } else {
+                localhostProxyRadio.setSelected(true);
+            }
+        }
+
+        if (forceToolEmulationCheckbox != null) {
+            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
+        }
+        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
+        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
+        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
+        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
+        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
+
+        // Compression Tab
+        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
+        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
+        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
+
+        // Appearance Tab
+        String currentTheme = MainProject.getTheme();
+        switch (currentTheme) {
+            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            default -> lightThemeRadio.setSelected(true);
+        }
+
+        // Code Block Layout
+        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
+        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
+
+        // UI Scale (if present; hidden on macOS)
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            String pref = MainProject.getUiScalePref();
+            if ("auto".equalsIgnoreCase(pref)) {
+                uiScaleAutoRadio.setSelected(true);
+                uiScaleCombo.setSelectedItem("1.0");
+                uiScaleCombo.setEnabled(false);
+            } else {
+                uiScaleCustomRadio.setSelected(true);
+                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
+                String selected = pref;
+                boolean found = false;
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (pref.equals(model.getElementAt(i))) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try {
+                        double v = Double.parseDouble(pref);
+                        int nearest = (int) Math.round(v);
+                        if (nearest < 1) nearest = 1;
+                        if (nearest > 5) nearest = 5;
+                        selected = nearest + ".0";
+                    } catch (NumberFormatException ignore) {
+                        selected = "1.0";
+                    }
+                }
+                uiScaleCombo.setSelectedItem(selected);
+                uiScaleCombo.setEnabled(true);
+            }
+        }
+
+        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
+
+        // Diff View preference
+        boolean unified = GlobalUiSettings.isDiffUnifiedView();
+        diffUnifiedRadio.setSelected(unified);
+        diffSideBySideRadio.setSelected(!unified);
+
+        // Startup behavior
+        var startupMode = MainProject.getStartupOpenMode();
+        if (startupMode == MainProject.StartupOpenMode.ALL) {
+            startupOpenAllRadio.setSelected(true);
+        } else {
+            startupOpenLastRadio.setSelected(true);
+        }
+        // Persist per-project main window position (default true)
+        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
+
+        // Instructions panel behavior
+        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+
+        // Quick Models Tab
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
+        var loadedFavorites = MainProject.loadFavoriteModels();
+        if (loadedFavorites.isEmpty()) {
+            var defaultAlias = "default";
+            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
+            loadedFavorites = new ArrayList<>();
+            loadedFavorites.add(defaultFavorite);
+            try {
+                MainProject.saveFavoriteModels(loadedFavorites);
+            } catch (Exception ignore) {
+                // best-effort; will be saved on Apply as well
+            }
+        }
+        quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate preferred code model combo with favorite aliases
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current code config
+        String selectedCodeAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentCodeConfig.name())
+                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
+                    && favorite.config().tier() == currentCodeConfig.tier()) {
+                selectedCodeAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedCodeAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedCodeAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
+
+        // Populate planner model combo with favorite aliases
+        primaryModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current planner config
+        String selectedPlannerAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentPlannerConfig.name())
+                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
+                    && favorite.config().tier() == currentPlannerConfig.tier()) {
+                selectedPlannerAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedPlannerAlias != null) {
+            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            primaryModelCombo.setSelectedIndex(0);
+        }
+
+        // Add listener to sync planner combo when model changes in InstructionsPanel
+        if (!plannerModelSyncListenerRegistered) {
+            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+                try {
+                    // Use the current favorites from the table model to avoid capturing stale state
+                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
+                        if (favorite.config().name().equals(cfg.name())
+                                && favorite.config().reasoning() == cfg.reasoning()
+                                && favorite.config().tier() == cfg.tier()) {
+                            String alias = favorite.alias();
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
+                            break;
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
+                }
+            });
+            plannerModelSyncListenerRegistered = true;
+        }
+
+        // GitHub Tab
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.loadSettings();
+        }
+
+        // MCP Servers Tab
+        mcpServersListModel.clear();
+        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
+        for (McpServer server : mcpConfig.servers()) {
+            mcpServersListModel.addElement(server);
+        }
+    }
     public boolean applySettings() {
         // Service Tab
         String currentBrokkKeyInSettings = MainProject.getBrokkKey();
@@ -1784,13 +2046,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
-        var selectedAlias = (String) preferredCodeModelCombo.getSelectedItem();
-        if (selectedAlias != null && !selectedAlias.isEmpty()) {
+        var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedCodeAlias != null && !selectedCodeAlias.isEmpty()) {
             try {
-                var favoriteModel = MainProject.getFavoriteModel(selectedAlias);
+                var favoriteModel = MainProject.getFavoriteModel(selectedCodeAlias);
                 chrome.getProject().getMainProject().setCodeModelConfig(favoriteModel.config());
             } catch (IllegalArgumentException e) {
-                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedAlias);
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedCodeAlias);
+            }
+        }
+
+        // Planner Model
+        var selectedPlannerAlias = (String) primaryModelCombo.getSelectedItem();
+        if (selectedPlannerAlias != null && !selectedPlannerAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedPlannerAlias);
+                chrome.getProject().getMainProject().setArchitectModelConfig(favoriteModel.config());
+                chrome.getInstructionsPanel().selectPlannerModelConfig(favoriteModel.config());
+            } catch (IllegalArgumentException e) {
+                logger.warn(
+                        "Selected planner favorite model alias '{}' no longer exists, skipping save.",
+                        selectedPlannerAlias);
             }
         }
 

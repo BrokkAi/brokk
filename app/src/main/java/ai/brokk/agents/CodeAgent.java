@@ -762,7 +762,13 @@ public class CodeAgent {
                 metrics.failedEditBlocks += failedBlocks.size();
             }
             int succeededCount = attemptedBlockCount - failedBlocks.size();
+            assert succeededCount >= 0
+                    : "succeededCount cannot be negative: attempted=%d, failed=%d"
+                            .formatted(attemptedBlockCount, failedBlocks.size());
             int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
+            assert newBlocksAppliedWithoutBuild >= 0
+                    : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
+                            .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
             List<EditBlock.SearchReplaceBlock> nextPendingBlocks = List.of();
 

@@ -44,6 +44,7 @@ public class GitRepoRemoteMergeTest {
         localGit.getRepository().getConfig().setString("user", null, "name", "Test User");
         localGit.getRepository().getConfig().setString("user", null, "email", "test@example.com");
         localGit.getRepository().getConfig().setBoolean("commit", null, "gpgsign", false);
+        localGit.getRepository().getConfig().setBoolean("core", null, "autocrlf", false);
         localGit.getRepository().getConfig().save();
 
         // Create initial commit
