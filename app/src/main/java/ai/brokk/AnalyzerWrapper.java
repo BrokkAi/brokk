@@ -594,10 +594,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
      */
     private void persistAnalyzerState(IAnalyzer analyzer) {
-        if (analyzer == null) return;
 
         var langs = analyzer.languages();
-        if (langs == null || langs.isEmpty()) {
+        if (langs.isEmpty()) {
             logger.trace(
                     "No languages to persist for analyzer: {}",
                     analyzer.getClass().getSimpleName());
