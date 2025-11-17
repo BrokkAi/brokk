@@ -4,6 +4,7 @@ import ai.brokk.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.TextCanonicalizer;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -115,7 +116,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,
-            @Nullable TSTree parsedTree,
+            @JsonIgnore @Nullable TSTree parsedTree,
             List<String> importStatements,
             Set<CodeUnit> resolvedImports) {
 
