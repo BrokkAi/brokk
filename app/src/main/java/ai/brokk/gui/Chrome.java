@@ -960,6 +960,7 @@ public class Chrome
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
+            taskListPanel.contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
@@ -2204,8 +2205,31 @@ public class Chrome
                 return;
             }
 
-            // Non-computed virtual fragment: show placeholder and load in background
-            previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            // 6. Everything else (virtual fragments, skeletons, etc.)
+            if (fragment instanceof ContextFragment.StringFragment sf) {
+                String previewText = sf.previewText();
+                String previewStyle = sf.previewSyntaxStyle();
+
+                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(previewStyle)) {
+                    var markdownPanel = MarkdownOutputPool.instance().borrow();
+                    markdownPanel.updateTheme(MainProject.getTheme());
+                    markdownPanel.setText(List.of(Messages.customSystem(previewText)));
+
+                    // Use shared utility method to create searchable content panel without scroll pane
+                    JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+
+                    showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                } else {
+                    var previewPanel =
+                            new PreviewTextPanel(contextManager, null, previewText, previewStyle, themeManager, sf);
+                    showPreviewFrame(contextManager, initialTitle, previewPanel);
+                }
+                // Update title asynchronously if needed (for computed descriptions)
+                updateDescriptionAsync(initialTitle, null, computedDescNow, sf);
+            } else {
+                // Non-computed virtual fragment: show placeholder and load in background
+                previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            }
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());

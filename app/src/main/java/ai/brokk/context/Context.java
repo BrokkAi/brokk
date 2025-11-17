@@ -12,6 +12,7 @@ import ai.brokk.context.ContextFragment.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -34,6 +35,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -425,6 +427,12 @@ public class Context {
         return fragments.stream();
     }
 
+    public Context removeFragmentsByIds(Collection<String> ids) {
+        if (ids.isEmpty()) return this;
+        var toDrop = this.fragments.stream().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
+        return removeFragments(toDrop);
+    }
+
     /**
      * Removes fragments from this context.
      */
@@ -736,29 +744,74 @@ public class Context {
     }
 
     /**
-     * Retrieves the DISCARDED_CONTEXT fragment and parses it as a Map of description -> explanation.
-     * Returns an empty map if no DISCARDED_CONTEXT fragment exists or if parsing fails.
+     * Retrieves the Discarded Context special fragment and returns a Map of description -> explanation.
+     * Parses JSON directly; returns an empty map if absent or parse fails.
      */
     public Map<String, String> getDiscardedFragmentsNote() {
-        var discardedDescription = ContextFragment.DISCARDED_CONTEXT.description();
-        var existingDiscarded = virtualFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                .filter(vf -> vf instanceof ContextFragment.StringFragment)
-                .map(vf -> (ContextFragment.StringFragment) vf)
-                .filter(sf -> discardedDescription.equals(sf.description()))
+        return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
+                .map(sf -> {
+                    try {
+                        Map<String, Object> raw = Json.fromJson(sf.text(), new TypeReference<Map<String, Object>>() {});
+                        return raw.entrySet().stream()
+                                .collect(Collectors.toMap(
+                                        Map.Entry::getKey,
+                                        e -> Objects.toString(e.getValue(), ""),
+                                        (a, b) -> a,
+                                        LinkedHashMap::new));
+                    } catch (Exception e) {
+                        logger.warn("Failed to parse Discarded Context JSON", e);
+                        return new LinkedHashMap<String, String>();
+                    }
+                })
+                .orElseGet(LinkedHashMap::new);
+    }
+
+    // --- SpecialTextType helpers ---
+
+    public Optional<ContextFragment.StringFragment> getSpecial(String description) {
+        var desc = description;
+        return virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                .map(ContextFragment.StringFragment.class::cast)
                 .findFirst();
+    }
 
-        if (existingDiscarded.isEmpty()) {
-            return Map.of();
-        }
+    public Context putSpecial(SpecialTextType type, String content) {
+        var desc = type.description();
 
-        var mapper = Json.getMapper();
-        try {
-            return mapper.readValue(existingDiscarded.get().text(), new TypeReference<Map<String, String>>() {});
-        } catch (Exception e) {
-            logger.warn("Failed to parse DISCARDED_CONTEXT JSON", e);
-            return Map.of();
-        }
+        var idsToDrop = type.singleton()
+                ? virtualFragments()
+                        .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                        .map(ContextFragment::id)
+                        .toList()
+                : List.<String>of();
+
+        var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
+
+        var sf = new ContextFragment.StringFragment(getContextManager(), content, desc, type.syntaxStyle());
+
+        var newFragments = new ArrayList<>(afterClear.fragments);
+        newFragments.add(sf);
+
+        // Preserve parsedOutput and action by default; callers can override action as needed.
+        return new Context(
+                newContextId(),
+                getContextManager(),
+                newFragments,
+                afterClear.taskHistory,
+                afterClear.parsedOutput,
+                afterClear.action,
+                null,
+                null,
+                afterClear.markedReadonlyFragments);
+    }
+
+    public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
+        var current = getSpecial(type.description())
+                .map(ContextFragment.StringFragment::text)
+                .orElse("");
+        var updated = updater.apply(current);
+        return putSpecial(type, updated);
     }
 
     public boolean workspaceContentEquals(Context other) {
@@ -979,20 +1032,16 @@ public class Context {
     }
 
     public Optional<ContextFragment.StringFragment> getBuildFragment() {
-        var desc = ContextFragment.BUILD_RESULTS.description();
-        return virtualFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
-                .map(ContextFragment.StringFragment.class::cast)
-                .findFirst();
+        return getSpecial(SpecialTextType.BUILD_RESULTS.description());
     }
 
     /**
-     * Returns a new Context reflecting the latest build result. Behavior mirrors ContextManager.updateBuildFragment: -
-     * Always clears previous build fragments (legacy BUILD_LOG and the new BUILD_RESULTS StringFragment). - Adds a new
-     * "Latest Build Results" StringFragment only on failure; no fragment on success.
+     * Updates the Latest Build Results special fragment.
+     * - On success: remove existing BUILD_RESULTS StringFragment if present; no fragment otherwise.
+     * - On failure: upsert the BUILD_RESULTS StringFragment with the processed output.
      */
     public Context withBuildResult(boolean success, String processedOutput) {
-        var desc = ContextFragment.BUILD_RESULTS.description();
+        var desc = SpecialTextType.BUILD_RESULTS.description();
 
         var fragmentsToDrop = virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
@@ -1002,29 +1051,80 @@ public class Context {
                 .toList();
 
         var afterClear = fragmentsToDrop.isEmpty() ? this : removeFragments(fragmentsToDrop);
-
         if (success) {
-            // Build succeeded; nothing to add after clearing old fragments
-            return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+            var existing = afterClear.getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            if (existing.isEmpty()) {
+                return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+            }
+            return afterClear
+                    .removeFragmentsByIds(List.of(existing.get().id()))
+                    .withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+        }
+        return afterClear
+                .putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput)
+                .withAction(CompletableFuture.completedFuture("Build results updated (failure)"));
+    }
+
+    /**
+     * Retrieves the Task List fragment if present.
+     */
+    public Optional<ContextFragment.StringFragment> getTaskListFragment() {
+        return getSpecial(SpecialTextType.TASK_LIST.description());
+    }
+
+    /**
+     * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
+     */
+    public TaskList.TaskListData getTaskListDataOrEmpty() {
+        var existing = getTaskListFragment();
+        if (existing.isEmpty()) {
+            return new TaskList.TaskListData(List.of());
+        }
+        try {
+            return Json.fromJson(existing.get().text(), TaskList.TaskListData.class);
+        } catch (Exception e) {
+            logger.warn("Failed to parse Task List JSON", e);
+            return new TaskList.TaskListData(List.of());
+        }
+    }
+
+    /**
+     * Updates the Task List fragment with the provided JSON. Clears previous Task List fragments before adding a new one.
+     */
+    private Context withTaskList(String json, String action) {
+        var next = putSpecial(SpecialTextType.TASK_LIST, json);
+        return next.withParsedOutput(null, CompletableFuture.completedFuture(action));
+    }
+
+    /**
+     * Serializes and updates the Task List fragment using TaskList.TaskListData.
+     * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
+     */
+    public Context withTaskList(TaskList.TaskListData data, String action) {
+        // Guard: if data hasn't changed, return this context unchanged
+        var currentData = getTaskListDataOrEmpty();
+        if (currentData.equals(data)) {
+            return this;
         }
 
-        // Build failed; add a new StringFragment with the processed output
-        var sf = new ContextFragment.StringFragment(
-                getContextManager(), processedOutput, desc, ContextFragment.BUILD_RESULTS.syntaxStyle());
+        // If tasks are empty, remove the Task List fragment instead of creating an empty one
+        if (data.tasks().isEmpty()) {
+            var existing = getSpecial(SpecialTextType.TASK_LIST.description());
+            if (existing.isEmpty()) {
+                return this; // No change needed; no fragment to remove
+            }
+            return removeFragmentsByIds(List.of(existing.get().id()))
+                    .withAction(CompletableFuture.completedFuture("Task list cleared"));
+        }
 
-        var newFragments = new ArrayList<>(afterClear.fragments);
-        newFragments.add(sf);
-
-        return new Context(
-                newContextId(),
-                getContextManager(),
-                newFragments,
-                afterClear.taskHistory,
-                afterClear.parsedOutput,
-                CompletableFuture.completedFuture("Build results updated (failure)"),
-                null,
-                null,
-                afterClear.markedReadonlyFragments);
+        // Non-empty case: serialize and update normally
+        try {
+            String json = Json.toJson(data);
+            return withTaskList(json, action);
+        } catch (Exception e) {
+            logger.warn("Failed to serialize Task List to JSON", e);
+            return withTaskList("{\"tasks\":[]}", action);
+        }
     }
 
     /**
