@@ -97,7 +97,7 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig("claude-haiku-4-5")),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
             "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
@@ -1550,9 +1550,9 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
             new Service.FavoriteModel(
-                    "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
+                    "Sonnet 4.5", new ModelConfig(Service.SONNET_4_5", Service.ReasoningLevel.MEDIUM)),
             new Service.FavoriteModel(
-                    "Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.DEFAULT)));
+                    "Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
