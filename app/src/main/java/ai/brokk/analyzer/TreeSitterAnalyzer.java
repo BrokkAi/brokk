@@ -576,44 +576,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public Set<CodeUnit> getDefinitions(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
-        // First try exact match on fqName
-        List<CodeUnit> matches = this.state.codeUnitState.keySet().stream()
+        // Simple filter by fqName - no signature parsing needed
+        return this.state.codeUnitState.keySet().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
-                .toList();
+                .collect(Collectors.toSet());
+    }
 
-        // If no exact match and search string contains "(", try signature-aware matching for backward compatibility
-        // This handles cases like searching for "foo()" when fqName="foo" and signature="()"
-        if (matches.isEmpty() && normalizedFqName.contains("(")) {
-            int parenIndex = normalizedFqName.indexOf('(');
-            String baseName = normalizedFqName.substring(0, parenIndex);
-            String searchSignature = normalizedFqName.substring(parenIndex);
-
-            // Try exact signature match first
-            matches = this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().equals(baseName))
-                    .filter(cu -> {
-                        String cuSig = cu.signature();
-                        return cuSig != null && cuSig.equals(searchSignature);
-                    })
-                    .toList();
-
-            // If no exact signature match, return any CodeUnit with matching baseName
-            if (matches.isEmpty()) {
-                matches = this.state.codeUnitState.keySet().stream()
-                        .filter(cu -> cu.fqName().equals(baseName))
-                        .toList();
-            }
-        }
-
-        if (matches.isEmpty()) {
-            return Optional.empty();
-        }
-
-        // Allow languages to prioritize which definition we return
-        return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
+    @Override
+    public Optional<CodeUnit> getDefinition(String fqName) {
+        return getDefinitions(fqName).stream()
+                .min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
     }
 
     @Override

@@ -93,16 +93,56 @@ public interface IAnalyzer {
 
     /**
      * Finds a single CodeUnit definition matching the exact symbol name.
-     * For overloaded methods, returns a single CodeUnit representing all overloads.
+     * For overloaded methods, returns an arbitrary overload.
      *
+     * @deprecated Use {@link #getDefinitions(String)} instead to handle overloads explicitly.
+     *             This method returns an arbitrary overload when multiple exist.
      * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
      *               order, so if you have a field and a method with the same name, the method will be returned.
      * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
      */
+    @Deprecated
     Optional<CodeUnit> getDefinition(String fqName);
 
+    @Deprecated
     default Optional<CodeUnit> getDefinition(CodeUnit cu) {
-        return getDefinition(cu.fqName());
+        return getDefinitions(cu.fqName()).stream().findFirst();
+    }
+
+    /**
+     * Finds ALL CodeUnits matching the given fqName.
+     * For overloaded functions, returns all overloads.
+     *
+     * @param fqName The exact, case-sensitive FQ name (without signature)
+     * @return Set of all CodeUnits with matching fqName (may be empty)
+     */
+    default Set<CodeUnit> getDefinitions(String fqName) {
+        // Default implementation delegates to searchDefinitions with exact match
+        String exactPattern = "^" + Pattern.quote(fqName) + "$";
+        return searchDefinitions(exactPattern);
+    }
+
+    /**
+     * Finds a function CodeUnit matching both fqName and signature.
+     * Useful for callers that need to disambiguate overloads.
+     *
+     * @param fqName The exact FQ name (without signature)
+     * @param signature The signature string (e.g., "(int, String)"), or null to match any signature
+     * @return Optional containing matching CodeUnit, or empty if not found
+     */
+    default Optional<CodeUnit> getFunctionDefinition(String fqName, @Nullable String signature) {
+        var candidates = getDefinitions(fqName).stream()
+                .filter(CodeUnit::isFunction)
+                .toList();
+
+        if (signature == null || candidates.isEmpty()) {
+            return candidates.stream().findFirst();
+        }
+
+        return candidates.stream()
+                .filter(cu -> signature.equals(cu.signature()))
+                .findFirst()
+                .or(() -> candidates.stream().findFirst()); // Fallback if signature doesn't match
     }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {
@@ -171,12 +211,12 @@ public interface IAnalyzer {
             return baseResults;
         }
 
-        // Deduplicate by fqName, preserve insertion order (base first, then fuzzy)
-        LinkedHashMap<String, CodeUnit> byFqName = new LinkedHashMap<>();
-        for (CodeUnit cu : baseResults) byFqName.put(cu.fqName(), cu);
-        for (CodeUnit cu : fuzzyResults) byFqName.putIfAbsent(cu.fqName(), cu);
+        // Deduplicate by CodeUnit identity (includes signature), preserve insertion order
+        LinkedHashMap<CodeUnit, CodeUnit> seen = new LinkedHashMap<>();
+        for (CodeUnit cu : baseResults) seen.putIfAbsent(cu, cu);
+        for (CodeUnit cu : fuzzyResults) seen.putIfAbsent(cu, cu);
 
-        return new HashSet<>(byFqName.values());
+        return new HashSet<>(seen.values());
     }
 
     /**
