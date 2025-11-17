@@ -29,6 +29,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.JAVA, state);
     }
 
+    public static JavaAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new JavaAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new JavaAnalyzer(getProject(), state);

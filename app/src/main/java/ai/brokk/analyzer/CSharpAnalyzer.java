@@ -51,6 +51,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.C_SHARP, prebuiltState);
     }
 
+    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new CSharpAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new CSharpAnalyzer(getProject(), state);

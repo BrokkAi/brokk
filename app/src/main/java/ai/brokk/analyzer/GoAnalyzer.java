@@ -79,6 +79,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         this.packageQuery = createGoNamespaceQuery();
     }
 
+    public static GoAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new GoAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new GoAnalyzer(getProject(), state);
