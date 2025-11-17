@@ -1547,7 +1547,7 @@ public final class MainProject extends AbstractProject {
 
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
+            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
             new Service.FavoriteModel(
                     "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
