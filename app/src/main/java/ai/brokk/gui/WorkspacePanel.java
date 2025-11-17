@@ -56,7 +56,6 @@ import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class WorkspacePanel extends JPanel {
@@ -1563,6 +1562,13 @@ public class WorkspacePanel extends JPanel {
 
     /** Shows a preview of the fragment contents, opening once with "Loading..." and updating in-place when ready. */
     public void showFragmentPreview(ContextFragment fragment) {
+        // If this is an image fragment, let Chrome's centralized preview handle it (proper image panel),
+        // instead of falling back to a text panel that shows "[Image content provided out of band]".
+        if (fragment instanceof ContextFragment.ImageFragment) {
+            chrome.openFragmentPreview(fragment);
+            return;
+        }
+
         // Determine associated file for better preview semantics (edit button, etc)
         ProjectFile associatedFile = fragment.files().stream().findFirst().orElse(null);
 
@@ -1596,8 +1602,8 @@ public class WorkspacePanel extends JPanel {
                     SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
                 } else {
                     logger.error("Error computing fragment text for {}", fragment, ex);
-                    SwingUtilities.invokeLater(() ->
-                            panel.setContentAndStyle("Unable to load content!", SyntaxConstants.SYNTAX_STYLE_NONE));
+                    SwingUtilities.invokeLater(() -> panel.setContentAndStyle(
+                            "Unable to load content!", org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE));
                 }
             });
             // If syntax style completes separately later, update it without changing text
