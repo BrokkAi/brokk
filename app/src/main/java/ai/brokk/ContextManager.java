@@ -1074,7 +1074,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         CompletableFuture.completedFuture(actionMessage),
                         currentLiveCtx.getGroupId(),
                         currentLiveCtx.getGroupLabel(),
-                        currentLiveCtx.getReadOnlyFragments().collect(Collectors.toSet()));
+                        currentLiveCtx.markedReadOnlyFragments().collect(Collectors.toSet()));
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);

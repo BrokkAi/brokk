@@ -318,7 +318,7 @@ public final class HistoryIo {
             var rewrittenDto = new CompactContextDto(
                     compactDto.id(),
                     compactDto.editable(),
-                    ctx.getReadOnlyFragments().map(ContextFragment::id).toList(),
+                    ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList(),
                     compactDto.virtuals(),
                     compactDto.tasks(),
                     compactDto.parsedOutputId(),

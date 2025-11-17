@@ -534,7 +534,7 @@ public abstract class CodePrompts {
         var allContents = new ArrayList<Content>();
 
         // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadOnlyFragments().toList();
+        var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
                         .filter(ContextFragment.SummaryFragment.class::isInstance)

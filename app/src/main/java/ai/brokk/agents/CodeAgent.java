@@ -1463,14 +1463,14 @@ public class CodeAgent {
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
-        var readonlyPaths = ctx.getReadOnlyFragments()
+        var readonlyPaths = ctx.getReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
                 .flatMap(cf -> cf.files().stream())
                 .collect(Collectors.toSet());
         var editableAll =
                 ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
         var readonly =
-                ctx.getReadOnlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+                ctx.getReadonlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
     }
