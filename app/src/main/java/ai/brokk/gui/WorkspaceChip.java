@@ -11,7 +11,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ComputedSubscription;
-import ai.brokk.util.Messages;
+import ai.brokk.util.ContextTokenCounter;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -33,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -556,16 +557,34 @@ public class WorkspaceChip extends JPanel {
         }
     }
 
+    protected record TextAndTooltip(String text, String tooltipHtml, String accessibleDescription) {}
+
     protected void refreshLabelAndTooltip() {
+        // FIXME update callers instead of hacking in a check here
+        if (SwingUtilities.isEventDispatchThread()) {
+            // Ensure heavy work (token counting, text aggregation) does not run on the EDT.
+            CompletableFuture.runAsync(this::refreshLabelAndTooltip);
+            return;
+        }
+
         ContextFragment fragment = getPrimaryFragment();
         if (fragment == null) {
             return;
         }
-        updateTextAndTooltip(fragment);
-        applyTheme();
+
+        TextAndTooltip tt = getTextAndTooltip(fragment);
+
+        // Apply Swing updates on the EDT only.
+        SwingUtilities.invokeLater(() -> {
+            label.setText(tt.text());
+            label.setToolTipText(tt.tooltipHtml());
+            label.getAccessibleContext().setAccessibleDescription(tt.accessibleDescription());
+            applyTheme();
+        });
     }
 
-    protected void updateTextAndTooltip(ContextFragment fragment) {
+    protected TextAndTooltip getTextAndTooltip(ContextFragment fragment) {
+        // label
         String newLabelText;
         if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
@@ -576,10 +595,36 @@ public class WorkspaceChip extends JPanel {
             var sd = fragment.shortDescription();
             newLabelText = sd.isBlank() ? label.getText() : sd;
         }
-        label.setText(newLabelText);
 
-        label.setToolTipText(buildDefaultTooltip(fragment));
-        label.getAccessibleContext().setAccessibleDescription(fragment.description());
+        // tooltip
+        String descriptionSource;
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            descriptionSource = cf.computedDescription().renderNowOr("");
+        } else {
+            descriptionSource = fragment.description();
+        }
+        String description = StringEscapeUtils.escapeHtml4(descriptionSource)
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .replace("\n", "<br/>");
+
+        String metrics = "";
+        if (fragment.isText() || fragment.getType().isOutput()) {
+            String text;
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
+                text = cf.computedText().renderNowOr("");
+            } else {
+                text = fragment.text();
+            }
+            int loc = text.split("\\r?\\n", -1).length;
+            int tokens = ContextTokenCounter.countTokens(fragment);
+            metrics = String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
+        }
+        String body = "%s%s<br/><br/><i>Click to preview contents</i>".formatted(metrics, description);
+        String tooltipHtml = wrapTooltipHtml(body, 420);
+        String accessibleDescription = fragment.description();
+
+        return new TextAndTooltip(newLabelText, tooltipHtml, accessibleDescription);
     }
 
     private Icon buildCloseIcon(Color chipBackground) {
@@ -771,47 +816,6 @@ public class WorkspaceChip extends JPanel {
         return String.format("%.1fk", count / 1000.0);
     }
 
-    private static String buildMetricsHtml(ContextFragment fragment) {
-        if (fragment.isText() || fragment.getType().isOutput()) {
-            String text;
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                text = cf.computedText().renderNowOr("");
-            } else {
-                text = fragment.text();
-            }
-            int loc = text.split("\\r?\\n", -1).length;
-            int tokens = Messages.getApproximateTokens(text);
-            return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
-        }
-        return "";
-    }
-
-    private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d;
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            d = cf.computedDescription().renderNowOr("");
-        } else {
-            d = fragment.description();
-        }
-
-        String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
-                .replace("\r\n", "\n")
-                .replace("\r", "\n")
-                .replace("\n", "<br/>");
-
-        StringBuilder body = new StringBuilder();
-
-        String metrics = buildMetricsHtml(fragment);
-        if (!metrics.isEmpty()) {
-            body.append(metrics);
-        }
-
-        body.append(descriptionHtml);
-        body.append("<br/><br/><i>Click to preview contents</i>");
-
-        return wrapTooltipHtml(body.toString(), 420);
-    }
-
     // Utility
 
     private static String capitalizeFirst(String s) {
@@ -889,15 +893,6 @@ public class WorkspaceChip extends JPanel {
         }
 
         @Override
-        protected void bindComputed() {
-            for (var f : summaryFragments) {
-                if (f instanceof ContextFragment.ComputedFragment cf) {
-                    ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
-                }
-            }
-        }
-
-        @Override
         protected void installHoverListeners() {
             if (hoverCallback == null) {
                 return;
@@ -948,11 +943,11 @@ public class WorkspaceChip extends JPanel {
         }
 
         @Override
-        protected void updateTextAndTooltip(ContextFragment fragment) {
+        protected TextAndTooltip getTextAndTooltip(ContextFragment fragment) {
             String text = buildSummaryLabel();
-            label.setText(text);
-            label.setToolTipText(buildAggregateSummaryTooltip());
-            label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+            String tooltip = buildAggregateSummaryTooltip();
+            String accessibleDescription = "All summaries combined";
+            return new TextAndTooltip(text, tooltip, accessibleDescription);
         }
 
         private String buildSummaryLabel() {
@@ -984,8 +979,6 @@ public class WorkspaceChip extends JPanel {
                     .sorted()
                     .toList();
 
-            StringBuilder body = new StringBuilder();
-
             int totalLoc = 0;
             int totalTokens = 0;
             for (var summary : summaryFragments) {
@@ -996,29 +989,25 @@ public class WorkspaceChip extends JPanel {
                     text = summary.text();
                 }
                 totalLoc += text.split("\\r?\\n", -1).length;
-                totalTokens += Messages.getApproximateTokens(text);
-            }
-            body.append("<div>")
-                    .append(formatCount(totalLoc))
-                    .append(" LOC \u2022 ~")
-                    .append(formatCount(totalTokens))
-                    .append(" tokens</div><br/>");
-
-            body.append("<div><b>Summaries</b></div>");
-            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-
-            if (allFiles.isEmpty()) {
-                body.append("Multiple summaries");
-            } else {
-                body.append("<ul style='margin:0;padding-left:16px'>");
-                for (var f : allFiles) {
-                    body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
-                }
-                body.append("</ul>");
+                totalTokens += ContextTokenCounter.countTokens(summary);
             }
 
-            body.append("<br/><i>Click to preview all contents</i>");
-            return wrapTooltipHtml(body.toString(), 420);
+            String filesList = allFiles.isEmpty()
+                    ? "Multiple summaries"
+                    : "<ul style='margin:0;padding-left:16px'>"
+                            + allFiles.stream()
+                                    .map(f -> "<li>" + StringEscapeUtils.escapeHtml4(f) + "</li>")
+                                    .reduce("", String::concat)
+                            + "</ul>";
+
+            String body = "<div>" + formatCount(totalLoc) + " LOC \u2022 ~" + formatCount(totalTokens)
+                    + " tokens</div><br/>"
+                    + "<div><b>Summaries</b></div>"
+                    + "<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>"
+                    + filesList
+                    + "<br/><i>Click to preview all contents</i>";
+
+            return wrapTooltipHtml(body, 420);
         }
 
         @Override

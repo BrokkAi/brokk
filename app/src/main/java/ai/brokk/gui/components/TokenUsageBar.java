@@ -11,17 +11,16 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ComputedSubscription;
-import ai.brokk.util.Messages;
+import ai.brokk.util.ContextTokenCounter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.commons.text.WordUtils;
@@ -67,7 +66,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     // Fragments and computed segments
     private volatile List<ContextFragment> fragments = List.of();
     private volatile List<Segment> segments = List.of();
-    private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
     private volatile boolean readOnly = false;
 
@@ -249,57 +247,41 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
-     * Provide the current fragments so the bar can paint per-fragment segments and compute tooltips.
-     */
-    public void setFragments(List<ContextFragment> fragments) {
-        // Dispose prior subscriptions bound to this component before rebinding
-        ComputedSubscription.disposeAll(this);
-
-        this.fragments = List.copyOf(fragments);
-        // Invalidate token cache entries for removed ids to keep memory bounded
-        var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
-        tokenCache.keySet().retainAll(validIds);
-
-        // Bind fragments to a single repaint/token-cache invalidation runnable
-        for (var f : this.fragments) {
-            if (f instanceof ContextFragment.ComputedFragment cf) {
-                ComputedSubscription.bind(cf, this, () -> {
-                    tokenCache.remove(f.id());
-                    repaint();
-                });
-            }
-        }
-
-        repaint();
-    }
-
-    /**
      * Update the bar with fragments from the given Context.
      * - Schedules UI update on the EDT.
      * - Pre-warms token counts off-EDT to avoid doing heavy work during paint.
      * - Repaints on completion so segment widths reflect computed tokens.
      */
     public void setFragmentsForContext(Context context) {
-        List<ContextFragment> frags = context.getAllFragmentsInDisplayOrder();
+        this.fragments = context.getAllFragmentsInDisplayOrder();
 
         // Update UI on EDT (and attach listeners)
-        SwingUtilities.invokeLater(() -> setFragments(frags));
+        SwingUtilities.invokeLater(() -> {
+            // Dispose prior subscriptions bound to this component before rebinding
+            ComputedSubscription.disposeAll(this);
+
+            // Bind fragments so that token counts are recomputed off-EDT and the bar repaints on-EDT
+            for (var f : this.fragments) {
+                if (f instanceof ContextFragment.ComputedFragment cf) {
+                    ComputedSubscription.bind(cf, this, () -> {
+                        // Recompute tokens on the worker thread when computed values complete,
+                        // then schedule a repaint on the EDT.
+                        ContextTokenCounter.recomputeTokens(f);
+                        SwingUtilities.invokeLater(TokenUsageBar.this::repaint);
+                    });
+                }
+            }
+
+            repaint();
+        });
 
         // Precompute token counts off-EDT to avoid jank during paint and tooltips
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() {
-                for (var f : frags) {
-                    tokensForFragment(f);
-                }
-                return null;
+        CompletableFuture.runAsync(() -> {
+            for (var f : fragments) {
+                ContextTokenCounter.countTokens(f);
             }
-
-            @Override
-            protected void done() {
-                SwingUtilities.invokeLater(TokenUsageBar.this::repaint);
-            }
-        }.execute();
+            SwingUtilities.invokeLater(TokenUsageBar.this::repaint);
+        });
     }
 
     /**
@@ -668,10 +650,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
-        int tokensSummaries =
-                summaries.stream().mapToInt(this::tokensForFragment).sum();
-        int tokensNonSummaries =
-                nonSummaries.stream().mapToInt(this::tokensForFragment).sum();
+        int tokensSummaries = summaries.stream()
+                .mapToInt(f3 -> ContextTokenCounter.countTokens(f3))
+                .sum();
+        int tokensNonSummaries = nonSummaries.stream()
+                .mapToInt(f2 -> ContextTokenCounter.countTokens(f2))
+                .sum();
         int totalTokens = tokensSummaries + tokensNonSummaries;
 
         if (totalTokens <= 0) {
@@ -690,7 +674,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         double[] rawWidths = new double[nonSummaries.size()];
         List<ContextFragment> small = new ArrayList<>();
         for (int i = 0; i < nonSummaries.size(); i++) {
-            int t = tokensForFragment(nonSummaries.get(i));
+            int t = ContextTokenCounter.countTokens(nonSummaries.get(i));
             rawWidths[i] = (t * 1.0 / totalTokens) * fillWidth;
             if (rawWidths[i] < MIN_SEGMENT_PX
                     && nonSummaries.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
@@ -698,7 +682,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             }
         }
         int smallCount = small.size();
-        int otherTokens = small.stream().mapToInt(this::tokensForFragment).sum();
+        int otherTokens = small.stream()
+                .mapToInt(f1 -> ContextTokenCounter.countTokens(f1))
+                .sum();
 
         // Build allocation items: non-small fragments + optional "Other" + optional "Summaries" group
         record AllocItem(
@@ -719,7 +705,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             // Exactly one "small" fragment: place it normally with a min width and normal label
             ContextFragment onlySmall = small.getFirst();
             for (var f : nonSummaries) {
-                int t = tokensForFragment(f);
+                int t = ContextTokenCounter.countTokens(f);
                 double rw = (t * 1.0 / totalTokens) * effectiveFill;
                 int min = (f == onlySmall) ? Math.min(MIN_SEGMENT_PX, effectiveFill) : 0;
                 items.add(new AllocItem(f, false, false, t, rw, min));
@@ -728,7 +714,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             // Add all non-small individually
             for (var f : nonSummaries) {
                 if (small.contains(f)) continue;
-                int t = tokensForFragment(f);
+                int t = ContextTokenCounter.countTokens(f);
                 double rw = (t * 1.0 / totalTokens) * effectiveFill;
                 items.add(new AllocItem(f, false, false, t, rw, 0));
             }
@@ -843,7 +829,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
         return fragments.stream()
                 .filter(f -> f.isText() || f.getType().isOutput())
-                .mapToInt(this::tokensForFragment)
+                .mapToInt(f1 -> ContextTokenCounter.countTokens(f1))
                 .sum();
     }
 
@@ -867,21 +853,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             // fall through
         }
         return ThemeColors.getColor(isDark, ThemeColors.CHIP_OTHER_BORDER);
-    }
-
-    private int tokensForFragment(ContextFragment f) {
-        return tokenCache.computeIfAbsent(f.id(), id -> {
-            if (f.isText() || f.getType().isOutput()) {
-                String text;
-                if (f instanceof ContextFragment.ComputedFragment cf) {
-                    text = cf.computedText().renderNowOr("(Loading)");
-                } else {
-                    text = f.text();
-                }
-                return Messages.getApproximateTokens(text);
-            }
-            return 0;
-        });
     }
 
     private static class Segment {

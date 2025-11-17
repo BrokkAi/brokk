@@ -34,6 +34,7 @@ import ai.brokk.tools.GitTools;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
+import ai.brokk.util.ContextTokenCounter;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.FileUtil;
 import ai.brokk.util.ImageUtil;
@@ -1647,10 +1648,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var oldLiveContext = liveContext();
         var newLiveContext = contextHistory.push(contextGenerator);
+
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
             return newLiveContext;
         }
+
+        // Prune global token cache to only keep fragments present in the new live context.
+        ContextTokenCounter.retainFragments(newLiveContext);
 
         contextPushed(contextHistory.liveContext());
 
