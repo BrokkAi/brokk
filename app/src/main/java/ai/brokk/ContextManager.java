@@ -1975,11 +1975,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses =
-                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
-                                .stream()
-                                .limit(10)
-                                .toList();
+                var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), 10);
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(
