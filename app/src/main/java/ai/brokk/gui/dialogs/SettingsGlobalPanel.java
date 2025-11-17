@@ -350,6 +350,50 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } else if (!loadedFavorites.isEmpty()) {
             preferredCodeModelCombo.setSelectedIndex(0);
         }
+
+        // Populate planner model combo with favorite aliases
+        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
+        primaryModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current planner config
+        String selectedPlannerAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentPlannerConfig.name())
+                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
+                    && favorite.config().tier() == currentPlannerConfig.tier()) {
+                selectedPlannerAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedPlannerAlias != null) {
+            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            primaryModelCombo.setSelectedIndex(0);
+        }
+
+        // Add listener to sync planner combo when model changes in InstructionsPanel
+        if (!plannerModelSyncListenerRegistered) {
+            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+                try {
+                    // Use the current favorites from the table model to avoid capturing stale state
+                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
+                        if (favorite.config().name().equals(cfg.name())
+                                && favorite.config().reasoning() == cfg.reasoning()
+                                && favorite.config().tier() == cfg.tier()) {
+                            String alias = favorite.alias();
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
+                            break;
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
+                }
+            });
+            plannerModelSyncListenerRegistered = true;
+        }
     }
 
     private void populateGitHubTab() {
@@ -1604,227 +1648,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return panel;
     }
 
-    public void loadSettings() {
-        // General Tab - JVM Memory
-        try {
-            var mem = MainProject.getJvmMemorySettings();
-            if (mem.automatic()) {
-                memoryAutoRadio.setSelected(true);
-                memorySpinner.setEnabled(false);
-            } else {
-                memoryManualRadio.setSelected(true);
-                memorySpinner.setEnabled(true);
-                try {
-                    int v = mem.manualMb();
-                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
-                    int min = ((Number) model.getMinimum()).intValue();
-                    int max = ((Number) model.getMaximum()).intValue();
-                    if (v < min) v = min;
-                    if (v > max) v = max;
-                    int step = model.getStepSize().intValue();
-                    if (step > 0) {
-                        int rem = v % step;
-                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
-                    }
-                    memorySpinner.setValue(v);
-                } catch (Exception ignore) {
-                    // leave spinner as-is
-                }
-            }
-        } catch (Exception ignore) {
-            // Use defaults if there is any problem reading settings
-        }
-
-        // Advanced Mode (General tab)
-        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
-
-        // Service Tab
-        brokkKeyField.setText(MainProject.getBrokkKey());
-        refreshBalanceDisplay();
-        updateSignupLabelVisibility();
-        if (brokkProxyRadio != null
-                && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
-                brokkProxyRadio.setSelected(true);
-            } else {
-                localhostProxyRadio.setSelected(true);
-            }
-        }
-
-        if (forceToolEmulationCheckbox != null) {
-            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
-        }
-        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
-        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
-        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
-        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
-        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
-
-        // Compression Tab
-        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
-        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
-        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
-
-        // Appearance Tab
-        String currentTheme = MainProject.getTheme();
-        switch (currentTheme) {
-            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
-            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
-            default -> lightThemeRadio.setSelected(true);
-        }
-
-        // Code Block Layout
-        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
-        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
-
-        // UI Scale (if present; hidden on macOS)
-        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-            String pref = MainProject.getUiScalePref();
-            if ("auto".equalsIgnoreCase(pref)) {
-                uiScaleAutoRadio.setSelected(true);
-                uiScaleCombo.setSelectedItem("1.0");
-                uiScaleCombo.setEnabled(false);
-            } else {
-                uiScaleCustomRadio.setSelected(true);
-                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
-                String selected = pref;
-                boolean found = false;
-                for (int i = 0; i < model.getSize(); i++) {
-                    if (pref.equals(model.getElementAt(i))) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    try {
-                        double v = Double.parseDouble(pref);
-                        int nearest = (int) Math.round(v);
-                        if (nearest < 1) nearest = 1;
-                        if (nearest > 5) nearest = 5;
-                        selected = nearest + ".0";
-                    } catch (NumberFormatException ignore) {
-                        selected = "1.0";
-                    }
-                }
-                uiScaleCombo.setSelectedItem(selected);
-                uiScaleCombo.setEnabled(true);
-            }
-        }
-
-        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
-
-        // Diff View preference
-        boolean unified = GlobalUiSettings.isDiffUnifiedView();
-        diffUnifiedRadio.setSelected(unified);
-        diffSideBySideRadio.setSelected(!unified);
-
-        // Startup behavior
-        var startupMode = MainProject.getStartupOpenMode();
-        if (startupMode == MainProject.StartupOpenMode.ALL) {
-            startupOpenAllRadio.setSelected(true);
-        } else {
-            startupOpenLastRadio.setSelected(true);
-        }
-        // Persist per-project main window position (default true)
-        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
-
-        // Instructions panel behavior
-        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
-
-        // Quick Models Tab
-        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
-        var loadedFavorites = MainProject.loadFavoriteModels();
-        if (loadedFavorites.isEmpty()) {
-            var defaultAlias = "default";
-            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
-            loadedFavorites = new ArrayList<>();
-            loadedFavorites.add(defaultFavorite);
-            try {
-                MainProject.saveFavoriteModels(loadedFavorites);
-            } catch (Exception ignore) {
-                // best-effort; will be saved on Apply as well
-            }
-        }
-        quickModelsTableModel.setFavorites(loadedFavorites);
-
-        // Populate preferred code model combo with favorite aliases
-        preferredCodeModelCombo.removeAllItems();
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            preferredCodeModelCombo.addItem(favorite.alias());
-        }
-
-        // Select the favorite that matches the current code config
-        String selectedCodeAlias = null;
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            if (favorite.config().name().equals(currentCodeConfig.name())
-                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
-                    && favorite.config().tier() == currentCodeConfig.tier()) {
-                selectedCodeAlias = favorite.alias();
-                break;
-            }
-        }
-        if (selectedCodeAlias != null) {
-            preferredCodeModelCombo.setSelectedItem(selectedCodeAlias);
-        } else if (!loadedFavorites.isEmpty()) {
-            preferredCodeModelCombo.setSelectedIndex(0);
-        }
-
-        // Populate planner model combo with favorite aliases
-        primaryModelCombo.removeAllItems();
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            primaryModelCombo.addItem(favorite.alias());
-        }
-
-        // Select the favorite that matches the current planner config
-        String selectedPlannerAlias = null;
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            if (favorite.config().name().equals(currentPlannerConfig.name())
-                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
-                    && favorite.config().tier() == currentPlannerConfig.tier()) {
-                selectedPlannerAlias = favorite.alias();
-                break;
-            }
-        }
-        if (selectedPlannerAlias != null) {
-            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
-        } else if (!loadedFavorites.isEmpty()) {
-            primaryModelCombo.setSelectedIndex(0);
-        }
-
-        // Add listener to sync planner combo when model changes in InstructionsPanel
-        if (!plannerModelSyncListenerRegistered) {
-            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
-                try {
-                    // Use the current favorites from the table model to avoid capturing stale state
-                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
-                        if (favorite.config().name().equals(cfg.name())
-                                && favorite.config().reasoning() == cfg.reasoning()
-                                && favorite.config().tier() == cfg.tier()) {
-                            String alias = favorite.alias();
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
-                            break;
-                        }
-                    }
-                } catch (Exception ex) {
-                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
-                }
-            });
-            plannerModelSyncListenerRegistered = true;
-        }
-
-        // GitHub Tab
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
-
-        // MCP Servers Tab
-        mcpServersListModel.clear();
-        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
-        for (McpServer server : mcpConfig.servers()) {
-            mcpServersListModel.addElement(server);
-        }
-    }
     public boolean applySettings() {
         // Service Tab
         String currentBrokkKeyInSettings = MainProject.getBrokkKey();
