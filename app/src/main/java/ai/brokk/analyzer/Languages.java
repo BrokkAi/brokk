@@ -43,7 +43,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) CSharpAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
     };
     public static final Language JAVA = new JavaLanguage();
@@ -77,7 +80,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) JavascriptAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
 
         @Override
@@ -139,7 +145,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) CppAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
     };
     public static final Language GO = new Language() {
@@ -172,7 +181,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) GoAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
     };
     public static final Language CPP_TREESITTER = new Language() {
@@ -205,7 +217,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) CppAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
     };
     public static final Language RUST = new RustLanguage();
@@ -272,7 +287,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) PhpAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
 
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
@@ -353,7 +371,10 @@ public class Languages {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+            var storage = getStoragePath(project);
+            return TreeSitterStateIO.load(storage)
+                    .map(state -> (IAnalyzer) TypescriptAnalyzer.fromState(project, state))
+                    .orElseGet(() -> createAnalyzer(project));
         }
 
         @Override
