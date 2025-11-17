@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -80,6 +81,14 @@ class HistoryIoV3CompatibilityTest {
         var staging = tempDir.resolve("staging-realworld");
         FileUtil.copyDirectory(resourcePath, staging);
 
+        // Ensure dummy project files exist and content placeholders are created
+        var fragmentsJsonPath = staging.resolve("fragments-v3.json");
+        ensureProjectFilesExist(projectRoot, fragmentsJsonPath);
+        ensureContentPlaceholdersExist(staging);
+
+        // Sanity: ensure all logIds referenced in contexts.jsonl have a corresponding task entry in fragments-v3.json
+        assertAllContextLogIdsHaveTaskEntries(staging);
+
         // No path patching needed for this fixture; just zip and load
         var zipPathRealworld = tempDir.resolve("history-realworld.zip");
         FileUtil.zipDirectory(staging, zipPathRealworld);
@@ -128,7 +137,14 @@ class HistoryIoV3CompatibilityTest {
         var staging = tempDir.resolve("staging-pathfrag");
         FileUtil.copyDirectory(resourcePath, staging);
 
-        // The fixture already includes the necessary content/ files; just zip and load.
+        // Ensure dummy project files exist for all relPaths referenced in fragments-v3.json
+        var fragmentsJsonPath = staging.resolve("fragments-v3.json");
+        ensureProjectFilesExist(projectRoot, fragmentsJsonPath);
+
+        // Ensure minimal content/ placeholders exist for all referenced content IDs
+        ensureContentPlaceholdersExist(staging);
+
+        // Zip and load.
         Path zipPath = tempDir.resolve("history-pathfrag.zip");
         FileUtil.zipDirectory(staging, zipPath);
 
@@ -163,15 +179,206 @@ class HistoryIoV3CompatibilityTest {
         String updatedContent = content.replace("/Users/dave/Workspace/BrokkAi/brokk", sanitizedRoot);
         Files.writeString(jsonPath, updatedContent, StandardCharsets.UTF_8);
 
-        // Create required dummy files referenced by the test fixture
-        FileUtil.createDummyFile(projectRoot, "app/src/main/java/io/github/jbellis/brokk/GitHubAuth.java");
-        FileUtil.createDummyFile(projectRoot, "app/src/main/resources/icons/light/ai-robot.png");
-        FileUtil.createDummyFile(projectRoot, "app/src/main/java/io/github/jbellis/brokk/AbstractProject.java");
-        FileUtil.createDummyFile(projectRoot, "app/src/main/java/io/github/jbellis/brokk/IProject.java");
+        // Ensure dummy project files and content placeholders based on the fixture
+        ensureProjectFilesExist(projectRoot, jsonPath);
+        ensureContentPlaceholdersExist(staging);
 
         Path zipPath = tempDir.resolve("history.zip");
         FileUtil.zipDirectory(staging, zipPath);
         return zipPath;
+    }
+
+    /**
+     * Ensures that all project-relative files referenced by the V3 fragments exist under the provided project root.
+     * It extracts relPath fields from fragments-v3.json (referenced.*.files[*].relPath) and creates dummy files.
+     */
+    private static void ensureProjectFilesExist(Path projectRoot, Path fragmentsJsonPath) throws IOException {
+        if (!Files.exists(fragmentsJsonPath)) {
+            return;
+        }
+        var mapper = new ObjectMapper();
+        var root = mapper.readTree(Files.readString(fragmentsJsonPath, StandardCharsets.UTF_8));
+        var relPaths = new HashSet<String>();
+
+        var referenced = root.get("referenced");
+        if (referenced != null && referenced.isObject()) {
+            var fields = referenced.fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                var dto = entry.getValue();
+
+                // Prefer files[*].relPath if present
+                var filesNode = dto.get("files");
+                if (filesNode != null && filesNode.isArray()) {
+                    for (JsonNode fn : filesNode) {
+                        var rel = fn.get("relPath");
+                        if (rel != null && rel.isTextual()) {
+                            relPaths.add(rel.asText());
+                        }
+                    }
+                }
+
+                // Fallback: some legacy items also carry meta.relPath
+                var meta = dto.get("meta");
+                if (meta != null && meta.isObject()) {
+                    var rel = meta.get("relPath");
+                    if (rel != null && rel.isTextual()) {
+                        relPaths.add(rel.asText());
+                    }
+                }
+            }
+        }
+
+        for (String rel : relPaths) {
+            FileUtil.createDummyFile(projectRoot, rel);
+        }
+    }
+
+    /**
+     * Ensures a minimal content/ directory exists with placeholder <contentId>.txt files for every content id referenced by
+     * fragments-v3.json ("contentId"/"diffContentId") and content_metadata.json (map keys).
+     * For any content IDs referenced as summaryContentId in contexts.jsonl, ensure the file is non-empty to satisfy
+     * TaskEntry.fromCompressed() invariant.
+     */
+    private static void ensureContentPlaceholdersExist(Path staging) throws IOException {
+        var mapper = new ObjectMapper();
+        var contentIds = new HashSet<String>();
+        var nonEmptyIds = new HashSet<String>(); // IDs that must have non-empty content (e.g., summaryContentId)
+
+        // 1) Scan fragments-v3.json for "contentId"/"diffContentId"
+        var fragmentsJsonPath = staging.resolve("fragments-v3.json");
+        if (Files.exists(fragmentsJsonPath)) {
+            var fragsNode = mapper.readTree(Files.readString(fragmentsJsonPath, StandardCharsets.UTF_8));
+            var stack = new java.util.ArrayDeque<JsonNode>();
+            stack.push(fragsNode);
+            while (!stack.isEmpty()) {
+                JsonNode n = stack.pop();
+                if (n.isObject()) {
+                    var fields = n.fields();
+                    while (fields.hasNext()) {
+                        var e = fields.next();
+                        var key = e.getKey();
+                        var val = e.getValue();
+                        if (("contentId".equals(key) || "diffContentId".equals(key)) && val.isTextual()) {
+                            contentIds.add(val.asText());
+                        }
+                        stack.push(val);
+                    }
+                } else if (n.isArray()) {
+                    for (JsonNode c : n) stack.push(c);
+                }
+            }
+        }
+
+        // 2) Scan content_metadata.json for all keys
+        var contentMetadataPath = staging.resolve("content_metadata.json");
+        if (Files.exists(contentMetadataPath)) {
+            var metaNode = mapper.readTree(Files.readString(contentMetadataPath, StandardCharsets.UTF_8));
+            var it = metaNode.fieldNames();
+            while (it.hasNext()) {
+                contentIds.add(it.next());
+            }
+        }
+
+        // 3) Scan contexts.jsonl for summaryContentId and ensure those are non-empty
+        var contextsPath = staging.resolve("contexts.jsonl");
+        if (Files.exists(contextsPath)) {
+            var lines = Files.readAllLines(contextsPath, StandardCharsets.UTF_8);
+            for (var line : lines) {
+                var trimmed = line.trim();
+                if (trimmed.isEmpty()) continue;
+                try {
+                    var node = mapper.readTree(trimmed);
+                    var tasks = node.get("tasks");
+                    if (tasks != null && tasks.isArray()) {
+                        for (JsonNode t : tasks) {
+                            var sid = t.get("summaryContentId");
+                            if (sid != null && sid.isTextual()) {
+                                nonEmptyIds.add(sid.asText());
+                                contentIds.add(sid.asText());
+                            }
+                        }
+                    }
+                } catch (Exception ignore) {
+                    // If a line isn't valid JSON, skip it; tests ensure well-formed contexts
+                }
+            }
+        }
+
+        // 4) Write placeholder files under content/<id>.txt
+        if (!contentIds.isEmpty()) {
+            var contentDir = staging.resolve("content");
+            Files.createDirectories(contentDir);
+            for (var cid : contentIds) {
+                var contentFile = contentDir.resolve(cid + ".txt");
+                if (nonEmptyIds.contains(cid)) {
+                    byte[] data = ("placeholder content for " + cid).getBytes(StandardCharsets.UTF_8);
+                    if (!Files.exists(contentFile) || Files.size(contentFile) == 0) {
+                        Files.write(contentFile, data);
+                    }
+                } else {
+                    if (!Files.exists(contentFile)) {
+                        Files.writeString(contentFile, "Hello world!");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Verifies that every logId referenced in contexts.jsonl has a corresponding entry in fragments-v3.json's "task" map.
+     * This ensures that logId like 7db17bee5842f520642beb700c144f36f93d761693818a61160374e3da010c09 is present.
+     */
+    private static void assertAllContextLogIdsHaveTaskEntries(Path staging) throws IOException {
+        var contextsPath = staging.resolve("contexts.jsonl");
+        if (!Files.exists(contextsPath)) {
+            return; // nothing to validate
+        }
+
+        var mapper = new ObjectMapper();
+        var logIds = new java.util.HashSet<String>();
+        var lines = Files.readAllLines(contextsPath, StandardCharsets.UTF_8);
+        for (var line : lines) {
+            var trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            try {
+                var node = mapper.readTree(trimmed);
+                var tasks = node.get("tasks");
+                if (tasks != null && tasks.isArray()) {
+                    for (JsonNode t : tasks) {
+                        var lid = t.get("logId");
+                        if (lid != null && lid.isTextual()) {
+                            logIds.add(lid.asText());
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+                // Skip invalid JSON lines; other tests ensure contexts.jsonl is valid as needed
+            }
+        }
+
+        if (logIds.isEmpty()) {
+            return; // nothing to validate
+        }
+
+        var fragmentsPath = staging.resolve("fragments-v3.json");
+        if (!Files.exists(fragmentsPath)) {
+            fail("fragments-v3.json not found but contexts.jsonl references logIds: " + logIds);
+        }
+
+        var root = mapper.readTree(Files.readString(fragmentsPath, StandardCharsets.UTF_8));
+        var taskNode = root.get("task");
+        var taskIds = new java.util.HashSet<String>();
+        if (taskNode != null && taskNode.isObject()) {
+            var it = taskNode.fieldNames();
+            while (it.hasNext()) {
+                taskIds.add(it.next());
+            }
+        }
+
+        for (String id : logIds) {
+            assertTrue(taskIds.contains(id), "Missing task entry in fragments-v3.json for logId: " + id);
+        }
     }
 
     private static String readZipEntryAsString(Path zip, String entryName) throws IOException {

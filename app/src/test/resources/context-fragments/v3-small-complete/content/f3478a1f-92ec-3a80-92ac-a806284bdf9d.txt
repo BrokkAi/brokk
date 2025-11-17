@@ -1,9 +1,0 @@
-io.github.jbellis.brokk.AbstractProject.createProject
- <- io.github.jbellis.brokk.Brokk.initializeProjectAndContextManager
- ```
- createProject(projectPath, parent)
- ```
- <- io.github.jbellis.brokk.Brokk.initializeProjectAndContextManager
- ```
- createProject(projectPath, parent)
- ```

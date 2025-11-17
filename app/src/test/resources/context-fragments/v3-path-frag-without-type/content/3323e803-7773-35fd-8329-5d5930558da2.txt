@@ -1,8 +1,0 @@
-
-1 SEARCH/REPLACE blocks applied.
-Running verification command: ./gradlew --quiet test --tests CodePromptsSyntaxAwareIntegrationTest --tests EditBlockSyntaxAwareAssertionTest
-```sh
-
-```
-# Code Agent Finished
-Success!
