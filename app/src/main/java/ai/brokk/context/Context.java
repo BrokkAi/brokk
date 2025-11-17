@@ -751,8 +751,7 @@ public class Context {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
                 .map(sf -> {
                     try {
-                        var mapper = Json.getMapper();
-                        Map<String, Object> raw = mapper.readValue(sf.text(), new TypeReference<>() {});
+                        Map<String, Object> raw = Json.fromJson(sf.text(), new TypeReference<Map<String, Object>>() {});
                         return raw.entrySet().stream()
                                 .collect(Collectors.toMap(
                                         Map.Entry::getKey,
@@ -1081,9 +1080,8 @@ public class Context {
         if (existing.isEmpty()) {
             return new TaskList.TaskListData(List.of());
         }
-        var mapper = Json.getMapper();
         try {
-            return mapper.readValue(existing.get().text(), TaskList.TaskListData.class);
+            return Json.fromJson(existing.get().text(), TaskList.TaskListData.class);
         } catch (Exception e) {
             logger.warn("Failed to parse Task List JSON", e);
             return new TaskList.TaskListData(List.of());
@@ -1121,7 +1119,7 @@ public class Context {
 
         // Non-empty case: serialize and update normally
         try {
-            String json = Json.getMapper().writeValueAsString(data);
+            String json = Json.toJson(data);
             return withTaskList(json, action);
         } catch (Exception e) {
             logger.warn("Failed to serialize Task List to JSON", e);
