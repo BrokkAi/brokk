@@ -1,12 +1,24 @@
 package ai.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
 import org.slf4j.Logger;
@@ -16,25 +28,187 @@ import org.slf4j.LoggerFactory;
  * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson CBOR.
  *
  * Serializes AnalyzerState into DTOs:
- * - PMap fields are represented as standard Maps or entry lists,
- * - SymbolKeyIndex becomes List<String> (keys),
- * - FileProperties omits the parsed TSTree.
+ * - PMap fields are represented as standard Maps or entry lists
+ * - SymbolKeyIndex becomes List<String> (keys)
+ * - FileProperties omits the parsed TSTree
+ * - ProjectFile is serialized via a DTO that guarantees a relative relPath
  */
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Dedicated CBOR ObjectMapper
-    private static final ObjectMapper CBOR_MAPPER = new ObjectMapper(new CBORFactory());
+    private static final ObjectMapper CBOR_MAPPER =
+            new ObjectMapper(new CBORFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+    static {
+        // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
+        // are serialized/deserialized via our relative-path-safe format.
+        SimpleModule module = new SimpleModule("TreeSitterStateIOModule");
+        module.addSerializer(CodeUnit.class, new CodeUnitJsonSerializer());
+        module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
+        module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
+        module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
+        CBOR_MAPPER.registerModule(module);
+    }
 
     private TreeSitterStateIO() {}
+
+    /* ================= Jackson adapters for nested types ================= */
+
+    /**
+     * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.
+     */
+    static final class ProjectFileJsonSerializer extends JsonSerializer<ProjectFile> {
+        @Override
+        public void serialize(ProjectFile value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            Path root = value.getRoot().toAbsolutePath().normalize();
+            Path rel = value.getRelPath();
+
+            String relStr;
+            if (rel.isAbsolute()) {
+                Path nr = root.toAbsolutePath().normalize();
+                Path rl = rel.toAbsolutePath().normalize();
+                if (rl.startsWith(nr)) {
+                    relStr = nr.relativize(rl).toString();
+                } else {
+                    // best-effort fallback; use just the file name to keep it relative
+                    relStr = rl.getFileName().toString();
+                    log.debug(
+                            "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
+                            nr,
+                            rl);
+                }
+            } else {
+                relStr = rel.toString();
+            }
+
+            gen.writeStartObject();
+            gen.writeStringField("root", root.toString()); // absolute, normalized
+            gen.writeStringField("relPath", relStr); // guaranteed relative
+            gen.writeEndObject();
+        }
+    }
+
+    /**
+     * Deserialize ProjectFile from minimal DTO, sanitizing absolute relPaths.
+     */
+    static final class ProjectFileJsonDeserializer extends JsonDeserializer<ProjectFile> {
+        @Override
+        public @Nullable ProjectFile deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+            JsonNode node = p.getCodec().readTree(p);
+            JsonNode rootNode = node.get("root");
+            JsonNode relNode = node.get("relPath");
+
+            if (rootNode == null || relNode == null) {
+                ctxt.reportInputMismatch(ProjectFile.class, "Missing required fields for ProjectFile (root, relPath)");
+                return null; // Unreachable, reportInputMismatch always throws
+            }
+
+            Path root = parseRootPath(rootNode.asText());
+            Path rel = Path.of(relNode.asText());
+
+            if (rel.isAbsolute()) {
+                Path nr = root.toAbsolutePath().normalize();
+                Path rl = rel.toAbsolutePath().normalize();
+                if (rl.startsWith(nr)) {
+                    rel = nr.relativize(rl);
+                } else {
+                    log.debug(
+                            "Loaded ProjectFile relPath was absolute and outside root; using fileName only: root={}, abs={}",
+                            nr,
+                            rl);
+                    rel = rl.getFileName();
+                }
+            }
+
+            return new ProjectFile(root, rel);
+        }
+    }
+
+    /**
+     * Serialize CodeUnit to a minimal DTO, delegating ProjectFile to its serializer.
+     */
+    static final class CodeUnitJsonSerializer extends JsonSerializer<CodeUnit> {
+        @Override
+        public void serialize(CodeUnit value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            gen.writeStartObject();
+            gen.writeFieldName("source");
+            serializers.defaultSerializeValue(value.source(), gen); // uses ProjectFileJsonSerializer
+            gen.writeStringField("kind", value.kind().name());
+            gen.writeStringField("packageName", value.packageName());
+            gen.writeStringField("shortName", value.shortName());
+            if (value.signature() != null) {
+                gen.writeStringField("signature", value.signature());
+            }
+            gen.writeEndObject();
+        }
+    }
+
+    /**
+     * Deserialize CodeUnit from the minimal DTO shape.
+     */
+    static final class CodeUnitJsonDeserializer extends JsonDeserializer<CodeUnit> {
+        @Override
+        public @Nullable CodeUnit deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+            JsonNode node = p.getCodec().readTree(p);
+
+            // Source ProjectFile
+            JsonNode sourceNode = node.get("source");
+            if (sourceNode == null) {
+                ctxt.reportInputMismatch(CodeUnit.class, "Missing CodeUnit.source");
+                return null; // Unreachable, reportInputMismatch always throws
+            }
+            ProjectFile source = p.getCodec().treeToValue(sourceNode, ProjectFile.class);
+
+            // Required fields
+            JsonNode kindNode = node.get("kind");
+            JsonNode pkgNode = node.get("packageName");
+            JsonNode shortNode = node.get("shortName");
+
+            if (kindNode == null || pkgNode == null || shortNode == null) {
+                ctxt.reportInputMismatch(
+                        CodeUnit.class, "Missing required fields for CodeUnit (kind, packageName, shortName)");
+                return null; // Unreachable, reportInputMismatch always throws
+            }
+
+            CodeUnitType kind = CodeUnitType.valueOf(kindNode.asText());
+            String pkg = pkgNode.asText();
+            String shortName = shortNode.asText();
+
+            // Optional signature
+            JsonNode sigNode = node.get("signature");
+            String signature = sigNode != null && !sigNode.isNull() ? sigNode.asText() : null;
+
+            return new CodeUnit(source, kind, pkg, shortName, signature);
+        }
+    }
 
     /* ================= DTOs ================= */
 
     /**
+     * A minimal, serialization-safe representation of ProjectFile that
+     * enforces that relPath is stored as a relative string.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ProjectFileDto(String root, String relPath) {}
+
+    /**
+     * A serialization-safe representation of CodeUnit using ProjectFileDto.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CodeUnitDto(
+            ProjectFileDto source,
+            CodeUnitType kind,
+            String packageName,
+            String shortName,
+            @Nullable String signature) {}
+
+    /**
      * DTO for AnalyzerState with only serializable components.
      */
-    public static record AnalyzerStateDto(
-            Map<String, List<CodeUnit>> symbolIndex,
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record AnalyzerStateDto(
+            Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
             List<String> symbolKeys,
@@ -43,19 +217,22 @@ public final class TreeSitterStateIO {
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
-    public static record CodeUnitEntryDto(CodeUnit key, TreeSitterAnalyzer.CodeUnitProperties value) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CodeUnitEntryDto(CodeUnitDto key, TreeSitterAnalyzer.CodeUnitProperties value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
      * FilePropertiesDto omits the parsed tree.
      */
-    public static record FileStateEntryDto(ProjectFile key, FilePropertiesDto value) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
-    public static record FilePropertiesDto(
-            List<CodeUnit> topLevelCodeUnits, List<String> importStatements, Set<CodeUnit> resolvedImports) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record FilePropertiesDto(
+            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
 
     /* ================= Public API ================= */
 
@@ -107,22 +284,35 @@ public final class TreeSitterStateIO {
      * Convert live AnalyzerState to a serializable DTO.
      */
     public static AnalyzerStateDto toDto(TreeSitterAnalyzer.AnalyzerState state) {
-        // symbolIndex is already Map<String, List<CodeUnit>> (PMap implements Map)
-        Map<String, List<CodeUnit>> symbolIndexCopy = new HashMap<>(state.symbolIndex());
+        // symbolIndex -> deep copy to DTO
+        Map<String, List<CodeUnitDto>> symbolIndexCopy = new HashMap<>();
+        for (var e : state.symbolIndex().entrySet()) {
+            var list = new ArrayList<CodeUnitDto>(e.getValue().size());
+            for (var cu : e.getValue()) list.add(toDto(cu));
+            symbolIndexCopy.put(e.getKey(), list);
+        }
 
         // codeUnitState -> entries list
         List<CodeUnitEntryDto> cuEntries = new ArrayList<>(state.codeUnitState().size());
         for (var e : state.codeUnitState().entrySet()) {
-            cuEntries.add(new CodeUnitEntryDto(e.getKey(), e.getValue()));
+            cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), e.getValue()));
         }
 
         // fileState -> entries list (omit parsed tree)
         List<FileStateEntryDto> fileEntries = new ArrayList<>(state.fileState().size());
         for (var e : state.fileState().entrySet()) {
             var fileProps = e.getValue();
-            var fpDto = new FilePropertiesDto(
-                    fileProps.topLevelCodeUnits(), fileProps.importStatements(), fileProps.resolvedImports());
-            fileEntries.add(new FileStateEntryDto(e.getKey(), fpDto));
+
+            var topLevelDtos =
+                    new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
+            for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
+
+            var resolvedDtos = new LinkedHashSet<CodeUnitDto>(
+                    Math.max(16, fileProps.resolvedImports().size()));
+            for (var cu : fileProps.resolvedImports()) resolvedDtos.add(toDto(cu));
+
+            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), resolvedDtos);
+            fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
         // Symbol keys for the index
@@ -139,12 +329,18 @@ public final class TreeSitterStateIO {
      */
     public static TreeSitterAnalyzer.AnalyzerState fromDto(AnalyzerStateDto dto) {
         // Rebuild symbol index PMap
-        PMap<String, List<CodeUnit>> symbolIndex = HashTreePMap.from(dto.symbolIndex());
+        Map<String, List<CodeUnit>> symbolIndexMap = new HashMap<>();
+        for (var e : dto.symbolIndex().entrySet()) {
+            var list = new ArrayList<CodeUnit>(e.getValue().size());
+            for (var cuDto : e.getValue()) list.add(fromDto(cuDto));
+            symbolIndexMap.put(e.getKey(), list);
+        }
+        PMap<String, List<CodeUnit>> symbolIndex = HashTreePMap.from(symbolIndexMap);
 
         // Rebuild codeUnitState PMap
         Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> cuState = new HashMap<>();
         for (var entry : dto.codeUnitState()) {
-            cuState.put(entry.key(), entry.value());
+            cuState.put(fromDto(entry.key()), entry.value());
         }
         PMap<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> codeUnitState = HashTreePMap.from(cuState);
 
@@ -152,12 +348,20 @@ public final class TreeSitterStateIO {
         Map<ProjectFile, TreeSitterAnalyzer.FileProperties> fileStateMap = new HashMap<>();
         for (var entry : dto.fileState()) {
             var v = entry.value();
+
+            var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
+            for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
+
+            var resolved =
+                    new LinkedHashSet<CodeUnit>(Math.max(16, v.resolvedImports().size()));
+            for (var cuDto : v.resolvedImports()) resolved.add(fromDto(cuDto));
+
             var fp = new TreeSitterAnalyzer.FileProperties(
-                    v.topLevelCodeUnits(),
+                    topLevel,
                     null, // parsedTree intentionally omitted
                     v.importStatements(),
-                    v.resolvedImports());
-            fileStateMap.put(entry.key(), fp);
+                    resolved);
+            fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
@@ -170,5 +374,87 @@ public final class TreeSitterStateIO {
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
                 symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
+    }
+
+    /* ================= Helpers ================= */
+
+    /**
+     * Parse a root string that may be a plain path or a file: URI into an absolute, normalized Path.
+     * Handles older snapshots that persisted root as "file:/...".
+     */
+    private static Path parseRootPath(String text) {
+        try {
+            if (text.startsWith("file:")) {
+                URI uri = new URI(text);
+                return Path.of(uri).toAbsolutePath().normalize();
+            }
+        } catch (Exception ignored) {
+            // fall through to plain path parsing
+        }
+        Path p = Path.of(text);
+        if (!p.isAbsolute()) {
+            // If it still has a file: prefix but wasn't parsed as URI above, strip and try again
+            if (text.startsWith("file:")) {
+                String stripped = text.substring("file:".length());
+                p = Path.of(stripped);
+            }
+            p = p.toAbsolutePath();
+        }
+        return p.normalize();
+    }
+
+    private static CodeUnitDto toDto(CodeUnit cu) {
+        return new CodeUnitDto(toDto(cu.source()), cu.kind(), cu.packageName(), cu.shortName(), cu.signature());
+    }
+
+    private static CodeUnit fromDto(CodeUnitDto dto) {
+        return new CodeUnit(fromDto(dto.source()), dto.kind(), dto.packageName(), dto.shortName(), dto.signature());
+    }
+
+    private static ProjectFileDto toDto(ProjectFile pf) {
+        Path root = pf.getRoot().toAbsolutePath().normalize();
+        Path rel = pf.getRelPath();
+
+        String relStr;
+        if (rel.isAbsolute()) {
+            // attempt to normalize into a path relative to root
+            Path nr = root.toAbsolutePath().normalize();
+            Path rl = rel.toAbsolutePath().normalize();
+            if (rl.startsWith(nr)) {
+                relStr = nr.relativize(rl).toString();
+            } else {
+                // best-effort fallback; use just the file name to keep it relative
+                relStr = rl.getFileName().toString();
+                log.debug(
+                        "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
+                        nr,
+                        rl);
+            }
+        } else {
+            relStr = rel.toString();
+        }
+        return new ProjectFileDto(root.toString(), relStr);
+    }
+
+    private static ProjectFile fromDto(ProjectFileDto dto) {
+        Path root = parseRootPath(dto.root());
+        Path rel = Path.of(dto.relPath());
+
+        if (rel.isAbsolute()) {
+            Path nr = root.toAbsolutePath().normalize();
+            Path rl = rel.toAbsolutePath().normalize();
+            if (rl.startsWith(nr)) {
+                rel = nr.relativize(rl);
+            } else {
+                // best-effort fallback; use just the file name to keep it relative
+                log.debug(
+                        "Loaded ProjectFileDto.relPath was absolute and outside root; using fileName only: root={}, abs={}",
+                        nr,
+                        rl);
+                rel = rl.getFileName();
+            }
+        }
+
+        return new ProjectFile(root, rel);
     }
 }
