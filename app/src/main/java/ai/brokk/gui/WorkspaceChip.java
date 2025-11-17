@@ -701,7 +701,7 @@ public class WorkspaceChip extends JPanel {
         return false;
     }
 
-    protected JPopupMenu createContextMenu() {
+    protected @Nullable JPopupMenu createContextMenu() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment == null) {
             return null;

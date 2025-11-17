@@ -126,6 +126,7 @@ public final class ComputedSubscription {
             this.owner = owner;
         }
 
+        @Override
         public void ancestorAdded(AncestorEvent event) {
             // no-op
         }
