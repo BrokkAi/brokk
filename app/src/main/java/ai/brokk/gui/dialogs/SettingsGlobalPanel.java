@@ -85,6 +85,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
+    private JComboBox<String> plannerModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -1175,7 +1176,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
-        // Create top panel with preferred code model selector
+        // Create top panel with preferred code model and planner model selectors
         var topPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 10, 0);
@@ -1189,14 +1190,31 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         preferredCodeModelCombo = new JComboBox<>();
         // Will be populated with favorite model aliases in loadSettings()
         // Keep the combo at its preferred size and left-aligned by placing it in a left-aligned holder.
-        var comboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        comboHolder.add(preferredCodeModelCombo);
+        var codeComboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        codeComboHolder.add(preferredCodeModelCombo);
 
         gbc.gridx = 1;
-        gbc.weightx = 1.0; // let the holder absorb extra space
+        gbc.weightx = 0.5;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(codeComboHolder, gbc);
+
+        // Add Planner Model selector
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(new JLabel("Planner Model:"), gbc);
+
+        plannerModelCombo = new JComboBox<>();
+        var plannerComboHolder = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        plannerComboHolder.add(plannerModelCombo);
+
+        gbc.gridx = 3;
+        gbc.weightx = 0.5;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(0, 10, 10, 0);
-        topPanel.add(comboHolder, gbc);
+        topPanel.add(plannerComboHolder, gbc);
 
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
@@ -1464,6 +1482,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Quick Models Tab
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
         var loadedFavorites = MainProject.loadFavoriteModels();
         if (loadedFavorites.isEmpty()) {
             var defaultAlias = "default";
@@ -1485,20 +1504,56 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Select the favorite that matches the current code config
-        String selectedAlias = null;
+        String selectedCodeAlias = null;
         for (Service.FavoriteModel favorite : loadedFavorites) {
             if (favorite.config().name().equals(currentCodeConfig.name())
                     && favorite.config().reasoning() == currentCodeConfig.reasoning()
                     && favorite.config().tier() == currentCodeConfig.tier()) {
-                selectedAlias = favorite.alias();
+                selectedCodeAlias = favorite.alias();
                 break;
             }
         }
-        if (selectedAlias != null) {
-            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        if (selectedCodeAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedCodeAlias);
         } else if (!loadedFavorites.isEmpty()) {
             preferredCodeModelCombo.setSelectedIndex(0);
         }
+
+        // Populate planner model combo with favorite aliases
+        plannerModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            plannerModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current planner config
+        String selectedPlannerAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentPlannerConfig.name())
+                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
+                    && favorite.config().tier() == currentPlannerConfig.tier()) {
+                selectedPlannerAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedPlannerAlias != null) {
+            plannerModelCombo.setSelectedItem(selectedPlannerAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            plannerModelCombo.setSelectedIndex(0);
+        }
+
+        // Add listener to sync planner combo when model changes in InstructionsPanel
+        final var favoritesForListener = loadedFavorites;
+        chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+            for (Service.FavoriteModel favorite : favoritesForListener) {
+                if (favorite.config().name().equals(cfg.name())
+                        && favorite.config().reasoning() == cfg.reasoning()
+                        && favorite.config().tier() == cfg.tier()) {
+                    String alias = favorite.alias();
+                    SwingUtilities.invokeLater(() -> plannerModelCombo.setSelectedItem(alias));
+                    break;
+                }
+            }
+        });
 
         // GitHub Tab
         if (gitHubSettingsPanel != null) {
@@ -1734,13 +1789,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // Preferred Code Model
-        var selectedAlias = (String) preferredCodeModelCombo.getSelectedItem();
-        if (selectedAlias != null && !selectedAlias.isEmpty()) {
+        var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
+        if (selectedCodeAlias != null && !selectedCodeAlias.isEmpty()) {
             try {
-                var favoriteModel = MainProject.getFavoriteModel(selectedAlias);
+                var favoriteModel = MainProject.getFavoriteModel(selectedCodeAlias);
                 chrome.getProject().getMainProject().setCodeModelConfig(favoriteModel.config());
             } catch (IllegalArgumentException e) {
-                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedAlias);
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedCodeAlias);
+            }
+        }
+
+        // Planner Model
+        var selectedPlannerAlias = (String) plannerModelCombo.getSelectedItem();
+        if (selectedPlannerAlias != null && !selectedPlannerAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedPlannerAlias);
+                chrome.getProject().getMainProject().setArchitectModelConfig(favoriteModel.config());
+                chrome.getInstructionsPanel().selectPlannerModelConfig(favoriteModel.config());
+            } catch (IllegalArgumentException e) {
+                logger.warn("Selected planner favorite model alias '{}' no longer exists, skipping save.", selectedPlannerAlias);
             }
         }
 
