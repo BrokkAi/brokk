@@ -717,13 +717,20 @@ public class MenuBar {
             // Validate API key in background to avoid EDT blocking
             new SwingWorker<Boolean, Void>() {
                 private @Nullable String errorMessage = null;
+                private boolean invalidFormatError = false;
+                private boolean networkError = false;
 
                 @Override
                 protected Boolean doInBackground() {
                     try {
                         Service.validateKey(MainProject.getBrokkKey());
                         return true;
+                    } catch (IllegalArgumentException ex) {
+                        invalidFormatError = true;
+                        errorMessage = ex.getMessage();
+                        return false;
                     } catch (IOException ex) {
+                        networkError = true;
                         errorMessage = ex.getMessage();
                         return false;
                     }
@@ -736,11 +743,11 @@ public class MenuBar {
                             var dialog = new FeedbackDialog(chrome.getFrame(), chrome);
                             dialog.setVisible(true);
                         } else {
+                            var errorInfo = buildErrorDialog();
                             JOptionPane.showMessageDialog(
                                     chrome.getFrame(),
-                                    "Please configure a valid Brokk API key in Settings before sending feedback.\n\nError: "
-                                            + errorMessage,
-                                    "Invalid API Key",
+                                    errorInfo.message(),
+                                    errorInfo.title(),
                                     JOptionPane.ERROR_MESSAGE);
                         }
                     } catch (Exception ex) {
@@ -750,6 +757,32 @@ public class MenuBar {
                                 "Error",
                                 JOptionPane.ERROR_MESSAGE);
                     }
+                }
+
+                private record ErrorInfo(String title, String message) {}
+
+                private ErrorInfo buildErrorDialog() {
+                    String title;
+                    String message;
+
+                    if (invalidFormatError) {
+                        title = "Invalid API Key";
+                        message = "The Brokk API key appears to be invalid. "
+                                + "Please check the key format and try again.";
+                    } else if (networkError) {
+                        title = "API Key Validation Failed";
+                        message = "Could not validate the Brokk API key due to a "
+                                + "network or server error. Please check your connection and try again.";
+                    } else {
+                        title = "Invalid API Key";
+                        message = "Please configure a valid Brokk API key in Settings " + "before sending feedback.";
+                    }
+
+                    if (errorMessage != null && !errorMessage.isBlank()) {
+                        message += "\n\nError: " + errorMessage;
+                    }
+
+                    return new ErrorInfo(title, message);
                 }
             }.execute();
         });

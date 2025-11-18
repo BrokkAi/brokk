@@ -134,6 +134,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
             @Override
             protected void done() {
+                // Guard: if the dialog has been disposed or is no longer showing, skip all UI updates
+                if (!isDisplayable() || !isShowing()) {
+                    return;
+                }
+
                 try {
                     var data = get();
                     populateUIFromData(data);
