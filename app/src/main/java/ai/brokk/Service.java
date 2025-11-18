@@ -356,17 +356,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                                     modelLocation,
                                     immutableModelInfo);
 
-                    if ("chat".equals(immutableModelInfo.get("mode"))
-                            || "responses".equals(immutableModelInfo.get("mode"))) {
+                    var mode = immutableModelInfo.get("mode");
+                    if (mode == null || "chat".equals(mode) || "responses".equals(mode)) {
                         locationsTarget.put(modelName, modelLocation);
                         LogManager.getLogger(Service.class)
                                 .debug("Added chat model {} to available locations.", modelName);
                     } else {
                         LogManager.getLogger(Service.class)
-                                .debug(
-                                        "Skipping model {} (mode: {}) from available locations.",
-                                        modelName,
-                                        immutableModelInfo.get("mode"));
+                                .debug("Skipping model {} (mode: {}) from available locations.", modelName, mode);
                     }
                 }
             }
