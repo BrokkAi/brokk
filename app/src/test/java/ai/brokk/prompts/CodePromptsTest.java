@@ -30,7 +30,7 @@ class CodePromptsTest {
         files.add(f1);
         files.add(f2);
 
-        var flags = CodePrompts.instructionsFlags(project, files);
+        var flags = CodePrompts.instructionsFlags(files);
         assertTrue(
                 flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
                 "SYNTAX_AWARE should be enabled when all editable files are .java");
@@ -52,7 +52,7 @@ class CodePromptsTest {
         files.add(javaFile);
         files.add(nonJavaFile);
 
-        var flags = CodePrompts.instructionsFlags(project, files);
+        var flags = CodePrompts.instructionsFlags(files);
         assertFalse(
                 flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
                 "SYNTAX_AWARE should be disabled unless all editable files are Java");
@@ -69,7 +69,7 @@ class CodePromptsTest {
 
         files.add(nonJavaFile);
 
-        var flags = CodePrompts.instructionsFlags(project, files);
+        var flags = CodePrompts.instructionsFlags(files);
         assertFalse(
                 flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
                 "SYNTAX_AWARE should be disabled when no editable files are Java");
@@ -80,7 +80,7 @@ class CodePromptsTest {
         var project = new TestProject(tempDir, Languages.JAVA);
         var files = Set.<ProjectFile>of();
 
-        var flags = CodePrompts.instructionsFlags(project, files);
+        var flags = CodePrompts.instructionsFlags(files);
         assertFalse(
                 flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
                 "SYNTAX_AWARE should be disabled when there are no editable files");

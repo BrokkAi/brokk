@@ -2371,11 +2371,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .formatted(captureText));
 
                 // Register tool providers
+                var ws = new WorkspaceTools(contextManager.liveContext());
                 var tr = contextManager
                         .getToolRegistry()
                         .builder()
                         .register(this)
-                        .register(new WorkspaceTools(contextManager))
+                        .register(ws)
                         .build();
 
                 var toolSpecs = new ArrayList<ToolSpecification>();
@@ -2402,6 +2403,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ter = tr.executeTool(req);
                         if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
+                        } else {
+                            this.contextManager.pushContext(ctx ->
+                                    ws.getContext().withAction(CompletableFuture.completedFuture("Task List created")));
                         }
                     }
                 }

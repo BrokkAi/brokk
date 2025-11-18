@@ -164,7 +164,7 @@ public final class NodeJsDependencyHelper {
                             "NPM package copied to " + targetRoot + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (Exception ex) {
+            } catch (IOException ex) {
                 logger.error(
                         "Error copying NPM package {} from {} to {}", pkg.displayName(), sourceRoot, targetRoot, ex);
                 SwingUtilities.invokeLater(
@@ -316,7 +316,7 @@ public final class NodeJsDependencyHelper {
         try {
             if (!Files.isRegularFile(pkgJsonPath)) return null;
             return MAPPER.readValue(Files.readString(pkgJsonPath), NodePackage.class);
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.debug("Failed to read package.json at {}: {}", pkgJsonPath, e.toString());
             return null;
         }

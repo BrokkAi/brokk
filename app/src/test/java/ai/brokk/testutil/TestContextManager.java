@@ -55,7 +55,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
-        this.liveContext = new Context(this, "Test context");
+        this.liveContext = new Context(this, "Test context").addPathFragments(toPathFragments(editableFiles));
 
         this.analyzerWrapper = new IAnalyzerWrapper() {
             @Override

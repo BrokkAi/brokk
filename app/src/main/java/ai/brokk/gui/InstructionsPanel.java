@@ -1396,17 +1396,51 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
-     * fails or vision is required but unsupported.
+     * Returns a diagnostic message about the service state for logging purposes.
+     * Useful for distinguishing configuration errors (bad key, invalid proxy) from transient network issues.
      */
-    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel, boolean requireVision) {
+    private String getServiceDiagnosticsMessage() {
+        try {
+            var models = contextManager.getService();
+            // If we have an UnavailableStreamingModel, the service failed to initialize
+            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+                return "Service contains unavailable model stub (initialization may have failed)";
+            }
+            return "Service appears initialized; check network connectivity and API key validity";
+        } catch (RuntimeException e) {
+            return "Exception accessing service state: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
+    }
+
+    /**
+     * Centralized model selection from the dropdown with fallback and vision check. Returns null if selection
+     * fails or if the context contains images but the selected model does not support vision.
+     */
+    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel) {
         var cm = chrome.getContextManager();
         var models = cm.getService();
+
+        // Pre-check: is the LLM service online?
+        if (!models.isOnline()) {
+            logger.warn(
+                    "LLM service offline for action '{}': service online=false, contextHasImages={}",
+                    actionLabel,
+                    contextHasImages());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+            chrome.toolError("LLM service is offline; please check your connection or key.");
+            return null;
+        }
 
         Service.ModelConfig config;
         try {
             config = modelSelector.getModel();
         } catch (IllegalStateException e) {
+            logger.warn(
+                    "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
+                    actionLabel,
+                    e.getMessage(),
+                    contextHasImages(),
+                    models.isOnline());
             chrome.toolError("Please finish configuring your custom model or select a favorite first.");
             return null;
         }
@@ -1415,10 +1449,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            selectedModel = castNonNull(models.getModel(Service.GPT_5_MINI));
+            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            if (fallbackModel != null) {
+                selectedModel = fallbackModel;
+            }
         }
 
-        if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
+        // If fallback also failed, show error and return null
+        if (selectedModel == null) {
+            logger.warn(
+                    "No available model for action '{}': selected config name='{}', reasoning='{}', contextHasImages={}, service online={}",
+                    actionLabel,
+                    config.name(),
+                    config.reasoning(),
+                    contextHasImages(),
+                    models.isOnline());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+            chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
+            return null;
+        }
+
+        boolean hasImages = contextHasImages();
+        if (hasImages && !models.supportsVision(selectedModel)) {
+            logger.debug(
+                    "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
+                    actionLabel,
+                    models.nameOf(selectedModel),
+                    models.isOnline());
             showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
             return null;
         }
@@ -1543,14 +1600,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-
-        if (contextHasImages() && !models.supportsVision(modelToUse)) {
-            showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
-            return;
-        }
-
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
@@ -1587,8 +1636,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
+            updateButtonStates();
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1622,9 +1672,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query) {
-        final var modelToUse = selectDropdownModelOrShowError("Search", true);
+        final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
-            throw new IllegalStateException("LLM not found, usually this indicates a network error");
+            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+            updateButtonStates();
+            return;
         }
 
         autoClearCompletedTasks();
@@ -1880,7 +1932,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // Go action
             switch (storedAction) {
-                case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
+                case ACTION_CODE -> {
+                    var model = selectDropdownModelOrShowError("Code");
+                    if (model != null) {
+                        prepareAndRunCodeCommand(model);
+                    } else {
+                        updateButtonStates();
+                    }
+                }
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
                 default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
