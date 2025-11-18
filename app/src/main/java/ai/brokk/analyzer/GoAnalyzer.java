@@ -60,12 +60,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         // Initialize the ThreadLocal for the package query.
         // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
         return ThreadLocal.withInitial(() -> {
-            try {
-                return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (Exception e) { // TSQuery constructor can throw various exceptions
-                log.error("Failed to compile packageQuery for GoAnalyzer ThreadLocal", e);
-                throw e; // Re-throw to indicate critical setup error for this thread's query
-            }
+            return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
         });
     }
 
@@ -123,29 +118,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         }
 
         TSQueryCursor cursor = new TSQueryCursor();
-        try {
-            cursor.exec(currentPackageQuery, rootNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        cursor.exec(currentPackageQuery, rootNode);
+        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
 
-            if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
-                    // name "name"
-                    if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
-                        TSNode nameNode = capture.getNode();
-                        if (nameNode != null && !nameNode.isNull()) {
-                            return textSlice(nameNode, src).trim();
-                        }
+        if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
+            for (TSQueryCapture capture : match.getCaptures()) {
+                // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
+                // name "name"
+                if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
+                    TSNode nameNode = capture.getNode();
+                    if (nameNode != null && !nameNode.isNull()) {
+                        return textSlice(nameNode, src).trim();
                     }
                 }
-            } else {
-                log.warn("No package declaration found in Go file: {}", file);
             }
-        } catch (Exception e) {
-            log.error("Error while determining package name for Go file {}: {}", file, e.getMessage(), e);
+        } else {
+            log.warn("No package declaration found in Go file: {}", file);
         }
-        // TSQueryCursor does not appear to have a close() method or implement AutoCloseable.
-        // Assuming its resources are managed by GC or when its associated TSQuery/TSTree are GC'd.
         return ""; // Default if no package name found or an error occurs
     }
 
