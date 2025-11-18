@@ -731,7 +731,7 @@ public class Environment {
      * @param url The URL to open.
      * @param ancestor The parent window for displaying error dialogs, can be null.
      */
-    public static void openInBrowser(String url, Window ancestor) {
+    public static void openInBrowser(String url, @Nullable Window ancestor) {
         try {
             if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 logger.warn("Desktop.Action.BROWSE not supported, cannot open URL: {}", url);
