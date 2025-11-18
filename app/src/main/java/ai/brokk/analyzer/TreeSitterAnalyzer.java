@@ -654,18 +654,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     private Set<CodeUnit> lookupCandidatesByFqName(String baseName) {
         if (baseName.isEmpty()) {
-            return Collections.emptySet();
+            return Set.of();
         }
 
         var index = this.state.symbolIndex();
         if (index.isEmpty()) {
-            return Collections.emptySet();
+            return Set.of();
         }
 
-        var result = new LinkedHashSet<CodeUnit>();
-
         // Candidate symbol keys: the full baseName and each suffix after a '.'.
-        var candidateKeys = new LinkedHashSet<String>();
+        var candidateKeys = new HashSet<>();
         candidateKeys.add(baseName);
 
         int dot = baseName.indexOf('.');
@@ -674,14 +672,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             dot = baseName.indexOf('.', dot + 1);
         }
 
-        for (var key : candidateKeys) {
-            var bucket = index.get(key);
-            if (bucket != null && !bucket.isEmpty()) {
-                result.addAll(bucket);
-            }
-        }
-
-        return result;
+        return candidateKeys.stream()
+                .map(index::get)
+                .filter(Objects::nonNull)
+                .flatMap(Set::stream)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
