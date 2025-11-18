@@ -651,7 +651,7 @@ public class EditBlock {
                 int targetIndentStep = -1;
                 for (int i = 1; i < truncatedTarget.length; i++) {
                     if (!truncatedTarget[i].isBlank()) {
-                        targetIndentStep = countLeadingWhitespace(truncatedTarget[i]);
+                        targetIndentStep = countLeadingWhitespace(truncatedTarget[i]) - baseTargetIndent;
                         break;
                     }
                 }
