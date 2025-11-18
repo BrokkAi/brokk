@@ -12,7 +12,7 @@ import org.junit.jupiter.api.*;
  * Run them manually or with a performance testing profile.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-//@Disabled("Benchmark tests - enable individually for performance measurements")
+// @Disabled("Benchmark tests - enable individually for performance measurements")
 public class FileWatcherBenchmarkTest {
 
     private static Path tempDir;
