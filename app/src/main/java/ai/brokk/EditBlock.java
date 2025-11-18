@@ -679,7 +679,11 @@ public class EditBlock {
                 int rawAdjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
                 int adjustedRelativeIndent = Math.max(0, rawAdjustedRelativeIndent);
                 if (rawAdjustedRelativeIndent < 0) {
-                    logger.warn("Negative indentation detected in replace block: rawAdjustedRelativeIndent={}, replaceRelativeIndent={}, scale={}", rawAdjustedRelativeIndent, replaceRelativeIndent, scale);
+                    logger.warn(
+                            "Negative indentation detected in replace block: rawAdjustedRelativeIndent={}, replaceRelativeIndent={}, scale={}",
+                            rawAdjustedRelativeIndent,
+                            replaceRelativeIndent,
+                            scale);
                 }
                 String adjusted = baseIndent + " ".repeat(adjustedRelativeIndent) + replLine.stripLeading();
                 resultLines.add(adjusted);
