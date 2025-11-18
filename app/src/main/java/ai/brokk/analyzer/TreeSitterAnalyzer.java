@@ -596,7 +596,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             searchSignature = null;
         }
 
-
         // Use symbolIndex to pre-filter candidates instead of scanning all CodeUnits.
         Set<CodeUnit> candidates = lookupCandidatesByFqName(baseName);
         if (candidates.isEmpty()) {
