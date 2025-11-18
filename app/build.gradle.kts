@@ -91,7 +91,7 @@ dependencies {
     implementation(libs.bundles.ui)
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
-    implementation(libs.jackson.cbor)
+    implementation(libs.jackson.smile)
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.jediterm)

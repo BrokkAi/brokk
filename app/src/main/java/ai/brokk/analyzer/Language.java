@@ -36,9 +36,10 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use oldName for storage path to ensure stable and filesystem-safe names
+        // Persist snapshots compressed with GZIP to reduce size
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
     }
 
     /**

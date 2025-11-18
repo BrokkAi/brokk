@@ -12,12 +12,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
+import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
@@ -25,7 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson CBOR.
+ * Persistence helper for TreeSitterAnalyzer.AnalyzerState using Jackson Smile.
  *
  * Serializes AnalyzerState into DTOs:
  * - PMap fields are represented as standard Maps or entry lists
@@ -36,9 +38,9 @@ import org.slf4j.LoggerFactory;
 public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
-    // Dedicated CBOR ObjectMapper
-    private static final ObjectMapper CBOR_MAPPER =
-            new ObjectMapper(new CBORFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    // Dedicated Smile ObjectMapper
+    private static final ObjectMapper SMILE_MAPPER =
+            new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     static {
         // Ensure nested CodeUnit/ProjectFile anywhere in the object graph (e.g., inside CodeUnitProperties)
@@ -48,7 +50,7 @@ public final class TreeSitterStateIO {
         module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
         module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
         module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
-        CBOR_MAPPER.registerModule(module);
+        SMILE_MAPPER.registerModule(module);
     }
 
     private TreeSitterStateIO() {}
@@ -237,25 +239,29 @@ public final class TreeSitterStateIO {
     /* ================= Public API ================= */
 
     /**
-     * Save the given AnalyzerState to the provided file in CBOR format.
+     * Save the given AnalyzerState to the provided file in Smile format.
      * Creates parent directories if necessary. On error, logs and returns.
      */
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
+        long startMs = System.currentTimeMillis();
         try {
             Path parent = file.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             var dto = toDto(state);
-            CBOR_MAPPER.writeValue(file.toFile(), dto);
-            log.debug("Saved TreeSitter AnalyzerState to {}", file);
+            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(file))) {
+                SMILE_MAPPER.writeValue(out, dto);
+            }
+            long durMs = System.currentTimeMillis() - startMs;
+            log.debug("Saved TreeSitter AnalyzerState to {} in {} ms", file, durMs);
         } catch (IOException e) {
             log.warn("Failed to save TreeSitter AnalyzerState to {}: {}", file, e.getMessage(), e);
         }
     }
 
     /**
-     * Load an AnalyzerState from the provided file in CBOR format.
+     * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
      */
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
@@ -263,11 +269,15 @@ public final class TreeSitterStateIO {
             log.debug("Analyzer state file does not exist: {}", file);
             return Optional.empty();
         }
+        long startMs = System.currentTimeMillis();
         try {
-            var dto = CBOR_MAPPER.readValue(file.toFile(), AnalyzerStateDto.class);
-            var state = fromDto(dto);
-            log.debug("Loaded TreeSitter AnalyzerState from {}", file);
-            return Optional.of(state);
+            try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(file))) {
+                var dto = SMILE_MAPPER.readValue(in, AnalyzerStateDto.class);
+                var state = fromDto(dto);
+                long durMs = System.currentTimeMillis() - startMs;
+                log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
+                return Optional.of(state);
+            }
         } catch (MismatchedInputException mie) {
             // Schema mismatch / incompatible version - trigger a rebuild
             log.warn("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
