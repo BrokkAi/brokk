@@ -265,6 +265,17 @@ public abstract class CodePrompts {
         return messages;
     }
 
+    /**
+     * Collects chat messages for an "ask" request, using the ASK viewing policy.
+     * <p>
+     * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
+     * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
+     *
+     * @param cm    The context manager for the current project/session.
+     * @param input The user's question or request.
+     * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
+     * @throws InterruptedException if interrupted while collecting messages.
+     */
     public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
