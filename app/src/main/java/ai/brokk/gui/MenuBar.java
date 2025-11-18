@@ -716,9 +716,14 @@ public class MenuBar {
         sendFeedbackItem.addActionListener(e -> {
             // Validate API key in background to avoid EDT blocking
             new SwingWorker<Boolean, Void>() {
+                private enum ValidationFailureKind {
+                    INVALID_FORMAT,
+                    NETWORK,
+                    OTHER
+                }
+
                 private @Nullable String errorMessage = null;
-                private boolean invalidFormatError = false;
-                private boolean networkError = false;
+                private @Nullable ValidationFailureKind failureKind = null;
 
                 @Override
                 protected Boolean doInBackground() {
@@ -726,11 +731,11 @@ public class MenuBar {
                         Service.validateKey(MainProject.getBrokkKey());
                         return true;
                     } catch (IllegalArgumentException ex) {
-                        invalidFormatError = true;
+                        failureKind = ValidationFailureKind.INVALID_FORMAT;
                         errorMessage = ex.getMessage();
                         return false;
                     } catch (IOException ex) {
-                        networkError = true;
+                        failureKind = ValidationFailureKind.NETWORK;
                         errorMessage = ex.getMessage();
                         return false;
                     }
@@ -751,11 +756,11 @@ public class MenuBar {
                                     JOptionPane.ERROR_MESSAGE);
                         }
                     } catch (Exception ex) {
+                        failureKind = ValidationFailureKind.OTHER;
+                        errorMessage = ex.getMessage();
+                        var errorInfo = buildErrorDialog();
                         JOptionPane.showMessageDialog(
-                                chrome.getFrame(),
-                                "Error validating API key: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
+                                chrome.getFrame(), errorInfo.message(), errorInfo.title(), JOptionPane.ERROR_MESSAGE);
                     }
                 }
 
@@ -764,18 +769,29 @@ public class MenuBar {
                 private ErrorInfo buildErrorDialog() {
                     String title;
                     String message;
+                    var kind = java.util.Objects.requireNonNull(
+                            failureKind, "failureKind must be set before calling buildErrorDialog()");
 
-                    if (invalidFormatError) {
-                        title = "Invalid API Key";
-                        message = "The Brokk API key appears to be invalid. "
-                                + "Please check the key format and try again.";
-                    } else if (networkError) {
-                        title = "API Key Validation Failed";
-                        message = "Could not validate the Brokk API key due to a "
-                                + "network or server error. Please check your connection and try again.";
-                    } else {
-                        title = "Invalid API Key";
-                        message = "Please configure a valid Brokk API key in Settings " + "before sending feedback.";
+                    switch (kind) {
+                        case INVALID_FORMAT -> {
+                            title = "Invalid API Key";
+                            message = "The Brokk API key appears to be invalid. "
+                                    + "Please check the key format and try again.";
+                        }
+                        case NETWORK -> {
+                            title = "API Key Validation Failed";
+                            message = "Could not validate the Brokk API key due to a "
+                                    + "network or server error. Please check your connection and try again.";
+                        }
+                        case OTHER -> {
+                            title = "Error";
+                            message = "An unexpected error occurred during API key validation. " + "Please try again.";
+                        }
+                        default -> {
+                            title = "Invalid API Key";
+                            message =
+                                    "Please configure a valid Brokk API key in Settings " + "before sending feedback.";
+                        }
                     }
 
                     if (errorMessage != null && !errorMessage.isBlank()) {
