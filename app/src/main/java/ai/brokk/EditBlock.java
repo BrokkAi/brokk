@@ -8,7 +8,6 @@ import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -143,7 +142,8 @@ public class EditBlock {
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
             try {
-                var maybeResolved = resolveBrkSnippet(ctx, effectiveBefore.strip());
+                var analyzer = ctx.getContextManager().getAnalyzer();
+                var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
                     logger.debug("Pre-resolved BRK target snippet for {}:\n{}", rawFileName, effectiveBefore);
@@ -399,19 +399,9 @@ public class EditBlock {
             return replace;
         }
 
-        // -----------------------------
-        // 2) BRK_CLASS / BRK_FUNCTION special search syntax
-        // -----------------------------
-        var resolved = resolveBrkSnippet(ctx, trimmedTarget);
-        if (resolved != null) {
-            target = resolved;
-            // resolveBrkSnippet already validated and gathered suggestions on error
-            logger.debug("BRK target snippet resolved:\n{}", target);
-        }
-
-        // -----------------------------
-        // 3) Normal search/replace (existing behavior)
-        // -----------------------------
+        // -------------------------
+        // 2) Normal search/replace (existing behavior)
+        // -------------------------
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);
         ContentLines replaceCL = prep(replace);
@@ -734,57 +724,55 @@ public class EditBlock {
     private record ContentLines(String original, List<String> lines, boolean originalEndsWithNewline) {}
 
     /**
-     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null
-     * if the target is not a BRK marker. Throws on not found or ambiguous cases.
+     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets. Returns null if the target is not a BRK marker.
+     * Throws on not found or ambiguous cases.
+     *
+     * @param identifier The identifier string (e.g., "BRK_CLASS com.example.Foo" or "BRK_FUNCTION com.example.Foo.bar")
+     * @param target The ProjectFile where the resolution is happening (used to check syntax support)
+     * @param analyzer The analyzer to use for resolution
+     * @return The resolved source code, or null if not a BRK marker
      */
-    private static @Nullable String resolveBrkSnippet(Context ctx, String trimmedTarget)
+    private static @Nullable String resolveBrkSnippet(String identifier, ProjectFile target, IAnalyzer analyzer)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
-        // Only support BRK markers for Java entities. In multi-language projects, we restrict resolution to Java
-        // so that syntax-aware edits don't unexpectedly target other languages.
-        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
+        identifier = identifier.strip();
+        // Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets
+        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;
         }
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-        var contextManager = ctx.getContextManager();
-        var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
         var scp = scpOpt.get();
 
-        // Only Java is supported right now
-        var supportedAnalyzerOpt = analyzer.subAnalyzer(Languages.JAVA);
-        var supportedExt = Languages.JAVA.getExtensions();
-        Predicate<String> isSupportedExt = extension -> supportedExt.contains(extension.toLowerCase(Locale.ROOT));
+        // Check if the file extension is allowed by configuration and supported by the analyzer
+        var fileExt = target.extension().toLowerCase(Locale.ROOT);
 
-        // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
-        var editableFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        // if this boolean check is aliased to a variable, the `.get()` below will be flagged by Error Prone
-        var unsupported = editableFiles.stream()
-                .filter(f -> !isSupportedExt.test(f.extension()))
-                .toList();
-        if (supportedAnalyzerOpt.isEmpty() || !unsupported.isEmpty()) {
-            throw new AssertionError(
-                    "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
+        if (!SyntaxAwareConfig.isSyntaxAwareExtension(fileExt)) {
+            throw new NoMatchException("BRK markers are disabled for file type '" + target.extension()
+                    + "' in this workspace (check BRK_SYNTAX_EXTENSIONS). Use a line-based SEARCH instead.");
         }
 
-        var supportedAnalyzer = supportedAnalyzerOpt.get();
+        var supportedLanguages = analyzer.languages();
+        var isSupportedFile = supportedLanguages.stream()
+                .flatMap(lang -> lang.getExtensions().stream())
+                .anyMatch(ext -> ext.toLowerCase(Locale.ROOT).equals(fileExt));
+
+        if (!isSupportedFile) {
+            throw new NoMatchException("BRK markers are not supported for file type '" + target.extension()
+                    + "' in this workspace. Use a line-based SEARCH instead.");
+        }
 
         String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
-            // Prefer exact definition lookup, then ensure it's a Java class.
-            var def = supportedAnalyzer.getDefinition(fqName);
+            // Prefer exact definition lookup
+            var def = analyzer.getDefinition(fqName);
             if (def.isPresent()) {
                 var cu = def.get();
-                if (!isSupportedExt.test(cu.source().extension())) {
-                    throw new NoMatchException("BRK_CLASS is only supported for Java in this workspace. "
-                            + "Found a non-Java symbol with that name. Use a line-based SEARCH instead.");
-                }
                 var src = scp.getClassSource(cu, true);
                 if (src.isEmpty()) {
                     throw new NoMatchException("No class source found for '" + fqName + "'.");
@@ -792,9 +780,8 @@ public class EditBlock {
                 return src.get();
             }
 
-            // No exact match; suggest up to 3 similarly named Java classes
-            var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
-                    .filter(cu -> isSupportedExt.test(cu.source().extension()))
+            // No exact match; suggest up to 3 similarly named identifiers
+            var suggestions = analyzer.searchDefinitions(shortName).stream()
                     .map(CodeUnit::fqName)
                     .filter(n -> {
                         int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
@@ -805,9 +792,9 @@ public class EditBlock {
             var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
             throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
-            Set<String> sources = AnalyzerUtil.getMethodSources(supportedAnalyzer, fqName, true);
+            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
             if (sources.isEmpty()) {
-                var suggestions = supportedAnalyzer.searchDefinitions(shortName).stream()
+                var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)
                         .limit(3)
                         .toList();

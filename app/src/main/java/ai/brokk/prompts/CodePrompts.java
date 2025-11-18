@@ -5,10 +5,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
-import ai.brokk.analyzer.JavaLanguage;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -94,67 +92,41 @@ public abstract class CodePrompts {
 
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(
-                ctx.getContextManager().getProject(),
                 ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
-    private static <T extends Language> Optional<Language> filterLanguage(
-            Language possiblyMultiLanguage, Class<T> targetLanguage) {
-        if (targetLanguage.isInstance(possiblyMultiLanguage)) {
-            return Optional.of(targetLanguage.cast(possiblyMultiLanguage));
-        } else if (possiblyMultiLanguage instanceof Language.MultiLanguage multiLanguage) {
-            return multiLanguage.getLanguages().stream()
-                    .filter(targetLanguage::isInstance)
-                    .findFirst();
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+    public static Set<InstructionsFlags> instructionsFlags(Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
-        var languages = project.getAnalyzerLanguages();
+
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
-        var maybeJavaLanguage = languages.stream()
-                .map(lang -> filterLanguage(lang, JavaLanguage.class))
-                .flatMap(Optional::stream)
-                .findFirst();
+        // Enable SYNTAX_AWARE only if:
+        // (a) editable set is non-empty AND
+        // (b) every editable file's extension is in SYNTAX_AWARE_EXTENSIONS (case-insensitive)
+        var nonEmpty = !editableFiles.isEmpty();
+        var editableExtensions = fileContents.keySet().stream()
+                .map(f -> f.extension().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        var allEditableAreAllowed = editableExtensions.stream().allMatch(SyntaxAwareConfig::isSyntaxAwareExtension);
 
-        if (maybeJavaLanguage.isPresent()) {
-            // Enable SYNTAX_AWARE only if:
-            // (a) editable set is non-empty AND
-            // (b) every editable file is a Java source (by extension) AND
-            // (c) the project analyzer includes Java
-            var javaLang = maybeJavaLanguage.get();
-            var javaExtensions = javaLang.getExtensions().stream()
-                    .map(ext -> ext.toLowerCase(Locale.ROOT))
-                    .collect(Collectors.toSet());
-
-            var nonEmpty = !editableFiles.isEmpty();
-            var editableExtensions = fileContents.keySet().stream()
-                    .map(f -> f.extension().toLowerCase(Locale.ROOT))
-                    .collect(Collectors.toSet());
-            var allEditableAreJava = editableExtensions.stream().allMatch(javaExtensions::contains);
-
-            if (nonEmpty && allEditableAreJava) {
-                flags.add(InstructionsFlags.SYNTAX_AWARE);
-                logger.debug(
-                        "Syntax-aware edits enabled for Java-only editable set in a {}-language workspace ({} editable file(s)).",
-                        languages.size(),
-                        fileContents.size());
-            } else {
-                if (!nonEmpty) {
-                    logger.debug("Syntax-aware edits disabled: editable set is empty.");
-                } else {
-                    logger.debug(
-                            "Syntax-aware edits disabled: editable set contains non-Java files (requires all editable files to be Java).");
-                }
-            }
+        if (nonEmpty && allEditableAreAllowed) {
+            flags.add(InstructionsFlags.SYNTAX_AWARE);
+            logger.debug(
+                    "Syntax-aware edits enabled for extensions {} ({} editable file(s), workspace extensions: {}).",
+                    SyntaxAwareConfig.syntaxAwareExtensions(),
+                    fileContents.size(),
+                    editableExtensions);
         } else {
-            logger.debug("Syntax-aware edits disabled: project analyzer does not include Java.");
+            if (!nonEmpty) {
+                logger.debug("Syntax-aware edits disabled: editable set is empty.");
+            } else {
+                logger.debug(
+                        "Syntax-aware edits disabled: editable set contains extensions {} not in SYNTAX_AWARE_EXTENSIONS {}.",
+                        editableExtensions,
+                        SyntaxAwareConfig.syntaxAwareExtensions());
+            }
         }
 
         // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
@@ -1034,6 +1006,10 @@ public abstract class CodePrompts {
                 ? ""
                 : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
 
+        var brkRestriction = flags.contains(InstructionsFlags.SYNTAX_AWARE)
+                ? "Do not generate more than one BRK_CLASS or BRK_FUNCTION edit for the same fully qualified symbol in a single response;\ncombine all changes for that symbol into a single block.\n\n"
+                : "";
+
         return """
 <rules>
 # EXTENDED *SEARCH/REPLACE block* Rules:
@@ -1064,8 +1040,7 @@ Keep *SEARCH/REPLACE* blocks concise.
 Break large changes into a series of smaller blocks that each change a small portion.
 
 Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-
-If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+%sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
 and one to insert in the new location.
 
 Pay attention to which filenames the user wants you to edit, especially if they are asking
@@ -1091,7 +1066,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
 %s
 </goal>
 """
-                .formatted(intro, searchContents, hints, examples, reminder, input);
+                .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
     }
 
     /**
