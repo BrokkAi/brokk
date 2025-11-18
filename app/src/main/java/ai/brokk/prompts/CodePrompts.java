@@ -7,6 +7,8 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
+import org.jetbrains.annotations.Nullable;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -33,6 +35,13 @@ public abstract class CodePrompts {
     public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
+
+    /**
+     * Encapsulates the viewing context for determining content visibility during prompt generation.
+     * - taskType: the type of task/agent rendering the content
+     * - isLutz: whether the search objective is LUTZ (affects TASK_LIST visibility)
+     */
+    public record ViewingPolicy(TaskResult.Type taskType, boolean isLutz) {}
 
     public static final String LAZY_REMINDER =
             """
@@ -210,7 +219,7 @@ public abstract class CodePrompts {
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx, true));
         } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, new ViewingPolicy(TaskResult.Type.CODE, false)));
         }
         messages.addAll(prologue);
 
@@ -594,9 +603,32 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; null is treated as isLutz=false.
+     * @return A collection of ChatMessages (empty if no content).
+     */
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
+            Context ctx, boolean combineSummaries, @Nullable ViewingPolicy vp) {
+        var effectiveVp = vp != null ? vp : new ViewingPolicy(TaskResult.Type.NONE, false);
+        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, effectiveVp);
+    }
+
+    /**
+     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
+     * include editable content or related classes. Uses a default ViewingPolicy with isLutz=false.
+     *
+     * @param ctx The context to process.
+     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
      * @return A collection of ChatMessages (empty if no content).
      */
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx, boolean combineSummaries) {
+        return getWorkspaceReadOnlyMessages(ctx, combineSummaries, null);
+    }
+
+    /**
+     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
+     */
+    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         var allContents = new ArrayList<Content>();
 
         // --- Partition Read-Only Fragments ---
@@ -621,7 +653,20 @@ public abstract class CodePrompts {
         otherFragments.forEach(fragment -> {
             if (fragment.isText()) {
                 // Handle text-based fragments
-                String formatted = fragment.format(); // No analyzer
+                String formatted;
+                // Apply viewing policy for StringFragments
+                if (fragment instanceof ContextFragment.StringFragment sf) {
+                    formatted = sf.textForAgent(vp.taskType(), vp.isLutz());
+                    // Rewrap in the fragment format
+                    formatted = """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                            .formatted(sf.description(), sf.id(), formatted);
+                } else {
+                    formatted = fragment.format(); // No analyzer
+                }
                 if (!formatted.isBlank()) {
                     readOnlyTextFragments.append(formatted).append("\n\n");
                 }
@@ -734,7 +779,7 @@ public abstract class CodePrompts {
      *     empty if no content.
      */
     public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, boolean combineSummaries) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries);
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, null);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);

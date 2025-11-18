@@ -18,12 +18,19 @@ import org.jetbrains.annotations.Nullable;
  * - droppable: whether WorkspaceTools may remove this fragment
  * - singleton: ensure only one instance exists across the context
  * - previewRenderer: transforms raw content into a UI-friendly preview (e.g., Markdown)
- * - canViewContent: predicate to determine if a given task type can see full content (for redaction)
+ * - canViewContent: predicate to determine if a given viewing policy can see full content (for redaction)
  *
  * This does not change serialization by itself; it centralizes policy that other code can consult.
  */
 public final class SpecialTextType {
     private static final Map<String, SpecialTextType> BY_DESCRIPTION = new LinkedHashMap<>();
+
+    /**
+     * Encapsulates the viewing context for content visibility decisions.
+     * - taskType: the type of task/agent rendering the content
+     * - isLutz: whether the search objective is LUTZ (affects TASK_LIST visibility)
+     */
+    public record ViewPolicy(TaskResult.Type taskType, boolean isLutz) {}
 
     private final String description;
     private final String syntaxStyle;
@@ -31,7 +38,7 @@ public final class SpecialTextType {
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
-    private final Predicate<TaskResult.Type> canViewContent;
+    private final Predicate<ViewPolicy> canViewContent;
 
     private SpecialTextType(
             String description,
@@ -40,7 +47,7 @@ public final class SpecialTextType {
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
-            Predicate<TaskResult.Type> canViewContent) {
+            Predicate<ViewPolicy> canViewContent) {
         this.description = description;
         this.syntaxStyle = syntaxStyle;
         this.previewSyntaxStyle = previewSyntaxStyle;
@@ -64,7 +71,7 @@ public final class SpecialTextType {
             true, // droppable
             true, // singleton
             Function.identity(), // raw preview is fine
-            t -> true // visible to all agents by default
+            v -> true // visible to all agents by default
             ));
 
     public static final SpecialTextType SEARCH_NOTES = register(new SpecialTextType(
@@ -74,7 +81,7 @@ public final class SpecialTextType {
             true, // droppable
             true, // singleton
             Function.identity(), // already Markdown
-            t -> true // visible to all
+            v -> true // visible to all
             ));
 
     public static final SpecialTextType DISCARDED_CONTEXT = register(new SpecialTextType(
@@ -84,7 +91,7 @@ public final class SpecialTextType {
             false, // non-droppable; protects audit log
             true, // singleton
             Function.identity(), // JSON preview by default
-            t -> true // visible to all
+            v -> true // visible to all
             ));
 
     public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
@@ -94,7 +101,7 @@ public final class SpecialTextType {
             false, // non-droppable
             true, // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
-            t -> true // default visibility; callers may apply redaction policy
+            v -> (v.taskType != TaskResult.Type.SEARCH) || v.isLutz // visible to all except SEARCH (unless LUTZ)
             ));
 
     // --- Lookups and helpers ---
@@ -130,7 +137,7 @@ public final class SpecialTextType {
         return previewRenderer;
     }
 
-    public Predicate<TaskResult.Type> canViewContent() {
+    public Predicate<ViewPolicy> canViewContent() {
         return canViewContent;
     }
 
