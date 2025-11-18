@@ -240,11 +240,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
             String jsxReturnQueryStr =
                     """
-                            (return_statement (jsx_element) @jsx_return)
-                            (return_statement (jsx_self_closing_element) @jsx_return)
-                            (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
-                            (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
-                            """;
+    (return_statement (jsx_element) @jsx_return)
+    (return_statement (jsx_self_closing_element) @jsx_return)
+    (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+    (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+    """;
             // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
             // Ensure cursor is handled if it were AutoCloseable.
             TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
@@ -257,8 +257,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         } catch (TSQueryException e) {
             // Log specific query exceptions, which usually indicate a problem with the query string itself.
             log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);
-        } catch (Exception e) { // Catch other broader exceptions during query execution
-            log.error("Error during JSX return type inference query execution: {}", e.getMessage(), e);
         }
         return false;
     }
@@ -276,30 +274,26 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         Set<String> mutatedIdentifiers = new HashSet<>();
         String mutationQueryStr =
                 """
-                        (assignment_expression left: (identifier) @mutated.id)
-                        (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
-                        (assignment_expression left: (subscript_expression index: _ @mutated.id))
-                        (update_expression argument: (identifier) @mutated.id)
-                        (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
-                        """;
+    (assignment_expression left: (identifier) @mutated.id)
+    (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+    (assignment_expression left: (subscript_expression index: _ @mutated.id))
+    (update_expression argument: (identifier) @mutated.id)
+    (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+    """;
 
         // TSLanguage and TSQuery are not AutoCloseable.
         TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
-        try {
-            TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(mutationQuery, bodyNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
-                    if ("mutated.id".equals(captureName)) {
-                        mutatedIdentifiers.add(textSlice(capture.getNode(), src));
-                    }
+        TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(mutationQuery, bodyNode);
+        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
+                if ("mutated.id".equals(captureName)) {
+                    mutatedIdentifiers.add(textSlice(capture.getNode(), src));
                 }
             }
-        } catch (Exception e) { // Catch broader exceptions if TSQuery construction fails
-            log.error("Error querying function body for mutations: {}", e.getMessage(), e);
         }
 
         if (!mutatedIdentifiers.isEmpty()) {

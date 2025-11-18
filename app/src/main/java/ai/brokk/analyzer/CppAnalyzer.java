@@ -321,41 +321,36 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        try {
-            Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
+        Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
 
-            // Use cached tree to avoid redundant parsing - significant performance improvement
-            String fileContent = getCachedFileContent(file);
-            TSTree tree = treeOf(file);
-            if (tree == null) {
-                var parser = getSharedParser();
-                tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
-            }
-            var rootNode = tree.getRootNode();
-
-            resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
-            resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
-            final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
-            resultSkeletons = withCodeUnitProperties(properties -> {
-                var signaturesMap = new HashMap<CodeUnit, List<String>>();
-                properties.forEach((cu, props) -> signaturesMap.put(cu, props.signatures()));
-                return namespaceProcessor.mergeNamespaceBlocks(
-                        tempSkeletons,
-                        signaturesMap,
-                        file,
-                        rootNode,
-                        fileContent,
-                        namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
-            });
-            if (isHeaderFile(file)) {
-                resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
-            }
-
-            return Collections.unmodifiableMap(resultSkeletons);
-        } catch (Exception e) {
-            log.error("Failed to generate skeletons for file {}: {}", file, e.getMessage(), e);
-            return super.getSkeletons(file);
+        // Use cached tree to avoid redundant parsing - significant performance improvement
+        String fileContent = getCachedFileContent(file);
+        TSTree tree = treeOf(file);
+        if (tree == null) {
+            var parser = getSharedParser();
+            tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
         }
+        var rootNode = tree.getRootNode();
+
+        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
+        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
+        final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
+        resultSkeletons = withCodeUnitProperties(properties -> {
+            var signaturesMap = new HashMap<CodeUnit, List<String>>();
+            properties.forEach((cu, props) -> signaturesMap.put(cu, props.signatures()));
+            return namespaceProcessor.mergeNamespaceBlocks(
+                    tempSkeletons,
+                    signaturesMap,
+                    file,
+                    rootNode,
+                    fileContent,
+                    namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+        });
+        if (isHeaderFile(file)) {
+            resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
+        }
+
+        return Collections.unmodifiableMap(resultSkeletons);
     }
 
     private Map<CodeUnit, String> addCorrespondingSourceDeclarations(
@@ -419,7 +414,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 && !cu.fqName().contains(".");
     }
 
-    private String getCachedFileContent(ProjectFile file) throws IOException {
+    private String getCachedFileContent(ProjectFile file) {
         return fileContentCache.computeIfAbsent(file, f -> {
             try {
                 return Files.readString(f.absPath());
@@ -720,7 +715,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
     private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
-        if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
+        if (funcOrDeclNode.isNull()) return "";
 
         // Find the function_declarator if present
         TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");

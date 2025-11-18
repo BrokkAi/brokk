@@ -9,6 +9,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CallSite;
@@ -1302,6 +1303,61 @@ public interface ContextFragment {
         @Override
         public String syntaxStyle() {
             return syntaxStyle;
+        }
+
+        /**
+         * Returns the SpecialTextType for this fragment if the description matches a registered special type.
+         */
+        public Optional<SpecialTextType> specialType() {
+            return SpecialTextType.fromDescription(description);
+        }
+
+        /**
+         * Returns the syntax style to use when rendering the preview. Delegates to SpecialTextType when present;
+         * falls back to this fragment's internal syntaxStyle() otherwise.
+         */
+        public String previewSyntaxStyle() {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return syntaxStyle();
+            }
+            return st.get().previewSyntaxStyle();
+        }
+
+        /**
+         * Returns a UI-friendly preview of the text using the SpecialTextType's previewRenderer when available.
+         * Falls back to the raw text for non-special fragments.
+         */
+        public String previewText() {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            return st.get().previewRenderer().apply(text());
+        }
+
+        /**
+         * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
+         * content for the provided task type, a generic placeholder is returned. Otherwise the raw text is returned.
+         * For non-special fragments, returns raw text.
+         */
+        public String textForAgent(TaskResult.Type taskType) {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            if (!st.get().canViewContent().test(taskType)) {
+                return "[%s content hidden for %s]".formatted(description, taskType.name());
+            }
+            return text();
+        }
+
+        /**
+         * Returns whether this fragment is droppable according to its SpecialTextType policy.
+         * Non-special fragments default to droppable.
+         */
+        public boolean droppable() {
+            return specialType().map(SpecialTextType::droppable).orElse(true);
         }
 
         @Override

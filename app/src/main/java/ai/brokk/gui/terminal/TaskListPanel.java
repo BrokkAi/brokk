@@ -8,6 +8,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
@@ -99,6 +100,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
     private boolean isLoadingTasks = false;
     private @Nullable UUID sessionIdAtLoad = null;
+    // Track the last-seen Task List fragment id so we can detect updates within the same session
+    private @Nullable String lastTaskListFragmentId = null;
     private @Nullable IContextManager registeredContextManager = null;
 
     private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
@@ -109,6 +112,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton goStopButton;
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
+
+    // Read-only state: when viewing a historical context, editing is disabled
+    private boolean taskListEditable = true;
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
 
     // Badge support for the Tasks tab: shows number of incomplete tasks.
     private @Nullable BadgedIcon tasksTabBadgedIcon = null;
@@ -265,6 +272,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.addMouseListener(new MouseAdapter() {
             private void showContextMenu(MouseEvent e) {
                 if (!e.isPopupTrigger()) {
+                    return;
+                }
+
+                // When read-only, all edit actions are disabled; allow only Copy
+                if (!taskListEditable) {
+                    toggleItem.setEnabled(false);
+                    runItem.setEnabled(false);
+                    editItem.setEnabled(false);
+                    splitItem.setEnabled(false);
+                    combineItem.setEnabled(false);
+                    deleteItem.setEnabled(false);
+                    copyItem.setEnabled(true);
+                    popup.show(list, e.getX(), e.getY());
                     return;
                 }
 
@@ -567,15 +587,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void addTask() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         var raw = input.getText();
         if (raw == null) return;
         var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
         int added = 0;
-        int startIndex = model.getSize();
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                model.addElement(new TaskList.TaskItem("", text, false));
+                model.addElement(new TaskList.TaskItem(text, text, false));
                 added++;
             }
         }
@@ -583,19 +606,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             input.setText("");
             input.requestFocusInWindow();
             clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
+            saveTasksForCurrentSession("Tasks added");
             updateButtonStates();
             // Ensure the Tasks tab badge updates to reflect newly added tasks.
             SwingUtilities.invokeLater(this::updateTasksTabBadge);
-
-            // Kick off async summarization for each newly added task
-            for (int i = startIndex; i < model.getSize(); i++) {
-                summarizeAndUpdateTaskTitle(requireNonNull(model.get(i)).text());
-            }
         }
     }
 
     private void removeSelected() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             // Determine how many tasks can actually be removed (exclude running/queued)
@@ -620,8 +642,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             String plural = deletableCount == 1 ? "task" : "tasks";
             String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
-                    + "Tasks that are running or queued will not be removed.\n"
-                    + "This action cannot be undone.";
+                    + "Tasks that are running or queued will not be removed.";
             int result = chrome.showConfirmDialog(
                     message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
@@ -648,7 +669,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (removedAny) {
                 clearExpansionOnStructureChange();
                 updateButtonStates();
-                saveTasksForCurrentSession();
+                saveTasksForCurrentSession("Tasks removed");
                 // Update tab badge after tasks have been persisted
                 SwingUtilities.invokeLater(this::updateTasksTabBadge);
             } else {
@@ -659,6 +680,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void toggleSelectedDone() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length > 0) {
             boolean changed = false;
@@ -677,7 +702,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             if (changed) {
                 updateButtonStates();
-                saveTasksForCurrentSession();
+                saveTasksForCurrentSession("Tasks done state toggled");
                 // Reflect completion toggles in the Tasks tab badge
                 SwingUtilities.invokeLater(this::updateTasksTabBadge);
             }
@@ -685,6 +710,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void onGoStopButtonPressed() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         var contextManager = chrome.getContextManager();
         if (contextManager.isLlmTaskInProgress()) {
             contextManager.interruptLlmAction();
@@ -737,6 +766,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         JTextField titleField = new JTextField(current.title());
         titleField.setFont(list.getFont());
+        titleField.setEditable(taskListEditable);
         titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
         fieldsPanel.add(titleField);
 
@@ -751,6 +781,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         bodyArea.setWrapStyleWord(true);
         bodyArea.setFont(list.getFont());
         bodyArea.setRows(8);
+        bodyArea.setEditable(taskListEditable);
 
         JScrollPane bodyScroll = new JScrollPane(
                 bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -763,6 +794,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton saveBtn = new MaterialButton("Save");
         SwingUtil.applyPrimaryButtonStyle(saveBtn);
+        saveBtn.setEnabled(taskListEditable);
+        if (!taskListEditable) {
+            saveBtn.setToolTipText(READ_ONLY_TIP);
+        }
         MaterialButton cancelBtn = new MaterialButton("Cancel");
 
         saveBtn.addActionListener(e -> {
@@ -781,7 +816,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             if (!newText.isEmpty() && (!newText.equals(current.text()) || !newTitle.equals(current.title()))) {
                 model.set(index, new TaskList.TaskItem(newTitle, newText, current.done()));
-                saveTasksForCurrentSession();
+                saveTasksForCurrentSession("Task edited");
                 list.revalidate();
                 list.repaint();
             }
@@ -806,6 +841,23 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void updateButtonStates() {
+        // Respect read-only state before any other logic
+        if (!taskListEditable) {
+            removeBtn.setEnabled(false);
+            removeBtn.setToolTipText(READ_ONLY_TIP);
+            toggleDoneBtn.setEnabled(false);
+            toggleDoneBtn.setToolTipText(READ_ONLY_TIP);
+            clearCompletedBtn.setEnabled(false);
+            clearCompletedBtn.setToolTipText(READ_ONLY_TIP);
+            input.setEnabled(false);
+            input.setEditable(false);
+
+            goStopButton.setEnabled(false);
+            goStopButton.setToolTipText(READ_ONLY_TIP);
+            goStopButton.repaint();
+            return;
+        }
+
         boolean hasSelection = list.getSelectedIndex() >= 0;
         boolean llmBusy = false;
         try {
@@ -830,6 +882,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean blockEdits = selectionIncludesRunning || selectionIncludesPending;
         removeBtn.setEnabled(hasSelection && !blockEdits);
         toggleDoneBtn.setEnabled(hasSelection && !blockEdits);
+
+        // Input is enabled while editable
+        input.setEnabled(true);
+        input.setEditable(true);
 
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
@@ -891,14 +947,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         // Clear immediately when switching sessions to avoid showing stale tasks
         if (!Objects.equals(previous, sid)) {
-            model.clear();
-            clearExpansionOnStructureChange();
-            updateButtonStates();
+            resetEphemeralUiStateForSessionSwitch();
         }
 
         try {
             var cm = chrome.getContextManager();
-            var data = cm.getTaskList();
+            var selected = cm.selectedContext();
+            TaskList.TaskListData data = (selected != null)
+                    ? selected.getTaskListDataOrEmpty()
+                    : cm.liveContext().getTaskListDataOrEmpty();
+
             // Only populate if still the same sessionId
             if (!sid.equals(this.sessionIdAtLoad)) {
                 return;
@@ -912,31 +970,60 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             clearExpansionOnStructureChange();
             updateButtonStates();
-
-            // Kick off async summarization for tasks needing a summary:
-            // - title is blank, OR
-            // - title equals body for a long task (common for imported/lutz tasks)
-            for (int i = 0; i < model.getSize(); i++) {
-                var task = requireNonNull(model.get(i));
-                var tTitle = task.title();
-                var tText = task.text();
-                boolean needsSummary = (tTitle == null || tTitle.isBlank())
-                        || (!isShortTaskText(tText)
-                                && tTitle != null
-                                && tTitle.strip().equals(tText.strip()));
-                if (needsSummary) {
-                    summarizeAndUpdateTaskTitle(tText);
-                }
-            }
         } finally {
             isLoadingTasks = false;
+            // Update the last-seen fragment ID after successful load (respecting selected context)
+            var cm = chrome.getContextManager();
+            Context sel = cm.selectedContext();
+            Context baseCtx = (sel != null) ? sel : cm.liveContext();
+            lastTaskListFragmentId =
+                    baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
+
             clearExpansionOnStructureChange();
             // Ensure the Tasks tab badge reflects the freshly loaded model.
             updateTasksTabBadge();
         }
     }
 
-    private void saveTasksForCurrentSession() {
+    /**
+     * Reset all ephemeral UI and model state when switching sessions to avoid
+     * stale running/queued flags and fragment tracking leaking into the new session.
+     * Must be called on the EDT.
+     */
+    private void resetEphemeralUiStateForSessionSwitch() {
+        assert SwingUtilities.isEventDispatchThread() : "resetEphemeralUiStateForSessionSwitch must run on EDT";
+        // Stop any running visuals
+        runningFadeTimer.stop();
+        // Clear execution/queue state
+        runningIndex = null;
+        pendingQueue.clear();
+        queueActive = false;
+        currentRunOrder = null;
+
+        // Remove auto-play listener if present to avoid cross-session leaks
+        if (autoPlayListener != null) {
+            try {
+                model.removeListDataListener(autoPlayListener);
+            } catch (Exception ex) {
+                logger.debug("Error removing autoPlayListener during session switch", ex);
+            }
+            autoPlayListener = null;
+        }
+
+        // Clear the model and transient fragment marker until the new session is loaded
+        model.clear();
+        lastTaskListFragmentId = null;
+
+        // Reset read-only flag when switching sessions
+        taskListEditable = true;
+
+        // Update UI
+        clearExpansionOnStructureChange();
+        updateButtonStates();
+        updateTasksTabBadge();
+    }
+
+    private void saveTasksForCurrentSession(String action) {
         if (isLoadingTasks) return;
 
         var dtos = new ArrayList<TaskList.TaskItem>(model.size());
@@ -948,12 +1035,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
-
-        // Persist via ContextManager
-        chrome.getContextManager().setTaskList(data);
+        try {
+            chrome.getContextManager().setTaskList(data, action);
+        } catch (Exception e) {
+            logger.error("Error saving task list", e);
+            SwingUtilities.invokeLater(() -> {
+                chrome.toolError("Failed to save tasks: " + e.getMessage(), "Save Error");
+            });
+        }
     }
 
     private void runArchitectOnSelected() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (chrome.getContextManager().isLlmTaskInProgress() || queueActive) {
             // A run is already in progress, do not start another.
             // The UI should prevent this, but this is a safeguard for the keyboard shortcut.
@@ -971,6 +1067,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnAll() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (model.getSize() == 0) {
             return;
         }
@@ -1194,7 +1294,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (Objects.equals(runningIndex, idx) && idx < model.size()) {
                         var it = requireNonNull(model.get(idx));
                         model.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                        saveTasksForCurrentSession();
+                        saveTasksForCurrentSession("Task marked done");
                         // Task was marked done as part of a successful run; update tab badge immediately.
                         updateTasksTabBadge();
                     }
@@ -1315,27 +1415,37 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     return;
                 }
 
+                // Update icon with count if possible
                 if (incomplete <= 0) {
-                    // Restore base icon when there is no badge to show
                     try {
                         tabs.setIconAt(idx, tasksBaseIcon);
                     } finally {
                         tasksTabBadgedIcon = null;
                     }
-                    return;
-                }
-
-                // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
-                if (tasksTabBadgedIcon == null) {
-                    GuiTheme theme = null;
-                    try {
-                        theme = chrome.getTheme();
-                    } catch (Exception ex) {
-                        theme = currentTheme;
+                } else {
+                    // Ensure a BadgedIcon exists; prefer chrome.getTheme(), fallback to currentTheme
+                    if (tasksTabBadgedIcon == null) {
+                        GuiTheme theme = null;
+                        try {
+                            theme = chrome.getTheme();
+                        } catch (Exception ex) {
+                            theme = currentTheme;
+                        }
+                        if (theme != null) {
+                            try {
+                                tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
+                            } catch (Exception ex) {
+                                logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
+                                tasksTabBadgedIcon = null;
+                            }
+                        }
                     }
 
-                    if (theme == null) {
-                        // Cannot create a themed badge without a theme; fallback to title update
+                    if (tasksTabBadgedIcon != null) {
+                        tasksTabBadgedIcon.setCount(incomplete, tabs);
+                        tabs.setIconAt(idx, tasksTabBadgedIcon);
+                    } else {
+                        // As a last-resort fallback, update the tab title to include the count
                         try {
                             String baseTitle = tabs.getTitleAt(idx);
                             if (baseTitle == null || baseTitle.isBlank()) {
@@ -1345,31 +1455,26 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         } catch (Exception ex) {
                             logger.debug("Failed to set tab title fallback for tasks badge", ex);
                         }
-                        return;
-                    }
-
-                    try {
-                        tasksTabBadgedIcon = new BadgedIcon(tasksBaseIcon, theme);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to create BadgedIcon for Tasks tab", ex);
-                        tasksTabBadgedIcon = null;
                     }
                 }
 
-                if (tasksTabBadgedIcon != null) {
-                    tasksTabBadgedIcon.setCount(incomplete, tabs);
-                    tabs.setIconAt(idx, tasksTabBadgedIcon);
-                } else {
-                    // As a last-resort fallback, update the tab title to include the count
-                    try {
-                        String baseTitle = tabs.getTitleAt(idx);
-                        if (baseTitle == null || baseTitle.isBlank()) {
-                            baseTitle = "Tasks";
-                        }
-                        tabs.setTitleAt(idx, baseTitle + " (" + incomplete + ")");
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set tab title fallback for tasks badge", ex);
+                // Always update tab title suffix for read-only indication
+                try {
+                    String baseTitle = tabs.getTitleAt(idx);
+                    if (baseTitle == null || baseTitle.isBlank()) {
+                        baseTitle = "Tasks";
                     }
+                    String suffix = " (read-only)";
+                    // Normalize: remove existing suffix if present
+                    String normalized = baseTitle.endsWith(suffix)
+                            ? baseTitle.substring(0, baseTitle.length() - suffix.length())
+                            : baseTitle;
+                    String newTitle = taskListEditable ? normalized : normalized + suffix;
+                    if (!Objects.equals(baseTitle, newTitle)) {
+                        tabs.setTitleAt(idx, newTitle);
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to update tasks tab read-only suffix", ex);
                 }
             } catch (Exception ex) {
                 logger.debug("Error updating tasks tab badge", ex);
@@ -1597,11 +1702,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public int getSourceActions(JComponent c) {
-            return MOVE;
+            return taskListEditable ? MOVE : NONE;
         }
 
         @Override
         protected @Nullable Transferable createTransferable(JComponent c) {
+            if (!taskListEditable) {
+                indices = null;
+                return null;
+            }
             indices = list.getSelectedIndices();
 
             // Disallow dragging if selection includes the running task
@@ -1640,6 +1749,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean canImport(TransferSupport support) {
+            if (!taskListEditable) return false;
             if (queueActive) return false;
             if (indices != null && runningIndex != null) {
                 for (int i : indices) {
@@ -1658,6 +1768,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         @Override
         public boolean importData(TransferSupport support) {
+            if (!taskListEditable) return false;
             if (!support.isDrop()) {
                 return false;
             }
@@ -1730,11 +1841,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             addIndex = -1;
             addCount = 0;
             clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
+            saveTasksForCurrentSession("Tasks removed");
         }
     }
 
     private void combineSelectedTasks() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length < 2) {
             JOptionPane.showMessageDialog(
@@ -1804,13 +1919,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectedIndex(firstIdx);
 
         clearExpansionOnStructureChange();
-        saveTasksForCurrentSession();
+        saveTasksForCurrentSession("Tasks combined");
         updateButtonStates();
         // Combined tasks changed the model; update the Tasks tab badge.
         SwingUtilities.invokeLater(this::updateTasksTabBadge);
+
+        // Summarize the combined task's title asynchronously
+        summarizeAndUpdateTaskTitleAtIndex(firstIdx);
     }
 
     private void splitSelectedTask() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         int[] indices = list.getSelectedIndices();
         if (indices.length != 1) {
             JOptionPane.showMessageDialog(
@@ -1888,10 +2010,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectionInterval(idx, idx + lines.size() - 1);
 
         clearExpansionOnStructureChange();
-        saveTasksForCurrentSession();
+        saveTasksForCurrentSession("Tasks split");
         updateButtonStates();
         // Splitting changed the set of tasks; update the Tasks tab badge.
         SwingUtilities.invokeLater(this::updateTasksTabBadge);
+
+        // Summarize each newly created task's title asynchronously
+        for (int i = 0; i < lines.size(); i++) {
+            summarizeAndUpdateTaskTitleAtIndex(idx + i);
+        }
+
         list.revalidate();
         list.repaint();
     }
@@ -1967,6 +2095,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void clearCompletedTasks() {
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
         if (model.isEmpty()) {
             return;
         }
@@ -1990,8 +2122,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         String plural = completedCount == 1 ? "task" : "tasks";
-        String message = "This will remove " + completedCount + " completed " + plural + " from this session.\n"
-                + "This action cannot be undone.";
+        String message = "This will remove " + completedCount + " completed " + plural + " from this session.";
         int result = chrome.showConfirmDialog(
                 message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 
@@ -2016,7 +2147,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         if (removedAny) {
             clearExpansionOnStructureChange();
-            saveTasksForCurrentSession();
+            saveTasksForCurrentSession("Completed tasks cleared");
             // Clear completed modified the model; refresh the tasks tab badge.
             SwingUtilities.invokeLater(this::updateTasksTabBadge);
         }
@@ -2049,36 +2180,47 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return trimmed.length() <= SHORT_TITLE_CHAR_THRESHOLD;
     }
 
-    private void summarizeAndUpdateTaskTitle(String taskText) {
-        if (taskText.isBlank()) {
+    /**
+     * Summarize and update the task title for the task at the given index.
+     * Safer than matching by text alone, since duplicates can exist after split/combine.
+     * - If the body is short, set title = body immediately (no LLM call).
+     * - Otherwise, use the quick summarizer and update only if the row at index still matches the original text.
+     */
+    private void summarizeAndUpdateTaskTitleAtIndex(int index) {
+        if (index < 0 || index >= model.getSize()) {
+            return;
+        }
+        var current = requireNonNull(model.get(index));
+        var originalText = current.text();
+        if (originalText.isBlank()) {
             return;
         }
 
-        if (isShortTaskText(taskText)) {
+        // Fast-path for short bodies: just set title = body
+        if (isShortTaskText(originalText)) {
             SwingUtilities.invokeLater(() -> {
                 try {
-                    for (int i = 0; i < model.getSize(); i++) {
-                        var task = model.get(i);
-                        if (task.text().equals(taskText)) {
-                            model.set(i, new TaskList.TaskItem(taskText.strip(), task.text(), task.done()));
-                            saveTasksForCurrentSession();
-                            list.repaint();
-                            break;
-                        }
-                    }
+                    if (index < 0 || index >= model.getSize()) return;
+                    var cur = requireNonNull(model.get(index));
+                    // Ensure we are still updating the same logical item
+                    if (!Objects.equals(cur.text(), originalText)) return;
+
+                    model.set(index, new TaskList.TaskItem(originalText.strip(), cur.text(), cur.done()));
+                    saveTasksForCurrentSession("Task title updated");
+                    list.repaint();
                 } catch (Exception e) {
-                    logger.debug("Error updating task title for short task", e);
+                    logger.debug("Error updating short task title at index {}", index, e);
                 }
             });
             return;
         }
 
+        // Asynchronous summarization for longer bodies
         var cm = chrome.getContextManager();
-        var summaryFuture = cm.summarizeTaskForConversation(taskText);
-
+        var summaryFuture = cm.summarizeTaskForConversation(originalText);
         summaryFuture.whenComplete((summary, ex) -> {
             if (ex != null) {
-                logger.debug("Failed to summarize task title", ex);
+                logger.debug("Failed to summarize task title at index {}", index, ex);
                 return;
             }
             if (summary == null || summary.isBlank()) {
@@ -2087,19 +2229,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             SwingUtilities.invokeLater(() -> {
                 try {
-                    // Find the task by matching text (since it may have moved)
-                    for (int i = 0; i < model.getSize(); i++) {
-                        var task = model.get(i);
-                        if (task.text().equals(taskText)) {
-                            // Update with the summarized title
-                            model.set(i, new TaskList.TaskItem(summary.strip(), task.text(), task.done()));
-                            saveTasksForCurrentSession();
-                            list.repaint();
-                            break;
-                        }
-                    }
+                    if (index < 0 || index >= model.getSize()) return;
+                    var cur = requireNonNull(model.get(index));
+                    // Guard against changes while we were summarizing
+                    if (!Objects.equals(cur.text(), originalText)) return;
+
+                    model.set(index, new TaskList.TaskItem(summary.strip(), cur.text(), cur.done()));
+                    saveTasksForCurrentSession("Task title summarized");
+                    list.repaint();
                 } catch (Exception e) {
-                    logger.debug("Error updating task title after summarization", e);
+                    logger.debug("Error applying summarized task title at index {}", index, e);
                 }
             });
         });
@@ -2127,6 +2266,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } catch (Exception e) {
             logger.debug("Unable to initialize tasks tab badge on addNotify", e);
         }
+    }
+
+    // Public getters for focus traversal policy
+    public JList<TaskList.TaskItem> getTaskList() {
+        return list;
+    }
+
+    public JTextField getTaskInput() {
+        return input;
+    }
+
+    public MaterialButton getGoStopButton() {
+        return goStopButton;
     }
 
     /**
@@ -2199,7 +2351,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         try {
-            saveTasksForCurrentSession();
+            saveTasksForCurrentSession("Tasks saved");
         } catch (Exception e) {
             logger.debug("Error saving tasks on removeNotify", e);
         }
@@ -2239,12 +2391,33 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void contextChanged(Context newCtx) {
         UUID current = getCurrentSessionId();
         UUID loaded = this.sessionIdAtLoad;
+
+        var cm = chrome.getContextManager();
+        Context selected = cm.selectedContext();
+        boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
+
+        // Toggle read-only state based on whether we're viewing history
+        SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
+
+        // Extract current Task List fragment ID from the newly selected context
+        String currentFragmentId = (selected != null ? selected : newCtx)
+                .getTaskListFragment()
+                .map(ContextFragment::id)
+                .orElse(null);
+
+        boolean sessionChanged = !Objects.equals(current, loaded);
+        boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
+
         logger.debug(
-                "contextChanged: session changed? {} (current={}, loaded={}); scheduling reload if changed",
-                !Objects.equals(current, loaded),
+                "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
+                sessionChanged,
                 current,
-                loaded);
-        if (!Objects.equals(current, loaded)) {
+                loaded,
+                fragmentChanged,
+                currentFragmentId,
+                lastTaskListFragmentId);
+
+        if (sessionChanged || fragmentChanged) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
         }
     }
@@ -2389,6 +2562,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             return this;
         }
+    }
+
+    /**
+     * Controls whether the task list is editable. When false, all edit actions are disabled and the
+     * Tasks tab title is suffixed with "(read-only)". Safe to call from any thread.
+     */
+    public void setTaskListEditable(boolean editable) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> setTaskListEditable(editable));
+            return;
+        }
+        this.taskListEditable = editable;
+        // Reflect state immediately on input and actions; updateButtonStates will compute the rest.
+        input.setEnabled(editable);
+        input.setEditable(editable);
+        list.setDragEnabled(editable);
+
+        updateButtonStates();
+        updateTasksTabBadge();
     }
 
     public void disablePlay() {
@@ -2563,7 +2755,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
                 if (removed > 0) {
                     clearExpansionOnStructureChange();
-                    saveTasksForCurrentSession();
+                    saveTasksForCurrentSession("Tasks removed");
                     updateButtonStates();
                     SwingUtilities.invokeLater(this::updateTasksTabBadge);
                     chrome.showNotification(

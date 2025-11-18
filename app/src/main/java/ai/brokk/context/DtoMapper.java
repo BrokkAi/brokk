@@ -381,8 +381,8 @@ public class DtoMapper {
                         bfDto.id(),
                         mgr,
                         text,
-                        ContextFragment.BUILD_RESULTS.description(),
-                        ContextFragment.BUILD_RESULTS.syntaxStyle());
+                        SpecialTextType.BUILD_RESULTS.description(),
+                        SpecialTextType.BUILD_RESULTS.syntaxStyle());
             }
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()

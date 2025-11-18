@@ -481,6 +481,32 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
 
+        // Toggle Output/Changes with Space from Output area or tabs
+        Runnable toggleTabs = () -> {
+            var tp = outputTabs;
+            if (tp == null) return;
+            if (tp.getTabCount() < 2) return;
+            int idx = tp.getSelectedIndex();
+            tp.setSelectedIndex((idx + 1) % 2);
+        };
+        tabs.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
+        tabs.getActionMap().put("toggleTabsSpace", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                toggleTabs.run();
+            }
+        });
+        llmStreamArea
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
+        llmStreamArea.getActionMap().put("toggleTabsSpace", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                toggleTabs.run();
+            }
+        });
+
         // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(tabs, BorderLayout.CENTER);
@@ -654,6 +680,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (e.getSource() == historyScrollPane.getViewport()) { // Click was on the viewport itself
                     historyTable.requestFocusInWindow();
                 }
+            }
+        });
+
+        // Allow Tab/Shift+Tab to move out of Activity (history table) instead of trapping focus
+        historyTable.setFocusTraversalKeysEnabled(false);
+        historyTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "histNext");
+        historyTable.getActionMap().put("histNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyTable.transferFocus();
+            }
+        });
+        historyTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "histPrev");
+        historyTable.getActionMap().put("histPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                historyTable.transferFocusBackward();
             }
         });
 
@@ -2326,11 +2371,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .formatted(captureText));
 
                 // Register tool providers
+                var ws = new WorkspaceTools(contextManager.liveContext());
                 var tr = contextManager
                         .getToolRegistry()
                         .builder()
                         .register(this)
-                        .register(new WorkspaceTools(contextManager))
+                        .register(ws)
                         .build();
 
                 var toolSpecs = new ArrayList<ToolSpecification>();
@@ -2357,6 +2403,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ter = tr.executeTool(req);
                         if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
+                        } else {
+                            this.contextManager.pushContext(ctx ->
+                                    ws.getContext().withAction(CompletableFuture.completedFuture("Task List created")));
                         }
                     }
                 }

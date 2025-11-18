@@ -130,9 +130,21 @@ public final class ScrollFrameThrottler {
 
     /** Resets all performance metrics. */
     public void resetMetrics() {
-        totalEvents.set(0);
-        totalExecutions.set(0);
-        lastExecutionTime.set(0);
+        synchronized (lock) {
+            totalEvents.set(0);
+            totalExecutions.set(0);
+            lastExecutionTime.set(0);
+        }
+        // Drain any pending timer callbacks on the EDT to avoid post-reset increments
+        if (!SwingUtilities.isEventDispatchThread()) {
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    // no-op; ensures EDT has processed any pending timer events
+                });
+            } catch (Exception e) {
+                logger.warn("Failed to synchronize with EDT during metrics reset", e);
+            }
+        }
         logger.debug("Performance metrics reset");
     }
 

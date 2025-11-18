@@ -195,12 +195,8 @@ public interface Language {
         public IAnalyzer createAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.createAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error creating analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.createAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
@@ -209,12 +205,8 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.loadAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error loading analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.loadAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }

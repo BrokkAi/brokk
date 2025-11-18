@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger =
@@ -96,7 +97,7 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
             "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
@@ -117,7 +118,8 @@ public final class MainProject extends AbstractProject {
     private static volatile Boolean isDataShareAllowedCache = null;
 
     @Nullable
-    private static Properties globalPropertiesCache = null; // protected by synchronized
+    @VisibleForTesting
+    static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -1545,12 +1547,10 @@ public final class MainProject extends AbstractProject {
 
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
+            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel(
-                    "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel(
-                    "Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.DEFAULT)));
+            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
