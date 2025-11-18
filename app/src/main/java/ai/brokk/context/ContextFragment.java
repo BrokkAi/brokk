@@ -9,7 +9,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CallSite;
@@ -1347,7 +1346,8 @@ public interface ContextFragment {
                 return text();
             }
             if (!st.get().canViewContent().test(viewPolicy)) {
-                return "[%s content hidden for %s]".formatted(description, viewPolicy.taskType().name());
+                return "[%s content hidden for %s]"
+                        .formatted(description, viewPolicy.taskType().name());
             }
             return text();
         }

@@ -94,7 +94,9 @@ public final class SpecialTextType {
             false, // non-droppable
             true, // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
-            v -> (v.taskType() != TaskResult.Type.SEARCH) || v.isLutz() // visible to all except SEARCH (unless LUTZ)
+            v -> (v.taskType() == TaskResult.Type.SEARCH && v.isLutz())
+                    || v.taskType() == TaskResult.Type.ASK
+                    || v.taskType() == TaskResult.Type.NONE // NONE is for include it in copy instructions
             ));
 
     // --- Lookups and helpers ---

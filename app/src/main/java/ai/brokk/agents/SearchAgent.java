@@ -13,11 +13,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.tools.ExplanationRenderer;
@@ -205,7 +205,8 @@ public class SearchAgent {
             boolean isLutz = objective == Objective.LUTZ;
             var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
             // Build workspace messages in insertion order with viewing policy applied
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+            var workspaceMessages =
+                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -387,7 +388,10 @@ public class SearchAgent {
     // =======================
 
     private List<ChatMessage> buildPrompt(
-            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages, ViewingPolicy viewingPolicy)
+            int workspaceTokens,
+            int minInputLimit,
+            List<ChatMessage> precomputedWorkspaceMessages,
+            ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
@@ -785,7 +789,8 @@ public class SearchAgent {
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
-        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
+        messages.addAll(
+                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -816,6 +821,7 @@ public class SearchAgent {
         var contextAgent = new ContextAgent(cm, model, goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
+        var isLutz = objective == Objective.LUTZ;
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
