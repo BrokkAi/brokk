@@ -339,8 +339,8 @@ class EditBlockTest {
     /** Test detection of a possible "mangled" or fuzzy filename match. */
     @Test
     void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
-        TestContextManager cm = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var f = EditBlock.resolveProjectFile(cm.liveContext(), "fOo.TXt");
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
+        var f = EditBlock.resolveProjectFile(ctx, "fOo.TXt");
         assertEquals("foo.txt", f.getFileName());
     }
 
@@ -667,9 +667,9 @@ class EditBlockTest {
         Files.writeString(filePath, "content\n");
         var sep = File.separator;
 
-        TestContextManager cm = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
 
-        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep));
+        ProjectFile pf = EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep));
         assertEquals("foo.txt", pf.getFileName());
         assertEquals(filePath, pf.absPath());
     }
@@ -677,10 +677,10 @@ class EditBlockTest {
     @Test
     void testResolveAbsoluteNonExistentFilename(@TempDir Path tempDir) {
         var sep = File.separator;
-        TestContextManager cm = new TestContextManager(tempDir, Set.of());
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of());
         assertThrows(
                 EditBlock.SymbolInvalidException.class,
-                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
+                () -> EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep)));
     }
 
     // ----------------------------------------------------

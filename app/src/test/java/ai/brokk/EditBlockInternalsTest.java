@@ -20,7 +20,7 @@ class EditBlockInternalsTest {
     String replaceMostSimilarChunk(String content, String target, String replace)
             throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         var tcm = new TestContextManager(Path.of("."), new TestConsoleIO());
-        return EditBlock.replaceMostSimilarChunk(tcm.liveContext(), content, target, replace);
+        return EditBlock.replaceMostSimilarChunk(tcm, content, target, replace);
     }
 
     @Test

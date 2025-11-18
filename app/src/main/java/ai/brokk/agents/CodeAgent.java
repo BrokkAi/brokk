@@ -179,9 +179,7 @@ public class CodeAgent {
         try {
             contextManager
                     .getAnalyzerWrapper()
-                    .updateFiles(context.fileFragments()
-                            .flatMap(cf -> cf.files().stream())
-                            .collect(Collectors.toSet()))
+                    .updateFiles(contextManager.getFilesInContext())
                     .get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -634,13 +632,12 @@ public class CodeAgent {
         return new Step.Continue(nextCs, es);
     }
 
-    private EditBlock.EditResult applyBlocksAndHandleErrors(
-            Context ctx, List<EditBlock.SearchReplaceBlock> blocksToApply)
+    private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
         EditBlock.EditResult editResult;
         try {
-            editResult = EditBlock.apply(ctx, io, blocksToApply);
+            editResult = EditBlock.apply(contextManager, io, blocksToApply);
         } catch (IOException e) {
             var eMessage = requireNonNull(e.getMessage());
             // io.toolError is handled by caller if this exception propagates
@@ -757,7 +754,7 @@ public class CodeAgent {
         ConversationState csForStep = cs; // Will be updated
 
         try {
-            editResult = applyBlocksAndHandleErrors(context, es.pendingBlocks());
+            editResult = applyBlocksAndHandleErrors(es.pendingBlocks());
 
             int attemptedBlockCount = es.pendingBlocks().size();
             var failedBlocks = editResult.failedBlocks();
