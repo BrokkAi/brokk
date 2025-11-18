@@ -315,10 +315,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 if (success) {
                     // Migration succeeded - hide button and reload settings from parent dialog
                     migrateButton.setVisible(false);
-                    SwingUtilities.invokeLater(() -> parentDialog.loadSettingsInBackground());
+                    parentDialog.loadSettingsInBackground();
                 } else {
                     // Migration failed - re-enable button
-                    SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
+                    migrateButton.setEnabled(true);
                 }
             }
         });

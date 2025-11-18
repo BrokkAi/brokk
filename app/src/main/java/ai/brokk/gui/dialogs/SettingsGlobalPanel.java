@@ -537,13 +537,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
                         @Override
                         protected void done() {
-                            // Immediately refresh global keybindings so changes take effect
                             try {
-                                chrome.refreshKeybindings();
+                                get(); // Check if background save succeeded
+                                // Immediately refresh global keybindings so changes take effect
+                                try {
+                                    chrome.refreshKeybindings();
+                                } catch (Exception ex) {
+                                    logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                                }
+                                JOptionPane.showMessageDialog(panel, "Saved and applied.");
                             } catch (Exception ex) {
-                                logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                                logger.error("Failed to save keybinding", ex);
+                                JOptionPane.showMessageDialog(
+                                        panel,
+                                        "Failed to save keybinding: " + ex.getMessage(),
+                                        "Save Error",
+                                        JOptionPane.ERROR_MESSAGE);
                             }
-                            JOptionPane.showMessageDialog(panel, "Saved and applied.");
                         }
                     }.execute();
                 });
@@ -557,6 +567,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         protected Void doInBackground() {
                             GlobalUiSettings.saveKeybinding(id, def);
                             return null;
+                        }
+
+                        @Override
+                        protected void done() {
+                            try {
+                                get(); // Check if background save succeeded
+                            } catch (Exception ex) {
+                                logger.error("Failed to clear keybinding", ex);
+                                JOptionPane.showMessageDialog(
+                                        panel,
+                                        "Failed to clear keybinding: " + ex.getMessage(),
+                                        "Save Error",
+                                        JOptionPane.ERROR_MESSAGE);
+                            }
                         }
                     }.execute();
                 });
