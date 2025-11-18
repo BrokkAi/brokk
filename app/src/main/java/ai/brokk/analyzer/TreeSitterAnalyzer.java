@@ -3567,89 +3567,85 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        try {
-            var afterImports = runImportResolution(baseState);
-            return runTypeAnalysis(afterImports);
-        } catch (Throwable t) {
-            log.warn("runPostProcessing encountered an error: {}", t.getMessage(), t);
-            return baseState;
-        }
+        var afterImports = runImportResolution(baseState);
+        return runTypeAnalysis(afterImports);
     }
 
     /**
      * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated fileState.resolvedImports.
      */
     protected AnalyzerState runImportResolution(AnalyzerState baseState) {
-        try {
-            // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
-            TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
-            Map<ProjectFile, FileProperties> updatedFileState = new HashMap<>(baseState.fileState());
+        // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
+        TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
 
-            for (var entry : baseState.fileState().entrySet()) {
-                var file = entry.getKey();
-                var fileProps = entry.getValue();
+        Map<ProjectFile, FileProperties> updatedFileState = new ConcurrentHashMap<>(baseState.fileState());
 
-                Set<CodeUnit> resolvedImports = delegateForImports.resolveImports(file, fileProps.importStatements());
-                updatedFileState.put(
-                        file,
-                        new FileProperties(
-                                fileProps.topLevelCodeUnits(),
-                                fileProps.parsedTree(),
-                                fileProps.importStatements(),
-                                Collections.unmodifiableSet(resolvedImports)));
-            }
-
-            return new AnalyzerState(
-                    baseState.symbolIndex(),
-                    baseState.codeUnitState(),
-                    HashTreePMap.from(updatedFileState),
-                    baseState.symbolKeyIndex(),
-                    baseState.snapshotEpochNanos());
-        } catch (Throwable t) {
-            log.warn("runImportResolution encountered an error: {}", t.getMessage(), t);
-            return baseState;
+        int parallelism = Runtime.getRuntime().availableProcessors();
+        try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
+            fjp.execute(() -> {
+                baseState.fileState().entrySet().parallelStream().forEach(entry -> {
+                    ProjectFile file = entry.getKey();
+                    FileProperties fileProps = entry.getValue();
+                    Set<CodeUnit> resolvedImports =
+                            delegateForImports.resolveImports(file, fileProps.importStatements());
+                    updatedFileState.put(
+                            file,
+                            new FileProperties(
+                                    fileProps.topLevelCodeUnits(),
+                                    fileProps.parsedTree(),
+                                    fileProps.importStatements(),
+                                    Collections.unmodifiableSet(resolvedImports)));
+                });
+            });
         }
+
+        return new AnalyzerState(
+                baseState.symbolIndex(),
+                baseState.codeUnitState(),
+                HashTreePMap.from(updatedFileState),
+                baseState.symbolKeyIndex(),
+                baseState.snapshotEpochNanos());
     }
 
     /**
      * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
      */
     protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
-        try {
-            // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
-            TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
-            Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>(baseState.codeUnitState());
+        // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
+        TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
 
-            for (var entry : baseState.codeUnitState().entrySet()) {
-                var cu = entry.getKey();
-                var props = entry.getValue();
-                if (!cu.isClass()) continue;
+        Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
 
-                List<CodeUnit> supers = List.copyOf(delegateForTypes.computeSupertypes(cu));
-
-                if (!Objects.equals(props.supertypes(), supers)) {
-                    updatedCodeUnitState.put(
-                            cu,
-                            new CodeUnitProperties(
-                                    props.children(),
-                                    props.signatures(),
-                                    props.ranges(),
-                                    props.rawSupertypes(),
-                                    supers,
-                                    props.hasBody()));
-                }
-            }
-
-            return new AnalyzerState(
-                    baseState.symbolIndex(),
-                    HashTreePMap.from(updatedCodeUnitState),
-                    baseState.fileState(),
-                    baseState.symbolKeyIndex(),
-                    baseState.snapshotEpochNanos());
-        } catch (Throwable t) {
-            log.warn("runTypeAnalysis encountered an error: {}", t.getMessage(), t);
-            return baseState;
+        int parallelism = Runtime.getRuntime().availableProcessors();
+        try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
+            fjp.execute(() -> {
+                baseState.codeUnitState().entrySet().parallelStream()
+                        .filter(e -> e.getKey().isClass())
+                        .forEach(entry -> {
+                            CodeUnit cu = entry.getKey();
+                            CodeUnitProperties props = entry.getValue();
+                            List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
+                            if (!Objects.equals(props.supertypes(), supers)) {
+                                updatedCodeUnitState.put(
+                                        cu,
+                                        new CodeUnitProperties(
+                                                props.children(),
+                                                props.signatures(),
+                                                props.ranges(),
+                                                props.rawSupertypes(),
+                                                supers,
+                                                props.hasBody()));
+                            }
+                        });
+            });
         }
+
+        return new AnalyzerState(
+                baseState.symbolIndex(),
+                HashTreePMap.from(updatedCodeUnitState),
+                baseState.fileState(),
+                baseState.symbolKeyIndex(),
+                baseState.snapshotEpochNanos());
     }
 
     /* ---------- comment detection for source expansion ---------- */
