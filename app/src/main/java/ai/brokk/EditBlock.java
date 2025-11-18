@@ -640,12 +640,49 @@ public class EditBlock {
 
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            String leadingWhitespace = getLeadingWhitespace(originalLines[matchStart]);
-            // Add the first replacement line with adjusted leading whitespace
-            resultLines.add(leadingWhitespace + truncatedReplace[0].stripLeading());
-            // Add subsequent replacement lines, also with adjusted leading whitespace
-            for (int i = 1; i < truncatedReplace.length; i++) {
-                resultLines.add(leadingWhitespace + truncatedReplace[i].stripLeading());
+            String baseIndent = getLeadingWhitespace(originalLines[matchStart]);
+            int baseTargetIndent = countLeadingWhitespace(truncatedTarget[0]);
+            int baseReplaceIndent = countLeadingWhitespace(truncatedReplace[0]);
+
+            // When a search block has no indent (e.g. BRK_FUNCTION), its body's indentation may be absolute.
+            // We calculate a scaling factor to normalize the replacement's indentation to match the target's structure.
+            double scale = 1.0;
+            if (baseTargetIndent == 0) {
+                int targetIndentStep = -1;
+                for (int i = 1; i < truncatedTarget.length; i++) {
+                    if (!truncatedTarget[i].isBlank()) {
+                        targetIndentStep = countLeadingWhitespace(truncatedTarget[i]);
+                        break;
+                    }
+                }
+
+                int replaceIndentStep = -1;
+                for (int i = 1; i < truncatedReplace.length; i++) {
+                    if (!truncatedReplace[i].isBlank()) {
+                        replaceIndentStep = countLeadingWhitespace(truncatedReplace[i]) - baseReplaceIndent;
+                        break;
+                    }
+                }
+
+                if (targetIndentStep > 0 && replaceIndentStep > 0) {
+                    scale = (double) targetIndentStep / replaceIndentStep;
+                }
+            }
+
+            for (String replLine : truncatedReplace) {
+                if (replLine.trim().isEmpty()) {
+                    // Preserve blank line (no trailing spaces)
+                    resultLines.add("");
+                    continue;
+                }
+                int replaceRelativeIndent = countLeadingWhitespace(replLine) - baseReplaceIndent;
+                int adjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
+
+                if (adjustedRelativeIndent < 0) {
+                    adjustedRelativeIndent = 0;
+                }
+                String adjusted = baseIndent + " ".repeat(adjustedRelativeIndent) + replLine.stripLeading();
+                resultLines.add(adjusted);
             }
         }
         resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
@@ -710,6 +747,15 @@ public class EditBlock {
             }
         }
         return line.substring(0, count);
+    }
+
+    /** @return the count of leading whitespace characters on this line. */
+    private static int countLeadingWhitespace(String line) {
+        int i = 0;
+        while (i < line.length() && Character.isWhitespace(line.charAt(i))) {
+            i++;
+        }
+        return i;
     }
 
     /**
