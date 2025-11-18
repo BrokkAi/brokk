@@ -1290,16 +1290,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             return "Exception accessing service state: " + e.getClass().getSimpleName() + ": " + e.getMessage();
         }
     }
 
     /**
-     * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
-     * fails or vision is required but unsupported.
+     * Centralized model selection from the dropdown with fallback and vision check. Returns null if selection
+     * fails or if the context contains images but the selected model does not support vision.
      */
-    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel, boolean requireVision) {
+    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel) {
         var cm = chrome.getContextManager();
         var models = cm.getService();
 
@@ -1352,8 +1352,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return null;
         }
 
-        if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
-            logger.warn(
+        boolean hasImages = contextHasImages();
+        if (hasImages && !models.supportsVision(selectedModel)) {
+            logger.debug(
                     "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
                     actionLabel,
                     models.nameOf(selectedModel),
@@ -1482,15 +1483,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-
-        if (contextHasImages() && !models.supportsVision(modelToUse)) {
-            showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
-            updateButtonStates();
-            return;
-        }
-
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().topContext().isEmpty()) {
             String message =
@@ -1527,7 +1519,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
             updateButtonStates();
             return;
@@ -1563,11 +1555,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query) {
-        final var modelToUse = selectDropdownModelOrShowError("Search", true);
+        final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
-            logger.trace(
-                    "Model selection failed for Search action: requireVision=true, contextHasImages={}",
-                    contextHasImages());
+            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
             updateButtonStates();
             return;
         }
@@ -1832,7 +1822,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Go action
             switch (storedAction) {
                 case ACTION_CODE -> {
-                    var model = selectDropdownModelOrShowError("Code", true);
+                    var model = selectDropdownModelOrShowError("Code");
                     if (model != null) {
                         prepareAndRunCodeCommand(model);
                     } else {
