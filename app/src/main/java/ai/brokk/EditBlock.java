@@ -235,7 +235,7 @@ public class EditBlock {
     }
 
     @TestOnly
-    static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         return apply(contextManager.liveContext(), io, blocks);
     }
