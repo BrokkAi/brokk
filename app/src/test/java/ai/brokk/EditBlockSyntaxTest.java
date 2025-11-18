@@ -561,6 +561,61 @@ public class EditBlockSyntaxTest {
     }
 
     @Test
+    void testBrkClass_Indentation_NestedClass() throws Exception {
+        var file = new ProjectFile(sandboxPath, "A.java");
+        var ctx = createContext(Set.of(file));
+
+        // Capture original snippet to learn relative indentation delta
+        var originalSnippetOpt =
+                assertDoesNotThrow(() -> AnalyzerUtil.getClassSource(analyzer, "A.AInner.AInnerInner", true));
+        assertTrue(originalSnippetOpt.isPresent(), "Analyzer should locate A.AInner.AInnerInner");
+        var originalSnippet = originalSnippetOpt.get();
+
+        int sigIndentInSnippet = AssertionHelperUtil.indentOfFirstLine(originalSnippet);
+        int bodyIndentInSnippet = AssertionHelperUtil.indentOfSecondNonBlankLine(originalSnippet);
+        int expectedIndentDelta = Math.max(0, bodyIndentInSnippet - sigIndentInSnippet);
+
+        // Compute expected signature indent from the file content BEFORE the edit
+        var contentBefore = Files.readString(file.absPath());
+        int expectedSigIndent = AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(
+                contentBefore, "public class AInnerInner {");
+        assertTrue(expectedSigIndent >= 0, "Pre-edit signature line should be found in file content");
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_CLASS A.AInner.AInnerInner
+                =======
+                public class AInnerInner {
+                    public void newMethod() {
+                        System.out.println("new nested method");
+                    }
+                }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = parseBlocks(response, ctx);
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+        assertTrue(result.failedBlocks().isEmpty(), "Edit should apply successfully");
+
+        var content = Files.readString(file.absPath());
+
+        // Assert signature indent matches original signature indent from file context
+        AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
+                content, "public class AInnerInner {", expectedSigIndent, "Signature indentation should be preserved");
+
+        // Assert body line indent preserves original relative indentation
+        AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
+                content,
+                "public void newMethod() {",
+                expectedSigIndent + expectedIndentDelta,
+                "Body indentation should match original body indentation level");
+    }
+
+    @Test
     void testBrkClass_StaticNestedClass() throws Exception {
         var file = new ProjectFile(sandboxPath, "D.java");
         var ctx = createContext(Set.of(file));
