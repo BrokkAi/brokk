@@ -37,7 +37,7 @@ public class CodePromptsSyntaxAwareIntegrationTest {
                 .build()) {
 
             var editable = Set.of(new ProjectFile(project.getRoot(), "src/main/java/p/A.java"));
-            var flags = CodePrompts.instructionsFlags(project, editable);
+            var flags = CodePrompts.instructionsFlags(editable);
 
             assertTrue(
                     flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
@@ -67,7 +67,7 @@ public class CodePromptsSyntaxAwareIntegrationTest {
             var editable = Set.of(
                     new ProjectFile(project.getRoot(), "src/main/java/p/A.java"),
                     new ProjectFile(project.getRoot(), "web/app.js"));
-            var flags = CodePrompts.instructionsFlags(project, editable);
+            var flags = CodePrompts.instructionsFlags(editable);
 
             assertFalse(
                     flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
@@ -94,7 +94,7 @@ public class CodePromptsSyntaxAwareIntegrationTest {
             var editable = Set.of(
                     new ProjectFile(project.getRoot(), "tools/util.py"),
                     new ProjectFile(project.getRoot(), "web/app.js"));
-            var flags = CodePrompts.instructionsFlags(project, editable);
+            var flags = CodePrompts.instructionsFlags(editable);
 
             assertFalse(
                     flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
@@ -114,7 +114,7 @@ public class CodePromptsSyntaxAwareIntegrationTest {
                 .build()) {
 
             var editable = Set.<ProjectFile>of(); // intentionally empty
-            var flags = CodePrompts.instructionsFlags(project, editable);
+            var flags = CodePrompts.instructionsFlags(editable);
 
             assertFalse(
                     flags.contains(CodePrompts.InstructionsFlags.SYNTAX_AWARE),
