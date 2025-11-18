@@ -845,14 +845,26 @@ public abstract class CodePrompts {
     /**
      * Renders fragments in the given order without reordering or splitting.
      * Builds combined text from all fragment formats and collects images separately.
+     * Applies ViewingPolicy to StringFragments when provided (vp != null).
      */
-    private RenderedContent renderFragments(List<ContextFragment> fragments) {
+    private RenderedContent renderFragments(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
         for (var fragment : fragments) {
             if (fragment.isText()) {
-                String formatted = fragment.format();
+                String formatted;
+                if (vp != null && fragment instanceof ContextFragment.StringFragment sf) {
+                    var visibleText = sf.textForAgent(vp);
+                    formatted = """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                            .formatted(sf.description(), sf.id(), visibleText);
+                } else {
+                    formatted = fragment.format();
+                }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
@@ -954,7 +966,7 @@ public abstract class CodePrompts {
             return List.of();
         }
 
-        var rendered = renderFragments(allFragments);
+        var rendered = renderFragments(allFragments, null);
         if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
@@ -986,46 +998,8 @@ public abstract class CodePrompts {
             return List.of();
         }
 
-        var textBuilder = new StringBuilder();
-        var imageList = new ArrayList<ImageContent>();
-
-        for (var fragment : allFragments) {
-            if (fragment.isText()) {
-                String formatted;
-                if (fragment instanceof ContextFragment.StringFragment sf) {
-                    var visibleText = sf.textForAgent(vp);
-                    formatted = """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
-                            .formatted(sf.description(), sf.id(), visibleText);
-                } else {
-                    formatted = fragment.format();
-                }
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                try {
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
-                }
-            } else {
-                String formatted = fragment.format();
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            }
-        }
-
-        if (textBuilder.isEmpty() && imageList.isEmpty()) {
+        var rendered = renderFragments(allFragments, vp);
+        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
 
@@ -1036,10 +1010,10 @@ public abstract class CodePrompts {
                            %s
                            </workspace>
                            """
-                        .formatted(textBuilder.toString().trim());
+                        .formatted(rendered.text);
 
         allContents.add(new TextContent(workspaceText));
-        allContents.addAll(imageList);
+        allContents.addAll(rendered.images);
 
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
