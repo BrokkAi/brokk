@@ -3,6 +3,7 @@ package ai.brokk;
 import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import ai.brokk.analyzer.*;
+import ai.brokk.context.Context;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /** Utility for extracting and applying before/after search-replace blocks in content. */
 public class EditBlock {
@@ -100,8 +102,9 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
-    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+    public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
+        IContextManager contextManager = ctx.getContextManager();
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
@@ -116,7 +119,7 @@ public class EditBlock {
             final var rawFileName = block.rawFileName();
             ProjectFile file;
             try {
-                file = resolveProjectFile(contextManager, rawFileName);
+                file = resolveProjectFile(ctx, rawFileName);
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
                 failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
@@ -140,7 +143,7 @@ public class EditBlock {
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
             try {
-                var maybeResolved = resolveBrkSnippet(contextManager, effectiveBefore.strip());
+                var maybeResolved = resolveBrkSnippet(ctx, effectiveBefore.strip());
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
                     logger.debug("Pre-resolved BRK target snippet for {}:\n{}", rawFileName, effectiveBefore);
@@ -182,14 +185,14 @@ public class EditBlock {
                             file, file.exists() ? file.read().orElse("") : "");
                 }
 
-                replaceInFile(file, effectiveBefore, block.afterText(), contextManager);
+                replaceInFile(file, effectiveBefore, block.afterText(), ctx);
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText(), "");
+                    replaceMostSimilarChunk(ctx, originalContent, block.afterText(), "");
                     commentary =
                             """
                     The replacement text is already present in the file. If we no longer need to apply
@@ -229,6 +232,12 @@ public class EditBlock {
 
         originalContentsThisBatch.keySet().retainAll(succeeded.values());
         return new EditResult(originalContentsThisBatch, failed);
+    }
+
+    @TestOnly
+    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+            throws IOException, InterruptedException {
+        return apply(contextManager.liveContext(), io, blocks);
     }
 
     /**
@@ -305,11 +314,11 @@ public class EditBlock {
      * via the contextManager. Throws NoMatchException if `beforeText` is not found in the file content. Throws
      * AmbiguousMatchException if more than one match is found.
      */
-    public static void replaceInFile(
-            ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
+    public static void replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
+        IContextManager contextManager = ctx.getContextManager();
         String original = file.exists() ? file.read().orElse("") : "";
-        String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(ctx, original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -352,7 +361,7 @@ public class EditBlock {
      * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
      * edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
+    static String replaceMostSimilarChunk(Context ctx, String content, String target, String replace)
             throws AmbiguousMatchException, NoMatchException, InterruptedException {
         // -----------------------------
         // 0) BRK_CONFLICT block special-cases
@@ -393,7 +402,7 @@ public class EditBlock {
         // -----------------------------
         // 2) BRK_CLASS / BRK_FUNCTION special search syntax
         // -----------------------------
-        var resolved = resolveBrkSnippet(contextManager, trimmedTarget);
+        var resolved = resolveBrkSnippet(ctx, trimmedTarget);
         if (resolved != null) {
             target = resolved;
             // resolveBrkSnippet already validated and gathered suggestions on error
@@ -728,7 +737,7 @@ public class EditBlock {
      * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null
      * if the target is not a BRK marker. Throws on not found or ambiguous cases.
      */
-    private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
+    private static @Nullable String resolveBrkSnippet(Context ctx, String trimmedTarget)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
         // Only support BRK markers for Java entities. In multi-language projects, we restrict resolution to Java
         // so that syntax-aware edits don't unexpectedly target other languages.
@@ -739,6 +748,7 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
+        var contextManager = ctx.getContextManager();
         var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
@@ -752,11 +762,13 @@ public class EditBlock {
         Predicate<String> isSupportedExt = extension -> supportedExt.contains(extension.toLowerCase(Locale.ROOT));
 
         // Defensive assertion: BRK markers are only valid in a Java-only editable workspace
-        var editableFiles = contextManager.getFilesInContext();
+        var editableFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
         // if this boolean check is aliased to a variable, the `.get()` below will be flagged by Error Prone
-        if (!(supportedAnalyzerOpt.isPresent()
-                && !editableFiles.isEmpty()
-                && editableFiles.stream().allMatch(f -> isSupportedExt.test(f.extension())))) {
+        var unsupported = editableFiles.stream()
+                .filter(f -> !isSupportedExt.test(f.extension()))
+                .toList();
+        if (supportedAnalyzerOpt.isEmpty() || !unsupported.isEmpty()) {
             throw new AssertionError(
                     "BRK_CLASS/BRK_FUNCTION used outside a Java-only editable workspace; prompt gating bug.");
         }
@@ -814,15 +826,16 @@ public class EditBlock {
      * Resolves a filename string to a ProjectFile. Handles partial paths, checks against editable files, tracked files,
      * and project files.
      *
-     * @param cm The context manager.
+     * @param ctx The context.
      * @param filename The filename string to resolve (potentially partial).
      * @return The resolved ProjectFile.
      * @throws SymbolNotFoundException if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
      */
-    static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
+    static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename)
             throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
+        IContextManager cm = ctx.getContextManager();
         if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
             throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
@@ -846,7 +859,8 @@ public class EditBlock {
         }
 
         // 2. Check editable files (case-insensitive basename match)
-        var editableMatches = cm.getFilesInContext().stream()
+        var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
+                .flatMap(f -> f.files().stream())
                 .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {
