@@ -216,7 +216,7 @@ public class SearchAgent {
             }
 
             // Build prompt and allowed tools
-            var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages, viewingPolicy);
+            var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages);
             var allowedToolNames = calculateAllowedToolNames();
 
             // Agent-owned tools (instance methods)
@@ -388,10 +388,7 @@ public class SearchAgent {
     // =======================
 
     private List<ChatMessage> buildPrompt(
-            int workspaceTokens,
-            int minInputLimit,
-            List<ChatMessage> precomputedWorkspaceMessages,
-            ViewingPolicy viewingPolicy)
+            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
@@ -821,7 +818,6 @@ public class SearchAgent {
         var contextAgent = new ContextAgent(cm, model, goal);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
-        var isLutz = objective == Objective.LUTZ;
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
