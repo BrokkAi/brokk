@@ -16,13 +16,13 @@ or return value is not annotated @Nullable.
 1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
 1. **Provide Comprehensive Logging**: Log relevant information using log4j, including request/response details, errors, and other important events.
 1. **@Blocking and EDT safety**: Annotate methods that may block (I/O, analyzer work, network, filesystem, or other expensive computation) with `org.jetbrains.annotations.Blocking`. On the Swing Event Dispatch Thread (EDT), do not invoke `@Blocking` methods; prefer the non-blocking `computed*` alternatives (e.g., `computedFiles()`, `computedSources()`, `computedText()`, `computedDescription()`, `computedSyntaxStyle()`) to keep the UI responsive. An Error Prone check (`BrokkBlockingOperation`) enforces this and will warn if an `@Blocking` method is called on the EDT (e.g., inside `SwingUtilities.invokeLater(...)` or the true branch of an `isEventDispatchThread()`/`isDispatchThread()` check). Fix by moving the call off the EDT or by using the appropriate `computed*` method; do not suppress the warning.
-1. **Use `var`**: Prefer `var` for local variable declarations. Exception: numeric types, such as `int`, `float`, etc.
 1. **Use asserts to validate assumptions**: Use `assert` to validate assumptions, and prefer making reasonable assumptions backed by assert to defensive `if` checks.
 1. **DRY**: Don't Repeat Yourself. Refactor similar code into a common method. But feature flag parameters are a design smell; if you would need to add flags, write separate methods instead.
 1. **Parsimony**: If you can write a general case that also generates correct results in the special case (empty input, maximum size, etc), then do so. Don't write special cases unless they are necessary.
 1. **Use imports**: Avoid raw, fully qualified class names unless necessary to disambiguate; otherwise import them. EXCEPTION: if you are editing from individual method sources or usages call sites, use FQ names since you can't add easily add imports.
 1. **YAGNI**: Follow the principle of You Ain't Gonna Need It; implement the simplest solution that meets the requirements, unless you have specific knowledge that a more robust solution is needed to meet near-future requirements.
 1. **Keep related code together**: Don't split out code into a separate function, class, or file unless it is completely self-contained or called from multiple sites. It's easier to understand a short computation inline with its context, than split out to a separate location.
+1. **Prefer unordered sets**: use HashSet and Collectors.toSet unless we specifically need ordering.
 
 ## Working with LLMs
 
