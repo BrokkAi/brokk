@@ -759,6 +759,7 @@ public class BuildAgent {
 
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
         if (noConcurrentBuilds) {
+            logger.debug("BRK_NO_CONCURRENT_BUILDS, attempting exclusive lock");
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
@@ -772,6 +773,7 @@ public class BuildAgent {
                 return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
             }
         } else {
+            logger.debug("Concurrent builds allowed, no locking attempted");
             return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
         }
     }
