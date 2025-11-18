@@ -8,7 +8,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.logging.log4j.LogManager;
@@ -27,34 +26,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public class NativeProjectWatchService implements IWatchService {
     private static final Logger logger = LogManager.getLogger(NativeProjectWatchService.class);
-
-    // Directories to exclude from watching
-    private static final Set<String> EXCLUDED_DIR_NAMES = Set.of(
-            // Build directories
-            "target",
-            "build",
-            "out",
-            "dist",
-            "bin",
-            ".gradle",
-            ".maven",
-            // Dependencies
-            "node_modules",
-            "vendor",
-            ".venv",
-            "venv",
-            "env",
-            "__pycache__",
-            "bower_components",
-            // IDE
-            ".idea",
-            ".vscode",
-            ".settings",
-            // VCS (we watch .git separately)
-            ".svn",
-            ".hg",
-            // Brokk
-            ".brokk");
 
     private final Path root;
 
@@ -169,39 +140,6 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     /**
-     * Determine if a path should be included in watching.
-     * Excludes common build/dependency directories to reduce file descriptor usage.
-     */
-    private boolean shouldInclude(Path path) {
-        String fileName = path.getFileName().toString();
-
-        // Don't filter .git here - we handle it specially in builder
-        if (fileName.equals(".git")) {
-            return true;
-        }
-
-        // Check if directory name is in exclusion list
-        if (EXCLUDED_DIR_NAMES.contains(fileName)) {
-            return false;
-        }
-
-        // Exclude if path starts with any excluded directory
-        try {
-            Path relativePath = root.relativize(path);
-            for (String excludedName : EXCLUDED_DIR_NAMES) {
-                if (relativePath.startsWith(excludedName)) {
-                    return false;
-                }
-            }
-        } catch (IllegalArgumentException e) {
-            // Path is outside root, allow it (might be global gitignore)
-            return true;
-        }
-
-        return true;
-    }
-
-    /**
      * Checks if a gitignore-related file change should trigger cache invalidation.
      */
     private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
@@ -256,12 +194,6 @@ public class NativeProjectWatchService implements IWatchService {
         try {
             Path changedPath = event.path();
             DirectoryChangeEvent.EventType eventType = event.eventType();
-
-            // Filter out excluded paths
-            if (!shouldInclude(changedPath)) {
-                logger.trace("Skipping excluded path: {}", changedPath);
-                return;
-            }
 
             logger.trace("File event: {} on {}", eventType, changedPath);
 
