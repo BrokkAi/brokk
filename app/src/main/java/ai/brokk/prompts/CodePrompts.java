@@ -12,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
@@ -36,12 +37,6 @@ public abstract class CodePrompts {
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
-    /**
-     * Encapsulates the viewing context for determining content visibility during prompt generation.
-     * - taskType: the type of task/agent rendering the content
-     * - isLutz: whether the search objective is LUTZ (affects TASK_LIST visibility)
-     */
-    public record ViewingPolicy(TaskResult.Type taskType, boolean isLutz) {}
 
     public static final String LAZY_REMINDER =
             """
@@ -210,7 +205,7 @@ public abstract class CodePrompts {
             UserMessage request,
             Set<ProjectFile> changedFiles)
             throws InterruptedException {
-        return collectCodeMessages(model, ctx, prologue, taskMessages, request, changedFiles, 
+        return collectCodeMessages(model, ctx, prologue, taskMessages, request, changedFiles,
                 new ViewingPolicy(TaskResult.Type.CODE, false));
     }
 
@@ -671,7 +666,7 @@ public abstract class CodePrompts {
                 String formatted;
                 // Apply viewing policy for StringFragments
                 if (fragment instanceof ContextFragment.StringFragment sf) {
-                    formatted = sf.textForAgent(vp.taskType(), vp.isLutz());
+                    formatted = sf.textForAgent(vp);
                     // Rewrap in the fragment format
                     formatted = """
                             <fragment description="%s" fragmentid="%s">
@@ -975,6 +970,76 @@ public abstract class CodePrompts {
 
         allContents.add(new TextContent(workspaceText));
         allContents.addAll(rendered.images);
+
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
+    }
+
+    /**
+     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
+     * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
+     * - Preserves insertion order and multimodal content.
+     */
+    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
+        var allFragments = ctx.allFragments().toList();
+        if (allFragments.isEmpty()) {
+            return List.of();
+        }
+
+        var textBuilder = new StringBuilder();
+        var imageList = new ArrayList<ImageContent>();
+
+        for (var fragment : allFragments) {
+            if (fragment.isText()) {
+                String formatted;
+                if (fragment instanceof ContextFragment.StringFragment sf) {
+                    var visibleText = sf.textForAgent(vp);
+                    formatted = """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                            .formatted(sf.description(), sf.id(), visibleText);
+                } else {
+                    formatted = fragment.format();
+                }
+                if (!formatted.isBlank()) {
+                    textBuilder.append(formatted).append("\n\n");
+                }
+            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
+                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+                try {
+                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                    imageList.add(ImageContent.from(l4jImage));
+                    textBuilder.append(fragment.format()).append("\n\n");
+                } catch (IOException | UncheckedIOException e) {
+                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
+                    textBuilder.append(String.format(
+                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                }
+            } else {
+                String formatted = fragment.format();
+                if (!formatted.isBlank()) {
+                    textBuilder.append(formatted).append("\n\n");
+                }
+            }
+        }
+
+        if (textBuilder.isEmpty() && imageList.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(textBuilder.toString().trim());
+
+        allContents.add(new TextContent(workspaceText));
+        allContents.addAll(imageList);
 
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));

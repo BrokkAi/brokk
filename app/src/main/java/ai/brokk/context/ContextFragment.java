@@ -1337,28 +1337,19 @@ public interface ContextFragment {
         }
 
         /**
-         * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
-         * content for the provided task type and isLutz flag, a generic placeholder is returned. Otherwise the raw 
+         * Returns text according to the viewing policy. If the SpecialTextType denies viewing
+         * content for the provided policy, a generic placeholder is returned. Otherwise the raw
          * text is returned. For non-special fragments, returns raw text.
          */
-        public String textForAgent(TaskResult.Type taskType, boolean isLutz) {
+        public String textForAgent(ViewingPolicy viewPolicy) {
             var st = specialType();
             if (st.isEmpty()) {
                 return text();
             }
-            var viewPolicy = new SpecialTextType.ViewPolicy(taskType, isLutz);
             if (!st.get().canViewContent().test(viewPolicy)) {
-                return "[%s content hidden for %s]".formatted(description, taskType.name());
+                return "[%s content hidden for %s]".formatted(description, viewPolicy.taskType().name());
             }
             return text();
-        }
-
-        /**
-         * Returns text according to the viewing agent's task type policy. Delegates to the overload with isLutz=false
-         * for backward compatibility.
-         */
-        public String textForAgent(TaskResult.Type taskType) {
-            return textForAgent(taskType, false);
         }
 
         /**

@@ -17,6 +17,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.tools.ExplanationRenderer;
@@ -202,9 +203,9 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
             boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new CodePrompts.ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
-            // Build workspace messages with viewing policy applied
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context, false, viewingPolicy));
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            // Build workspace messages in insertion order with viewing policy applied
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -386,7 +387,7 @@ public class SearchAgent {
     // =======================
 
     private List<ChatMessage> buildPrompt(
-            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages, CodePrompts.ViewingPolicy viewingPolicy)
+            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages, ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 

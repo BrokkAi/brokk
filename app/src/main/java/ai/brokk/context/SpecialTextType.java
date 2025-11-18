@@ -25,20 +25,13 @@ import org.jetbrains.annotations.Nullable;
 public final class SpecialTextType {
     private static final Map<String, SpecialTextType> BY_DESCRIPTION = new LinkedHashMap<>();
 
-    /**
-     * Encapsulates the viewing context for content visibility decisions.
-     * - taskType: the type of task/agent rendering the content
-     * - isLutz: whether the search objective is LUTZ (affects TASK_LIST visibility)
-     */
-    public record ViewPolicy(TaskResult.Type taskType, boolean isLutz) {}
-
     private final String description;
     private final String syntaxStyle;
     private final String previewSyntaxStyle;
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
-    private final Predicate<ViewPolicy> canViewContent;
+    private final Predicate<ViewingPolicy> canViewContent;
 
     private SpecialTextType(
             String description,
@@ -47,7 +40,7 @@ public final class SpecialTextType {
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
-            Predicate<ViewPolicy> canViewContent) {
+            Predicate<ViewingPolicy> canViewContent) {
         this.description = description;
         this.syntaxStyle = syntaxStyle;
         this.previewSyntaxStyle = previewSyntaxStyle;
@@ -101,7 +94,7 @@ public final class SpecialTextType {
             false, // non-droppable
             true, // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
-            v -> (v.taskType != TaskResult.Type.SEARCH) || v.isLutz // visible to all except SEARCH (unless LUTZ)
+            v -> (v.taskType() != TaskResult.Type.SEARCH) || v.isLutz() // visible to all except SEARCH (unless LUTZ)
             ));
 
     // --- Lookups and helpers ---
@@ -137,7 +130,7 @@ public final class SpecialTextType {
         return previewRenderer;
     }
 
-    public Predicate<ViewPolicy> canViewContent() {
+    public Predicate<ViewingPolicy> canViewContent() {
         return canViewContent;
     }
 

@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
 import ai.brokk.util.Messages;
@@ -200,7 +201,7 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
-                var viewingPolicy = new CodePrompts.ViewingPolicy(TaskResult.Type.CODE, false);
+                var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE, false);
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
