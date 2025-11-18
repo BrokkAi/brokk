@@ -200,13 +200,15 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
+                var viewingPolicy = new CodePrompts.ViewingPolicy(TaskResult.Type.CODE, false);
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles());
+                        es.changedFiles(),
+                        viewingPolicy);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {

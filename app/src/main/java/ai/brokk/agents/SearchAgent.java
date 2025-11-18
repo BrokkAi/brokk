@@ -200,7 +200,11 @@ public class SearchAgent {
 
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context));
+            // Determine viewing policy based on search objective
+            boolean isLutz = objective == Objective.LUTZ;
+            var viewingPolicy = new CodePrompts.ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            // Build workspace messages with viewing policy applied
+            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context, false, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -210,7 +214,7 @@ public class SearchAgent {
             }
 
             // Build prompt and allowed tools
-            var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages);
+            var messages = buildPrompt(workspaceTokens, inputLimit, workspaceMessages, viewingPolicy);
             var allowedToolNames = calculateAllowedToolNames();
 
             // Agent-owned tools (instance methods)
@@ -382,7 +386,7 @@ public class SearchAgent {
     // =======================
 
     private List<ChatMessage> buildPrompt(
-            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages)
+            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages, CodePrompts.ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
@@ -442,7 +446,7 @@ public class SearchAgent {
             messages.add(new SystemMessage(mcpToolPrompt));
         }
 
-        // Current Workspace contents
+        // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related identifiers from nearby files
@@ -779,7 +783,7 @@ public class SearchAgent {
                 """);
         messages.add(sys);
 
-        // Current Workspace contents
+        // Current Workspace contents (use default viewing policy)
         messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
 
         // Goal and project context

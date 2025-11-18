@@ -210,6 +210,19 @@ public abstract class CodePrompts {
             UserMessage request,
             Set<ProjectFile> changedFiles)
             throws InterruptedException {
+        return collectCodeMessages(model, ctx, prologue, taskMessages, request, changedFiles, 
+                new ViewingPolicy(TaskResult.Type.CODE, false));
+    }
+
+    public final List<ChatMessage> collectCodeMessages(
+            StreamingChatModel model,
+            Context ctx,
+            List<ChatMessage> prologue,
+            List<ChatMessage> taskMessages,
+            UserMessage request,
+            Set<ProjectFile> changedFiles,
+            ViewingPolicy viewingPolicy)
+            throws InterruptedException {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
@@ -219,7 +232,7 @@ public abstract class CodePrompts {
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx, true));
         } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, new ViewingPolicy(TaskResult.Type.CODE, false)));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
         }
         messages.addAll(prologue);
 
@@ -251,6 +264,7 @@ public abstract class CodePrompts {
                         .trim();
         messages.add(new SystemMessage(systemPrompt));
 
+        // Read-only messages are already filtered; no additional viewing policy needed here
         messages.addAll(readOnlyMessages);
 
         String fileContent =
@@ -273,8 +287,9 @@ public abstract class CodePrompts {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
+        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK, false);
         messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -775,6 +790,23 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; uses default if null.
+     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
+     *     empty if no content.
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
+        var editableMessages = getWorkspaceEditableMessages(ctx);
+
+        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+    }
+
+    /**
+     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
+     * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
+     *
+     * @param ctx The context to process.
+     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
      *     empty if no content.
      */
@@ -783,6 +815,17 @@ public abstract class CodePrompts {
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+    }
+
+    /**
+     * Convenience overload for getWorkspaceContentsMessages with a viewing policy.
+     *
+     * @param ctx The context to process.
+     * @param vp The viewing policy to apply for content visibility.
+     * @return A collection containing workspace messages with applied viewing policy.
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
+        return getWorkspaceContentsMessages(ctx, false, vp);
     }
 
     public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
