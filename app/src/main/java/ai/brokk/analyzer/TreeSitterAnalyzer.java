@@ -169,7 +169,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     protected record AnalyzerState(
-            PMap<String, List<CodeUnit>> symbolIndex,
+            PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
@@ -214,7 +214,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
-            Map<String, List<CodeUnit>> codeUnitsBySymbol,
+            Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements,
             @Nullable TSTree parsedTree) {}
 
@@ -306,7 +306,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         var timing = ConstructionTiming.create();
         // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps
-        var localSymbolIndex = new ConcurrentHashMap<String, List<CodeUnit>>();
+        var localSymbolIndex = new ConcurrentHashMap<String, Set<CodeUnit>>();
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
@@ -372,8 +372,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         keySet.addAll(localSymbolIndex.keySet());
         var symbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet));
 
+        // Convert local mutable Sets to immutable Sets before wrapping in PMap
+        var immutableSymbolIndex = new HashMap<String, Set<CodeUnit>>();
+        localSymbolIndex.forEach((key, value) -> immutableSymbolIndex.put(key, Collections.unmodifiableSet(value)));
+
         var initialState = new AnalyzerState(
-                HashTreePMap.from(localSymbolIndex),
+                HashTreePMap.from(immutableSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
@@ -754,7 +758,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     if (!symbolLower.startsWith(lowerCaseQuery)) {
                         break; // stop when the prefix no longer matches
                     }
-                    results.addAll(current.symbolIndex().getOrDefault(symbol, List.of()));
+                    results.addAll(current.symbolIndex().getOrDefault(symbol, Set.of()));
                 }
             } catch (IllegalArgumentException e) {
                 // Defensive fallback: if tail scan fails for any reason, ignore and continue with generic scan
@@ -782,7 +786,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
 
             if (matches) {
-                results.addAll(current.symbolIndex().getOrDefault(symbol, List.of()));
+                results.addAll(current.symbolIndex().getOrDefault(symbol, Set.of()));
             }
         }
 
@@ -1631,7 +1635,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
         Map<CodeUnit, List<String>> localRawSupertypes = new HashMap<>();
-        Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
+        Map<String, Set<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
         Map<CodeUnit, Boolean> localHasBody = new HashMap<>();
@@ -1978,11 +1982,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localHasBody.put(cu, hasBody);
 
             localCodeUnitsBySymbol
-                    .computeIfAbsent(cu.identifier(), k -> new ArrayList<>())
+                    .computeIfAbsent(cu.identifier(), k -> new HashSet<>())
                     .add(cu);
             if (!cu.shortName().equals(cu.identifier())) {
                 localCodeUnitsBySymbol
-                        .computeIfAbsent(cu.shortName(), k -> new ArrayList<>())
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
                         .add(cu);
             }
 
@@ -2199,15 +2203,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // in the local symbol map. This guarantees getDefinition() can resolve them via symbolIndex.
         for (var cu : localStates.keySet()) {
             String identifierKey = cu.identifier();
-            var bucket = localCodeUnitsBySymbol.computeIfAbsent(identifierKey, k -> new ArrayList<>());
-            if (!bucket.contains(cu)) {
-                bucket.add(cu);
-            }
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(identifierKey, k -> new HashSet<>())
+                    .add(cu);
             if (!cu.shortName().equals(identifierKey)) {
-                var shortBucket = localCodeUnitsBySymbol.computeIfAbsent(cu.shortName(), k -> new ArrayList<>());
-                if (!shortBucket.contains(cu)) {
-                    shortBucket.add(cu);
-                }
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new HashSet<>())
+                        .add(cu);
             }
         }
 
@@ -2225,7 +2227,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     .collect(Collectors.joining("; "));
             log.error("Unexpected duplicate top-level CodeUnits in file {}: [{}]", file, diagnostics);
         }
-        var finalLocalTopLevelCUs = localTopLevelCUs.stream().distinct().toList();
 
         long __processEnd = System.nanoTime();
         if (timing != null) {
@@ -2234,7 +2235,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
         }
         return new FileAnalysisResult(
-                Collections.unmodifiableList(finalLocalTopLevelCUs),
+                localTopLevelCUs.stream().distinct().toList(),
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements),
@@ -3203,7 +3204,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             ProjectFile pf,
             FileAnalysisResult analysisResult,
             @Nullable ConstructionTiming timing,
-            Map<String, List<CodeUnit>> targetSymbolIndex,
+            Map<String, Set<CodeUnit>> targetSymbolIndex,
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
             Map<ProjectFile, FileProperties> targetFileState) {
         if (analysisResult.topLevelCUs().isEmpty()
@@ -3217,15 +3218,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
             targetSymbolIndex.compute(symbol, (s, existing) -> {
                 if (existing == null || existing.isEmpty()) {
-                    return List.copyOf(cus);
+                    return new HashSet<>(cus);
                 }
                 if (cus.isEmpty()) return existing;
-                var merged = new ArrayList<CodeUnit>(existing.size() + cus.size());
-                merged.addAll(existing);
-                for (CodeUnit cu : cus) {
-                    if (!merged.contains(cu)) merged.add(cu);
-                }
-                return List.copyOf(merged);
+                var merged = new HashSet<>(existing);
+                merged.addAll(cus);
+                return merged;
             });
         });
 
@@ -3380,7 +3378,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             var symbolsToRemove = new ArrayList<String>();
                             newSymbolIndex.replaceAll((symbol, cus) -> {
                                 var remaining =
-                                        cus.stream().filter(fromFile.negate()).toList();
+                                        cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
                                 if (remaining.isEmpty()) symbolsToRemove.add(symbol);
                                 return remaining;
                             });
@@ -3425,8 +3423,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         nextKeySet.addAll(newSymbolIndex.keySet());
         var nextSymbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(nextKeySet));
 
+        // Convert mutable Sets to immutable Sets before wrapping in PMap
+        var immutableNextSymbolIndex = new HashMap<String, Set<CodeUnit>>();
+        newSymbolIndex.forEach((key, value) -> immutableNextSymbolIndex.put(key, Collections.unmodifiableSet(value)));
+
         var nextState = new AnalyzerState(
-                HashTreePMap.from(newSymbolIndex),
+                HashTreePMap.from(immutableNextSymbolIndex),
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
