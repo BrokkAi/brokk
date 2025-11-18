@@ -119,7 +119,8 @@ public final class TreeSitterStateIO {
                             "Loaded ProjectFile relPath was absolute and outside root; using fileName only: root={}, abs={}",
                             nr,
                             rl);
-                    rel = rl.getFileName();
+                    Path fileName = rl.getFileName();
+                    rel = (fileName != null) ? fileName : Path.of("");
                 }
             }
 
@@ -376,7 +377,7 @@ public final class TreeSitterStateIO {
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
         // Rebuild SymbolKeyIndex
-        var keySet = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+        var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         keySet.addAll(dto.symbolKeys());
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
@@ -434,7 +435,7 @@ public final class TreeSitterStateIO {
                 relStr = nr.relativize(rl).toString();
             } else {
                 // best-effort fallback; use just the file name to keep it relative
-                relStr = rl.getFileName().toString();
+                relStr = rl.getFileName() != null ? rl.getFileName().toString() : rl.toString();
                 log.debug(
                         "ProjectFile relPath was absolute and outside root; falling back to fileName only: root={}, abs={}",
                         nr,
@@ -461,7 +462,8 @@ public final class TreeSitterStateIO {
                         "Loaded ProjectFileDto.relPath was absolute and outside root; using fileName only: root={}, abs={}",
                         nr,
                         rl);
-                rel = rl.getFileName();
+                Path fileName = rl.getFileName();
+                rel = (fileName != null) ? fileName : Path.of("");
             }
         }
 
