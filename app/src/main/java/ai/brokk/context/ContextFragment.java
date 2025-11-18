@@ -38,7 +38,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -48,9 +47,12 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 /**
- * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
- * UncheckedIOException or CancellationException for IOException/InterruptedException, respectively; freeze() will throw
- * the checked variants at which point the caller should deal with the interruption or remove no-longer-valid Fragments
+ * Asynchronous ContextFragment API.
+ * <p>
+ * All fragments return ComputedValue<T> for their public data surfaces to avoid implicit blocking.
+ * Callers must explicitly block if they require synchronous behavior (e.g., via future().join()).
+ * <p>
+ * This is a breaking change; do not expect call sites to compile until they are updated.
  *
  * <p>ContextFragment MUST be kept in sync with FrozenFragment: any polymorphic methods added to CF must be serialized
  * into FF so they can be accurately represented as well. If you are tasked with adding such a method to CF without also
@@ -121,9 +123,10 @@ public interface ContextFragment {
         return describe(fragments.stream());
     }
 
+    @Blocking
     static String describe(Stream<ContextFragment> fragments) {
         return fragments
-                .map(ContextFragment::description)
+                .map(cf -> cf.description().join())
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
     }
@@ -213,36 +216,67 @@ public interface ContextFragment {
      */
     String id();
 
-    /** The type of this fragment. */
+    /**
+     * The type of this fragment.
+     */
     FragmentType getType();
 
-    /** short description in history */
-    String shortDescription();
+    /**
+     * short description in history (defaults to description).
+     */
+    default ComputedValue<String> shortDescription() {
+        return description();
+    }
 
-    /** longer description displayed in context table */
-    String description();
+    /**
+     * longer description displayed in context table
+     */
+    ComputedValue<String> description();
 
-    /** raw content for preview */
-    String text() throws UncheckedIOException, CancellationException;
+    /**
+     * raw content for preview
+     */
+    ComputedValue<String> text();
 
-    /** content formatted for LLM */
-    String format() throws UncheckedIOException, CancellationException;
+    /**
+     * content formatted for LLM
+     */
+    default ComputedValue<String> format() {
+        return new ComputedValue<>(
+                "cf-format-" + id(),
+                () ->
+                        """
+                        <fragment description="%s" fragmentid="%s">
+                        %s
+                        </fragment>
+                        """
+                                .formatted(
+                                        description().future().join(),
+                                        id(),
+                                        text().future().join()),
+                getFragmentExecutor());
+    }
 
-    /** fragment toc entry, usually id + description */
+    /**
+     * fragment toc entry, usually id + description
+     */
     default String formatToc() {
-        // ACHTUNG! if we ever start overriding this, we'll need to serialize it into FrozenFragment
+        // Non-blocking best-effort rendering
         return """
                 <fragment-toc description="%s" fragmentid="%s" />
                 """
-                .formatted(description(), id());
+                .formatted(description().renderNowOr(""), id());
     }
 
     default boolean isText() {
         return true;
     }
 
-    default Image image() throws UncheckedIOException {
-        throw new UnsupportedOperationException();
+    /**
+     * Optionally provide computed image payload; default is null for non-image fragments.
+     */
+    default @Nullable ComputedValue<byte[]> imageBytes() {
+        return null;
     }
 
     /**
@@ -256,21 +290,18 @@ public interface ContextFragment {
     /**
      * Code sources found in this fragment.
      */
-    Set<CodeUnit> sources();
+    ComputedValue<Set<CodeUnit>> sources();
 
     /**
      * Returns all repo files referenced by this fragment. This is used when we *just* want to manipulate or show actual
      * files, rather than the code units themselves.
      */
-    Set<ProjectFile> files();
-
-    String syntaxStyle();
+    ComputedValue<Set<ProjectFile>> files();
 
     /**
-     * Return a new instance of this fragment with a fresh ID, or if the fragment is not dynamically updateable,
-     * return the original instance.
+     * Syntax highlight style.
      */
-    ContextFragment copy();
+    ComputedValue<String> syntaxStyle();
 
     default List<TaskEntry> entries() {
         return List.of();
@@ -296,7 +327,7 @@ public interface ContextFragment {
      * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
      *
      * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
-     *     available.
+     * available.
      */
     default IAnalyzer getAnalyzer() {
         var cm = getContextManager();
@@ -311,84 +342,35 @@ public interface ContextFragment {
     boolean hasSameSource(ContextFragment other);
 
     /**
-     * Non-breaking dynamic accessors for fragments that may compute values asynchronously.
-     * Default adapters should provide completed values based on current state so legacy
-     * call sites keep working without changes.
+     * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
+     * Implementations that track external state may override to trigger recomputation.
      */
-    interface ComputedFragment extends ContextFragment {
+    ContextFragment refreshCopy();
 
-        /**
-         * Helper for thread-safe, lazy initialization of ComputedValue fields.
-         * - Does not trigger computation during construction.
-         * - Uses double-checked locking to avoid duplicate work.
-         * - Caches the instance via setter on first initialization.
-         *
-         * Note: We pass a currentSupplier to re-read the latest field value inside the synchronized block.
-         */
-        default <T> ComputedValue<T> lazyInitCv(
-                @Nullable ComputedValue<T> current,
-                Supplier<@Nullable ComputedValue<T>> currentSupplier,
-                Supplier<ComputedValue<T>> factory,
-                Consumer<ComputedValue<T>> setter) {
-            var local = current;
-            if (local == null) {
-                synchronized (this) {
-                    local = currentSupplier.get();
-                    if (local == null) {
-                        local = factory.get();
-                        setter.accept(local);
-                    }
+    /**
+     * Helper for thread-safe, lazy initialization of ComputedValue fields.
+     * - Does not trigger computation during construction.
+     * - Uses double-checked locking to avoid duplicate work.
+     * - Caches the instance via setter on first initialization.
+     * <p>
+     * Note: We pass a currentSupplier to re-read the latest field value inside the synchronized block.
+     */
+    default <T> ComputedValue<T> lazyInitCv(
+            @Nullable ComputedValue<T> current,
+            Supplier<@Nullable ComputedValue<T>> currentSupplier,
+            Supplier<ComputedValue<T>> factory,
+            Consumer<ComputedValue<T>> setter) {
+        var local = current;
+        if (local == null) {
+            synchronized (this) {
+                local = currentSupplier.get();
+                if (local == null) {
+                    local = factory.get();
+                    setter.accept(local);
                 }
             }
-            return local;
         }
-
-        /**
-         * Non-blocking accessor mirroring text().
-         * Lazily produces a ComputedValue that computes text() on demand.
-         */
-        default ComputedValue<String> computedText() {
-            return new ComputedValue<>("cf-text-" + id(), this::text, ContextFragment.getFragmentExecutor());
-        }
-
-        /**
-         * Non-blocking accessor mirroring description().
-         * Lazily produces a ComputedValue that computes description() on demand.
-         */
-        default ComputedValue<String> computedDescription() {
-            return new ComputedValue<>(
-                    "cf-description-" + id(), this::description, ContextFragment.getFragmentExecutor());
-        }
-
-        /**
-         * Non-blocking accessor mirroring syntaxStyle().
-         * Lazily produces a ComputedValue that computes syntaxStyle() on demand.
-         */
-        default ComputedValue<String> computedSyntaxStyle() {
-            return new ComputedValue<>(
-                    "cf-syntax-style-" + id(), this::syntaxStyle, ContextFragment.getFragmentExecutor());
-        }
-
-        /**
-         * Non-blocking accessor mirroring files().
-         * Lazily produces a ComputedValue that computes files() on demand.
-         */
-        default ComputedValue<Set<ProjectFile>> computedFiles() {
-            return new ComputedValue<>("cf-files-" + id(), this::files, ContextFragment.getFragmentExecutor());
-        }
-
-        /**
-         * Optionally provide computed image payload; default is null for non-image fragments.
-         */
-        default @Nullable ComputedValue<byte[]> computedImageBytes() {
-            return null;
-        }
-
-        /**
-         * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
-         * Implementations that track external state may override to trigger recomputation.
-         */
-        ContextFragment refreshCopy();
+        return local;
     }
 
     /**
@@ -402,9 +384,6 @@ public interface ContextFragment {
      * Implementations must provide a stable content hash for equality checks.
      */
     interface ImageFragment extends ContextFragment {
-        @Override
-        Image image() throws UncheckedIOException;
-
         /**
          * A stable, cached hash of the binary image content and relevant metadata.
          */
@@ -413,13 +392,15 @@ public interface ContextFragment {
 
     /**
      * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
-     * ComputedValue exposed by ComputedFragment.
+     * ComputedValue.
      */
-    abstract class ComputedVirtualFragment extends VirtualFragment implements ComputedFragment, DynamicIdentity {
+    abstract class ComputedVirtualFragment extends VirtualFragment implements DynamicIdentity {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> syntaxCv;
         private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<String> formatCv;
 
         protected ComputedVirtualFragment(IContextManager contextManager) {
             super(contextManager);
@@ -430,39 +411,70 @@ public interface ContextFragment {
         }
 
         @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<String> text() {
+            // Subclasses should override; default empty content
             return lazyInitCv(
-                    textCv,
-                    () -> textCv,
-                    () -> new ComputedValue<>("cvf-text-" + id(), this::text, getFragmentExecutor()),
-                    v -> textCv = v);
+                    textCv, () -> textCv, () -> ComputedValue.completed("cvf-text-" + id(), ""), v -> textCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedDescription() {
+        public ComputedValue<String> description() {
+            // Subclasses should override; default empty description
             return lazyInitCv(
-                    descCv,
-                    () -> descCv,
-                    () -> new ComputedValue<>("cvf-desc-" + id(), this::description, getFragmentExecutor()),
-                    v -> descCv = v);
+                    descCv, () -> descCv, () -> ComputedValue.completed("cvf-desc-" + id(), ""), v -> descCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedSyntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
+            // Subclasses should override; default to NONE
             return lazyInitCv(
                     syntaxCv,
                     () -> syntaxCv,
-                    () -> new ComputedValue<>("cvf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    () -> ComputedValue.completed("cvf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE),
                     v -> syntaxCv = v);
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> computedFiles() {
+        public ComputedValue<Set<ProjectFile>> files() {
             return lazyInitCv(
                     filesCv,
                     () -> filesCv,
-                    () -> new ComputedValue<>("cvf-files-" + id(), this::files, getFragmentExecutor()),
+                    () -> new ComputedValue<>(
+                            "cvf-files-" + id(),
+                            () -> parseProjectFiles(
+                                    text().future().join(), getContextManager().getProject()),
+                            getFragmentExecutor()),
                     v -> filesCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> ComputedValue.completed("cvf-sources-" + id(), Set.of()),
+                    v -> sourcesCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> format() {
+            return lazyInitCv(
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "cvf-format-" + id(),
+                            () ->
+                                    """
+                                    <fragment description="%s" fragmentid="%s">
+                                    %s
+                                    </fragment>
+                                    """
+                                            .formatted(
+                                                    description().future().join(),
+                                                    id(),
+                                                    text().future().join()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
         }
     }
 
@@ -486,33 +498,41 @@ public interface ContextFragment {
         BrokkFile file();
 
         @Override
-        default Set<ProjectFile> files() {
+        default ComputedValue<Set<ProjectFile>> files() {
             BrokkFile bf = file();
             if (bf instanceof ProjectFile pf) {
-                return Set.of(pf);
+                return ComputedValue.completed("pf-files-" + id(), Set.of(pf));
             }
-            return Set.of();
+            return ComputedValue.completed("pf-files-" + id(), Set.of());
         }
 
         @Override
-        @Blocking
-        default String text() throws UncheckedIOException {
-            return file().read().orElse("");
+        default ComputedValue<String> text() {
+            return new ComputedValue<>("pf-text-" + id(), () -> file().read().orElse(""), getFragmentExecutor());
         }
 
         @Override
-        default String syntaxStyle() {
-            return FileTypeUtil.get().guessContentType(file().absPath().toFile());
+        default ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed(
+                    "pf-syntax-" + id(),
+                    FileTypeUtil.get().guessContentType(file().absPath().toFile()));
         }
 
         @Override
-        default String format() {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    %s
-                    </file>
-                    """
-                    .formatted(file().toString(), id(), text());
+        default ComputedValue<String> format() {
+            return new ComputedValue<>(
+                    "pf-format-" + id(),
+                    () ->
+                            """
+                            <file path="%s" fragmentid="%s">
+                            %s
+                            </file>
+                            """
+                                    .formatted(
+                                            file().toString(),
+                                            id(),
+                                            text().future().join()),
+                    getFragmentExecutor());
         }
 
         @Override
@@ -530,7 +550,7 @@ public interface ContextFragment {
         }
     }
 
-    final class ProjectPathFragment implements PathFragment, ComputedFragment {
+    final class ProjectPathFragment implements PathFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
@@ -538,6 +558,8 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
         private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private transient @Nullable ComputedValue<String> formatCv;
 
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -581,21 +603,34 @@ public interface ContextFragment {
         }
 
         @Override
-        public String shortDescription() {
-            return file().getFileName();
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("ppf-short-" + id(), file().getFileName());
         }
 
         @Override
-        public Set<ProjectFile> files() {
-            return Set.of(file);
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> ComputedValue.completed("ppf-files-" + id(), Set.of(file)),
+                    v -> filesCv = v);
         }
 
         @Override
-        public String description() {
-            if (file.getParent().equals(Path.of(""))) {
-                return file.getFileName();
-            }
-            return "%s [%s]".formatted(file.getFileName(), file.getParent());
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>(
+                            "ppf-desc-" + id(),
+                            () -> {
+                                if (file.getParent().equals(Path.of(""))) {
+                                    return file.getFileName();
+                                }
+                                return "%s [%s]".formatted(file.getFileName(), file.getParent());
+                            },
+                            getFragmentExecutor()),
+                    v -> descCv = v);
         }
 
         @Override
@@ -604,15 +639,18 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDeclarations(file);
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> new ComputedValue<>(
+                            "ppf-sources-" + id(), () -> getAnalyzer().getDeclarations(file), getFragmentExecutor()),
+                    v -> sourcesCv = v);
         }
 
         @Override
         public String toString() {
-            return "ProjectPathFragment('%s')".formatted(file);
+            return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
         }
 
         @Override
@@ -626,44 +664,45 @@ public interface ContextFragment {
         }
 
         @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<String> text() {
             return lazyInitCv(
                     textCv,
                     () -> textCv,
-                    () -> new ComputedValue<>("ppf-text-" + id(), this::text, getFragmentExecutor()),
+                    () -> new ComputedValue<>(
+                            "ppf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
                     v -> textCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedDescription() {
-            return lazyInitCv(
-                    descCv,
-                    () -> descCv,
-                    () -> new ComputedValue<>("ppf-desc-" + id(), this::description, getFragmentExecutor()),
-                    v -> descCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> computedSyntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
             return lazyInitCv(
                     syntaxCv,
                     () -> syntaxCv,
-                    () -> new ComputedValue<>("ppf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    () -> ComputedValue.completed(
+                            "ppf-syntax-" + id(),
+                            FileTypeUtil.get().guessContentType(file.absPath().toFile())),
                     v -> syntaxCv = v);
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> computedFiles() {
+        public ComputedValue<String> format() {
             return lazyInitCv(
-                    filesCv,
-                    () -> filesCv,
-                    () -> new ComputedValue<>("ppf-files-" + id(), this::files, getFragmentExecutor()),
-                    v -> filesCv = v);
-        }
-
-        @Override
-        public ContextFragment copy() {
-            return new ProjectPathFragment(file, contextManager);
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "ppf-format-" + id(),
+                            () ->
+                                    """
+                                    <file path="%s" fragmentid="%s">
+                                    %s
+                                    </file>
+                                    """
+                                            .formatted(
+                                                    file().toString(),
+                                                    id(),
+                                                    this.text().future().join()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
         }
 
         @Override
@@ -677,7 +716,9 @@ public interface ContextFragment {
         }
     }
 
-    /** Represents a specific revision of a ProjectFile from Git history. This is non-dynamic. */
+    /**
+     * Represents a specific revision of a ProjectFile from Git history. This is non-dynamic.
+     */
     record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
         public GitFileFragment(ProjectFile file, String revision, String content) {
             this(
@@ -710,41 +751,39 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
-        @Override
-        public String shortDescription() {
-            return "%s @%s".formatted(file().getFileName(), id);
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file().getFileName(), id));
         }
 
         @Override
-        public String description() {
+        public ComputedValue<String> description() {
             var parentDir = file.getParent();
-            return parentDir.equals(Path.of(""))
-                    ? shortDescription()
-                    : "%s [%s]".formatted(shortDescription(), parentDir);
+            var shortDesc = "%s @%s".formatted(file().getFileName(), id);
+            var desc = parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
+            return ComputedValue.completed("gff-desc-" + id, desc);
         }
 
         @Override
-        public Set<CodeUnit> sources() {
+        public ComputedValue<Set<CodeUnit>> sources() {
             // Treat historical content as potentially different from current; don't claim sources
-            return Set.of();
+            return ComputedValue.completed("gff-sources-" + id, Set.of());
         }
 
         @Override
-        public String text() {
-            return content;
+        public ComputedValue<String> text() {
+            return ComputedValue.completed("gff-text-" + id, content);
         }
 
         @Override
-        public String format() throws UncheckedIOException {
-            // Note: fragmentid attribute is not typically added to GitFileFragment in this specific format,
-            // but if it were, it should use %s for the ID.
-            // Keeping existing format which doesn't include fragmentid.
-            return """
-                    <file path="%s" revision="%s">
-                    %s
-                    </file>
+        public ComputedValue<String> format() {
+            return ComputedValue.completed(
+                    "gff-format-" + id,
                     """
-                    .formatted(file().toString(), revision(), text());
+                            <file path="%s" revision="%s">
+                            %s
+                            </file>
+                            """
+                            .formatted(file().toString(), revision(), content));
         }
 
         @Override
@@ -763,13 +802,13 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
     }
 
-    final class ExternalPathFragment implements PathFragment, ComputedFragment {
+    final class ExternalPathFragment implements PathFragment {
         private final ExternalFile file;
         private final String id;
         private final IContextManager contextManager;
@@ -777,6 +816,8 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
         private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private transient @Nullable ComputedValue<String> formatCv;
 
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -821,18 +862,26 @@ public interface ContextFragment {
         }
 
         @Override
-        public String shortDescription() {
+        public ComputedValue<String> shortDescription() {
             return description();
         }
 
         @Override
-        public String description() {
-            return file.toString();
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> ComputedValue.completed("epf-desc-" + id(), file.toString()),
+                    v -> descCv = v);
         }
 
         @Override
-        public Set<CodeUnit> sources() {
-            return Set.of();
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> ComputedValue.completed("epf-src-" + id(), Set.of()),
+                    v -> sourcesCv = v);
         }
 
         @Override
@@ -841,39 +890,54 @@ public interface ContextFragment {
         }
 
         @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<String> text() {
             return lazyInitCv(
                     textCv,
                     () -> textCv,
-                    () -> new ComputedValue<>("epf-text-" + id(), this::text, getFragmentExecutor()),
+                    () -> new ComputedValue<>(
+                            "epf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
                     v -> textCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedDescription() {
-            return lazyInitCv(
-                    descCv,
-                    () -> descCv,
-                    () -> new ComputedValue<>("epf-desc-" + id(), this::description, getFragmentExecutor()),
-                    v -> descCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> computedSyntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
             return lazyInitCv(
                     syntaxCv,
                     () -> syntaxCv,
-                    () -> new ComputedValue<>("epf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    () -> ComputedValue.completed(
+                            "epf-syntax-" + id(),
+                            FileTypeUtil.get().guessContentType(file.absPath().toFile())),
                     v -> syntaxCv = v);
         }
 
         @Override
-        public ComputedValue<Set<ProjectFile>> computedFiles() {
+        public ComputedValue<Set<ProjectFile>> files() {
             return lazyInitCv(
                     filesCv,
                     () -> filesCv,
-                    () -> new ComputedValue<>("epf-files-" + id(), this::files, getFragmentExecutor()),
+                    () -> ComputedValue.completed("epf-files-" + id(), Set.of()),
                     v -> filesCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> format() {
+            return lazyInitCv(
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "epf-format-" + id(),
+                            () ->
+                                    """
+                                    <file path="%s" fragmentid="%s">
+                                    %s
+                                    </file>
+                                    """
+                                            .formatted(
+                                                    file().toString(),
+                                                    id(),
+                                                    this.text().future().join()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
         }
 
         @Override
@@ -885,15 +949,12 @@ public interface ContextFragment {
             var pb = op.file().absPath().normalize();
             return pa.equals(pb);
         }
-
-        @Override
-        public ContextFragment copy() {
-            return new ExternalPathFragment(file, contextManager);
-        }
     }
 
-    /** Represents an image file, either from the project or external. This is dynamic. */
-    final class ImageFileFragment implements PathFragment, ImageFragment, ComputedFragment {
+    /**
+     * Represents an image file, either from the project or external. This is dynamic.
+     */
+    final class ImageFileFragment implements PathFragment, ImageFragment {
         private final BrokkFile file;
         private final String id;
         private final IContextManager contextManager;
@@ -902,6 +963,8 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> syntaxCv;
         private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private transient @Nullable ComputedValue<byte[]> imageBytesCv;
+        private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private transient @Nullable ComputedValue<String> formatCv;
 
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -947,16 +1010,26 @@ public interface ContextFragment {
         }
 
         @Override
-        public String shortDescription() {
-            return file().getFileName();
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("iff-short-" + id, file().getFileName());
         }
 
         @Override
-        public String description() {
-            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
-            }
-            return file.toString(); // For ExternalFile or root ProjectFile
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>(
+                            "iff-desc-" + id(),
+                            () -> {
+                                if (file instanceof ProjectFile pf
+                                        && !pf.getParent().equals(Path.of(""))) {
+                                    return "%s [%s]".formatted(file.getFileName(), pf.getParent());
+                                }
+                                return file.toString(); // For ExternalFile or root ProjectFile
+                            },
+                            getFragmentExecutor()),
+                    v -> descCv = v);
         }
 
         @Override
@@ -965,14 +1038,16 @@ public interface ContextFragment {
         }
 
         @Override
-        public String text() {
-            // return this text tu support ContextMenu Fragment > Copy
-            return "[Image content provided out of band]";
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> ComputedValue.completed("iff-text-" + id(), "[Image content provided out of band]"),
+                    v -> textCv = v);
         }
 
-        @Override
         @Blocking
-        public Image image() throws UncheckedIOException {
+        private Image readImage() throws UncheckedIOException {
             try {
                 var imageFile = file.absPath().toFile();
                 if (!imageFile.exists()) {
@@ -986,7 +1061,6 @@ public interface ContextFragment {
                 Image result = ImageIO.read(imageFile);
                 if (result == null) {
                     // ImageIO.read() returns null if no registered ImageReader can read the file
-                    // This can happen for unsupported formats, corrupted files, or non-image files
                     throw new UncheckedIOException(new IOException(
                             "Unable to read image file (unsupported format or corrupted): " + file.absPath()));
                 }
@@ -1002,69 +1076,53 @@ public interface ContextFragment {
         }
 
         @Override
-        public Set<CodeUnit> sources() {
-            return Set.of();
-        }
-
-        @Override
-        public Set<ProjectFile> files() {
-            return (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of();
-        }
-
-        @Override
-        public String format() {
-            // Format for LLM, indicating image content (similar to PasteImageFragment)
-            return """
-                    <file path="%s" fragmentid="%s">
-                    [Image content provided out of band]
-                    </file>
-                    """
-                    .formatted(file().toString(), id());
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            return ImageFileFragment.withId(file, id, contextManager);
-        }
-
-        @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<Set<CodeUnit>> sources() {
             return lazyInitCv(
-                    textCv,
-                    () -> textCv,
-                    () -> new ComputedValue<>("iff-text-" + id(), this::text, getFragmentExecutor()),
-                    v -> textCv = v);
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> ComputedValue.completed("iff-src-" + id(), Set.of()),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedDescription() {
-            return lazyInitCv(
-                    descCv,
-                    () -> descCv,
-                    () -> new ComputedValue<>("iff-desc-" + id(), this::description, getFragmentExecutor()),
-                    v -> descCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> computedSyntaxStyle() {
-            return lazyInitCv(
-                    syntaxCv,
-                    () -> syntaxCv,
-                    () -> new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
-                    v -> syntaxCv = v);
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> computedFiles() {
+        public ComputedValue<Set<ProjectFile>> files() {
             return lazyInitCv(
                     filesCv,
                     () -> filesCv,
-                    () -> new ComputedValue<>("iff-files-" + id(), this::files, getFragmentExecutor()),
+                    () -> ComputedValue.completed(
+                            "iff-files-" + id(), (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of()),
                     v -> filesCv = v);
         }
 
         @Override
-        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+        public ComputedValue<String> format() {
+            return lazyInitCv(
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "iff-format-" + id(),
+                            () ->
+                                    """
+                                    <file path="%s" fragmentid="%s">
+                                    [Image content provided out of band]
+                                    </file>
+                                    """
+                                            .formatted(file().toString(), id()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> syntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> ComputedValue.completed("iff-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public @Nullable ComputedValue<byte[]> imageBytes() {
             return lazyInitCv(
                     imageBytesCv,
                     () -> imageBytesCv,
@@ -1072,7 +1130,7 @@ public interface ContextFragment {
                             "iff-image-" + id(),
                             () -> {
                                 try {
-                                    return ImageUtil.imageToBytes(image());
+                                    return ImageUtil.imageToBytes(readImage());
                                 } catch (IOException e) {
                                     throw new UncheckedIOException(e);
                                 }
@@ -1097,8 +1155,8 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
-            return new ImageFileFragment(file, contextManager);
+        public ContextFragment refreshCopy() {
+            return ImageFileFragment.withId(file, id, contextManager);
         }
     }
 
@@ -1119,8 +1177,11 @@ public interface ContextFragment {
     }
 
     abstract class VirtualFragment implements ContextFragment {
-        protected final String id; // Changed from int to String
+        protected final String id; // numeric or content hash
         protected final transient IContextManager contextManager;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private transient @Nullable ComputedValue<String> formatCv;
 
         // Constructor for dynamic VirtualFragments that use nextId
         public VirtualFragment(IContextManager contextManager) {
@@ -1157,34 +1218,52 @@ public interface ContextFragment {
         }
 
         @Override
-        public String format() {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(description(), id(), text());
+        public ComputedValue<String> format() {
+            return lazyInitCv(
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "vf-format-" + id(),
+                            () ->
+                                    """
+                                    <fragment description="%s" fragmentid="%s">
+                                    %s
+                                    </fragment>
+                                    """
+                                            .formatted(
+                                                    description().future().join(),
+                                                    id(),
+                                                    text().future().join()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
         }
 
         @Override
-        public String shortDescription() {
-            assert !description().isEmpty();
-            return description();
+        public ComputedValue<String> shortDescription() {
+            var cd = description();
+            return ComputedValue.completed("vf-short-" + id(), cd.renderNowOr(""));
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            return parseProjectFiles(text(), contextManager.getProject());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>(
+                            "vf-files-" + id(),
+                            () -> parseProjectFiles(text().future().join(), contextManager.getProject()),
+                            getFragmentExecutor()),
+                    v -> filesCv = v);
         }
 
         @Override
-        public Set<CodeUnit> sources() {
-            return Set.of();
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> ComputedValue.completed("vf-sources-" + id(), Set.of()),
+                    v -> sourcesCv = v);
         }
-
-        @Override
-        public abstract String text();
 
         @Override
         public boolean hasSameSource(ContextFragment other) {
@@ -1282,7 +1361,6 @@ public interface ContextFragment {
             this.syntaxStyle = syntaxStyle;
             this.text = text;
             this.description = description;
-            // No need to call ContextFragment.setNextId() as hash IDs are not numeric.
         }
 
         @Override
@@ -1291,18 +1369,18 @@ public interface ContextFragment {
         }
 
         @Override
-        public String text() {
-            return text;
+        public ComputedValue<String> text() {
+            return ComputedValue.completed("sf-text-" + id, text);
         }
 
         @Override
-        public String description() {
-            return description;
+        public ComputedValue<String> description() {
+            return ComputedValue.completed("sf-desc-" + id, description);
         }
 
         @Override
-        public String syntaxStyle() {
-            return syntaxStyle;
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("sf-syntax-" + id, syntaxStyle);
         }
 
         /**
@@ -1318,10 +1396,7 @@ public interface ContextFragment {
          */
         public String previewSyntaxStyle() {
             var st = specialType();
-            if (st.isEmpty()) {
-                return syntaxStyle();
-            }
-            return st.get().previewSyntaxStyle();
+            return st.map(SpecialTextType::previewSyntaxStyle).orElse(syntaxStyle);
         }
 
         /**
@@ -1330,10 +1405,8 @@ public interface ContextFragment {
          */
         public String previewText() {
             var st = specialType();
-            if (st.isEmpty()) {
-                return text();
-            }
-            return st.get().previewRenderer().apply(text());
+            return st.map(specialTextType -> specialTextType.previewRenderer().apply(text))
+                    .orElse(text);
         }
 
         /**
@@ -1344,12 +1417,12 @@ public interface ContextFragment {
         public String textForAgent(TaskResult.Type taskType) {
             var st = specialType();
             if (st.isEmpty()) {
-                return text();
+                return text;
             }
             if (!st.get().canViewContent().test(taskType)) {
                 return "[%s content hidden for %s]".formatted(description, taskType.name());
             }
-            return text();
+            return text;
         }
 
         /**
@@ -1372,10 +1445,6 @@ public interface ContextFragment {
                 return false;
             }
 
-            // Special case: if both descriptions match the same StringFragmentTypes entry,
-            // they have the same source regardless of text or syntax style.
-            // This allows hardcoded system fragments (like BUILD_RESULTS, SEARCH_NOTES, etc.)
-            // to be recognized as equivalent even if their content differs.
             StringFragmentType thisType = getStringFragmentType(this.description);
             StringFragmentType thatType = getStringFragmentType(that.description);
 
@@ -1389,12 +1458,10 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     // FIXME SearchFragment does not preserve the tool calls output that the user sees during
@@ -1433,29 +1500,26 @@ public interface ContextFragment {
         }
 
         @Override
-        public Set<CodeUnit> sources() {
-            return sources; // Return pre-computed sources
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return ComputedValue.completed("sf-sources-" + id(), sources);
         }
 
         @Override
-        public Set<ProjectFile> files() {
-            // SearchFragment sources are pre-computed
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed(
+                    "sf-files-" + id(), sources.stream().map(CodeUnit::source).collect(Collectors.toSet()));
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment via TaskFragment)
     }
 
-    abstract class PasteFragment extends ContextFragment.VirtualFragment implements ComputedFragment {
+    abstract class PasteFragment extends ContextFragment.VirtualFragment {
         protected transient Future<String> descriptionFuture;
         private @Nullable ComputedValue<String> descriptionCv;
-        private @Nullable ComputedValue<String> syntaxCv;
         private @Nullable ComputedValue<Set<ProjectFile>> filesFuture;
 
         // PasteFragments are non-dynamic (content-hashed)
@@ -1467,13 +1531,7 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String description() {
-            return computedDescription().future().join();
-        }
-
-        @Override
-        public ComputedValue<String> computedDescription() {
+        public ComputedValue<String> description() {
             return lazyInitCv(
                     descriptionCv,
                     () -> descriptionCv,
@@ -1491,26 +1549,17 @@ public interface ContextFragment {
         }
 
         @Override
-        public ComputedValue<String> computedSyntaxStyle() {
-            return lazyInitCv(
-                    syntaxCv,
-                    () -> syntaxCv,
-                    () -> new ComputedValue<>("paste-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
-                    v -> syntaxCv = v);
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> computedFiles() {
+        public ComputedValue<Set<ProjectFile>> files() {
             return lazyInitCv(
                     filesFuture,
                     () -> filesFuture,
-                    () -> new ComputedValue<>("paste-files-" + id(), this::files, getFragmentExecutor()),
+                    () -> ComputedValue.completed("paste-files-" + id(), Set.of()),
                     v -> filesFuture = v);
         }
 
         @Override
         public String toString() {
-            return "PasteFragment('%s')".formatted(description());
+            return "PasteFragment('%s')".formatted(description().renderNowOr("(paste)"));
         }
 
         public Future<String> getDescriptionFuture() {
@@ -1523,8 +1572,6 @@ public interface ContextFragment {
             // Keeping the same instance preserves the content-hash id and ComputedValues.
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
@@ -1579,35 +1626,35 @@ public interface ContextFragment {
         }
 
         @Override
-        public String syntaxStyle() {
-            if (syntaxStyleFuture.isDone()) {
-                try {
-                    return syntaxStyleFuture.get();
-                } catch (Exception e) {
-                    return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-                }
-            }
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-        }
-
-        @Override
-        public ComputedValue<String> computedSyntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
             return lazyInitCv(
                     syntaxCv,
                     () -> syntaxCv,
-                    () -> new ComputedValue<>("ptf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    () -> new ComputedValue<>(
+                            "ptf-syntax-" + id(),
+                            () -> {
+                                if (syntaxStyleFuture.isDone()) {
+                                    try {
+                                        return syntaxStyleFuture.get();
+                                    } catch (Exception e) {
+                                        return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+                                    }
+                                }
+                                return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+                            },
+                            getFragmentExecutor()),
                     v -> syntaxCv = v);
         }
 
         @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<String> text() {
             return lazyInitCv(
                     textCv, () -> textCv, () -> ComputedValue.completed("ptf-text-" + id(), text), v -> textCv = v);
         }
 
         @Override
-        public String text() {
-            return text;
+        public ComputedValue<String> description() {
+            return super.description();
         }
 
         public Future<String> getSyntaxStyleFuture() {
@@ -1615,8 +1662,8 @@ public interface ContextFragment {
         }
 
         @Override
-        public String shortDescription() {
-            return "pasted text";
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("ptf-short-" + id(), "pasted text");
         }
 
         @Override
@@ -1629,7 +1676,7 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
@@ -1685,29 +1732,21 @@ public interface ContextFragment {
         }
 
         @Override
-        public String text() {
-            // return this text tu support ContextMenu Fragment > Copy
-            return "[Image content provided out of band]";
-        }
-
-        @Override
-        public ComputedValue<String> computedText() {
+        public ComputedValue<String> text() {
             return lazyInitCv(
-                    textCv, () -> textCv, () -> ComputedValue.completed("aif-text-" + id(), text()), v -> textCv = v);
+                    textCv,
+                    () -> textCv,
+                    () -> ComputedValue.completed("aif-text-" + id(), "[Image content provided out of band]"),
+                    v -> textCv = v);
         }
 
         @Override
-        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+        public @Nullable ComputedValue<byte[]> imageBytes() {
             return lazyInitCv(
                     imageBytesCv,
                     () -> imageBytesCv,
-                    () -> new ComputedValue<>("aif-image-" + id(), this::imageBytes, getFragmentExecutor()),
+                    () -> new ComputedValue<>("aif-image-" + id(), () -> imageToBytes(image), getFragmentExecutor()),
                     v -> imageBytesCv = v);
-        }
-
-        @Override
-        public Image image() {
-            return image;
         }
 
         @Override
@@ -1715,51 +1754,54 @@ public interface ContextFragment {
             return id();
         }
 
-        @Nullable
-        @Blocking
-        public byte[] imageBytes() {
-            return imageToBytes(image);
+        @Override
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("aif-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         @Override
-        public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        public ComputedValue<String> format() {
+            return new ComputedValue<>(
+                    "aif-format-" + id(),
+                    () ->
+                            """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                                    .formatted(
+                                            description().future().join(),
+                                            id(),
+                                            text().future().join()),
+                    getFragmentExecutor());
         }
 
         @Override
-        public String format() {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(description(), id(), text());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed("aif-files-" + id(), Set.of());
         }
 
         @Override
-        public Set<ProjectFile> files() {
-            return Set.of();
+        public ComputedValue<String> description() {
+            return new ComputedValue<>(
+                    "aif-desc-" + id(),
+                    () -> {
+                        try {
+                            return getDescriptionFuture().get();
+                        } catch (Exception e) {
+                            return "(Error summarizing paste)";
+                        }
+                    },
+                    getFragmentExecutor());
         }
 
         @Override
-        public String description() {
-            if (descriptionFuture.isDone()) {
-                try {
-                    return descriptionFuture.get();
-                } catch (Exception e) {
-                    return "(Error summarizing paste)";
-                }
-            }
-            return "(Summarizing. This does not block LLM requests)";
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("aif-short-" + id(), "pasted image");
         }
 
         @Override
-        public String shortDescription() {
-            return "pasted image";
-        }
-
-        @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
@@ -1810,33 +1852,35 @@ public interface ContextFragment {
         }
 
         @Override
-        public String text() {
-            return original + "\n\nStacktrace methods in this project:\n\n" + code;
+        public ComputedValue<String> text() {
+            return ComputedValue.completed(
+                    "stf-text-" + id(), original + "\n\nStacktrace methods in this project:\n\n" + code);
         }
 
         @Override
-        public Set<CodeUnit> sources() {
-            return sources; // Return pre-computed sources
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return ComputedValue.completed("stf-sources-" + id(), sources);
         }
 
         @Override
-        public Set<ProjectFile> files() {
-            // StacktraceFragment sources are pre-computed
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed(
+                    "stf-files-" + id(), sources.stream().map(CodeUnit::source).collect(Collectors.toSet()));
         }
 
         @Override
-        public String description() {
-            return "stacktrace of " + exception;
+        public ComputedValue<String> description() {
+            return ComputedValue.completed("stf-desc-" + id(), "stacktrace of " + exception);
         }
 
         @Override
-        public String syntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
             if (sources.isEmpty()) {
-                return SyntaxConstants.SYNTAX_STYLE_NONE;
+                return ComputedValue.completed("stf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
             }
             var firstClass = sources.iterator().next();
-            return firstClass.source().getSyntaxStyle();
+            return ComputedValue.completed(
+                    "stf-syntax-" + id(), firstClass.source().getSyntaxStyle());
         }
 
         public String getOriginal() {
@@ -1852,17 +1896,20 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     class UsageFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<String> descCv;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, true);
@@ -1894,22 +1941,33 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String text() {
-            var analyzer = getAnalyzer();
-            if (analyzer.isEmpty()) {
-                return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
-            }
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "usg-text-" + id(),
+                            () -> {
+                                var analyzer = getAnalyzer();
+                                if (analyzer.isEmpty()) {
+                                    return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
+                                }
+                                FuzzyResult usageResult = FuzzyUsageFinder.create(getContextManager())
+                                        .findUsages(targetIdentifier);
 
-            var either = usageResult.toEither();
-            if (either.hasErrorMessage()) {
-                return either.getErrorMessage();
-            }
+                                var either = usageResult.toEither();
+                                if (either.hasErrorMessage()) {
+                                    return either.getErrorMessage();
+                                }
 
-            List<CodeWithSource> parts = processUsages(analyzer, either);
-            var formatted = CodeWithSource.text(parts);
-            return formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
+                                List<CodeWithSource> parts = processUsages(analyzer, either);
+                                var formatted = CodeWithSource.text(parts);
+                                return formatted.isEmpty()
+                                        ? "No relevant usages found for symbol: " + targetIdentifier
+                                        : formatted;
+                            },
+                            getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         private List<CodeWithSource> processUsages(IAnalyzer analyzer, FuzzyResult.EitherUsagesOrError either) {
@@ -1926,37 +1984,52 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            if (SwingUtilities.isEventDispatchThread()) {
-                logger.warn("Calling blocking UsageFragments.sources on EDT thread!");
-            }
-            var analyzer = getAnalyzer();
-            if (analyzer.isEmpty()) {
-                return Collections.emptySet();
-            }
-            FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
-
-            var either = usageResult.toEither();
-            if (either.hasErrorMessage()) {
-                return Collections.emptySet();
-            }
-
-            List<CodeWithSource> parts = processUsages(analyzer, either);
-            return parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> new ComputedValue<>(
+                            "usg-sources-" + id(),
+                            () -> {
+                                var analyzer = getAnalyzer();
+                                if (analyzer.isEmpty()) {
+                                    return Collections.emptySet();
+                                }
+                                FuzzyResult usageResult = FuzzyUsageFinder.create(getContextManager())
+                                        .findUsages(targetIdentifier);
+                                var either = usageResult.toEither();
+                                if (either.hasErrorMessage()) {
+                                    return Collections.emptySet();
+                                }
+                                List<CodeWithSource> parts = processUsages(analyzer, either);
+                                return parts.stream()
+                                        .map(AnalyzerUtil.CodeWithSource::source)
+                                        .collect(Collectors.toSet());
+                            },
+                            getFragmentExecutor()),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            final var allSources = sources().stream().map(CodeUnit::source);
-            if (!includeTestFiles) {
-                return allSources
-                        .filter(source -> !ContextManager.isTestFile(source))
-                        .collect(Collectors.toSet());
-            } else {
-                return allSources.collect(Collectors.toSet());
-            }
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>(
+                            "usg-files-" + id(),
+                            () -> {
+                                final var allSources =
+                                        this.sources().future().join().stream().map(CodeUnit::source);
+                                if (!includeTestFiles) {
+                                    return allSources
+                                            .filter(source -> !ContextManager.isTestFile(source))
+                                            .collect(Collectors.toSet());
+                                } else {
+                                    return allSources.collect(Collectors.toSet());
+                                }
+                            },
+                            getFragmentExecutor()),
+                    v -> filesCv = v);
         }
 
         @Override
@@ -1965,16 +2038,27 @@ public interface ContextFragment {
         }
 
         @Override
-        public String description() {
-            return "Uses of %s".formatted(targetIdentifier);
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> ComputedValue.completed("usg-desc-" + id(), "Uses of %s".formatted(targetIdentifier)),
+                    v -> descCv = v);
         }
 
         @Override
-        public String syntaxStyle() {
-            return sources().stream()
-                    .findFirst()
-                    .map(s -> s.source().getSyntaxStyle())
-                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
+        public ComputedValue<String> syntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>(
+                            "usg-syntax-" + id(),
+                            () -> this.sources().future().join().stream()
+                                    .findFirst()
+                                    .map(s -> s.source().getSyntaxStyle())
+                                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE),
+                            getFragmentExecutor()),
+                    v -> syntaxCv = v);
         }
 
         public String targetIdentifier() {
@@ -1986,24 +2070,24 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
-            var repl = new UsageFragment(getContextManager(), targetIdentifier, includeTestFiles); // fresh dynamic ID
-            return repl;
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
+    /**
+     * Dynamic fragment that wraps a single CodeUnit and renders the full source
+     */
     class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
         private @Nullable ComputedValue<CodeUnit> unitCv;
         private @Nullable CodeUnit preResolvedUnit;
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<String> descCv;
+        private @Nullable ComputedValue<String> shortCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<String> syntaxCv;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
             super(contextManager);
@@ -2038,7 +2122,7 @@ public interface ContextFragment {
             return FragmentType.CODE;
         }
 
-        private ComputedValue<CodeUnit> getComputedUnit() {
+        public ComputedValue<CodeUnit> computedUnit() {
             return lazyInitCv(
                     unitCv,
                     () -> unitCv,
@@ -2061,59 +2145,90 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String description() {
-            return getComputedUnit()
-                    .future()
-                    .thenApply(CodeUnit::shortName)
-                    .thenApply(shortName -> "Source for " + shortName)
-                    .join();
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> computedUnit()
+                            .future()
+                            .thenApply(CodeUnit::shortName)
+                            .thenApply(shortName -> "Source for " + shortName)
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> descCv = v);
         }
 
         @Override
-        @Blocking
-        public String shortDescription() {
-            return getComputedUnit().future().thenApply(CodeUnit::shortName).join();
+        public ComputedValue<String> shortDescription() {
+            return lazyInitCv(
+                    shortCv,
+                    () -> shortCv,
+                    () -> computedUnit()
+                            .future()
+                            .thenApply(CodeUnit::shortName)
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> shortCv = v);
         }
 
         @Override
-        @Blocking
-        public String text() {
-            var analyzer = getAnalyzer();
-            var unit = getComputedUnit().future().join(); // block on future
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "cf-text-" + id(),
+                            () -> {
+                                var analyzer = getAnalyzer();
+                                var unit = computedUnit().future().join();
+                                var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+                                if (maybeSourceCodeProvider.isEmpty()) {
+                                    return "Code Intelligence cannot extract source for: " + fullyQualifiedName;
+                                }
+                                var scp = maybeSourceCodeProvider.get();
 
-            var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
-            if (maybeSourceCodeProvider.isEmpty()) {
-                return "Code Intelligence cannot extract source for: " + fullyQualifiedName;
-            }
-            var scp = maybeSourceCodeProvider.get();
-
-            if (unit.isFunction()) {
-                var code = scp.getMethodSource(unit, true).orElse("");
-                if (!code.isEmpty()) {
-                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
-                }
-                return "No source found for method: " + fullyQualifiedName;
-            } else {
-                var code = scp.getClassSource(unit, true).orElse("");
-                if (!code.isEmpty()) {
-                    return new AnalyzerUtil.CodeWithSource(code, unit).text();
-                }
-                return "No source found for class: " + fullyQualifiedName;
-            }
+                                if (unit.isFunction()) {
+                                    var code = scp.getMethodSource(unit, true).orElse("");
+                                    if (!code.isEmpty()) {
+                                        return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                                    }
+                                    return "No source found for method: " + fullyQualifiedName;
+                                } else {
+                                    var code = scp.getClassSource(unit, true).orElse("");
+                                    if (!code.isEmpty()) {
+                                        return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                                    }
+                                    return "No source found for class: " + fullyQualifiedName;
+                                }
+                            },
+                            getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            var unit = getComputedUnit().future().join();
-            return Set.of(unit);
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> computedUnit()
+                            .future()
+                            .thenApply(u -> Set.of(u))
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> this.sources()
+                            .future()
+                            .thenApply(set -> set.stream().map(CodeUnit::source).collect(Collectors.toSet()))
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> filesCv = v);
         }
 
         @Override
@@ -2122,10 +2237,16 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String syntaxStyle() {
-            var unit = getComputedUnit().future().join();
-            return unit.source().getSyntaxStyle();
+        public ComputedValue<String> syntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> computedUnit()
+                            .future()
+                            .thenApply(u -> u.source().getSyntaxStyle())
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> syntaxCv = v);
         }
 
         public String getFullyQualifiedName() {
@@ -2133,27 +2254,19 @@ public interface ContextFragment {
         }
 
         @Override
-        public CodeFragment copy() {
-            var repl = new CodeFragment(getContextManager(), fullyQualifiedName); // fresh dynamic ID
-            return repl;
-        }
-
-        public ComputedValue<CodeUnit> computedUnit() {
-            return getComputedUnit();
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return new CodeFragment(id(), getContextManager(), fullyQualifiedName);
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     class CallGraphFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<String> descCv;
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(contextManager); // Assigns dynamic numeric String ID
@@ -2185,47 +2298,71 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String text() {
-            var analyzer = getAnalyzer();
-            var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "cgf-text-" + id(),
+                            () -> {
+                                var analyzer = getAnalyzer();
+                                var methodCodeUnit =
+                                        analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
 
-            if (methodCodeUnit.isEmpty()) {
-                return "Method not found: " + methodName;
-            }
+                                if (methodCodeUnit.isEmpty()) {
+                                    return "Method not found: " + methodName;
+                                }
 
-            final Map<String, List<CallSite>> graphData = new HashMap<>();
-            final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
+                                final Map<String, List<CallSite>> graphData = new HashMap<>();
+                                final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
 
-            if (maybeCallGraphProvider.isPresent()) {
-                var cpg = maybeCallGraphProvider.get();
-                if (isCalleeGraph) {
-                    graphData.putAll(cpg.getCallgraphFrom(methodCodeUnit.get(), depth));
-                } else {
-                    graphData.putAll(cpg.getCallgraphTo(methodCodeUnit.get(), depth));
-                }
-            } else {
-                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-            }
+                                if (maybeCallGraphProvider.isPresent()) {
+                                    var cpg = maybeCallGraphProvider.get();
+                                    if (isCalleeGraph) {
+                                        graphData.putAll(cpg.getCallgraphFrom(methodCodeUnit.get(), depth));
+                                    } else {
+                                        graphData.putAll(cpg.getCallgraphTo(methodCodeUnit.get(), depth));
+                                    }
+                                } else {
+                                    return "Code intelligence is not ready. Cannot generate call graph for "
+                                            + methodName + ".";
+                                }
 
-            if (graphData.isEmpty()) {
-                return "No call graph available for " + methodName;
-            }
-            return AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
+                                if (graphData.isEmpty()) {
+                                    return "No call graph available for " + methodName;
+                                }
+                                return AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
+                            },
+                            getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            // FIXME this is broken, needs to include the actual call sites as well
-            IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDefinition(methodName).map(Set::of).orElse(Set.of());
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> new ComputedValue<>(
+                            "cgf-sources-" + id(),
+                            () -> getAnalyzer()
+                                    .getDefinition(methodName)
+                                    .map(Set::of)
+                                    .orElse(Set.of()),
+                            getFragmentExecutor()),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> this.sources()
+                            .future()
+                            .thenApply(set -> set.stream().map(CodeUnit::source).collect(Collectors.toSet()))
+                            .thenApply(ComputedValue::completed)
+                            .join(),
+                    v -> filesCv = v);
         }
 
         @Override
@@ -2235,14 +2372,15 @@ public interface ContextFragment {
         }
 
         @Override
-        public String description() {
+        public ComputedValue<String> description() {
             String type = isCalleeGraph ? "Callees" : "Callers";
-            return "%s of %s (depth %d)".formatted(type, methodName, depth);
+            return ComputedValue.completed(
+                    "cgf-desc-" + id(), "%s of %s (depth %d)".formatted(type, methodName, depth));
         }
 
         @Override
-        public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_NONE; // Call graph is textual, not specific code language
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("cgf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         public String getMethodName() {
@@ -2261,14 +2399,6 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             return new CallGraphFragment(id(), getContextManager(), methodName, depth, isCalleeGraph);
         }
-
-        @Override
-        public ContextFragment copy() {
-            // Dynamic identity; return a new instance with a fresh ID
-            return new CallGraphFragment(getContextManager(), methodName, depth, isCalleeGraph);
-        }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     enum SummaryType {
@@ -2278,6 +2408,11 @@ public interface ContextFragment {
 
     class SkeletonFragment extends ComputedVirtualFragment { // Dynamic composite wrapper around SummaryFragments
         private final List<SummaryFragment> summaries;
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<String> descCv;
+        private @Nullable ComputedValue<String> formatCv;
 
         public SkeletonFragment(
                 IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
@@ -2306,21 +2441,41 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String text() {
-            return SummaryFragment.combinedText(summaries);
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "skf-text-" + id(), () -> SummaryFragment.combinedText(summaries), getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            return summaries.stream().flatMap(s -> s.sources().stream()).collect(Collectors.toSet());
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> new ComputedValue<>(
+                            "skf-sources-" + id(),
+                            () -> summaries.stream()
+                                    .flatMap(s -> s.sources().future().join().stream())
+                                    .collect(Collectors.toSet()),
+                            getFragmentExecutor()),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            return summaries.stream().flatMap(s -> s.files().stream()).collect(Collectors.toSet());
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>(
+                            "skf-files-" + id(),
+                            () -> summaries.stream()
+                                    .flatMap(s -> s.files().future().join().stream())
+                                    .collect(Collectors.toSet()),
+                            getFragmentExecutor()),
+                    v -> filesCv = v);
         }
 
         @Override
@@ -2338,26 +2493,35 @@ public interface ContextFragment {
         }
 
         @Override
-        public String description() {
-            var targets = getTargetIdentifiers();
-            return "Summary of %s".formatted(String.join(", ", targets));
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> ComputedValue.completed(
+                            "skf-desc-" + id(), "Summary of %s".formatted(String.join(", ", getTargetIdentifiers()))),
+                    v -> descCv = v);
         }
 
         @Override
-        public boolean isEligibleForAutoContext() {
-            return false;
-        }
-
-        @Override
-        public String format() {
-            var targets = getTargetIdentifiers();
-            var summaryType = getSummaryType();
-            return """
-                    <summary targets="%s" type="%s" fragmentid="%s">
-                    %s
-                    </summary>
-                    """
-                    .formatted(String.join(", ", targets), summaryType.name(), id(), text());
+        public ComputedValue<String> format() {
+            return lazyInitCv(
+                    formatCv,
+                    () -> formatCv,
+                    () -> new ComputedValue<>(
+                            "skf-format-" + id(),
+                            () ->
+                                    """
+                                    <summary targets="%s" type="%s" fragmentid="%s">
+                                    %s
+                                    </summary>
+                                    """
+                                            .formatted(
+                                                    String.join(", ", getTargetIdentifiers()),
+                                                    getSummaryType().name(),
+                                                    id(),
+                                                    text().future().join()),
+                            getFragmentExecutor()),
+                    v -> formatCv = v);
         }
 
         public List<String> getTargetIdentifiers() {
@@ -2372,34 +2536,29 @@ public interface ContextFragment {
         }
 
         @Override
-        public String syntaxStyle() {
+        public ComputedValue<String> syntaxStyle() {
             // Skeletons are usually in the language of the summarized code.
-            // Default to Java or try to infer from a source CodeUnit if available.
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            return ComputedValue.completed("skf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_JAVA);
         }
 
         @Override
         public String toString() {
-            return "SkeletonFragment('%s')".formatted(description());
+            return "SkeletonFragment('%s')".formatted(this.description().renderNowOr(""));
         }
 
         @Override
         public ContextFragment refreshCopy() {
             return new SkeletonFragment(id(), getContextManager(), getTargetIdentifiers(), getSummaryType());
         }
-
-        @Override
-        public ContextFragment copy() {
-            // Dynamic identity; return a new instance with a fresh ID
-            return new SkeletonFragment(getContextManager(), getTargetIdentifiers(), getSummaryType());
-        }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private @Nullable ComputedValue<String> descCv;
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             super(contextManager);
@@ -2444,29 +2603,50 @@ public interface ContextFragment {
         }
 
         @Override
-        @Blocking
-        public String text() {
-            Map<CodeUnit, String> skeletons = fetchSkeletons();
-            if (skeletons.isEmpty()) {
-                return "No summary found for: " + targetIdentifier;
-            }
-            return combinedText(List.of(this));
+        public ComputedValue<String> text() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "sumf-text-" + id(),
+                            () -> {
+                                Map<CodeUnit, String> skeletons = fetchSkeletons();
+                                if (skeletons.isEmpty()) {
+                                    return "No summary found for: " + targetIdentifier;
+                                }
+                                return combinedText(List.of(this));
+                            },
+                            getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<CodeUnit> sources() {
-            return fetchSkeletons().keySet();
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return lazyInitCv(
+                    sourcesCv,
+                    () -> sourcesCv,
+                    () -> new ComputedValue<>(
+                            "sumf-src-" + id(), () -> fetchSkeletons().keySet(), getFragmentExecutor()),
+                    v -> sourcesCv = v);
         }
 
         @Override
-        @Blocking
-        public Set<ProjectFile> files() {
-            return switch (summaryType) {
-                case CODEUNIT_SKELETON ->
-                    sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
-                case FILE_SKELETONS -> Set.of(contextManager.toFile(targetIdentifier));
-            };
+        public ComputedValue<Set<ProjectFile>> files() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>(
+                            "sumf-files-" + id(),
+                            () -> switch (summaryType) {
+                                case CODEUNIT_SKELETON ->
+                                    this.sources().future().join().stream()
+                                            .map(CodeUnit::source)
+                                            .collect(Collectors.toSet());
+                                case FILE_SKELETONS ->
+                                    Set.of(getContextManager().toFile(targetIdentifier));
+                            },
+                            getFragmentExecutor()),
+                    v -> filesCv = v);
         }
 
         @Override
@@ -2478,13 +2658,17 @@ public interface ContextFragment {
         }
 
         @Override
-        public String description() {
-            return "Summary of %s".formatted(targetIdentifier);
+        public ComputedValue<String> description() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> ComputedValue.completed("sumf-desc-" + id(), "Summary of %s".formatted(targetIdentifier)),
+                    v -> descCv = v);
         }
 
         @Override
-        public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("sumf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_JAVA);
         }
 
         public String getTargetIdentifier() {
@@ -2501,21 +2685,13 @@ public interface ContextFragment {
 
         @Override
         public String toString() {
-            return "SummaryFragment('%s')".formatted(description());
+            return "SummaryFragment('%s')".formatted(this.description().renderNowOr(""));
         }
 
         @Override
         public ContextFragment refreshCopy() {
             return new SummaryFragment(id(), getContextManager(), targetIdentifier, summaryType);
         }
-
-        @Override
-        public ContextFragment copy() {
-            // Dynamic identity; return a new instance with a fresh ID
-            return new SummaryFragment(getContextManager(), targetIdentifier, summaryType);
-        }
-
-        // Use identity-based equals (inherited from VirtualFragment)
 
         public static String combinedText(Collection<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
@@ -2563,13 +2739,17 @@ public interface ContextFragment {
     interface OutputFragment {
         List<TaskEntry> entries();
 
-        /** Should raw HTML inside markdown be escaped before rendering? */
+        /**
+         * Should raw HTML inside markdown be escaped before rendering?
+         */
         default boolean isEscapeHtml() {
             return true;
         }
     }
 
-    /** represents the entire Task History */
+    /**
+     * represents the entire Task History
+     */
     class HistoryFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<TaskEntry> history; // Content is fixed once created
 
@@ -2606,34 +2786,41 @@ public interface ContextFragment {
         }
 
         @Override
-        public String text() {
-            // FIXME the right thing to do here is probably to throw UncheckedIOException,
-            // but lots of stuff breaks without text(), so I am putting that off for another refactor
-            return TaskEntry.formatMessages(history.stream()
-                    .flatMap(e -> e.isCompressed()
-                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                            : castNonNull(e.log()).messages().stream())
-                    .toList());
+        public ComputedValue<String> text() {
+            return new ComputedValue<>(
+                    "hf-text-" + id(),
+                    () -> TaskEntry.formatMessages(history.stream()
+                            .flatMap(e -> e.isCompressed()
+                                    ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                    : castNonNull(e.log()).messages().stream())
+                            .toList()),
+                    getFragmentExecutor());
         }
 
         @Override
-        public Set<ProjectFile> files() {
-            return Set.of();
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed("hf-files-" + id(), Set.of());
         }
 
         @Override
-        public String description() {
-            return "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : "");
+        public ComputedValue<String> description() {
+            return ComputedValue.completed(
+                    "hf-desc-" + id(),
+                    "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : ""));
         }
 
         @Override
-        public String format() {
-            return """
-                    <taskhistory fragmentid="%s">
-                    %s
-                    </taskhistory>
-                    """
-                    .formatted(id(), text()); // Analyzer not used by its text()
+        public ComputedValue<String> format() {
+            return new ComputedValue<>(
+                    "hf-format-" + id(),
+                    () ->
+                            """
+                            <taskhistory fragmentid="%s">
+                            %s
+                            </taskhistory>
+                            """
+                                    .formatted(id(), text().future().join()),
+                    getFragmentExecutor());
         }
 
         @Override
@@ -2642,20 +2829,20 @@ public interface ContextFragment {
         }
 
         @Override
-        public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("hf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
         }
 
         @Override
-        public ContextFragment copy() {
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    /** represents a single session's Task History */
+    /**
+     * represents a single session's Task History
+     */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<ChatMessage> messages; // Content is fixed once created
 
@@ -2684,8 +2871,6 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(calculateId(description, messages), contextManager); // ID is content hash
-            // don't break sessions saved like this
-            // assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;
@@ -2710,8 +2895,6 @@ public interface ContextFragment {
                 String description,
                 boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
-            // don't break sessions saved like this
-            // assert !messages.isEmpty() : "No messages provided in the task fragment";
             this.parser = parser;
             this.messages = List.copyOf(messages);
             this.description = description;
@@ -2753,20 +2936,19 @@ public interface ContextFragment {
         }
 
         @Override
-        public String description() {
-            return description;
+        public ComputedValue<String> description() {
+            return ComputedValue.completed("tf-desc-" + id(), description);
         }
 
         @Override
-        public String text() {
-            // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
-            // but lots of stuff breaks without text(), so I am putting that off for another refactor
-            return TaskEntry.formatMessages(messages);
+        public ComputedValue<String> text() {
+            return new ComputedValue<>(
+                    "tf-text-" + id(), () -> TaskEntry.formatMessages(messages), getFragmentExecutor());
         }
 
         @Override
-        public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("tf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
         }
 
         public List<ChatMessage> messages() {
@@ -2779,11 +2961,14 @@ public interface ContextFragment {
         }
 
         @Override
-        public ContextFragment copy() {
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed("tf-files-" + id(), Set.of());
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
-
-        // Use identity-based equals (inherited from VirtualFragment)
     }
 }
