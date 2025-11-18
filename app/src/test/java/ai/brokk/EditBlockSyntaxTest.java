@@ -231,11 +231,19 @@ public class EditBlockSyntaxTest {
         AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
                 content, "if (true) {", expectedSigIndent + expectedIndentDelta, "Nested block indentation mismatch");
 
-        // The println should be indented one level deeper than the 'if' line
+        // The 'if' block is indented by expectedIndentDelta relative to the signature.
+        int ifIndent = expectedSigIndent + expectedIndentDelta;
+        // In the replacement block, the println is 4 spaces deeper than the 'if'.
+        // This 4-space delta should also be scaled by the same factor used for the 'if' statement's indent.
+        // The scaling factor is derived from the analyzer snippet's first indent level (expectedIndentDelta)
+        // and the replacement block's first indent level (hardcoded as 4 for this test).
+        double scale = (expectedIndentDelta > 0) ? (double) expectedIndentDelta / 4.0 : 1.0;
+        int printlnIndent = ifIndent + (int) Math.round(4 * scale);
+
         AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
                 content,
                 "System.out.println(\"nested indent preserved\");",
-                expectedSigIndent + expectedIndentDelta + expectedIndentDelta,
+                printlnIndent,
                 "Inner statement indentation mismatch");
     }
 

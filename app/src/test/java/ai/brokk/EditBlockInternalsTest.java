@@ -184,7 +184,7 @@ class EditBlockInternalsTest {
                 """
                 line1
                     new_line2
-                    new_line3
+                        new_line3
                 """;
 
         String updated = replaceMostSimilarChunk(original, search, replace);
@@ -275,7 +275,7 @@ class EditBlockInternalsTest {
                 """
                 line1
                     NEW_line2
-                    NEW_line3
+                        NEW_line3
                 line4
                 """;
 
