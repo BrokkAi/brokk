@@ -450,6 +450,56 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
 
+    /**
+     * Asynchronously saves a keybinding to persistent storage and provides optional UI feedback.
+     *
+     * @param id                 the keybinding id (e.g., "instructions.submit").
+     * @param stroke             the KeyStroke to persist.
+     * @param refreshKeybindings whether to call chrome.refreshKeybindings() on success.
+     * @param onSuccessMessage   optional Runnable to execute on success (e.g., to show a dialog).
+     * @param dialogParent       the component to use as parent for JOptionPane dialogs.
+     * @param failureContext     short string describing what failed (e.g., "save keybinding", "clear keybinding").
+     */
+    private void saveKeybindingAsync(
+            String id,
+            KeyStroke stroke,
+            boolean refreshKeybindings,
+            @Nullable Runnable onSuccessMessage,
+            Component dialogParent,
+            String failureContext) {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                GlobalUiSettings.saveKeybinding(id, stroke);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get(); // Check if background save succeeded
+                    if (refreshKeybindings) {
+                        try {
+                            chrome.refreshKeybindings();
+                        } catch (Exception ex) {
+                            logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                        }
+                    }
+                    if (onSuccessMessage != null) {
+                        onSuccessMessage.run();
+                    }
+                } catch (Exception ex) {
+                    logger.error("Failed to {}", failureContext, ex);
+                    JOptionPane.showMessageDialog(
+                            dialogParent,
+                            "Failed to " + failureContext + ": " + ex.getMessage(),
+                            "Save Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
     private JPanel createKeybindingsPanel() {
         var panel = new JPanel(new GridBagLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -524,65 +574,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         }
                     }
 
-                    // Save keybinding in background to avoid EDT blocking
-                    var keystrokeToSave = captured;
+                    // Update field and save keybinding in background
                     field.setText(formatKeyStroke(captured));
-
-                    new SwingWorker<Void, Void>() {
-                        @Override
-                        protected Void doInBackground() {
-                            GlobalUiSettings.saveKeybinding(id, keystrokeToSave);
-                            return null;
-                        }
-
-                        @Override
-                        protected void done() {
-                            try {
-                                get(); // Check if background save succeeded
-                                // Immediately refresh global keybindings so changes take effect
-                                try {
-                                    chrome.refreshKeybindings();
-                                } catch (Exception ex) {
-                                    logger.debug("refreshKeybindings failed (non-fatal)", ex);
-                                }
-                                JOptionPane.showMessageDialog(panel, "Saved and applied.");
-                            } catch (Exception ex) {
-                                logger.error("Failed to save keybinding", ex);
-                                JOptionPane.showMessageDialog(
-                                        panel,
-                                        "Failed to save keybinding: " + ex.getMessage(),
-                                        "Save Error",
-                                        JOptionPane.ERROR_MESSAGE);
-                            }
-                        }
-                    }.execute();
+                    Runnable onSuccess = () -> JOptionPane.showMessageDialog(panel, "Saved and applied.");
+                    saveKeybindingAsync(id, captured, true, onSuccess, panel, "save keybinding");
                 });
 
                 clearBtn.addActionListener(ev -> {
                     field.setText(formatKeyStroke(def));
-
-                    // Save keybinding in background to avoid EDT blocking
-                    new SwingWorker<Void, Void>() {
-                        @Override
-                        protected Void doInBackground() {
-                            GlobalUiSettings.saveKeybinding(id, def);
-                            return null;
-                        }
-
-                        @Override
-                        protected void done() {
-                            try {
-                                get(); // Check if background save succeeded
-                            } catch (Exception ex) {
-                                logger.error("Failed to clear keybinding", ex);
-                                JOptionPane.showMessageDialog(
-                                        panel,
-                                        "Failed to clear keybinding: " + ex.getMessage(),
-                                        "Save Error",
-                                        JOptionPane.ERROR_MESSAGE);
-                            }
-                        }
-                    }.execute();
+                    saveKeybindingAsync(id, def, false, null, panel, "clear keybinding");
                 });
             }
         }
