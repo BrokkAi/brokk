@@ -340,13 +340,13 @@ public final class TreeSitterStateIO {
      */
     public static TreeSitterAnalyzer.AnalyzerState fromDto(AnalyzerStateDto dto) {
         // Rebuild symbol index PMap
-        Map<String, List<CodeUnit>> symbolIndexMap = new HashMap<>();
+        Map<String, Set<CodeUnit>> symbolIndexMap = new HashMap<>();
         for (var e : dto.symbolIndex().entrySet()) {
-            var list = new ArrayList<CodeUnit>(e.getValue().size());
-            for (var cuDto : e.getValue()) list.add(fromDto(cuDto));
-            symbolIndexMap.put(e.getKey(), list);
+            var set = new HashSet<CodeUnit>(e.getValue().size());
+            for (var cuDto : e.getValue()) set.add(fromDto(cuDto));
+            symbolIndexMap.put(e.getKey(), set);
         }
-        PMap<String, List<CodeUnit>> symbolIndex = HashTreePMap.from(symbolIndexMap);
+        PMap<String, Set<CodeUnit>> symbolIndex = HashTreePMap.from(symbolIndexMap);
 
         // Rebuild codeUnitState PMap
         Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> cuState = new HashMap<>();
