@@ -189,6 +189,7 @@ public class Context {
         return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
     }
 
+    @Blocking
     public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
         // Build a list of unique new path fragments
         var toAdd = new ArrayList<ContextFragment.PathFragment>();
@@ -204,11 +205,12 @@ public class Context {
         }
 
         // filter out summaries of files that we're now adding in full
-        var filesToAdd = toAdd.stream().flatMap(pf -> pf.files().stream()).collect(Collectors.toSet());
+        var filesToAdd =
+                toAdd.stream().flatMap(pf -> pf.files().join().stream()).collect(Collectors.toSet());
         var newFragments = fragments.stream()
                 .filter(f -> {
                     if (f.getType() == ContextFragment.FragmentType.SKELETON) {
-                        var summaryFiles = f.files();
+                        var summaryFiles = f.files().join();
                         return Collections.disjoint(summaryFiles, filesToAdd);
                     }
                     return true;
@@ -217,8 +219,10 @@ public class Context {
 
         newFragments.addAll(toAdd);
 
-        String actionDetails =
-                toAdd.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
+        String actionDetails = toAdd.stream()
+                .map(ContextFragment::shortDescription)
+                .map(ComputedValue::join)
+                .collect(Collectors.joining(", "));
         String action = "Edit " + actionDetails;
         return withFragments(newFragments, CompletableFuture.completedFuture(action));
     }
@@ -277,19 +281,20 @@ public class Context {
     /**
      * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
      */
+    @Blocking
     public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
 
         record WeightedFile(ProjectFile file, double weight) {}
 
         var weightedSeeds = fragments.stream()
-                .filter(f -> !f.files().isEmpty())
+                .filter(f -> !f.files().join().isEmpty())
                 .flatMap(fragment -> {
-                    double weight = Math.sqrt(1.0 / fragment.files().size());
-                    return fragment.files().stream().map(file -> new WeightedFile(file, weight));
+                    double weight = Math.sqrt(1.0 / fragment.files().join().size());
+                    return fragment.files().join().stream().map(file -> new WeightedFile(file, weight));
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
@@ -355,7 +360,9 @@ public class Context {
         return groupLabel;
     }
 
-    /** Convenience overload to test if a fragment instance is tracked as read-only in this Context. */
+    /**
+     * Convenience overload to test if a fragment instance is tracked as read-only in this Context.
+     */
     public boolean isReadOnly(ContextFragment fragment) {
         return markedReadonlyFragments.contains(fragment);
     }
@@ -493,22 +500,17 @@ public class Context {
         Future<String> actionFuture;
         String actionPrefix = readonly ? "Set Read-Only: " : "Unset Read-Only: ";
 
-        if (fragment instanceof ContextFragment.ComputedFragment cfComp) {
-            var cv = cfComp.computedDescription();
-            cv.start();
-            var actionCf = new CompletableFuture<String>();
-            cv.onComplete((label, ex) -> {
-                if (ex != null) {
-                    logger.error("Exception occurred while computing fragment description!");
-                } else {
-                    actionCf.complete(actionPrefix + label);
-                }
-            });
-            actionFuture = actionCf;
-        } else {
-            String label = fragment.shortDescription();
-            actionFuture = CompletableFuture.completedFuture(actionPrefix + label);
-        }
+        var cv = fragment.description();
+        cv.start();
+        var actionCf = new CompletableFuture<String>();
+        cv.onComplete((label, ex) -> {
+            if (ex != null) {
+                logger.error("Exception occurred while computing fragment description!");
+            } else {
+                actionCf.complete(actionPrefix + label);
+            }
+        });
+        actionFuture = actionCf;
 
         return new Context(
                 newContextId(), contextManager, fragments, taskHistory, null, actionFuture, null, null, newReadOnly);
@@ -746,11 +748,13 @@ public class Context {
      * Retrieves the Discarded Context special fragment and returns a Map of description -> explanation.
      * Parses JSON directly; returns an empty map if absent or parse fails.
      */
+    @Blocking
     public Map<String, String> getDiscardedFragmentsNote() {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
                 .map(sf -> {
                     try {
-                        Map<String, Object> raw = Json.fromJson(sf.text(), new TypeReference<Map<String, Object>>() {});
+                        Map<String, Object> raw =
+                                Json.fromJson(sf.text().join(), new TypeReference<Map<String, Object>>() {});
                         return raw.entrySet().stream()
                                 .collect(Collectors.toMap(
                                         Map.Entry::getKey,
@@ -767,20 +771,24 @@ public class Context {
 
     // --- SpecialTextType helpers ---
 
+    @Blocking
     public Optional<ContextFragment.StringFragment> getSpecial(String description) {
         var desc = description;
         return virtualFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                .filter(f -> f instanceof ContextFragment.StringFragment sf
+                        && desc.equals(sf.description().join()))
                 .map(ContextFragment.StringFragment.class::cast)
                 .findFirst();
     }
 
+    @Blocking
     public Context putSpecial(SpecialTextType type, String content) {
         var desc = type.description();
 
         var idsToDrop = type.singleton()
                 ? virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.StringFragment sf && desc.equals(sf.description()))
+                        .filter(f -> f instanceof ContextFragment.StringFragment sf
+                                && desc.equals(sf.description().join()))
                         .map(ContextFragment::id)
                         .toList()
                 : List.<String>of();
@@ -805,9 +813,11 @@ public class Context {
                 afterClear.markedReadonlyFragments);
     }
 
+    @Blocking
     public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
         var current = getSpecial(type.description())
                 .map(ContextFragment.StringFragment::text)
+                .map(ComputedValue::join)
                 .orElse("");
         var updated = updater.apply(current);
         return putSpecial(type, updated);
@@ -1026,8 +1036,12 @@ public class Context {
      * Returns the processed output text from the latest build failure fragment in this Context. Empty string if there
      * is no build failure recorded.
      */
+    @Blocking
     public String getBuildError() {
-        return getBuildFragment().map(ContextFragment.VirtualFragment::text).orElse("");
+        return getBuildFragment()
+                .map(ContextFragment.VirtualFragment::text)
+                .map(ComputedValue::join)
+                .orElse("");
     }
 
     public Optional<ContextFragment.StringFragment> getBuildFragment() {
@@ -1039,6 +1053,7 @@ public class Context {
      * - On success: remove existing BUILD_RESULTS StringFragment if present; no fragment otherwise.
      * - On failure: upsert the BUILD_RESULTS StringFragment with the processed output.
      */
+    @Blocking
     public Context withBuildResult(boolean success, String processedOutput) {
         var desc = SpecialTextType.BUILD_RESULTS.description();
 
@@ -1046,7 +1061,7 @@ public class Context {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
                         || (f.getType() == ContextFragment.FragmentType.STRING
                                 && f instanceof ContextFragment.StringFragment sf
-                                && desc.equals(sf.description())))
+                                && desc.equals(sf.description().join())))
                 .toList();
 
         var afterClear = fragmentsToDrop.isEmpty() ? this : removeFragments(fragmentsToDrop);
@@ -1074,13 +1089,14 @@ public class Context {
     /**
      * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
      */
+    @Blocking
     public TaskList.TaskListData getTaskListDataOrEmpty() {
         var existing = getTaskListFragment();
         if (existing.isEmpty()) {
             return new TaskList.TaskListData(List.of());
         }
         try {
-            return Json.fromJson(existing.get().text(), TaskList.TaskListData.class);
+            return Json.fromJson(existing.get().text().join(), TaskList.TaskListData.class);
         } catch (Exception e) {
             logger.warn("Failed to parse Task List JSON", e);
             return new TaskList.TaskListData(List.of());
@@ -1133,6 +1149,7 @@ public class Context {
      * - Preserves taskHistory and parsedOutput; sets action to "Load external changes".
      * - If 'changed' is empty, returns this.
      */
+    @Blocking
     public Context copyAndRefresh(Set<ProjectFile> changed) {
         if (changed.isEmpty()) {
             return this;
@@ -1145,21 +1162,15 @@ public class Context {
         var replacementMap = new HashMap<ContextFragment, ContextFragment>();
 
         for (var f : fragments) {
-            if (f instanceof ContextFragment.ComputedFragment df) {
-                // Refresh computed fragments whose referenced files intersect the changed set
-                if (!Collections.disjoint(f.files(), changed)) {
-                    var refreshed = df.refreshCopy();
-                    newFragments.add(refreshed);
-                    if (refreshed != f) {
-                        anyReplaced = true;
-                        replacementMap.put(f, refreshed);
-                    }
-                    continue;
+            // Refresh computed fragments whose referenced files intersect the changed set
+            if (!Collections.disjoint(f.files().join(), changed)) {
+                var refreshed = f.refreshCopy();
+                newFragments.add(refreshed);
+                if (refreshed != f) {
+                    anyReplaced = true;
+                    replacementMap.put(f, refreshed);
                 }
             }
-
-            // Default: reuse as-is
-            newFragments.add(f);
         }
 
         // Create a new Context only if any fragment actually changed, or parsed output is present.
@@ -1217,17 +1228,15 @@ public class Context {
     @TestOnly
     public void awaitContextsAreComputed(Duration timeout) {
         for (var fragment : this.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                cf.computedDescription().await(timeout);
-                cf.computedSyntaxStyle().await(timeout);
-                cf.computedText().await(timeout);
-                cf.computedFiles().await(timeout);
-                // Only await image bytes for non-path fragments (e.g., paste images).
-                if (!(fragment instanceof ContextFragment.PathFragment)) {
-                    var futureBytes = cf.computedImageBytes();
-                    if (futureBytes != null) {
-                        futureBytes.await(timeout);
-                    }
+            fragment.description().await(timeout);
+            fragment.syntaxStyle().await(timeout);
+            fragment.text().await(timeout);
+            fragment.files().await(timeout);
+            // Only await image bytes for non-path fragments (e.g., paste images).
+            if (!(fragment instanceof ContextFragment.PathFragment)) {
+                var futureBytes = fragment.imageBytes();
+                if (futureBytes != null) {
+                    futureBytes.await(timeout);
                 }
             }
         }

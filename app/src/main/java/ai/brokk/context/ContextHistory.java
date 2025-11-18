@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -47,7 +48,9 @@ public class ContextHistory {
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
 
-    /** UI-selection; never {@code null} once an initial context is set. */
+    /**
+     * UI-selection; never {@code null} once an initial context is set.
+     */
     private @Nullable Context selected;
 
     /**
@@ -92,12 +95,16 @@ public class ContextHistory {
 
     /* ───────────────────────── public API ─────────────────────────── */
 
-    /** Immutable view (oldest → newest). */
+    /**
+     * Immutable view (oldest → newest).
+     */
     public synchronized List<Context> getHistory() {
         return List.copyOf(history);
     }
 
-    /** Latest context or {@code null} when uninitialised. */
+    /**
+     * Latest context or {@code null} when uninitialised.
+     */
     public synchronized Context liveContext() {
         return castNonNull(history.peekLast());
     }
@@ -150,7 +157,9 @@ public class ContextHistory {
         return liveContext();
     }
 
-    /** Push {@code ctx}, select it, and clear redo stack. */
+    /**
+     * Push {@code ctx}, select it, and clear redo stack.
+     */
     public synchronized void pushContext(Context ctx) {
         history.addLast(ctx);
         truncateHistory();
@@ -173,14 +182,15 @@ public class ContextHistory {
     /**
      * Processes external file changes using the refresh model with an explicit set of changed files.
      * Uses liveContext.copyAndRefresh(changed) to selectively refresh affected fragments.
-     *
+     * <p>
      * Keeps the existing "Load external changes (n)" counting behavior.
      *
      * @param changed the set of files that changed; may be empty
      * @return The new frozen context if a change was made, otherwise null.
      */
+    @Blocking
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
-        var refreshedLive = liveContext().copyAndRefresh(changed);
+        var refreshedLive = liveContext().copyAndRefresh(changed); // This line is blocking
         if (refreshedLive.equals(liveContext())) {
             return null;
         }
@@ -216,7 +226,9 @@ public class ContextHistory {
         return updatedLive;
     }
 
-    /** Returns the previous frozen Context for the given one, or {@code null} if none (oldest). */
+    /**
+     * Returns the previous frozen Context for the given one, or {@code null} if none (oldest).
+     */
     public synchronized @Nullable Context previousOf(Context curr) {
         Context prev = null;
         for (var c : history) {
@@ -228,7 +240,9 @@ public class ContextHistory {
         return null;
     }
 
-    /** Exposes the centralized diff service. */
+    /**
+     * Exposes the centralized diff service.
+     */
     public DiffService getDiffService() {
         return diffService;
     }
@@ -422,7 +436,11 @@ public class ContextHistory {
         return Map.copyOf(entryInfos);
     }
 
-    /** Applies the state from a context to the workspace by restoring files. */
+    /**
+     * Applies the state from a context to the workspace by restoring files. The blocking applied in this function is no
+     * longer than SNAPSHOT_AWAIT_TIMEOUT.
+     */
+    @Blocking
     private void applySnapshotToWorkspace(@Nullable Context snapshot, IConsoleIO io) {
         if (snapshot == null) {
             logger.warn("Attempted to apply null context to workspace");
@@ -439,32 +457,37 @@ public class ContextHistory {
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
-                    assert fragment.files().size() == 1 : fragment.files();
-                    var pf = fragment.files().iterator().next();
+                    var filesOpt = fragment.files().await(SNAPSHOT_AWAIT_TIMEOUT);
+
+                    if (filesOpt.isEmpty()) {
+                        // Abort to keep this quick
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+
+                    var files = filesOpt.get();
+                    assert files.size() == 1 : fragment.files();
+                    var pf = files.iterator().next();
 
                     try {
                         String newContent;
-                        if (fragment instanceof ContextFragment.ComputedFragment df) {
-                            var tryNow = df.computedText().tryGet();
-                            if (tryNow.isPresent()) {
-                                newContent = tryNow.get();
-                            } else {
-                                var awaited = df.computedText().await(SNAPSHOT_AWAIT_TIMEOUT);
-                                if (awaited.isPresent()) {
-                                    newContent = awaited.get();
-                                } else {
-                                    // Do not fall back to reading current disk state; we want the snapshot value
-                                    materializationWarnings.add(pf.toString());
-                                    return;
-                                }
-                            }
+                        var tryNow = fragment.text().tryGet();
+                        if (tryNow.isPresent()) {
+                            newContent = tryNow.get();
                         } else {
-                            newContent = fragment.text();
+                            var awaited = fragment.text().await(SNAPSHOT_AWAIT_TIMEOUT);
+                            if (awaited.isPresent()) {
+                                newContent = awaited.get();
+                            } else {
+                                // Do not fall back to reading current disk state; we want the snapshot value
+                                materializationWarnings.add(fragment.toString());
+                                return;
+                            }
                         }
                         desiredContents.put(pf, newContent);
                     } catch (Exception e) {
                         logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
-                        materializationWarnings.add(pf.toString());
+                        materializationWarnings.add(fragment.toString());
                     }
                 });
 

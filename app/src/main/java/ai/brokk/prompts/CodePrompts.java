@@ -24,10 +24,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
@@ -92,10 +94,13 @@ public abstract class CodePrompts {
                 .formatted(cf.id(), cf.description());
     }
 
+    @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(
                 ctx.getContextManager().getProject(),
-                ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
+                ctx.getEditableFragments()
+                        .flatMap(f -> f.files().join().stream())
+                        .collect(Collectors.toSet()));
     }
 
     private static <T extends Language> Optional<Language> filterLanguage(
@@ -333,12 +338,13 @@ public abstract class CodePrompts {
         return workspaceBuilder.toString();
     }
 
+    @Blocking
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm, ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
@@ -363,6 +369,7 @@ public abstract class CodePrompts {
         return new SystemMessage(text);
     }
 
+    @Blocking
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm);
 
@@ -370,7 +377,7 @@ public abstract class CodePrompts {
         // fall back to the project root style guide if none found.
         var projectFiles = cm.liveContext()
                 .fileFragments()
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toList());
 
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
@@ -657,16 +664,18 @@ public abstract class CodePrompts {
         otherFragments.forEach(fragment -> {
             if (fragment.isText()) {
                 // Handle text-based fragments
-                String formatted = fragment.format(); // No analyzer
+                String formatted = fragment.format().join(); // No analyzer
                 if (!formatted.isBlank()) {
                     readOnlyTextFragments.append(formatted).append("\n\n");
                 }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+            } else if (fragment instanceof ContextFragment.ImageFragment imageFragment
+                    && imageFragment.imageBytes() != null) {
                 // Handle image fragments - explicitly check for known image fragment types
                 try {
                     // Convert AWT Image to LangChain4j ImageContent
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                    var image = ImageUtil.bytesToImage(
+                            Objects.requireNonNull(fragment.imageBytes()).join());
+                    var l4jImage = ImageUtil.toL4JImage(image);
                     readOnlyImageFragments.add(ImageContent.from(l4jImage));
                     // Add a placeholder in the text part for reference
                     readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
@@ -679,7 +688,7 @@ public abstract class CodePrompts {
             } else {
                 // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
                 // Just add their formatted representation as text
-                String formatted = fragment.format(); // No analyzer
+                String formatted = fragment.format().join(); // No analyzer
                 if (!formatted.isBlank()) {
                     readOnlyTextFragments.append(formatted).append("\n\n");
                 }
@@ -728,11 +737,12 @@ public abstract class CodePrompts {
      * Returns messages containing only the editable workspace content. Does not include read-only content or related
      * classes.
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
         ctx.getEditableFragments().forEach(fragment -> {
-            String formatted = fragment.format(); // format() on live fragment
+            String formatted = fragment.format().join(); // format() on live fragment
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
@@ -799,29 +809,74 @@ public abstract class CodePrompts {
      * Renders fragments in the given order without reordering or splitting.
      * Builds combined text from all fragment formats and collects images separately.
      */
+    @Blocking
     private RenderedContent renderFragments(List<ContextFragment> fragments) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
+        // 1. Collect all Futures for formatting/bytes that need to be resolved.
+        //    We use a List to preserve the order relative to the original 'fragments' list.
+        var formatFutures = new ArrayList<CompletableFuture<String>>();
+        var byteFutures = new ArrayList<CompletableFuture<byte[]>>();
+
         for (var fragment : fragments) {
-            if (fragment.isText()) {
-                String formatted = fragment.format();
+            // All text fragments and unknown fragments need formatting (String result)
+            if (fragment.isText() || !(fragment instanceof ContextFragment.ImageFragment imageFragment)) {
+                formatFutures.add(fragment.format().future());
+                byteFutures.add(CompletableFuture.completedFuture(null)); // Placeholder
+            }
+            // Image fragments need byte retrieval (byte[] result)
+            else {
+                formatFutures.add(imageFragment.format().future());
+                // Only add the byte future if bytes are present, otherwise add a completed null future
+                var imageBytesCv = imageFragment.imageBytes();
+                if (imageBytesCv != null) {
+                    byteFutures.add(imageBytesCv.future());
+                } else {
+                    byteFutures.add(CompletableFuture.completedFuture(null)); // Placeholder
+                }
+            }
+        }
+
+        // 2. Aggregate and wait for ALL futures to complete in parallel
+        //    We wait for all format tasks, and then all byte tasks.
+        //    This is the key step that enables parallel execution.
+        CompletableFuture<Void> allFormats = CompletableFuture.allOf(formatFutures.toArray(new CompletableFuture[0]));
+        CompletableFuture<Void> allBytes = CompletableFuture.allOf(byteFutures.toArray(new CompletableFuture[0]));
+
+        // Wait for all tasks to finish before proceeding to the next step.
+        allFormats.join();
+        allBytes.join();
+
+        // 3. Re-iterate the original fragments list, using the now-completed futures
+        int formatIndex = 0;
+        int byteIndex = 0;
+
+        for (var fragment : fragments) {
+            String formatted = formatFutures.get(formatIndex++).join(); // Immediate return
+            byte[] imageBytes = byteFutures.get(byteIndex++).join(); // Immediate return
+
+            if (fragment.isText() || !(fragment instanceof ContextFragment.ImageFragment)) {
+                // Text and unknown fragments
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+            } else if (imageBytes != null) {
                 try {
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                    // Process the image bytes which are now guaranteed to be ready
+                    var image = ImageUtil.bytesToImage(imageBytes);
+                    var l4jImage = ImageUtil.toL4JImage(image);
                     imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
+
+                    // The formatted string for the image should be the description
+                    textBuilder.append(formatted).append("\n\n");
                 } catch (IOException | UncheckedIOException e) {
                     logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
                     textBuilder.append(String.format(
                             "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
                 }
             } else {
-                String formatted = fragment.format();
+                // If the future for imageBytes was null (not provided), still append the formatted text.
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
@@ -901,6 +956,7 @@ public abstract class CodePrompts {
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment,
      *     or empty if no content.
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx) {
         var allFragments = ctx.allFragments().toList();
         if (allFragments.isEmpty()) {

@@ -271,7 +271,7 @@ public final class HistoryIo {
                             pastedImageFragments.add(aif);
                         } else {
                             if (ff instanceof ContextFragment.ComputedFragment cf) {
-                                var futureImageBytes = cf.computedImageBytes();
+                                var futureImageBytes = cf.imageBytes();
                                 if (futureImageBytes != null)
                                     futureImageBytes.start(); // ensure this starts for when we need it later
                             }
@@ -399,7 +399,7 @@ public final class HistoryIo {
                 for (ContextFragment.ImageFragment ff : imageDomainFragments) {
                     byte[] imageBytes = null;
                     if (ff instanceof ContextFragment.ComputedFragment cf) {
-                        var futureBytes = cf.computedImageBytes();
+                        var futureBytes = cf.imageBytes();
                         if (futureBytes != null) {
                             imageBytes =
                                     futureBytes.await(Duration.ofSeconds(10)).orElse(null);

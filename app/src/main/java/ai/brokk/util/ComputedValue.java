@@ -18,6 +18,7 @@ import java.util.function.Supplier;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -106,6 +107,16 @@ public final class ComputedValue<T> {
     public CompletableFuture<T> future() {
         startInternal();
         return futureRef;
+    }
+
+    /**
+     * Returns the underlying future, starting the computation if necessary, and blocks until the computation is
+     * determined.
+     */
+    @Blocking
+    public T join() {
+        startInternal();
+        return futureRef.join();
     }
 
     /**

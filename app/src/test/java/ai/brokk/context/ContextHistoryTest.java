@@ -46,7 +46,7 @@ public class ContextHistoryTest {
 
         var initialFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to simulate live context readiness
-        initialFragment.computedText().await(Duration.ofSeconds(2));
+        initialFragment.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
                 contextManager,
@@ -152,7 +152,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
         var history = new ContextHistory(ctx1);
@@ -183,7 +183,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
         var history = new ContextHistory(ctx1);
@@ -249,7 +249,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var context1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
 

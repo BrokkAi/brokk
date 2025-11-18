@@ -34,16 +34,7 @@ import ai.brokk.tools.GitTools;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
-import ai.brokk.util.ExecutorServiceUtil;
-import ai.brokk.util.FileUtil;
-import ai.brokk.util.ImageUtil;
-import ai.brokk.util.LoggingExecutorService;
-import ai.brokk.util.LowMemoryWatcher;
-import ai.brokk.util.LowMemoryWatcherManager;
-import ai.brokk.util.Messages;
-import ai.brokk.util.ServiceWrapper;
-import ai.brokk.util.StackTrace;
-import ai.brokk.util.UserActionManager;
+import ai.brokk.util.*;
 import ai.brokk.util.UserActionManager.ThrowingRunnable;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -1332,13 +1323,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * <p>Note: Parameters are non-null by default in this codebase (NullAway).
      */
+    @Blocking
     private static String contextDescription(Collection<? extends ContextFragment> fragments) {
         int count = fragments.size();
         if (count == 0) {
             return "0 fragments";
         }
         if (count <= 2) {
-            return fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", "));
+            return fragments.stream()
+                    .map(ContextFragment::shortDescription)
+                    .map(ComputedValue::join)
+                    .collect(Collectors.joining(", "));
         }
         return count + " fragments";
     }
@@ -1415,8 +1410,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    @Blocking
     public Set<ProjectFile> getFilesInContext() {
-        return liveContext().fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        return liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */
@@ -1641,9 +1640,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Convenience overload used when we don't have an explicit changed-files set (e.g., after analyzer rebuilds).
      * Refreshes any fragment that references any file in the current context.
      */
+    @Blocking
     private void processExternalFileChangesIfNeeded() {
-        var allReferenced =
-                liveContext().allFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet());
+        var allReferenced = liveContext()
+                .allFragments()
+                .flatMap(f -> f.files().join().stream())
+                .collect(Collectors.toSet());
         processExternalFileChangesIfNeeded(allReferenced);
     }
 
@@ -1676,7 +1678,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
-            int tokenCount = Messages.getApproximateTokens(cf.format());
+            int tokenCount = Messages.getApproximateTokens(cf.format().renderNowOr("(Unknown)"));
 
             var svc = getService();
             var model = io.getInstructionsPanel().getSelectedModel();
@@ -1699,13 +1701,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Updates the selected FROZEN context in history from the UI. Called by Chrome when the user selects a row in the
+     * Updates the selected context in history from the UI. Called by Chrome when the user selects a row in the
      * history table.
      *
-     * @param frozenContextFromHistory The FROZEN context selected in the UI.
+     * @param contextFromHistory The context selected in the UI.
      */
-    public void setSelectedContext(Context frozenContextFromHistory) {
-        contextHistory.setSelectedContext(frozenContextFromHistory);
+    public void setSelectedContext(Context contextFromHistory) {
+        contextHistory.setSelectedContext(contextFromHistory);
     }
 
     /**

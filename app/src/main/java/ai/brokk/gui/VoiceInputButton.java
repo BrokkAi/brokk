@@ -326,7 +326,7 @@ public class VoiceInputButton extends JButton {
                             var sources = contextManager
                                     .liveContext()
                                     .allFragments()
-                                    .flatMap(f -> f.sources().stream())
+                                    .flatMap(f -> f.sources().join().stream())
                                     .collect(Collectors.toSet());
 
                             // Get full symbols first

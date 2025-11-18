@@ -223,8 +223,8 @@ public class ContextSerializationTest {
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         if (expected instanceof ContextFragment.ComputedFragment cvExpected
                 && actual instanceof ContextFragment.ComputedFragment cvActual) {
-            var expectedDescription = cvExpected.computedDescription().await(Duration.of(10, ChronoUnit.SECONDS));
-            var actualDescription = cvActual.computedDescription().await(Duration.of(10, ChronoUnit.SECONDS));
+            var expectedDescription = cvExpected.description().await(Duration.of(10, ChronoUnit.SECONDS));
+            var actualDescription = cvActual.description().await(Duration.of(10, ChronoUnit.SECONDS));
             if (expectedDescription.isEmpty() || actualDescription.isEmpty()) {
                 fail("Fragment descriptions could not be computed within 10 seconds");
             } else {
@@ -239,8 +239,8 @@ public class ContextSerializationTest {
                         "Fragment shortDescription mismatch for ID " + expected.id());
             }
 
-            var expectedSyntaxStyle = cvExpected.computedSyntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
-            var actualSyntaxStyle = cvActual.computedSyntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
+            var expectedSyntaxStyle = cvExpected.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
+            var actualSyntaxStyle = cvActual.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
             if (expectedSyntaxStyle.isEmpty() || actualSyntaxStyle.isEmpty()) {
                 fail("Fragment syntax style could not be computed within 10 seconds");
             } else {
@@ -268,8 +268,8 @@ public class ContextSerializationTest {
         if (expected.isText()) {
             if (expected instanceof ContextFragment.ComputedFragment cvExpected
                     && actual instanceof ContextFragment.ComputedFragment cvActual) {
-                var expectedText = cvExpected.computedText().await(Duration.of(30, ChronoUnit.SECONDS));
-                var actualText = cvActual.computedText().await(Duration.of(30, ChronoUnit.SECONDS));
+                var expectedText = cvExpected.text().await(Duration.of(30, ChronoUnit.SECONDS));
+                var actualText = cvActual.text().await(Duration.of(30, ChronoUnit.SECONDS));
                 if (expectedText.isEmpty() || actualText.isEmpty()) {
                     fail("Fragment text content could not be computed within given timeout");
                 } else {
@@ -285,8 +285,8 @@ public class ContextSerializationTest {
             // For image fragments, compare byte content via live image fragments
             if (expected instanceof ContextFragment.ComputedFragment cvExpected
                     && actual instanceof ContextFragment.ComputedFragment cvActual) {
-                var maybeExpectedBytesFuture = cvExpected.computedImageBytes();
-                var maybeActualBytesFuture = cvActual.computedImageBytes();
+                var maybeExpectedBytesFuture = cvExpected.imageBytes();
+                var maybeActualBytesFuture = cvActual.imageBytes();
                 if (maybeExpectedBytesFuture != null && maybeActualBytesFuture != null) {
                     var expectedBytes = maybeExpectedBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
                     var actualBytes = maybeActualBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
@@ -811,7 +811,7 @@ public class ContextSerializationTest {
         assertEquals(imageFilePath.toString(), loadedAbsPath);
 
         // Check image content from bytes
-        byte[] imageBytes = Objects.requireNonNull(loadedImageFragment.computedImageBytes())
+        byte[] imageBytes = Objects.requireNonNull(loadedImageFragment.imageBytes())
                 .await(Duration.ofSeconds(5))
                 .get();
         assertNotNull(imageBytes, "Image bytes not found in FrozenFragment for ImageFileFragment");

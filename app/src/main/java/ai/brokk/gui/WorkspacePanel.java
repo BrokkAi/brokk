@@ -512,13 +512,13 @@ public class WorkspacePanel extends JPanel {
 
             // For dynamic fragments, use computed description (non-blocking)
             if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var descOpt = cf.computedDescription().tryGet();
+                var descOpt = cf.description().tryGet();
                 if (descOpt.isPresent()) {
                     description = descOpt.get();
                 } else {
                     description = "(Loading...)";
                     // Register for repaint when description completes; log failures
-                    cf.computedDescription().onComplete((desc, ex) -> {
+                    cf.description().onComplete((desc, ex) -> {
                         if (ex == null) {
                             SwingUtilities.invokeLater(table::repaint);
                         } else {
@@ -1417,11 +1417,11 @@ public class WorkspacePanel extends JPanel {
                 String text;
                 if (frag instanceof ContextFragment.ComputedFragment cf) {
                     // Non-blocking access for dynamic fragments
-                    var textOpt = cf.computedText().tryGet();
+                    var textOpt = cf.text().tryGet();
                     text = textOpt.orElse("");
                     // Register repaint when computation completes
                     if (textOpt.isEmpty()) {
-                        cf.computedText().onComplete((value, ex) -> {
+                        cf.text().onComplete((value, ex) -> {
                             if (ex == null && value != null) {
                                 SwingUtilities.invokeLater(this::updateContextTable);
                             } else if (ex != null) {
@@ -1457,7 +1457,7 @@ public class WorkspacePanel extends JPanel {
                 try {
                     Set<ProjectFile> fragmentFiles;
                     if (frag instanceof ContextFragment.ComputedFragment cff) {
-                        filesCv = cff.computedFiles();
+                        filesCv = cff.files();
                         var filesOpt = filesCv.tryGet();
                         if (filesOpt.isPresent()) {
                             fragmentFiles = filesOpt.get();
@@ -1580,9 +1580,9 @@ public class WorkspacePanel extends JPanel {
         String initialSyntax = null;
 
         if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            var textOpt = cf.computedText().tryGet();
+            var textOpt = cf.text().tryGet();
             initialText = textOpt.orElse("(Loading...)");
-            var styleOpt = cf.computedSyntaxStyle().tryGet();
+            var styleOpt = cf.syntaxStyle().tryGet();
             initialSyntax = styleOpt.orElse(null);
         }
 
@@ -1597,10 +1597,10 @@ public class WorkspacePanel extends JPanel {
         // Now asynchronously load/update the content
         if (fragment instanceof ContextFragment.ComputedFragment cf) {
             // Update when text is ready
-            cf.computedText().onComplete((txt, ex) -> {
+            cf.text().onComplete((txt, ex) -> {
                 if (ex == null) {
                     // Try to also fetch syntax style if available (non-blocking)
-                    var styleOpt = cf.computedSyntaxStyle().tryGet();
+                    var styleOpt = cf.syntaxStyle().tryGet();
                     var syntax = styleOpt.orElse(null);
                     SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
                 } else {
@@ -1610,7 +1610,7 @@ public class WorkspacePanel extends JPanel {
                 }
             });
             // If syntax style completes separately later, update it without changing text
-            cf.computedSyntaxStyle().onComplete((style, ex) -> {
+            cf.syntaxStyle().onComplete((style, ex) -> {
                 if (ex == null) {
                     SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
                 } else {
