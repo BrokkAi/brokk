@@ -189,6 +189,8 @@ public class EditBlock {
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
+                // check to see if the new contents are already in the file
+                // by calling replaceMostSimilarChunk without saving the result
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
@@ -198,7 +200,7 @@ public class EditBlock {
                     The replacement text is already present in the file. If we no longer need to apply
                     this block, omit it from your reply.
                     """;
-                } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
+                } catch (NoMatchException | AmbiguousMatchException e2) {
                     commentary = "";
                 }
 
