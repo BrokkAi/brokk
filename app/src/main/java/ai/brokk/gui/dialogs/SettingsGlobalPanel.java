@@ -90,8 +90,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<String> quickModelCombo = new JComboBox<>();
     private JComboBox<String> quickEditModelCombo = new JComboBox<>();
     private JComboBox<String> quickestModelCombo = new JComboBox<>();
-    private JLabel quickEditModelLabel;
-    private JPanel quickEditModelHolder;
+    private JLabel quickEditModelLabel = new JLabel("Quick Edit Model:");
+    ;
+    private JPanel quickEditModelHolder = new JPanel(new BorderLayout(0, 0));
+    ;
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -1264,10 +1266,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
         gbc.insets = new Insets(0, 10, 10, 0);
-        quickEditModelLabel = new JLabel("Quick Edit Model:");
         topPanel.add(quickEditModelLabel, gbc);
 
-        quickEditModelHolder = new JPanel(new BorderLayout(0, 0));
         quickEditModelHolder.add(quickEditModelCombo, BorderLayout.CENTER);
         var qeHelp = new MaterialButton();
         qeHelp.setIcon(Icons.HELP);
@@ -1703,12 +1703,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean isPaid = false;
         try {
             var svc = chrome.getContextManager().getService();
-            if (svc != null) {
-                float bal = svc.getUserBalance();
-                isPaid = bal > 0.0f;
-            }
-        } catch (Exception ignore) {
-            isPaid = false;
+            float bal = svc.getUserBalance();
+            isPaid = bal > 0.0f;
+        } catch (Exception e) {
+            logger.warn("Unable to get user balance assuming free account for quick edit model", e);
         }
         quickEditModelLabel.setVisible(isPaid);
         quickEditModelHolder.setVisible(isPaid);
