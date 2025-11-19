@@ -48,19 +48,36 @@ public class SearchToolsTest {
     @Nullable
     private static TestProject javaTestProject;
 
+    @Nullable
+    private static ai.brokk.analyzer.CppAnalyzer cppAnalyzer;
+
+    @Nullable
+    private static TestProject cppTestProject;
+
     @BeforeAll
     static void setupAnalyzer() throws IOException {
+        // Setup Java analyzer
         Path javaTestPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(javaTestPath), "Test resource directory 'testcode-java' not found.");
         javaTestProject = new TestProject(javaTestPath, Languages.JAVA);
         javaAnalyzer = new JavaAnalyzer(javaTestProject);
+
+        // Setup C++ analyzer
+        Path cppTestPath =
+                Path.of("src/test/resources/testcode-cpp").toAbsolutePath().normalize();
+        assertTrue(Files.exists(cppTestPath), "Test resource directory 'testcode-cpp' not found.");
+        cppTestProject = new TestProject(cppTestPath, Languages.CPP_TREESITTER);
+        cppAnalyzer = new ai.brokk.analyzer.CppAnalyzer(cppTestProject);
     }
 
     @AfterAll
     static void teardownAnalyzer() {
         if (javaTestProject != null) {
             javaTestProject.close();
+        }
+        if (cppTestProject != null) {
+            cppTestProject.close();
         }
     }
 
@@ -342,5 +359,79 @@ public class SearchToolsTest {
         // assertTrue(result.contains("method2(String input)"));
         // assertTrue(result.contains("method2(String input, int otherInput)"));
         // assertTrue(result.contains("overload of method2"));
+    }
+
+    @Test
+    void testGetSymbolLocations_withCppOverloads() {
+        // Create a context manager that provides the C++ analyzer
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> cppAnalyzer;
+                        case "getAnalyzerUninterrupted" -> cppAnalyzer;
+                        case "getProject" -> cppTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // CppAnalyzer correctly returns ALL overloads (may include duplicates from multiple test files)
+        var definitions = cppAnalyzer.getDefinitions("overloadedFunction");
+        assertTrue(
+                definitions.size() >= 3,
+                "CppAnalyzer should return at least 3 overloads, got " + definitions.size());
+
+        String result = tools.getSymbolLocations(List.of("overloadedFunction"));
+        assertFalse(result.isEmpty(), "Result should not be empty");
+
+        // Verify all three overload signatures are present (no spaces in C++ signatures)
+        assertTrue(result.contains("overloadedFunction(int)"), "Should contain int overload signature");
+        assertTrue(result.contains("overloadedFunction(double)"), "Should contain double overload signature");
+        assertTrue(
+                result.contains("overloadedFunction(int,int)"),
+                "Should contain two-int overload signature");
+
+        // Verify file path is present
+        assertTrue(
+                result.contains("simple_overloads.h") || result.contains("duplicates.h"),
+                "Should contain file path");
+    }
+
+    @Test
+    void testGetMethodSources_withCppOverloads() {
+        // Create a context manager that provides the C++ analyzer
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> cppAnalyzer;
+                        case "getAnalyzerUninterrupted" -> cppAnalyzer;
+                        case "getProject" -> cppTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        String result = tools.getMethodSources(List.of("overloadedFunction"));
+        assertFalse(result.isEmpty(), "Result should not be empty");
+
+        // Verify all three overloads are present in source output
+        assertTrue(
+                result.contains("overloadedFunction(int x)") || result.contains("void overloadedFunction(int x)"),
+                "Should contain int overload source");
+        assertTrue(
+                result.contains("overloadedFunction(double x)")
+                        || result.contains("void overloadedFunction(double x)"),
+                "Should contain double overload source");
+        assertTrue(
+                result.contains("overloadedFunction(int x, int y)")
+                        || result.contains("void overloadedFunction(int x, int y)"),
+                "Should contain two-int overload source");
+
+        // Verify comments from overload bodies are present
+        assertTrue(result.contains("int overload"), "Should contain comment from int overload");
+        assertTrue(result.contains("double overload"), "Should contain comment from double overload");
+        assertTrue(result.contains("two int overload"), "Should contain comment from two-int overload");
     }
 }
