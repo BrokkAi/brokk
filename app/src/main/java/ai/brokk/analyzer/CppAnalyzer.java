@@ -935,35 +935,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return super.shouldIgnoreDuplicate(existing, candidate, file);
     }
 
-    /**
-     * Backward-compatibility override for function lookup by fully qualified name.
-     *
-     * <p>This method provides transitional convenience for callers that previously looked up zero-argument
-     * functions by their simple name (without parentheses). For example, a lookup for "MyClass::myFunc"
-     * will automatically retry as "MyClass::myFunc()" if the first attempt returns empty.
-     *
-     * <p>This allows existing code that relies on simple-name lookups to continue working after the
-     * analyzer became overload-aware and began requiring parameter signatures in function FQNames.
-     *
-     * @param fqName the fully qualified name to look up
-     * @return an Optional containing the matching CodeUnit, or empty if not found
-     */
-    @Override
-    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        // First, try the lookup as provided
-        var result = super.getDefinitions(fqName);
-        if (!result.isEmpty()) {
-            return result;
-        }
-
-        // If empty and fqName doesn't already contain parentheses, retry with empty parameter list
-        if (!fqName.contains("(") && !fqName.contains(")")) {
-            return super.getDefinitions(fqName + "()");
-        }
-
-        return new LinkedHashSet<>();
-    }
-
     @Override
     protected Comparator<CodeUnit> prioritizingComparator() {
         // Prefer implementations over declarations for C/C++ functions.
