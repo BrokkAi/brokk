@@ -117,9 +117,8 @@ public class AnalyzerUtil {
      * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeleton(cu)));
     }
 
     /**
@@ -127,9 +126,8 @@ public class AnalyzerUtil {
      * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream()
-                .findFirst()
-                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinitions(className).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
     /**
@@ -210,10 +208,7 @@ public class AnalyzerUtil {
      * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .map(analyzer::getFileFor)
-                .flatMap(f -> f);
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(analyzer::getFileFor);
     }
 
     /**
