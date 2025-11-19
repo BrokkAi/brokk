@@ -145,6 +145,18 @@ public interface IAnalyzer {
                 .or(() -> candidates.stream().findFirst()); // Fallback if signature doesn't match
     }
 
+    /**
+     * Finds a function CodeUnit matching both fqName and signature.
+     * Type-safe alternative to the String-based variant.
+     *
+     * @param fqName The exact FQ name (without signature)
+     * @param signature The signature (use Signature.NONE to match any signature)
+     * @return Optional containing matching CodeUnit, or empty if not found
+     */
+    default Optional<CodeUnit> getFunctionDefinition(String fqName, Signature signature) {
+        return getFunctionDefinition(fqName, signature.toNullableString());
+    }
+
     default Set<CodeUnit> searchDefinitions(String pattern) {
         return searchDefinitions(pattern, true);
     }

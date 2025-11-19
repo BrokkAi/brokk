@@ -3328,9 +3328,9 @@ public class TypescriptAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("add", null);
+        var result = analyzer.getFunctionDefinition("add", Signature.NONE);
 
-        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
         assertEquals("add", result.get().fqName());
         assertTrue(result.get().isFunction());
     }

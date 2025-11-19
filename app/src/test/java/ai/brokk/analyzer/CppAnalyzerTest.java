@@ -1580,9 +1580,9 @@ public class CppAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("overloadedFunction", null);
+        var result = analyzer.getFunctionDefinition("overloadedFunction", Signature.NONE);
 
-        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
         assertEquals("overloadedFunction", result.get().fqName());
         assertTrue(result.get().isFunction());
     }

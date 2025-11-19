@@ -894,18 +894,18 @@ public class JavaAnalyzerTest {
             assertEquals(targetSignature, result.get().signature(), "Should return exact signature match");
             assertEquals("A.method2", result.get().fqName());
         } else {
-            // Signatures not yet populated - test that the method still works with null
-            var result = analyzer.getFunctionDefinition("A.method2", null);
-            assertTrue(result.isPresent(), "Should return any overload when signature is null");
+            // Signatures not yet populated - test that the method still works with NONE
+            var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
+            assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
             assertEquals("A.method2", result.get().fqName());
         }
     }
 
     @Test
     public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("A.method2", null);
+        var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
 
-        assertTrue(result.isPresent(), "Should return any overload when signature is null");
+        assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
         assertEquals("A.method2", result.get().fqName());
         assertTrue(result.get().isFunction());
     }
@@ -922,9 +922,27 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_NonFunction_ReturnsEmpty() {
-        var result = analyzer.getFunctionDefinition("A", null);
+        var result = analyzer.getFunctionDefinition("A", Signature.NONE);
 
         assertTrue(result.isEmpty(), "Should return empty for non-function symbols");
+    }
+
+    @Test
+    public void getFunctionDefinition_WithSignatureType_NONE_ReturnsAnyOverload() {
+        var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
+
+        assertTrue(result.isPresent(), "Should return any overload with Signature.NONE");
+        assertEquals("A.method2", result.get().fqName());
+        assertTrue(result.get().isFunction());
+    }
+
+    @Test
+    public void getFunctionDefinition_WithSignatureType_MatchesExact() {
+        var sig = Signature.parse("(int)");
+        var result = analyzer.getFunctionDefinition("A.method2", sig);
+
+        assertTrue(result.isPresent(), "Should find overload with Signature type");
+        assertEquals("A.method2", result.get().fqName());
     }
 
     @Test
