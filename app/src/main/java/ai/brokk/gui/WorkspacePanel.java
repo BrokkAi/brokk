@@ -1574,6 +1574,12 @@ public class WorkspacePanel extends JPanel {
 
     /** Shows a preview of the fragment contents, opening once with "Loading..." and updating in-place when ready. */
     void showFragmentPreview(ContextFragment fragment) {
+        // This must be done on EDT
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> showFragmentPreview(fragment));
+            return;
+        }
+
         // If this is an image fragment, let Chrome's centralized preview handle it (proper image panel),
         // instead of falling back to a text panel that shows "[Image content provided out of band]".
         if (fragment instanceof ContextFragment.ImageFragment) {

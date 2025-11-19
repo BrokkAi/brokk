@@ -115,9 +115,22 @@ public final class ComputedValue<T> {
      */
     @Blocking
     public T join() throws CancellationException, CompletionException {
-        assert !SwingUtilities.isEventDispatchThread() : "May not block on the EDT thread!";
+        try {
+            assert !SwingUtilities.isEventDispatchThread();
+        } catch (AssertionError e) {
+            // Using exception to get the stacktrace
+            logger.error("May not block on the EDT thread!", e);
+        }
         startInternal();
-        return futureRef.join();
+
+        try {
+            return futureRef.get(5, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Taking longer than 5 seconds to compute value! Waiting now indefinitely....", e);
+            return futureRef.join();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new CompletionException(e);
+        }
     }
 
     /**

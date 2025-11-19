@@ -402,13 +402,17 @@ public class Context {
                 .filter(ContextFragment.ProjectPathFragment.class::isInstance)
                 .map(ContextFragment.ProjectPathFragment.class::cast)
                 .map(pf -> {
-                    try {
-                        return new EditableFileWithMtime(pf, pf.file().mtime());
-                    } catch (IOException e) {
-                        logger.warn(
-                                "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                pf.shortDescription(),
-                                e);
+                    if (pf.file().exists()) {
+                        try {
+                            return new EditableFileWithMtime(pf, pf.file().mtime());
+                        } catch (IOException e) {
+                            logger.warn(
+                                    "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
+                                    pf.shortDescription(),
+                                    e);
+                            return new EditableFileWithMtime(pf, -1L);
+                        }
+                    } else {
                         return new EditableFileWithMtime(pf, -1L);
                     }
                 })
@@ -1082,6 +1086,7 @@ public class Context {
     /**
      * Retrieves the Task List fragment if present.
      */
+    @Blocking
     public Optional<ContextFragment.StringFragment> getTaskListFragment() {
         return getSpecial(SpecialTextType.TASK_LIST.description());
     }

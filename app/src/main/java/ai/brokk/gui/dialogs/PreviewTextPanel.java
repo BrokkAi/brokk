@@ -186,17 +186,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             editButton = new MaterialButton(text);
             SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
             var finalEditButton = editButton; // Final reference for lambda
-            if (cm.getFilesInContext().contains(file)) {
-                finalEditButton.setEnabled(false);
-                finalEditButton.setToolTipText("File is in Edit context");
-            } else {
-                finalEditButton.addActionListener(e -> {
-                    cm.addFiles(List.of(this.file));
-                    finalEditButton.setEnabled(false);
-                    finalEditButton.setToolTipText("File is in Edit context");
+
+            cm.submitBackgroundTask("Determining files in the current context", () -> {
+                var files = cm.getFilesInContext();
+
+                SwingUtilities.invokeLater(() -> {
+                    if (files.contains(file)) {
+                        finalEditButton.setEnabled(false);
+                        finalEditButton.setToolTipText("File is in Edit context");
+                    } else {
+                        finalEditButton.addActionListener(e -> {
+                            cm.addFiles(List.of(this.file));
+                            finalEditButton.setEnabled(false);
+                            finalEditButton.setToolTipText("File is in Edit context");
+                        });
+                    }
+                    actionButtonPanel.add(editButton); // Add edit button to the action panel
                 });
-            }
-            actionButtonPanel.add(editButton); // Add edit button to the action panel
+            });
         }
 
         // Create font size control buttons using interface methods

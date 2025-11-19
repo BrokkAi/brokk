@@ -2399,27 +2399,29 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Toggle read-only state based on whether we're viewing history
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 
-        // Extract current Task List fragment ID from the newly selected context
-        String currentFragmentId = (selected != null ? selected : newCtx)
-                .getTaskListFragment()
-                .map(ContextFragment::id)
-                .orElse(null);
+        cm.submitBackgroundTask("Checking if context has changed", () -> {
+            // Extract current Task List fragment ID from the newly selected context
+            String currentFragmentId = (selected != null ? selected : newCtx)
+                    .getTaskListFragment()
+                    .map(ContextFragment::id)
+                    .orElse(null);
 
-        boolean sessionChanged = !Objects.equals(current, loaded);
-        boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
+            boolean sessionChanged = !Objects.equals(current, loaded);
+            boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
 
-        logger.debug(
-                "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
-                sessionChanged,
-                current,
-                loaded,
-                fragmentChanged,
-                currentFragmentId,
-                lastTaskListFragmentId);
+            logger.debug(
+                    "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
+                    sessionChanged,
+                    current,
+                    loaded,
+                    fragmentChanged,
+                    currentFragmentId,
+                    lastTaskListFragmentId);
 
-        if (sessionChanged || fragmentChanged) {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
-        }
+            if (sessionChanged || fragmentChanged) {
+                SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            }
+        });
     }
 
     private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskList.TaskItem> {

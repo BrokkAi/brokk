@@ -50,6 +50,7 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -286,11 +287,13 @@ public class WorkspaceChip extends JPanel {
             e.consume();
             return;
         }
-        JPopupMenu menu = createContextMenu();
-        if (menu != null) {
-            menu.show(invoker, e.getX(), e.getY());
-            e.consume();
-        }
+        contextManager.submitBackgroundTask("Constructing context menu", () -> {
+            JPopupMenu menu = createContextMenu();
+            if (menu != null) {
+                SwingUtilities.invokeLater(() -> menu.show(invoker, e.getX(), e.getY()));
+            }
+        });
+        e.consume();
     }
 
     protected void onPrimaryClick() {
@@ -301,11 +304,11 @@ public class WorkspaceChip extends JPanel {
         // Ensure a single preview window that starts with "Loading..." and updates in-place.
         try {
             var panel = chrome.getContextPanel();
-            panel.showFragmentPreview(fragment);
+            contextManager.submitBackgroundTask("Showing chip preview", () -> panel.showFragmentPreview(fragment));
         } catch (Exception ex) {
             logger.error("Failed to open preview via WorkspacePanel; falling back to Chrome", ex);
             // Fallback (should not normally be needed)
-            chrome.openFragmentPreview(fragment);
+            contextManager.submitBackgroundTask("Showing chip preview", () -> chrome.openFragmentPreview(fragment));
         }
     }
 
@@ -580,25 +583,31 @@ public class WorkspaceChip extends JPanel {
     protected void updateTextAndTooltip(ContextFragment fragment) {
         contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
             String description = "<Error obtaining description>";
+            String shortDescription = "<Error obtaining description>";
             try {
-                description = fragment.shortDescription().join();
+                shortDescription = fragment.shortDescription().join();
                 if (kind == ChipKind.OTHER) {
-                    description = WorkspaceChip.capitalizeFirst(description);
+                    shortDescription = WorkspaceChip.capitalizeFirst(shortDescription);
                 }
             } catch (Exception e) {
                 logger.error("Unable to obtain short description from {}!", fragment, e);
             }
 
-            final String text = description;
-            SwingUtilities.invokeLater(() -> {
-                label.setText(text);
+            try {
+                description = fragment.description().join();
+            } catch (Exception e) {
+                logger.error("Unable to obtain description from {}!", fragment, e);
+            }
 
+            final String text = shortDescription;
+            final String accessibleDescription = description;
+            SwingUtilities.invokeLater(() -> {
                 try {
+                    label.setText(text);
                     label.setToolTipText(buildDefaultTooltip(fragment));
-                    label.getAccessibleContext()
-                            .setAccessibleDescription(fragment.description().join());
+                    label.getAccessibleContext().setAccessibleDescription(accessibleDescription);
                 } catch (Exception ex) {
-                    logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+                    logger.warn("Failed to refresh chip tooltip for fragment {}", fragment, ex);
                 }
             });
         });
@@ -997,28 +1006,35 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
-            String text = buildSummaryLabel();
-            label.setText(text);
-            try {
-                label.setToolTipText(buildAggregateSummaryTooltip());
-                label.getAccessibleContext().setAccessibleDescription("All summaries combined");
-            } catch (Exception ex) {
-                logger.warn("Failed to set tooltip for synthetic summary chip", ex);
-            }
+            contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
+                String text = buildSummaryLabel();
+                String toolTip = buildAggregateSummaryTooltip();
+                SwingUtilities.invokeLater(() -> {
+                    label.setText(text);
+                    try {
+                        label.setToolTipText(toolTip);
+                        label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+                    } catch (Exception ex) {
+                        logger.warn("Failed to set tooltip for synthetic summary chip", ex);
+                    }
+                });
+            });
         }
 
+        @Blocking
         private String buildSummaryLabel() {
             int totalFiles = (int) summaryFragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .flatMap(f -> f.files().join().stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .count();
             return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         }
 
+        @Blocking
         private String buildAggregateSummaryTooltip() {
             var allFiles = summaryFragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .flatMap(f -> f.files().join().stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .sorted()
