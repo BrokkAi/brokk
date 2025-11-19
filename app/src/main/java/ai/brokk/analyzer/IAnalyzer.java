@@ -129,11 +129,12 @@ public interface IAnalyzer {
      * @param fqName The exact FQ name (without signature)
      * @param signature The signature string (e.g., "(int, String)"), or null to match any signature
      * @return Optional containing matching CodeUnit, or empty if not found
+     * @deprecated Use {@link #getFunctionDefinition(String, Signature)} with {@link Signature#NONE} instead of null for type safety
      */
+    @Deprecated
     default Optional<CodeUnit> getFunctionDefinition(String fqName, @Nullable String signature) {
-        var candidates = getDefinitions(fqName).stream()
-                .filter(CodeUnit::isFunction)
-                .toList();
+        var candidates =
+                getDefinitions(fqName).stream().filter(CodeUnit::isFunction).toList();
 
         if (signature == null || candidates.isEmpty()) {
             return candidates.stream().findFirst();

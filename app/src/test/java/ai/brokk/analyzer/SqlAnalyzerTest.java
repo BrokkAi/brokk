@@ -559,8 +559,7 @@ class SqlAnalyzerTest {
     @Test
     void testGetDefinitions_WithSchema() throws IOException {
         Path sqlFile = tempDir.resolve("schema.sql");
-        Files.writeString(
-                sqlFile, "CREATE VIEW my_schema.my_view AS SELECT 1;", StandardCharsets.UTF_8);
+        Files.writeString(sqlFile, "CREATE VIEW my_schema.my_view AS SELECT 1;", StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
         var testProject = createTestProject(Set.of(projectFile));

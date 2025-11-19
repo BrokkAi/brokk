@@ -3294,10 +3294,7 @@ public class TypescriptAnalyzerTest {
         // If we have multiple results, they should be distinct (different signatures)
         if (overloads.size() > 1) {
             var uniqueCodeUnits = java.util.Set.copyOf(overloads);
-            assertEquals(
-                    overloads.size(),
-                    uniqueCodeUnits.size(),
-                    "Multiple results should be distinct CodeUnits");
+            assertEquals(overloads.size(), uniqueCodeUnits.size(), "Multiple results should be distinct CodeUnits");
         }
     }
 
@@ -3312,9 +3309,7 @@ public class TypescriptAnalyzerTest {
         // Verify all returned CodeUnits are functions
         for (CodeUnit cu : overloads) {
             assertTrue(cu.isFunction(), "All returned CodeUnits should be functions");
-            assertTrue(
-                    cu.fqName().contains("multiply"),
-                    "All overloads should reference multiply: " + cu.fqName());
+            assertTrue(cu.fqName().contains("multiply"), "All overloads should reference multiply: " + cu.fqName());
         }
     }
 
@@ -3342,25 +3337,19 @@ public class TypescriptAnalyzerTest {
         assertNotNull(results, "autocompleteDefinitions should not return null");
 
         // Filter to just add function
-        var overloads = results.stream()
-                .filter(cu -> "add".equals(cu.fqName()))
-                .toList();
+        var overloads = results.stream().filter(cu -> "add".equals(cu.fqName())).toList();
 
         // Should have at least one add function
         assertTrue(overloads.size() >= 1, "Should find at least one add function");
 
         // If signatures are populated for the overloads, we should see multiple
-        var withSignatures = overloads.stream()
-                .filter(cu -> cu.signature() != null)
-                .toList();
+        var withSignatures =
+                overloads.stream().filter(cu -> cu.signature() != null).toList();
 
         if (withSignatures.size() >= 2) {
             // Verify they are distinct CodeUnits (different signatures)
             var uniqueCodeUnits = java.util.Set.copyOf(overloads);
-            assertEquals(
-                    overloads.size(),
-                    uniqueCodeUnits.size(),
-                    "Overloads should be distinct CodeUnit objects");
+            assertEquals(overloads.size(), uniqueCodeUnits.size(), "Overloads should be distinct CodeUnit objects");
         }
     }
 

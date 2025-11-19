@@ -833,10 +833,7 @@ public class JavaAnalyzerTest {
         // If we have multiple results, they should be distinct (different signatures)
         if (overloads.size() > 1) {
             var uniqueCodeUnits = Set.copyOf(overloads);
-            assertEquals(
-                    overloads.size(),
-                    uniqueCodeUnits.size(),
-                    "Multiple results should be distinct CodeUnits");
+            assertEquals(overloads.size(), uniqueCodeUnits.size(), "Multiple results should be distinct CodeUnits");
         }
     }
 
@@ -879,9 +876,8 @@ public class JavaAnalyzerTest {
         var overloads = analyzer.getDefinitions("A.method2");
 
         // If signatures are populated and we have multiple overloads, test exact matching
-        var signaturedOverloads = overloads.stream()
-                .filter(cu -> cu.signature() != null)
-                .toList();
+        var signaturedOverloads =
+                overloads.stream().filter(cu -> cu.signature() != null).toList();
 
         if (signaturedOverloads.size() >= 2) {
             // Get one of the signatures
@@ -953,17 +949,15 @@ public class JavaAnalyzerTest {
         assertNotNull(results, "autocompleteDefinitions should not return null");
 
         // Filter to just A.method2 overloads
-        var method2Overloads = results.stream()
-                .filter(cu -> "A.method2".equals(cu.fqName()))
-                .toList();
+        var method2Overloads =
+                results.stream().filter(cu -> "A.method2".equals(cu.fqName())).toList();
 
         // Should have at least one method2
         assertTrue(method2Overloads.size() >= 1, "Should find at least one method2 overload");
 
         // If signatures are populated for the overloads, we should see both
-        var withSignatures = method2Overloads.stream()
-                .filter(cu -> cu.signature() != null)
-                .toList();
+        var withSignatures =
+                method2Overloads.stream().filter(cu -> cu.signature() != null).toList();
 
         if (withSignatures.size() >= 2) {
             // Verify they are distinct CodeUnits (different signatures)
