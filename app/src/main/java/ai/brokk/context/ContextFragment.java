@@ -173,7 +173,13 @@ public interface ContextFragment {
             return t;
         };
 
-        var tpe = Executors.newCachedThreadPool(daemonFactory);
+        var tpe = new ThreadPoolExecutor(
+                0,
+                Runtime.getRuntime().availableProcessors() * 3,
+                60L,
+                TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                daemonFactory);
         return new LoggingExecutorService(
                 tpe, th -> logger.error("Uncaught exception in ContextFragment executor", th));
     }
