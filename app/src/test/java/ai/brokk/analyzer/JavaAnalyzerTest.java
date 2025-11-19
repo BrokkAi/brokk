@@ -909,7 +909,7 @@ public class JavaAnalyzerTest {
     @Test
     public void getFunctionDefinition_NonMatchingSignature_ReturnsFallback() {
         // Use a signature that definitely doesn't exist
-        var result = analyzer.getFunctionDefinition("A.method2", "(NonExistentType)");
+        var result = analyzer.getFunctionDefinition("A.method2", Signature.of("(NonExistentType)"));
 
         // Should fallback to any overload
         assertTrue(result.isPresent(), "Should fallback to any overload when signature doesn't match");
