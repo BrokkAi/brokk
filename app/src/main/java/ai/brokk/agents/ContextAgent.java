@@ -88,7 +88,7 @@ public class ContextAgent {
         this.analyzer = contextManager.getAnalyzer();
 
         // Token budgets
-        int outputTokens = model.defaultRequestParameters().maxCompletionTokens();
+        int outputTokens = 64_000; // GROK hack, should be model.defaultRequestParameters().maxCompletionTokens();
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.evaluationBudget = (int) (actualInputTokens * 0.65);

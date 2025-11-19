@@ -442,7 +442,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (config.tier != ProcessingTier.DEFAULT) {
             builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
         }
-        params = params.maxCompletionTokens(getMaxOutputTokens(location));
+        params = config.name.startsWith("grok") ? params.maxOutputTokens(getMaxOutputTokens(location)) : params.maxCompletionTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             builder = builder.apiKey("dummy-key");
