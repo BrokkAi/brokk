@@ -2379,9 +2379,11 @@ public interface ContextFragment {
             analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
-                        analyzer.getDefinition(targetIdentifier).ifPresent(cu -> {
-                            skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                        });
+                        analyzer.getDefinitions(targetIdentifier).stream()
+                                .findFirst()
+                                .ifPresent(cu -> {
+                                    skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+                                });
                     }
                     case FILE_SKELETONS -> {
                         IContextManager cm = getContextManager();
