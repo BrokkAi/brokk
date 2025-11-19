@@ -27,6 +27,7 @@ import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -569,13 +570,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<CodeUnit> getDefinitions(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
-        // Simple filter by fqName - no signature parsing needed
-        return this.state.codeUnitState.keySet().stream()
+        // Filter by fqName and sort by priority
+        var sorted = this.state.codeUnitState.keySet().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
-                .collect(Collectors.toSet());
+                .sorted(definitionPriorityComparator()
+                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .toList();
+
+        // LinkedHashSet preserves insertion order (= sort order)
+        return new LinkedHashSet<>(sorted);
     }
 
     @Override

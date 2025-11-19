@@ -113,49 +113,33 @@ public class AnalyzerUtil {
     }
 
     /**
-     * Returns a comparator for selecting among multiple definitions with the same FQN.
-     * Combines language-specific prioritization with deterministic tiebreaker ordering.
-     *
-     * @param analyzer The analyzer providing language-specific prioritization
-     * @return Comparator ordering by: language priority → source file → fqName → kind
-     */
-    private static Comparator<CodeUnit> definitionOrderingComparator(IAnalyzer analyzer) {
-        return analyzer.definitionPriorityComparator()
-                .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(cu -> cu.kind().name());
-    }
-
-    /**
      * Get skeleton for a symbol by fully qualified name.
-     * When multiple definitions exist, uses language-specific prioritization followed by
-     * deterministic ordering by source file, then fqName, then kind.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
         return analyzer.getDefinitions(fqName).stream()
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
-     * When multiple definitions exist, uses language-specific prioritization followed by
-     * deterministic ordering by source file, then fqName, then kind.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
         return analyzer.getDefinitions(className).stream()
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
     /**
      * Get all source code versions for a method (handles overloads) by fully qualified name.
-     * When multiple definitions exist, uses language-specific prioritization.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
                 .filter(CodeUnit::isFunction)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
                 .orElse(Collections.emptySet());
@@ -163,72 +147,71 @@ public class AnalyzerUtil {
 
     /**
      * Get source code for a method by fully qualified name. If multiple versions exist (overloads), they are
-     * concatenated. When multiple definitions exist, uses language-specific prioritization.
+     * concatenated. Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
                 .filter(CodeUnit::isFunction)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(cu, includeComments)));
     }
 
     /**
      * Get source code for a class by fully qualified name.
-     * When multiple definitions exist, uses language-specific prioritization followed by
-     * deterministic ordering by source file, then fqName, then kind.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
         return analyzer.getDefinitions(fqcn).stream()
                 .filter(CodeUnit::isClass)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
 
     /**
      * Get call graph showing what calls the given method.
-     * When multiple definitions exist, uses language-specific prioritization.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
         return analyzer.getDefinitions(methodName).stream()
                 .filter(CodeUnit::isFunction)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
 
     /**
      * Get call graph showing what the given method calls.
-     * When multiple definitions exist, uses language-specific prioritization.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
         return analyzer.getDefinitions(methodName).stream()
                 .filter(CodeUnit::isFunction)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
 
     /**
      * Get members (methods, fields, nested classes) of a class by fully qualified name.
-     * When multiple definitions exist, uses language-specific prioritization.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
         return analyzer.getDefinitions(fqClass).stream()
                 .filter(CodeUnit::isClass)
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .map(analyzer::getMembersInClass)
                 .orElse(List.of());
     }
 
     /**
      * Get the file containing the definition of a symbol by fully qualified name.
-     * When multiple definitions exist, uses language-specific prioritization.
+     * Uses the preferred definition (first in priority-ordered results).
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
         return analyzer.getDefinitions(fqName).stream()
-                .min(definitionOrderingComparator(analyzer))
+                .findFirst()
                 .map(analyzer::getFileFor)
                 .flatMap(f -> f);
     }

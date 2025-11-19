@@ -103,16 +103,27 @@ public interface IAnalyzer {
     }
 
     /**
-     * Finds ALL CodeUnits matching the given fqName.
-     * For overloaded functions, returns all overloads.
+     * Finds ALL CodeUnits matching the given fqName, returned in priority order.
+     * For overloaded functions, returns all overloads ordered by language-specific prioritization.
+     * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
      *
      * @param fqName The exact, case-sensitive FQ name (without signature)
-     * @return Set of all CodeUnits with matching fqName (may be empty)
+     * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
      */
-    default Set<CodeUnit> getDefinitions(String fqName) {
-        // Default implementation delegates to searchDefinitions with exact match
-        String exactPattern = "^" + Pattern.quote(fqName) + "$";
-        return searchDefinitions(exactPattern);
+    default SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        // Get all matching definitions
+        var results = searchDefinitions("^" + Pattern.quote(fqName) + "$");
+
+        // Sort by language-specific priority, then deterministic tiebreakers
+        var sorted = results.stream()
+                .sorted(definitionPriorityComparator()
+                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .toList();
+
+        // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
+        return new LinkedHashSet<>(sorted);
     }
 
     /**
