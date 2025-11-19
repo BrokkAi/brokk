@@ -182,11 +182,11 @@ public class Context {
     }
 
     public String getEditableToc() {
-        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
+        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
     }
 
     public String getReadOnlyToc() {
-        return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining(", "));
+        return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
     }
 
     @Blocking

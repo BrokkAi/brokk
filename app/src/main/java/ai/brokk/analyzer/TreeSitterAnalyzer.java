@@ -2872,18 +2872,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String textSlice(TSNode node, String src) {
         if (node.isNull()) return "";
-        // Get the byte array representation of the source
-        // This may be cached for better performance in a real implementation
-        byte[] bytes;
-        try {
-            bytes = src.getBytes(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            // Fallback in case of encoding error - use safe conversion method
-            log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
-
-            return ASTTraversalUtils.safeSubstringFromByteOffsets(src, node.getStartByte(), node.getEndByte());
-        }
-
+        // Get the byte array representation of the source - using StandardCharsets.UTF_8 does not throw checked
+        // exceptions
+        byte[] bytes = src.getBytes(StandardCharsets.UTF_8);
         // Extract using correct byte indexing
         return textSliceFromBytes(node.getStartByte(), node.getEndByte(), bytes);
     }
@@ -2892,17 +2883,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Extracts a substring from the source code based on byte offsets.
      */
     protected String textSlice(int startByte, int endByte, String src) {
-        // Get the byte array representation of the source
-        byte[] bytes;
-        try {
-            bytes = src.getBytes(StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            // Fallback in case of encoding error - use safe conversion method
-            log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
-
-            return ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
-        }
-
+        // Get the byte array representation of the source - using StandardCharsets.UTF_8 does not throw checked
+        // exceptions
+        byte[] bytes = src.getBytes(StandardCharsets.UTF_8);
         return textSliceFromBytes(startByte, endByte, bytes);
     }
 
@@ -2993,28 +2976,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
 
-        try {
-            TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
-            if (nameNode != null && !nameNode.isNull()) {
-                nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
-                        src, nameNode.getStartByte(), nameNode.getEndByte()));
-            } else if (!isNullNameExpectedForExtraction(decl.getType())) {
-                log.debug(
-                        "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
-                        identifierFieldName,
-                        decl.getType(),
-                        decl.getStartPoint().getRow() + 1);
-            }
-        } catch (Exception e) {
-            final String snippet = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                    src, decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
-
-            log.warn(
-                    "Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
+        TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
+        if (nameNode != null && !nameNode.isNull()) {
+            nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
+                    src, nameNode.getStartByte(), nameNode.getEndByte()));
+        } else if (!isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
+                    "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
                     identifierFieldName,
                     decl.getType(),
-                    snippet.isEmpty() ? "EMPTY" : snippet,
-                    e.getMessage());
+                    decl.getStartPoint().getRow() + 1);
         }
 
         if (nameOpt.isEmpty() && !isNullNameExpectedForExtraction(decl.getType())) {
@@ -3392,8 +3363,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     reanalyzedCount.incrementAndGet();
                                 } catch (UncheckedIOException e) {
                                     log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                                } catch (RuntimeException e) {
-                                    log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
                                 } finally {
                                     reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
                                 }
@@ -3734,48 +3703,42 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 declarationNode.getEndPoint().getRow(),
                 declarationNode.getStartByte()); // initial commentStartByte equals start
 
-        try {
-            // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
-            List<TSNode> leading = new ArrayList<>();
-            TSNode current = declarationNode.getPrevSibling();
-            while (current != null && !current.isNull()) {
-                if (isLeadingMetadataNode(current)) {
-                    leading.add(current);
-                    current = current.getPrevSibling();
-                    continue;
-                }
-                break;
+        // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
+        List<TSNode> leading = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+        while (current != null && !current.isNull()) {
+            if (isLeadingMetadataNode(current)) {
+                leading.add(current);
+                current = current.getPrevSibling();
+                continue;
             }
+            break;
+        }
 
-            // No leading metadata; keep the original range
-            if (leading.isEmpty()) {
-                return originalRange;
-            }
-
-            // Reverse to get earliest-first
-            Collections.reverse(leading);
-            int newStartByte = leading.getFirst().getStartByte();
-
-            Range expandedRange = new Range(
-                    originalRange.startByte(),
-                    originalRange.endByte(),
-                    originalRange.startLine(),
-                    originalRange.endLine(),
-                    newStartByte);
-
-            log.trace(
-                    "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
-                    originalRange.startByte(),
-                    originalRange.endByte(),
-                    expandedRange.commentStartByte(),
-                    leading.size());
-
-            return expandedRange;
-
-        } catch (Exception e) {
-            log.warn("Error during comment/metadata expansion for node: {}", e.getMessage());
+        // No leading metadata; keep the original range
+        if (leading.isEmpty()) {
             return originalRange;
         }
+
+        // Reverse to get earliest-first
+        Collections.reverse(leading);
+        int newStartByte = leading.getFirst().getStartByte();
+
+        Range expandedRange = new Range(
+                originalRange.startByte(),
+                originalRange.endByte(),
+                originalRange.startLine(),
+                originalRange.endLine(),
+                newStartByte);
+
+        log.trace(
+                "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
+                originalRange.startByte(),
+                originalRange.endByte(),
+                expandedRange.commentStartByte(),
+                leading.size());
+
+        return expandedRange;
     }
 
     /**

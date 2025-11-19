@@ -30,7 +30,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     @Override
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm);
+        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
         var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
 
         var text =
@@ -52,7 +52,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     @Override
     public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var workspaceSummary = formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
 
         var text =
@@ -240,7 +240,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, formatWorkspaceToc(cm), workspaceWarning);
+                .formatted(goal, formatWorkspaceToc(cm.liveContext()), workspaceWarning);
     }
 
     /**
