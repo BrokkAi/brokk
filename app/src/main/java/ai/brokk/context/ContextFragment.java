@@ -246,10 +246,10 @@ public interface ContextFragment {
                 "cf-format-" + id(),
                 () ->
                         """
-                        <fragment description="%s" fragmentid="%s">
-                        %s
-                        </fragment>
-                        """
+                                <fragment description="%s" fragmentid="%s">
+                                %s
+                                </fragment>
+                                """
                                 .formatted(
                                         description().future().join(),
                                         id(),
@@ -374,6 +374,28 @@ public interface ContextFragment {
     }
 
     /**
+     * Eagerly start async computations for this fragment. Non-blocking.
+     * Safe to call multiple times; ComputedValue ensures single evaluation.
+     */
+    default void primeComputations() {
+        shortDescription().start();
+        description().start();
+        text().start();
+        syntaxStyle().start();
+        sources().start();
+        files().start();
+        format().start();
+        var ib = imageBytes();
+        if (ib != null) {
+            ib.start();
+        }
+        // Prime additional surfaces for specific fragment types
+        if (this instanceof ContextFragment.CodeFragment cf) {
+            cf.computedUnit().start();
+        }
+    }
+
+    /**
      * Marker for fragments whose identity is dynamic (numeric, session-local).
      * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
      */
@@ -436,10 +458,10 @@ public interface ContextFragment {
                     "pf-format-" + id(),
                     () ->
                             """
-                            <file path="%s" fragmentid="%s">
-                            %s
-                            </file>
-                            """
+                                    <file path="%s" fragmentid="%s">
+                                    %s
+                                    </file>
+                                    """
                                     .formatted(
                                             file().toString(),
                                             id(),
@@ -490,6 +512,7 @@ public interface ContextFragment {
             this.id = id;
             this.contextManager = contextManager;
             this.snapshotText = snapshotText;
+            this.primeComputations();
         }
 
         private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
@@ -633,15 +656,16 @@ public interface ContextFragment {
                     () -> formatCv,
                     () -> new ComputedValue<>(
                             "ppf-format-" + id(),
-                            () -> """
-    <file path="%s" fragmentid="%s">
-    %s
-    </file>
-    """
-                                    .formatted(
-                                            file().toString(),
-                                            id(),
-                                            this.text().future().join()),
+                            () ->
+                                    """
+                                    <file path="%s" fragmentid="%s">
+                                    %s
+                                    </file>
+                                    """
+                                            .formatted(
+                                                    file().toString(),
+                                                    id(),
+                                                    this.text().future().join()),
                             getFragmentExecutor()),
                     v -> formatCv = v);
         }
@@ -774,6 +798,7 @@ public interface ContextFragment {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
+            this.primeComputations();
         }
 
         @Override
@@ -874,10 +899,10 @@ public interface ContextFragment {
                             "epf-format-" + id(),
                             () ->
                                     """
-                                    <file path="%s" fragmentid="%s">
-                                    %s
-                                    </file>
-                                    """
+                                            <file path="%s" fragmentid="%s">
+                                            %s
+                                            </file>
+                                            """
                                             .formatted(
                                                     file().toString(),
                                                     id(),
@@ -922,6 +947,7 @@ public interface ContextFragment {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
+            this.primeComputations();
         }
 
         @Override
@@ -1049,10 +1075,10 @@ public interface ContextFragment {
                             "iff-format-" + id(),
                             () ->
                                     """
-                                    <file path="%s" fragmentid="%s">
-                                    [Image content provided out of band]
-                                    </file>
-                                    """
+                                            <file path="%s" fragmentid="%s">
+                                            [Image content provided out of band]
+                                            </file>
+                                            """
                                             .formatted(file().toString(), id()),
                             getFragmentExecutor()),
                     v -> formatCv = v);
@@ -1172,10 +1198,10 @@ public interface ContextFragment {
                             "vf-format-" + id(),
                             () ->
                                     """
-                                    <fragment description="%s" fragmentid="%s">
-                                    %s
-                                    </fragment>
-                                    """
+                                            <fragment description="%s" fragmentid="%s">
+                                            %s
+                                            </fragment>
+                                            """
                                             .formatted(
                                                     description().future().join(),
                                                     id(),
@@ -1294,6 +1320,7 @@ public interface ContextFragment {
             this.syntaxStyle = syntaxStyle;
             this.text = text;
             this.description = description;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1307,6 +1334,7 @@ public interface ContextFragment {
             this.syntaxStyle = syntaxStyle;
             this.text = text;
             this.description = description;
+            this.primeComputations();
         }
 
         @Override
@@ -1421,6 +1449,7 @@ public interface ContextFragment {
             // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
             super(contextManager, messages, sessionName, true);
             this.sources = sources;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1438,6 +1467,7 @@ public interface ContextFragment {
                     sessionName,
                     true); // existingHashId is expected to be a content hash
             this.sources = sources;
+            this.primeComputations();
         }
 
         @Override
@@ -1542,6 +1572,7 @@ public interface ContextFragment {
                     descriptionFuture);
             this.text = text;
             this.syntaxStyleFuture = syntaxStyleFuture;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1564,6 +1595,7 @@ public interface ContextFragment {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.text = text;
             this.syntaxStyleFuture = syntaxStyleFuture;
+            this.primeComputations();
         }
 
         @Override
@@ -1658,6 +1690,7 @@ public interface ContextFragment {
                     contextManager,
                     descriptionFuture);
             this.image = image;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1665,6 +1698,7 @@ public interface ContextFragment {
                 String existingHashId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
             this.image = image;
+            this.primeComputations();
         }
 
         @Override
@@ -1711,10 +1745,10 @@ public interface ContextFragment {
                     "aif-format-" + id(),
                     () ->
                             """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
+                                    <fragment description="%s" fragmentid="%s">
+                                    %s
+                                    </fragment>
+                                    """
                                     .formatted(
                                             description().future().join(),
                                             id(),
@@ -1775,6 +1809,7 @@ public interface ContextFragment {
             this.original = original;
             this.exception = exception;
             this.code = code;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
@@ -1790,6 +1825,7 @@ public interface ContextFragment {
             this.original = original;
             this.exception = exception;
             this.code = code;
+            this.primeComputations();
         }
 
         @Override
@@ -1876,6 +1912,7 @@ public interface ContextFragment {
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
             this.snapshotText = snapshotText;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -1899,6 +1936,7 @@ public interface ContextFragment {
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
             this.snapshotText = snapshotText;
+            this.primeComputations();
         }
 
         @Override
@@ -2074,6 +2112,7 @@ public interface ContextFragment {
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
             this.snapshotText = snapshotText;
+            this.primeComputations();
         }
 
         public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
@@ -2089,6 +2128,7 @@ public interface ContextFragment {
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
             this.snapshotText = snapshotText;
+            this.primeComputations();
         }
 
         /**
@@ -2100,6 +2140,7 @@ public interface ContextFragment {
             this.fullyQualifiedName = unit.fqName();
             this.preResolvedUnit = unit;
             this.snapshotText = null;
+            this.primeComputations();
         }
 
         private static void validateCodeUnit(CodeUnit unit) {
@@ -2284,6 +2325,7 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -2299,6 +2341,7 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
+            this.primeComputations();
         }
 
         @Override
@@ -2429,6 +2472,7 @@ public interface ContextFragment {
             this.summaries = targetIdentifiers.stream()
                     .map(target -> new SummaryFragment(contextManager, target, summaryType))
                     .toList();
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
@@ -2442,6 +2486,7 @@ public interface ContextFragment {
             this.summaries = targetIdentifiers.stream()
                     .map(target -> new SummaryFragment(contextManager, target, summaryType))
                     .toList();
+            this.primeComputations();
         }
 
         @Override
@@ -2520,10 +2565,10 @@ public interface ContextFragment {
                             "skf-format-" + id(),
                             () ->
                                     """
-                                    <summary targets="%s" type="%s" fragmentid="%s">
-                                    %s
-                                    </summary>
-                                    """
+                                            <summary targets="%s" type="%s" fragmentid="%s">
+                                            %s
+                                            </summary>
+                                            """
                                             .formatted(
                                                     String.join(", ", getTargetIdentifiers()),
                                                     getSummaryType().name(),
@@ -2574,6 +2619,7 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID might be numeric (dynamic) or hash (if frozen)
@@ -2583,6 +2629,7 @@ public interface ContextFragment {
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
+            this.primeComputations();
         }
 
         @Override
@@ -2776,12 +2823,14 @@ public interface ContextFragment {
                             HistoryFragment.class.getName()),
                     contextManager);
             this.history = List.copyOf(history);
+            this.primeComputations();
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public HistoryFragment(String existingHashId, IContextManager contextManager, List<TaskEntry> history) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
             this.history = List.copyOf(history);
+            this.primeComputations();
         }
 
         @Override
@@ -2824,10 +2873,10 @@ public interface ContextFragment {
                     "hf-format-" + id(),
                     () ->
                             """
-                            <taskhistory fragmentid="%s">
-                            %s
-                            </taskhistory>
-                            """
+                                    <taskhistory fragmentid="%s">
+                                    %s
+                                    </taskhistory>
+                                    """
                                     .formatted(id(), text().future().join()),
                     getFragmentExecutor());
         }
@@ -2884,6 +2933,7 @@ public interface ContextFragment {
             this.messages = List.copyOf(messages);
             this.description = description;
             this.escapeHtml = escapeHtml;
+            this.primeComputations();
         }
 
         public TaskFragment(
@@ -2908,6 +2958,7 @@ public interface ContextFragment {
             this.messages = List.copyOf(messages);
             this.description = description;
             this.escapeHtml = escapeHtml;
+            this.primeComputations();
         }
 
         public TaskFragment(
