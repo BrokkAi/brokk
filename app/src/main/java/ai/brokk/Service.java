@@ -94,15 +94,23 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     .info("Free tier detected – using quickModel for quick‑edit operations.");
             quickEditModel = quickModel;
         } else {
-            var qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
-            quickEditModel = qe == null ? quickModel : qe;
+            var qeCfg = project.getMainProject().getQuickEditModelConfig();
+            var qe = getModel(qeCfg);
+            if (qe == null) {
+                qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
+            }
+            quickEditModel = (qe == null) ? quickModel : qe;
         }
 
         // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel(
-                new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
-                OpenAiChatRequestParameters.builder().temperature(0.0));
-        quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
+        var qkCfg = project.getMainProject().getQuickestModelConfig();
+        var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
+        if (qqm == null) {
+            qqm = getModel(
+                    new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
+                    OpenAiChatRequestParameters.builder().temperature(0.0));
+        }
+        quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()
