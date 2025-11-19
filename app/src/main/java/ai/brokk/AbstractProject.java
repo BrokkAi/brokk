@@ -850,6 +850,147 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
     }
 
+    public Set<ProjectFile> updateLocalPathDependencyOnDisk(
+            ProjectFile dependencyRoot, DependencyMetadata metadata) throws IOException {
+        if (metadata.type() != DependencySourceType.LOCAL_PATH) {
+            throw new IllegalArgumentException("updateLocalPathDependencyOnDisk requires LOCAL_PATH metadata");
+        }
+        String sourcePathStr = metadata.sourcePath();
+        if (sourcePathStr == null || sourcePathStr.isBlank()) {
+            throw new IllegalArgumentException("LOCAL_PATH metadata must contain non-empty sourcePath");
+        }
+
+        Path sourcePath = Path.of(sourcePathStr).toAbsolutePath().normalize();
+        if (!Files.exists(sourcePath) || !Files.isDirectory(sourcePath)) {
+            logger.warn("Local path dependency source {} does not exist or is not a directory", sourcePath);
+            throw new IOException("Source directory for local dependency no longer exists: " + sourcePath);
+        }
+
+        Path targetPath = dependencyRoot.absPath();
+        Path dependenciesRoot = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+
+        Path normalizedSource = sourcePath.normalize();
+        Path normalizedDepsRoot = dependenciesRoot.normalize();
+        Path normalizedTarget = targetPath.normalize();
+
+        if (normalizedSource.startsWith(normalizedDepsRoot)) {
+            String msg =
+                    "Local dependency source "
+                            + normalizedSource
+                            + " must not be inside dependencies root "
+                            + normalizedDepsRoot;
+            logger.warn(msg);
+            throw new IOException(msg);
+        }
+        if (normalizedSource.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedSource)) {
+            String msg =
+                    "Local dependency source "
+                            + normalizedSource
+                            + " must not be the same as or inside its target directory "
+                            + normalizedTarget;
+            logger.warn(msg);
+            throw new IOException(msg);
+        }
+
+        Path depsParent = normalizedTarget.getParent();
+        if (depsParent == null) {
+            throw new IOException("Dependency root has no parent: " + targetPath);
+        }
+
+        String depName = normalizedTarget.getFileName().toString();
+        Path tempDir = Files.createTempDirectory(depsParent, depName + "-update-");
+
+        try {
+            // Copy allowed source files into a temporary directory, mirroring import behavior
+            var allowedExtensions = getAnalyzerLanguages().stream()
+                    .flatMap(lang -> lang.getExtensions().stream())
+                    .map(ext -> ext.toLowerCase(Locale.ROOT))
+                    .distinct()
+                    .collect(Collectors.toList());
+
+            java.nio.file.Files.walkFileTree(
+                    sourcePath,
+                    new java.nio.file.SimpleFileVisitor<Path>() {
+                        @Override
+                        public java.nio.file.FileVisitResult preVisitDirectory(
+                                Path dir, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                            Path targetSubdir = tempDir.resolve(sourcePath.relativize(dir));
+                            Files.createDirectories(targetSubdir);
+                            return java.nio.file.FileVisitResult.CONTINUE;
+                        }
+
+                        @Override
+                        public java.nio.file.FileVisitResult visitFile(
+                                Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                            String fileName = file.getFileName().toString();
+                            int lastDot = fileName.lastIndexOf('.');
+                            if (lastDot > 0 && lastDot < fileName.length() - 1) {
+                                String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
+                                if (allowedExtensions.contains(ext)) {
+                                    Path dest = tempDir.resolve(sourcePath.relativize(file));
+                                    Files.copy(file, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                }
+                            }
+                            return java.nio.file.FileVisitResult.CONTINUE;
+                        }
+                    });
+
+            Path masterRoot = getMasterRootPathForConfig();
+
+            var oldFiles = new HashSet<Path>();
+            if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
+                try (var pathStream = Files.walk(targetPath)) {
+                    pathStream
+                            .filter(Files::isRegularFile)
+                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
+                }
+            }
+
+            var newFiles = new HashSet<Path>();
+            try (var pathStream = Files.walk(tempDir)) {
+                pathStream
+                        .filter(Files::isRegularFile)
+                        .forEach(p -> {
+                            Path relWithinTemp = tempDir.relativize(p);
+                            Path futureLocation = targetPath.resolve(relWithinTemp);
+                            newFiles.add(masterRoot.relativize(futureLocation));
+                        });
+            }
+
+            var changedRelPaths = new HashSet<Path>(newFiles);
+            changedRelPaths.removeAll(oldFiles);
+            var removedRelPaths = new HashSet<Path>(oldFiles);
+            removedRelPaths.removeAll(newFiles);
+            changedRelPaths.addAll(removedRelPaths);
+
+            if (Files.exists(targetPath)) {
+                boolean deleted = FileUtil.deleteRecursively(targetPath);
+                if (!deleted && Files.exists(targetPath)) {
+                    throw new IOException("Failed to delete existing dependency directory " + targetPath);
+                }
+            }
+            Files.move(tempDir, targetPath);
+
+            writeLocalPathDependencyMetadata(targetPath, sourcePath);
+
+            return changedRelPaths.stream()
+                    .map(rel -> new ProjectFile(masterRoot, rel))
+                    .collect(Collectors.toSet());
+        } catch (IOException e) {
+            try {
+                if (Files.exists(tempDir)) {
+                    FileUtil.deleteRecursively(tempDir);
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Failed to cleanup temporary local dependency directory {} after swap failure: {}",
+                        tempDir,
+                        cleanupEx.getMessage());
+            }
+            throw e;
+        }
+    }
+
     /**
      * Determine the predominant language for a dependency directory by scanning files inside it.
      * This is shared between MainProject and WorktreeProject to avoid duplication.

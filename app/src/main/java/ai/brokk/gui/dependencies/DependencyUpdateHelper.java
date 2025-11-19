@@ -4,11 +4,13 @@ import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,8 +18,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * Helper for updating imported dependencies and refreshing the analyzer.
  *
- * <p>This class currently provides support for GitHub-backed dependencies; future dependency
- * types (e.g., local paths) can be added alongside.
+ * <p>This class currently provides support for GitHub-backed and local path dependencies.
  */
 public final class DependencyUpdateHelper {
     private static final Logger logger = LogManager.getLogger(DependencyUpdateHelper.class);
@@ -46,12 +47,64 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
             Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
+        return runUpdate(
+                chrome,
+                dependencyRoot,
+                metadata,
+                "GitHub",
+                abstractProject -> {
+                    try {
+                        return abstractProject.updateGitDependencyOnDisk(dependencyRoot, metadata);
+                    } catch (IOException e) {
+                        throw new RuntimeException(
+                                "I/O error while updating GitHub dependency on disk: " + dependencyRoot, e);
+                    }
+                });
+    }
+
+    /**
+     * Updates a single local-path-backed dependency and refreshes the analyzer.
+     *
+     * <p>This method mirrors {@link #updateGitDependency(Chrome, ProjectFile, AbstractProject.DependencyMetadata)}
+     * but delegates to
+     * {@link AbstractProject#updateLocalPathDependencyOnDisk(ProjectFile, AbstractProject.DependencyMetadata)}
+     * for the on-disk update.
+     *
+     * @param chrome current Chrome instance
+     * @param dependencyRoot top-level dependency directory as a {@link ProjectFile}
+     * @param metadata parsed dependency metadata (must be of type LOCAL_PATH)
+     * @return future completing with the set of changed/added/removed files, or an empty set on failure
+     */
+    public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
+            Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
+        return runUpdate(
+                chrome,
+                dependencyRoot,
+                metadata,
+                "local path",
+                abstractProject -> {
+                    try {
+                        return abstractProject.updateLocalPathDependencyOnDisk(dependencyRoot, metadata);
+                    } catch (IOException e) {
+                        throw new RuntimeException(
+                                "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
+                    }
+                });
+    }
+
+    private static CompletableFuture<Set<ProjectFile>> runUpdate(
+            Chrome chrome,
+            ProjectFile dependencyRoot,
+            AbstractProject.DependencyMetadata metadata,
+            String dependencyKindLabel,
+            Function<AbstractProject, Set<ProjectFile>> updateOperation) {
 
         var project = chrome.getProject();
         if (!(project instanceof AbstractProject abstractProject)) {
             logger.warn(
-                    "Project implementation {} does not extend AbstractProject; cannot update GitHub dependency {}",
+                    "Project implementation {} does not extend AbstractProject; cannot update {} dependency {}",
                     project.getClass().getName(),
+                    dependencyKindLabel,
                     dependencyRoot);
             return CompletableFuture.completedFuture(Collections.emptySet());
         }
@@ -61,16 +114,15 @@ public final class DependencyUpdateHelper {
 
         chrome.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                "Updating GitHub dependency '" + depName + "' in the background...");
+                "Updating " + dependencyKindLabel + " dependency '" + depName + "' in the background...");
 
         var future = cm.submitBackgroundTask(
-                "Update GitHub dependency " + depName,
+                "Update " + dependencyKindLabel + " dependency " + depName,
                 () -> {
                     var analyzer = cm.getAnalyzerWrapper();
                     analyzer.pause();
                     try {
-                        Set<ProjectFile> changedFiles =
-                                abstractProject.updateGitDependencyOnDisk(dependencyRoot, metadata);
+                        Set<ProjectFile> changedFiles = updateOperation.apply(abstractProject);
 
                         if (!changedFiles.isEmpty()) {
                             try {
@@ -93,20 +145,30 @@ public final class DependencyUpdateHelper {
 
         future.whenComplete((changedFiles, ex) -> SwingUtilities.invokeLater(() -> {
             if (ex != null) {
-                logger.error("Error updating GitHub dependency {}: {}", depName, ex.getMessage(), ex);
+                logger.error(
+                        "Error updating {} dependency {}: {}",
+                        dependencyKindLabel,
+                        depName,
+                        ex.getMessage(),
+                        ex);
                 chrome.toolError(
-                        "Failed to update GitHub dependency '" + depName + "': " + ex.getMessage(),
+                        "Failed to update " + dependencyKindLabel + " dependency '" + depName + "': " + ex.getMessage(),
                         "Dependency Update Error");
             } else {
                 Set<ProjectFile> nonNullChanged = changedFiles != null ? changedFiles : Collections.emptySet();
                 if (nonNullChanged.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            "GitHub dependency '" + depName + "' is already up to date.");
+                            capitalize(dependencyKindLabel)
+                                    + " dependency '"
+                                    + depName
+                                    + "' is already up to date.");
                 } else {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            "Updated GitHub dependency '"
+                            "Updated "
+                                    + dependencyKindLabel
+                                    + " dependency '"
                                     + depName
                                     + "' ("
                                     + nonNullChanged.size()
@@ -116,5 +178,15 @@ public final class DependencyUpdateHelper {
         }));
 
         return future;
+    }
+
+    private static String capitalize(String label) {
+        if (label.isEmpty()) {
+            return label;
+        }
+        if (label.length() == 1) {
+            return label.toUpperCase();
+        }
+        return Character.toUpperCase(label.charAt(0)) + label.substring(1);
     }
 }
