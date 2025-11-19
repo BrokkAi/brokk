@@ -43,15 +43,13 @@ class SignatureTest {
     }
 
     @Test
-    void of_WithNull_ThrowsException() {
-        var ex = assertThrows(IllegalArgumentException.class, () -> Signature.of(null));
-        assertTrue(ex.getMessage().contains("Use Signature.none()"));
+    void of_WithNull_ReturnsNone() {
+        assertSame(Signature.none(), Signature.of(null));
     }
 
     @Test
-    void of_WithEmptyString_ThrowsException() {
-        var ex = assertThrows(IllegalArgumentException.class, () -> Signature.of(""));
-        assertTrue(ex.getMessage().contains("Use Signature.none()"));
+    void of_WithEmptyString_ReturnsNone() {
+        assertSame(Signature.none(), Signature.of(""));
     }
 
     @Test

@@ -25,16 +25,12 @@ public sealed interface Signature {
      * Factory method to create a signature from parameter types.
      * The format should be "(type1, type2, ...)" or "()" for zero parameters.
      *
-     * @param params the parameter signature string
-     * @return a Parameters signature
-     * @throws IllegalArgumentException if params is null, empty, or malformed
+     * @param params the parameter signature string, or null
+     * @return Signature.none() if params is null/empty, otherwise a Parameters signature
      */
-    static Signature of(String params) {
-        if (params == null) {
-            throw new IllegalArgumentException("Use Signature.none() for null signatures");
-        }
-        if (params.isEmpty()) {
-            throw new IllegalArgumentException("Use Signature.none() for empty signatures");
+    static Signature of(@Nullable String params) {
+        if (params == null || params.isEmpty()) {
+            return none();
         }
         return new Parameters(params);
     }
