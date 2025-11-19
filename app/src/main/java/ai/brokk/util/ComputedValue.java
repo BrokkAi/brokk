@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import javax.swing.*;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -23,16 +24,16 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * One-shot, self-materializing computed value.
- *
+ * <p>
  * Characteristics:
  * - Lazy by default when no Executor is provided; computation starts on first call to future()/start()/await()
- *   (never on tryGet()).
+ * (never on tryGet()).
  * - If constructed with a non-null Executor, the computation autostarts exactly once on that executor.
  * - Predictable thread names when using the dedicated thread: cv-<name>-<sequence>.
  * - Non-blocking probe via {@link #tryGet()}.
  * - Best-effort bounded wait via {@link #await(Duration)}. If invoked on the Swing EDT, returns Optional.empty()
- *   immediately (never blocks the EDT).
- *
+ * immediately (never blocks the EDT).
+ * <p>
  * Notes:
  * - Exceptions thrown by the supplier complete the future exceptionally.
  * - {@code tryGet()} returns empty if not completed normally (including exceptional completion).
@@ -57,8 +58,8 @@ public final class ComputedValue<T> {
      * Create the computation with a predictable name for the thread.
      * Lazy by default (does not start until future()/start()/await() is called).
      *
-     * @param name       used in the worker thread name; not null/blank
-     * @param supplier   computation to run
+     * @param name     used in the worker thread name; not null/blank
+     * @param supplier computation to run
      */
     ComputedValue(String name, Supplier<T> supplier) {
         this(name, supplier, null, new CompletableFuture<>());
@@ -68,9 +69,9 @@ public final class ComputedValue<T> {
      * Create the computation with a predictable name for the thread.
      * If executor is non-null, the computation autostarts exactly once on that executor.
      *
-     * @param name       used in the worker thread name; not null/blank
-     * @param supplier   computation to run
-     * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used on start()
+     * @param name     used in the worker thread name; not null/blank
+     * @param supplier computation to run
+     * @param executor optional executor on which to run the supplier; if null, a dedicated daemon thread is used on start()
      */
     public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
         this(name, supplier, executor, new CompletableFuture<>());
@@ -114,7 +115,8 @@ public final class ComputedValue<T> {
      * determined.
      */
     @Blocking
-    public T join() {
+    public T join() throws CancellationException, CompletionException {
+        assert !SwingUtilities.isEventDispatchThread() : "May not block on the EDT thread!";
         startInternal();
         return futureRef.join();
     }
@@ -207,7 +209,7 @@ public final class ComputedValue<T> {
      * Register a completion callback. The handler is invoked exactly once, with either the computed value
      * (and null throwable) or with a throwable (and null value) if the computation failed.
      * If the value is already available at registration time, the handler is invoked immediately.
-     *
+     * <p>
      * Returns a Subscription that can be disposed to remove the handler before completion.
      */
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
