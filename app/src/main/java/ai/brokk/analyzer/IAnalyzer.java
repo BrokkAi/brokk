@@ -103,19 +103,15 @@ public interface IAnalyzer {
     }
 
     /**
-     * Finds ALL CodeUnits matching the given fqName, returned in priority order.
-     * For overloaded functions, returns all overloads ordered by language-specific prioritization.
-     * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
+     * Sorts a set of definitions by priority order.
+     * Helper method for implementing getDefinitions() with consistent ordering.
+     * Sorts by: language-specific priority → source file → fqName → kind.
      *
-     * @param fqName The exact, case-sensitive FQ name (without signature)
-     * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
+     * @param definitions Unsorted set of definitions
+     * @return SequencedSet with definitions in priority order (preserves uniqueness)
      */
-    default SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        // Get all matching definitions
-        var results = searchDefinitions("^" + Pattern.quote(fqName) + "$");
-
-        // Sort by language-specific priority, then deterministic tiebreakers
-        var sorted = results.stream()
+    default SequencedSet<CodeUnit> sortDefinitions(Set<CodeUnit> definitions) {
+        var sorted = definitions.stream()
                 .sorted(definitionPriorityComparator()
                         .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
@@ -124,6 +120,19 @@ public interface IAnalyzer {
 
         // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
         return new LinkedHashSet<>(sorted);
+    }
+
+    /**
+     * Finds ALL CodeUnits matching the given fqName, returned in priority order.
+     * For overloaded functions, returns all overloads ordered by language-specific prioritization.
+     * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
+     *
+     * @param fqName The exact, case-sensitive FQ name (without signature)
+     * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
+     */
+    default SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var results = searchDefinitions("^" + Pattern.quote(fqName) + "$");
+        return sortDefinitions(results);
     }
 
     /**

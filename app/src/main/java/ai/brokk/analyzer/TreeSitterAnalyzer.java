@@ -573,17 +573,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         final String normalizedFqName = normalizeFullName(fqName);
 
-        // Filter by fqName and sort by priority
-        var sorted = this.state.codeUnitState.keySet().stream()
+        // Filter by fqName
+        var results = this.state.codeUnitState.keySet().stream()
                 .filter(cu -> cu.fqName().equals(normalizedFqName))
-                .sorted(definitionPriorityComparator()
-                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(cu -> cu.kind().name()))
-                .toList();
+                .collect(Collectors.toSet());
 
-        // LinkedHashSet preserves insertion order (= sort order)
-        return new LinkedHashSet<>(sorted);
+        return sortDefinitions(results);
     }
 
     @Override

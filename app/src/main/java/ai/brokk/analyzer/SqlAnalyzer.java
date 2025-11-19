@@ -151,18 +151,8 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
 
     @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        var results = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
-
-        // Sort by priority (SQL has no language-specific priority, so just deterministic tiebreaker)
-        var sorted = results.stream()
-                .sorted(definitionPriorityComparator()
-                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(cu -> cu.kind().name()))
-                .toList();
-
-        // LinkedHashSet preserves insertion order (= sort order)
-        return new LinkedHashSet<>(sorted);
+        var results = new HashSet<>(definitionsByFqName.getOrDefault(fqName, Collections.emptyList()));
+        return sortDefinitions(results);
     }
 
     @Override
