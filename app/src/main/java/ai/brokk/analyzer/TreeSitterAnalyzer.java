@@ -584,6 +584,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         String normalizedFqName = normalizeFullName(fqName);
 
+        if (normalizedFqName.contains("(")) {
+            log.warn("getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead", fqName);
+        }
+
         Set<CodeUnit> candidates = lookupCandidatesByFqName(normalizedFqName);
         if (candidates.isEmpty()) {
             return new LinkedHashSet<>();
