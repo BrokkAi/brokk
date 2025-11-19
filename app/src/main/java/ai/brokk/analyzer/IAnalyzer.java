@@ -92,37 +92,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Returns a comparator for prioritizing among multiple definitions with the same FQN.
-     * Language-specific analyzers can override to provide custom ordering (e.g., preferring
-     * .cpp implementations over .h declarations in C++).
-     *
-     * @return Comparator for definition prioritization (default returns no-op comparator)
-     */
-    default Comparator<CodeUnit> definitionPriorityComparator() {
-        return Comparator.comparingInt(cu -> 0);
-    }
-
-    /**
-     * Sorts a set of definitions by priority order.
-     * Helper method for implementing getDefinitions() with consistent ordering.
-     * Sorts by: language-specific priority → source file → fqName → kind.
-     *
-     * @param definitions Unsorted set of definitions
-     * @return SequencedSet with definitions in priority order (preserves uniqueness)
-     */
-    default SequencedSet<CodeUnit> sortDefinitions(Set<CodeUnit> definitions) {
-        var sorted = definitions.stream()
-                .sorted(definitionPriorityComparator()
-                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(cu -> cu.kind().name()))
-                .toList();
-
-        // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
-        return new LinkedHashSet<>(sorted);
-    }
-
-    /**
      * Finds ALL CodeUnits matching the given fqName, returned in priority order.
      * For overloaded functions, returns all overloads ordered by language-specific prioritization.
      * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
@@ -131,6 +100,39 @@ public interface IAnalyzer {
      * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    /**
+     * Returns a comparator for prioritizing among multiple definitions with the same FQN.
+     * Language-specific analyzers can override to provide custom ordering (e.g., preferring
+     * .cpp implementations over .h declarations in C++).
+     *
+     * @return Comparator for definition prioritization (default returns no-op comparator)
+     */
+    default Comparator<CodeUnit> priorityComparator() {
+        return Comparator.comparingInt(cu -> 0);
+    }
+
+    /**
+     * Sorts a set of definitions by priority order.
+     * Helper method for implementing getDefinitions() with consistent ordering.
+     * Sorts by: language-specific priority -> source file -> fqName -> signature -> kind.
+     *
+     * @param definitions Unsorted set of definitions
+     * @return SequencedSet with definitions in priority order (preserves uniqueness)
+     */
+    default SequencedSet<CodeUnit> sortDefinitions(Set<CodeUnit> definitions) {
+        var sorted = definitions.stream()
+                .sorted(priorityComparator()
+                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(
+                                cu -> cu.signature() != null ? cu.signature() : "", String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .toList();
+
+        // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
+        return new LinkedHashSet<>(sorted);
+    }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {
         return searchDefinitions(pattern, true);

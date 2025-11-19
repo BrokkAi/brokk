@@ -630,7 +630,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Comparator<CodeUnit> definitionPriorityComparator() {
+    public Comparator<CodeUnit> priorityComparator() {
         return prioritizingComparator().thenComparing(DEFINITION_COMPARATOR);
     }
 
