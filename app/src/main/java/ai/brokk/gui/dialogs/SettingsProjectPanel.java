@@ -62,6 +62,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private MaterialButton addExcludedDirButton = new MaterialButton();
     private MaterialButton removeExcludedDirButton = new MaterialButton();
 
+    // Dependency auto-update (Code Intelligence tab)
+    private final JCheckBox autoUpdateLocalDependenciesCheckBox =
+            new JCheckBox("Automatically update local path dependencies");
+    private final JCheckBox autoUpdateGitDependenciesCheckBox =
+            new JCheckBox("Automatically update GitHub dependencies");
+
     private Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
 
     private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
@@ -802,6 +808,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.anchor = GridBagConstraints.WEST;
         ciPanel.add(excludedButtonsPanel2, gbcCi);
 
+        // Auto-update dependency checkboxes (apply only to Dependencies panel imports)
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(8, 2, 0, 2);
+        ciPanel.add(autoUpdateLocalDependenciesCheckBox, gbcCi);
+
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(2, 2, 0, 2);
+        ciPanel.add(autoUpdateGitDependenciesCheckBox, gbcCi);
+
+        autoUpdateLocalDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
+        autoUpdateGitDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
+
+        var autoUpdateInfoLabel = new JLabel(
+                "<html>Auto-update applies only to dependencies imported via the Dependencies panel "
+                        + "(local directories and GitHub repositories).</html>");
+        autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
+                .getFont()
+                .deriveFont(autoUpdateInfoLabel.getFont().getSize() * 0.9f));
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(4, 2, 2, 2);
+        ciPanel.add(autoUpdateInfoLabel, gbcCi);
+
+        // Restore default insets for any subsequent components
+        gbcCi.insets = new Insets(2, 2, 2, 2);
+
         // Wire add/remove actions for the exclusions buttons.
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
@@ -1053,6 +1104,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
         }
+
+        // Load auto-update dependency flags
+        autoUpdateLocalDependenciesCheckBox.setSelected(project.getAutoUpdateLocalDependencies());
+        autoUpdateGitDependenciesCheckBox.setSelected(project.getAutoUpdateGitDependencies());
     }
 
     public boolean applySettings() {
@@ -1092,6 +1147,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
         project.setIssuesProvider(newProviderToSet);
+
+        // Code Intelligence Tab - dependency auto-update flags
+        project.setAutoUpdateLocalDependencies(autoUpdateLocalDependenciesCheckBox.isSelected());
+        project.setAutoUpdateGitDependencies(autoUpdateGitDependenciesCheckBox.isSelected());
 
         // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
         saveCiExclusions();
