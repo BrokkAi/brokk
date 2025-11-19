@@ -332,6 +332,11 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
+            // Always render output fragments (e.g., HISTORY, TASK, SEARCH) even while async text/desc is loading
+            if (f.getType().isOutput()) {
+                return true;
+            }
+
             if (f.isText()) {
                 String txt = f.text().renderNowOr("");
                 return !txt.trim().isEmpty();
