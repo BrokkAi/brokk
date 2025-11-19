@@ -426,7 +426,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+                rawNames,
+                cu.packageName(),
+                resolvedImports,
+                fqn -> getDefinitions(fqn).stream().findFirst(),
+                (s) -> searchDefinitions(s, false));
     }
 
     @Override

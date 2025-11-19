@@ -155,12 +155,6 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
-        return cus.stream().findFirst();
-    }
-
-    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return List.of();
     }
