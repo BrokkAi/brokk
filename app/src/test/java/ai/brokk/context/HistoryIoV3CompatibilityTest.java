@@ -54,16 +54,19 @@ class HistoryIoV3CompatibilityTest {
         top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
+                .join()
                 .contains("GitHubAuth.java"));
         assertNotNull(projectPathFragment, "ProjectPathFragment for GitHubAuth.java should be present");
 
         var buildFragment = findFragment(
                 top,
                 ContextFragment.StringFragment.class,
-                f -> "Source code for io.github.jbellis.brokk.Completions.expandPath".equals(f.description()));
+                f -> "Source code for io.github.jbellis.brokk.Completions.expandPath"
+                        .equals(f.description().join()));
         assertNotNull(buildFragment, "Migrated BuildFragment (as StringFragment) should be present");
 
         var imageFileFragment = findFragment(top, ContextFragment.ImageFileFragment.class, f -> f.description()
+                .join()
                 .contains("ai-robot.png"));
         assertNotNull(imageFileFragment, "ImageFileFragment for ai-robot.png should be present");
         assertTrue(

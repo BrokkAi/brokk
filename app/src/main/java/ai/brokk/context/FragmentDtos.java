@@ -62,6 +62,10 @@ public class FragmentDtos {
                 throw new IllegalArgumentException("relPath cannot be null or empty");
             }
         }
+
+        public ProjectFileDto(String id, String repoRoot, String relPath) {
+            this(id, repoRoot, relPath, null);
+        }
     }
 
     /** DTO for ExternalFile - contains absolute path as string. */

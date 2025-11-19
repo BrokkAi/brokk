@@ -228,8 +228,8 @@ public class SessionManagerTest {
         } else {
             // Compare image content via the common API
             assertArrayEquals(
-                    imageToBytes(expected.image()),
-                    imageToBytes(actual.image()),
+                    expected.imageBytes().join(),
+                    actual.imageBytes().join(),
                     "Fragment image content mismatch for ID " + expected.id());
         }
 
@@ -242,12 +242,12 @@ public class SessionManagerTest {
 
         // Compare files and sources (ProjectFile and CodeUnit DTOs are by value)
         assertEquals(
-                expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                expected.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                actual.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
                 "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
-                expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 

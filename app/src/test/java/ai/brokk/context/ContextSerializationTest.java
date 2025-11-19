@@ -10,6 +10,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
@@ -182,7 +183,7 @@ public class ContextSerializationTest {
 
         byte[] imageBytesContent;
         if (loadedImageFragment instanceof ContextFragment.AnonymousImageFragment pif) {
-            imageBytesContent = imageToBytes(pif.image());
+            imageBytesContent = pif.imageBytes().join();
         } else {
             throw new AssertionError("Unexpected fragment type for pasted image: " + loadedImageFragment.getClass());
         }
@@ -221,91 +222,60 @@ public class ContextSerializationTest {
     private void assertContextFragmentsEqual(ContextFragment expected, ContextFragment actual) throws IOException {
         assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
-        if (expected instanceof ContextFragment.ComputedFragment cvExpected
-                && actual instanceof ContextFragment.ComputedFragment cvActual) {
-            var expectedDescription = cvExpected.description().await(Duration.of(10, ChronoUnit.SECONDS));
-            var actualDescription = cvActual.description().await(Duration.of(10, ChronoUnit.SECONDS));
-            if (expectedDescription.isEmpty() || actualDescription.isEmpty()) {
-                fail("Fragment descriptions could not be computed within 10 seconds");
-            } else {
-                assertEquals(
-                        expectedDescription.get(),
-                        actualDescription.get(),
-                        "Fragment description mismatch for ID " + expected.id());
-                // Short description is based off of description
-                assertEquals(
-                        cvExpected.shortDescription(),
-                        cvActual.shortDescription(),
-                        "Fragment shortDescription mismatch for ID " + expected.id());
-            }
-
-            var expectedSyntaxStyle = cvExpected.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
-            var actualSyntaxStyle = cvActual.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
-            if (expectedSyntaxStyle.isEmpty() || actualSyntaxStyle.isEmpty()) {
-                fail("Fragment syntax style could not be computed within 10 seconds");
-            } else {
-                assertEquals(
-                        expectedSyntaxStyle.get(),
-                        actualSyntaxStyle.get(),
-                        "Fragment syntaxStyle mismatch for ID " + expected.id());
-            }
+        var expectedDescription = expected.description().await(Duration.of(10, ChronoUnit.SECONDS));
+        var actualDescription = actual.description().await(Duration.of(10, ChronoUnit.SECONDS));
+        if (expectedDescription.isEmpty() || actualDescription.isEmpty()) {
+            fail("Fragment descriptions could not be computed within 10 seconds");
         } else {
             assertEquals(
-                    expected.description(),
-                    actual.description(),
+                    expectedDescription.get(),
+                    actualDescription.get(),
                     "Fragment description mismatch for ID " + expected.id());
+            // Short description is based off of description
             assertEquals(
-                    expected.shortDescription(),
-                    actual.shortDescription(),
+                    expected.shortDescription().join(),
+                    actual.shortDescription().join(),
                     "Fragment shortDescription mismatch for ID " + expected.id());
+        }
+
+        var expectedSyntaxStyle = expected.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
+        var actualSyntaxStyle = actual.syntaxStyle().await(Duration.of(10, ChronoUnit.SECONDS));
+        if (expectedSyntaxStyle.isEmpty() || actualSyntaxStyle.isEmpty()) {
+            fail("Fragment syntax style could not be computed within 10 seconds");
+        } else {
             assertEquals(
-                    expected.syntaxStyle(),
-                    actual.syntaxStyle(),
+                    expectedSyntaxStyle.get(),
+                    actualSyntaxStyle.get(),
                     "Fragment syntaxStyle mismatch for ID " + expected.id());
         }
 
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         if (expected.isText()) {
-            if (expected instanceof ContextFragment.ComputedFragment cvExpected
-                    && actual instanceof ContextFragment.ComputedFragment cvActual) {
-                var expectedText = cvExpected.text().await(Duration.of(30, ChronoUnit.SECONDS));
-                var actualText = cvActual.text().await(Duration.of(30, ChronoUnit.SECONDS));
-                if (expectedText.isEmpty() || actualText.isEmpty()) {
-                    fail("Fragment text content could not be computed within given timeout");
-                } else {
-                    assertEquals(
-                            expectedText.get(),
-                            actualText.get(),
-                            "Fragment text content mismatch for ID " + expected.id());
-                }
+            var expectedText = expected.text().await(Duration.of(30, ChronoUnit.SECONDS));
+            var actualText = actual.text().await(Duration.of(30, ChronoUnit.SECONDS));
+            if (expectedText.isEmpty() || actualText.isEmpty()) {
+                fail("Fragment text content could not be computed within given timeout");
             } else {
-                assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
+                assertEquals(
+                        expectedText.get(), actualText.get(), "Fragment text content mismatch for ID " + expected.id());
             }
         } else {
             // For image fragments, compare byte content via live image fragments
-            if (expected instanceof ContextFragment.ComputedFragment cvExpected
-                    && actual instanceof ContextFragment.ComputedFragment cvActual) {
-                var maybeExpectedBytesFuture = cvExpected.imageBytes();
-                var maybeActualBytesFuture = cvActual.imageBytes();
-                if (maybeExpectedBytesFuture != null && maybeActualBytesFuture != null) {
-                    var expectedBytes = maybeExpectedBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
-                    var actualBytes = maybeActualBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
-                    if (expectedBytes.isEmpty() || actualBytes.isEmpty()) {
-                        fail("Fragment image content could not be computed within 10 seconds");
-                    } else {
-                        assertArrayEquals(
-                                expectedBytes.get(),
-                                actualBytes.get(),
-                                "Fragment image content mismatch for ID " + expected.id());
-                    }
+            var maybeExpectedBytesFuture = expected.imageBytes();
+            var maybeActualBytesFuture = actual.imageBytes();
+            if (maybeExpectedBytesFuture != null && maybeActualBytesFuture != null) {
+                var expectedBytes = maybeExpectedBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
+                var actualBytes = maybeActualBytesFuture.await(Duration.of(10, ChronoUnit.SECONDS));
+                if (expectedBytes.isEmpty() || actualBytes.isEmpty()) {
+                    fail("Fragment image content could not be computed within 10 seconds");
                 } else {
-                    fail("Image byte futures are null, these fragments are not an images which was expected!");
+                    assertArrayEquals(
+                            expectedBytes.get(),
+                            actualBytes.get(),
+                            "Fragment image content mismatch for ID " + expected.id());
                 }
             } else {
-                assertArrayEquals(
-                        imageToBytes(expected.image()),
-                        imageToBytes(actual.image()),
-                        "Fragment image content mismatch for ID " + expected.id());
+                fail("Image byte futures are null, these fragments are not an images which was expected!");
             }
         }
 
@@ -314,8 +284,8 @@ public class ContextSerializationTest {
 
         // Compare files
         assertEquals(
-                expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 
@@ -407,13 +377,13 @@ public class ContextSerializationTest {
 
         byte[] imageBytes1, imageBytes2;
         if (fragment1 instanceof ContextFragment.AnonymousImageFragment pif1) {
-            imageBytes1 = imageToBytes(pif1.image());
+            imageBytes1 = pif1.imageBytes().join();
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx1: " + fragment1.getClass());
         }
 
         if (fragment2 instanceof ContextFragment.AnonymousImageFragment pif2) {
-            imageBytes2 = imageToBytes(pif2.image());
+            imageBytes2 = pif2.imageBytes().join();
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx2: " + fragment2.getClass());
         }
@@ -848,9 +818,10 @@ public class ContextSerializationTest {
                 .orElseThrow();
         assertEquals("Search: foobar", loadedFragment.description());
         assertEquals(2, loadedFragment.messages().size());
-        assertEquals(1, loadedFragment.sources().size());
+        assertEquals(1, loadedFragment.sources().join().size());
         assertEquals(
-                codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
+                codeUnit.fqName(),
+                loadedFragment.sources().join().iterator().next().fqName());
     }
 
     @Test
@@ -1052,11 +1023,12 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("stacktrace of NullPointerException", loadedFragment.description());
-        assertTrue(loadedFragment.text().contains("Full stacktrace original text"));
-        assertTrue(loadedFragment.text().contains("ErrorSource.java:10"));
-        assertEquals(1, loadedFragment.sources().size());
+        assertTrue(loadedFragment.text().join().contains("Full stacktrace original text"));
+        assertTrue(loadedFragment.text().join().contains("ErrorSource.java:10"));
+        assertEquals(1, loadedFragment.sources().join().size());
         assertEquals(
-                codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
+                codeUnit.fqName(),
+                loadedFragment.sources().join().iterator().next().fqName());
     }
 
     @Test
@@ -1115,6 +1087,7 @@ public class ContextSerializationTest {
 
         Set<String> actualDescriptions = deduplicatedFragments.stream()
                 .map(ContextFragment.VirtualFragment::description)
+                .map(ComputedValue::join)
                 .collect(Collectors.toSet());
         assertEquals(
                 Set.of("uniqueText1", "duplicateText", "uniqueText2"),
@@ -1382,6 +1355,7 @@ public class ContextSerializationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void testReadOnlyBackwardCompatibilityLongerAndShorterLists() throws Exception {
         // Build a simple context with one editable and one non-editable fragment
         var projectFile = new ProjectFile(tempDir, "src/BC.java");
@@ -1468,6 +1442,7 @@ public class ContextSerializationTest {
     }
 
     // Helper: read readonly IDs from contexts.jsonl inside zip
+    @SuppressWarnings("unchecked")
     private Set<String> readReadonlyIdsFromZip(Path zip) throws IOException {
         try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(zip))) {
             java.util.zip.ZipEntry entry;
