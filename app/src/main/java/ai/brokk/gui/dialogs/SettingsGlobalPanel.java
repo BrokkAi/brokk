@@ -1734,7 +1734,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Populate Quickest Model combo (fixed list)
         quickestModelCombo.removeAllItems();
         quickestModelCombo.addItem("gemini-2.0-flash-lite");
-        quickestModelCombo.addItem("gpt-5-nano");
+        quickestModelCombo.addItem(Service.GPT_5_NANO);
         quickestModelCombo.addItem("claude-haiku-4-5");
         String currentQKName =
                 chrome.getProject().getMainProject().getQuickestModelConfig().name();
