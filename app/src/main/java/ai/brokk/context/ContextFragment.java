@@ -173,25 +173,9 @@ public interface ContextFragment {
             return t;
         };
 
-        var tpe = new ThreadPoolExecutor(
-                computeNThreads(), // core
-                computeNThreads(), // max
-                60L,
-                TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(),
-                daemonFactory);
-        // Allow core threads to time out so the pool can shrink to zero when idle
-        tpe.allowCoreThreadTimeOut(true);
-
+        var tpe = Executors.newCachedThreadPool(daemonFactory);
         return new LoggingExecutorService(
                 tpe, th -> logger.error("Uncaught exception in ContextFragment executor", th));
-    }
-
-    private static int computeNThreads() {
-        int cpus = Runtime.getRuntime().availableProcessors();
-        // Use at least 2 threads to avoid starvation on tiny runners; no cap required since
-        // tasks are short-lived and the queue is unbounded.
-        return Math.max(2, cpus);
     }
 
     /**
