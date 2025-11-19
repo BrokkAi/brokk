@@ -1,7 +1,10 @@
 package ai.brokk.util;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.Service;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -10,7 +13,6 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility for preprocessing long build outputs to extract only the most relevant errors before sending to LLM agents
@@ -104,12 +106,15 @@ public class BuildOutputPreprocessor {
 
         var systemMessage = new SystemMessage(
                 """
-            You are familiar with common build and lint tools. Extract the most relevant compilation
+            You are familiar with common build and lint tools and you extract the most relevant compilation
             and build errors from verbose output.
 
-            EXAMPLES OF TOOLS YOU MAY ENCOUNTER:
-            Compilers: javac, tsc (TypeScript), rustc, gcc
-            Linters: eslint, pylint, spotless, checkstyle
+            Return the extracted errors in a clean, readable format.
+            """);
+
+        var userMessage = new UserMessage(
+                """
+            Please extract the most relevant compilation/build errors from this build output.
 
             Focus on up to %d actionable errors that developers need to fix:
             1. Compilation errors (syntax errors, type errors, missing imports)
@@ -129,34 +134,29 @@ public class BuildOutputPreprocessor {
             - IGNORE verbose progress messages, successful compilation output,
               general startup/shutdown logs, and non-blocking warnings
 
-            Return the extracted errors in a clean, readable format.
-            """
-                        .formatted(MAX_EXTRACTED_ERRORS));
-
-        var userMessage = new UserMessage(
-                """
-            Please extract the most relevant compilation/build errors from this build output:
-
             ```
             %s
             ```
             """
-                        .formatted(truncatedOutput));
+                        .formatted(MAX_EXTRACTED_ERRORS, truncatedOutput));
         var messages = List.of(systemMessage, userMessage);
 
         var result = llm.sendRequest(messages);
-        if (result.error() != null) {
-            logPreprocessingError(result.error(), contextManager);
+        if (result.error() != null || result.isPartial() || result.text().isBlank()) {
+            // try again with flash-lite, which has a larger max output than flash 2.0
+            // (this is needed for very verbose builds, but 2.5 lite is dumber than 2.0 overall so it's not our
+            // preferred option)
+            var model = requireNonNull(contextManager.getService().getModel(Service.GEMINI_2_5_FLASH_LITE));
+            llm = contextManager.getLlm(model, "BuildOutputPreprocessor Plan B");
+            result = llm.sendRequest(messages);
+        }
+
+        if (result.error() != null || result.isPartial() || result.text().isBlank()) {
+            logPreprocessingError(result, contextManager);
             return truncatedOutput;
         }
 
-        String extractedErrors = result.text().trim();
-        if (extractedErrors.isBlank()) {
-            logger.warn("Build output preprocessing returned empty result. Using original output.");
-            return truncatedOutput;
-        }
-
-        return extractedErrors;
+        return result.text().trim();
     }
 
     /**
@@ -192,19 +192,26 @@ public class BuildOutputPreprocessor {
         return buildOutput;
     }
 
-    private static void logPreprocessingError(@Nullable Throwable error, IContextManager contextManager) {
-        if (error == null) {
-            logger.warn("Build output preprocessing failed with null error. Using original output.");
+    private static void logPreprocessingError(Llm.StreamingResult result, IContextManager contextManager) {
+        if (result.isPartial()) {
+            logger.warn("Build output preprocessing incomplete; using original output");
             return;
         }
 
-        boolean isTimeout = error.getMessage() != null && error.getMessage().contains("timed out");
-        if (isTimeout) {
-            logger.warn(
-                    "Build output preprocessing timed out (quickest model: {}). Using original output.",
-                    contextManager.getService().quickestModel().getClass().getSimpleName());
-        } else {
-            logger.warn("Error during build output preprocessing: {}. Using original output.", error.getMessage());
+        var error = result.error();
+        if (error != null) {
+            boolean isTimeout = error.getMessage() != null && error.getMessage().contains("timed out");
+            if (isTimeout) {
+                logger.warn(
+                        "Build output preprocessing timed out (quickest model: {}). Using original output.",
+                        contextManager.getService().quickestModel().getClass().getSimpleName());
+            } else {
+                logger.warn("Error during build output preprocessing: {}. Using original output.", error.getMessage());
+            }
+        }
+
+        if (result.text().isBlank()) {
+            logger.warn("Build output preprocessing empty string; using original output.");
         }
     }
 

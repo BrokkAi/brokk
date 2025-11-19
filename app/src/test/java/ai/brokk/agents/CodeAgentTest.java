@@ -117,7 +117,7 @@ class CodeAgentTest {
                 new HashSet<>(), // changedFiles
                 new HashMap<>(), // originalFileContents
                 Collections.emptyMap() // javaLintDiagnostics
-        );
+                );
     }
 
     private CodeAgent.ConversationState createBasicConversationState() {
@@ -229,7 +229,7 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(requireNonNull(retryStep.cs().nextRequest()))
-                           .contains("cut off before you provided any code blocks"));
+                .contains("cut off before you provided any code blocks"));
         assertTrue(retryStep.es().pendingBlocks().isEmpty());
     }
 

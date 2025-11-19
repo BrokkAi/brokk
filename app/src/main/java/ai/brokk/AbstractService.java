@@ -47,6 +47,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
     public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
+    public static final String GEMINI_2_5_FLASH_LITE = "gemini-2.5-flash-lite-preview-09-2025";
     public static final String GPT_5_MINI = "gpt-5-mini";
     public static final String SONNET_4_5 = "claude-sonnet-4-5";
     public static final String HAIKU_4_5 = "claude-haiku-4-5";
