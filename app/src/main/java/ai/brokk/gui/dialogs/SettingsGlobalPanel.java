@@ -97,6 +97,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // Compression settings
     private JCheckBox autoCompressCheckbox = new JCheckBox("Auto-compress conversation history");
     private JSpinner autoCompressThresholdSpinner = new JSpinner();
+    private JSpinner compressionConcurrencySpinner = new JSpinner();
 
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
@@ -1365,6 +1366,26 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressCheckbox.addActionListener(
                 e -> autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
 
+        // Max concurrent compression threads
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Max concurrent compression threads:"), gbc);
+
+        var concurrencyModel = new SpinnerNumberModel(2, 1, 8, 1);
+        compressionConcurrencySpinner.setModel(concurrencyModel);
+        compressionConcurrencySpinner.setEditor(new JSpinner.NumberEditor(compressionConcurrencySpinner, "#0"));
+
+        var concurrencyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        concurrencyPanel.add(compressionConcurrencySpinner);
+
+        gbc.gridx = 1;
+        gbc.gridy = row - 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(concurrencyPanel, gbc);
+
         // filler
         gbc.gridx = 0;
         gbc.gridy = row;
@@ -1436,6 +1457,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
         autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
         autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
+        compressionConcurrencySpinner.setValue(MainProject.getHistoryCompressionConcurrency());
 
         // Appearance Tab
         String currentTheme = MainProject.getTheme();
@@ -1664,6 +1686,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
         int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
         MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
+        int cc = ((Number) compressionConcurrencySpinner.getValue()).intValue();
+        MainProject.setHistoryCompressionConcurrency(cc);
 
         // General Tab - Advanced Mode
         // Only apply if the setting actually changed to avoid unnecessary UI refreshes
