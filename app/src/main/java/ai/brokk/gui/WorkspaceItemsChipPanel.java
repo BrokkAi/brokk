@@ -338,12 +338,12 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             }
 
             if (f.isText()) {
-                String txt = f.text().renderNowOr("");
+                String txt = f.text().renderNowOr("(Loading text...)");
                 return !txt.trim().isEmpty();
             } else {
                 boolean hasImage = f instanceof ContextFragment.ImageFragment;
                 Set<ProjectFile> files = f.files().renderNowOr(Set.of());
-                String desc = f.description().renderNowOr("");
+                String desc = f.description().renderNowOr("(Loading image...)");
                 return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {
