@@ -1235,17 +1235,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         primaryComboHolder.add(primaryHelpButton, BorderLayout.EAST);
 
         gbc.gridx = 3;
-        gbc.weightx = 0.5;
+        gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(primaryComboHolder, gbc);
 
-        // Add Quick Model selector on a new row
-        gbc.gridx = 0;
-        gbc.gridy = 1;
+        // Add Quick Model selector on the same row
+        gbc.gridx = 4;
+        gbc.gridy = 0;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = new Insets(0, 0, 0, 0);
+        gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(new JLabel("Quick Model:"), gbc);
 
         quickModelCombo = new JComboBox<>();
@@ -1261,10 +1261,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         quickHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
         quickComboHolder.add(quickHelpButton, BorderLayout.EAST);
 
-        gbc.gridx = 1;
+        gbc.gridx = 5;
+        gbc.gridy = 0;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 10, 0, 0);
+        gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(quickComboHolder, gbc);
 
         panel.add(topPanel, BorderLayout.NORTH);
