@@ -130,10 +130,7 @@ public interface IAnalyzer {
      * @param fqName The exact, case-sensitive FQ name (without signature)
      * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
      */
-    default SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        var results = searchDefinitions("^" + Pattern.quote(fqName) + "$");
-        return sortDefinitions(results);
-    }
+    SequencedSet<CodeUnit> getDefinitions(String fqName);
 
     default Set<CodeUnit> searchDefinitions(String pattern) {
         return searchDefinitions(pattern, true);
