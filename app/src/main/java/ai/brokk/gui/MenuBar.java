@@ -785,12 +785,7 @@ public class MenuBar {
                         }
                         case OTHER -> {
                             title = "Error";
-                            message = "An unexpected error occurred during API key validation. " + "Please try again.";
-                        }
-                        default -> {
-                            title = "Invalid API Key";
-                            message =
-                                    "Please configure a valid Brokk API key in Settings " + "before sending feedback.";
+                            message = "An unexpected error occurred during API key validation. Please try again.";
                         }
                     }
 
