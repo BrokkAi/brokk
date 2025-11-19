@@ -466,7 +466,7 @@ public interface ContextFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
-        private final @Nullable String snapshotText;
+        private volatile @Nullable String snapshotText;
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
@@ -602,7 +602,16 @@ public interface ContextFragment {
                     textCv,
                     () -> textCv,
                     () -> new ComputedValue<>(
-                            "ppf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
+                            "ppf-text-" + id(),
+                            () -> {
+                                String s = file.read().orElse("");
+                                // capture snapshot so serialization can persist stable content
+                                if (!s.isBlank()) {
+                                    snapshotText = s;
+                                }
+                                return s;
+                            },
+                            getFragmentExecutor()),
                     v -> textCv = v);
         }
 
@@ -1842,7 +1851,7 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
-        private final @Nullable String snapshotText;
+        private volatile @Nullable String snapshotText;
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
         private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
@@ -1914,14 +1923,21 @@ public interface ContextFragment {
 
                                 var either = usageResult.toEither();
                                 if (either.hasErrorMessage()) {
-                                    return either.getErrorMessage();
+                                    String err = either.getErrorMessage();
+                                    snapshotText = err;
+                                    return err;
                                 }
 
                                 List<CodeWithSource> parts = processUsages(analyzer, either);
-                                var formatted = CodeWithSource.text(parts);
-                                return formatted.isEmpty()
+                                String formatted = CodeWithSource.text(parts);
+                                String result = formatted.isEmpty()
                                         ? "No relevant usages found for symbol: " + targetIdentifier
                                         : formatted;
+                                // capture snapshot so serialization can persist stable content
+                                if (!result.isBlank()) {
+                                    snapshotText = result;
+                                }
+                                return result;
                             },
                             getFragmentExecutor()),
                     v -> textCv = v);
@@ -2039,7 +2055,7 @@ public interface ContextFragment {
 
     class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
-        private final @Nullable String snapshotText;
+        private volatile @Nullable String snapshotText;
         private @Nullable ComputedValue<CodeUnit> unitCv;
         private @Nullable CodeUnit preResolvedUnit;
         private @Nullable ComputedValue<String> textCv;
@@ -2160,24 +2176,35 @@ public interface ContextFragment {
                                 var analyzer = getAnalyzer();
                                 var unit = computedUnit().future().join();
                                 var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
-                                if (maybeSourceCodeProvider.isEmpty()) {
-                                    return "Code Intelligence cannot extract source for: " + fullyQualifiedName;
-                                }
-                                var scp = maybeSourceCodeProvider.get();
 
-                                if (unit.isFunction()) {
-                                    var code = scp.getMethodSource(unit, true).orElse("");
-                                    if (!code.isEmpty()) {
-                                        return new AnalyzerUtil.CodeWithSource(code, unit).text();
-                                    }
-                                    return "No source found for method: " + fullyQualifiedName;
+                                String result;
+                                if (maybeSourceCodeProvider.isEmpty()) {
+                                    result = "Code Intelligence cannot extract source for: " + fullyQualifiedName;
                                 } else {
-                                    var code = scp.getClassSource(unit, true).orElse("");
-                                    if (!code.isEmpty()) {
-                                        return new AnalyzerUtil.CodeWithSource(code, unit).text();
+                                    var scp = maybeSourceCodeProvider.get();
+                                    if (unit.isFunction()) {
+                                        var code =
+                                                scp.getMethodSource(unit, true).orElse("");
+                                        if (!code.isEmpty()) {
+                                            result = new AnalyzerUtil.CodeWithSource(code, unit).text();
+                                        } else {
+                                            result = "No source found for method: " + fullyQualifiedName;
+                                        }
+                                    } else {
+                                        var code =
+                                                scp.getClassSource(unit, true).orElse("");
+                                        if (!code.isEmpty()) {
+                                            result = new AnalyzerUtil.CodeWithSource(code, unit).text();
+                                        } else {
+                                            result = "No source found for class: " + fullyQualifiedName;
+                                        }
                                     }
-                                    return "No source found for class: " + fullyQualifiedName;
                                 }
+                                // capture snapshot so serialization can persist stable content
+                                if (!result.isBlank()) {
+                                    snapshotText = result;
+                                }
+                                return result;
                             },
                             getFragmentExecutor()),
                     v -> textCv = v);
