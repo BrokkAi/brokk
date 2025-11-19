@@ -214,7 +214,17 @@ public class ContextAgent {
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();
-            logger.debug("Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+            if (candidates.size() >= 10) {
+                logger.debug(
+                        "Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+            } else {
+                logger.debug(
+                        "Non-empty workspace but few/no Git-based candidates found; escalating to full project scan");
+                candidates = cm.getProject().getAllFiles().stream()
+                        .filter(f -> !existingFiles.contains(f))
+                        .sorted()
+                        .toList();
+            }
         }
 
         Set<ProjectFile> analyzedFileSet = candidates.stream()
