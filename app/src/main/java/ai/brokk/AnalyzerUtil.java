@@ -114,18 +114,26 @@ public class AnalyzerUtil {
 
     /**
      * Get skeleton for a symbol by fully qualified name.
+     * When multiple definitions exist, uses deterministic ordering by source file, then fqName, then kind.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinitions(fqName).stream()
+                .min(Comparator.comparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
+     * When multiple definitions exist, uses deterministic ordering by source file, then fqName, then kind.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
-                .flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinitions(className).stream()
+                .min(Comparator.comparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
     /**
@@ -154,11 +162,14 @@ public class AnalyzerUtil {
 
     /**
      * Get source code for a class by fully qualified name.
+     * When multiple definitions exist, uses deterministic ordering by source file, then fqName, then kind.
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
         return analyzer.getDefinitions(fqcn).stream()
                 .filter(CodeUnit::isClass)
-                .findFirst()
+                .min(Comparator.comparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
