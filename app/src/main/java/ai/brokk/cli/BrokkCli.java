@@ -380,6 +380,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new SearchAgent(
                         cm.liveContext(), searchWorkspace, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
                 if (!disableContextScan) {
+                    // var model = service.getModel("gemini-2.5-flash-lite-preview-09-2025");
                     agent.scanInitialContext(searchModel);
                 }
                 searchResult = agent.execute();
