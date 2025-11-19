@@ -56,7 +56,7 @@ public class ValidationAgent {
             throws InterruptedException {
         var filesText = allTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
-        var workspaceSummary = CodePrompts.formatWorkspaceToc(contextManager);
+        var workspaceSummary = CodePrompts.formatWorkspaceToc(contextManager.liveContext());
 
         var systemMessage =
                 """
