@@ -367,6 +367,38 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from local directories on disk. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateLocalDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from local directories on disk.
+     */
+    default void setAutoUpdateLocalDependencies(boolean enabled) {}
+
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from GitHub repositories. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateGitDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from GitHub repositories.
+     */
+    default void setAutoUpdateGitDependencies(boolean enabled) {}
+
     default Set<String> getExcludedDirectories() {
         return Set.of();
     }

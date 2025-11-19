@@ -109,6 +109,8 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
+    private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -459,6 +461,38 @@ public final class MainProject extends AbstractProject {
             saveProjectProperties();
             logger.debug("Set commit message format.");
         }
+    }
+
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
     }
 
     public long getRunCommandTimeoutSeconds() {
