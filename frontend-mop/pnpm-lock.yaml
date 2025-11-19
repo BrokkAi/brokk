@@ -6,6 +6,7 @@ settings:
 
 overrides:
   mdast-util-gfm-autolink-literal: 2.0.0
+  micromark-util-subtokenize: 2.1.0
 
 importers:
 
