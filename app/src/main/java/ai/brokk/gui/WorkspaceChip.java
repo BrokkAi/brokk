@@ -579,33 +579,28 @@ public class WorkspaceChip extends JPanel {
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
         contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
-            fragment.shortDescription()
-                    .future()
-                    .handleAsync((text, e) -> {
-                        if (e != null) {
-                            logger.error("Unable to obtain short description from {}!", fragment, e);
-                            return "<Error obtaining description>";
-                        } else {
-                            return text;
-                        }
-                    })
-                    .thenAcceptAsync(t -> {
-                        var text = t;
-                        if (kind == ChipKind.OTHER) {
-                            text = WorkspaceChip.capitalizeFirst(t);
-                        }
+            String description = "<Error obtaining description>";
+            try {
+                description = fragment.shortDescription().join();
+                if (kind == ChipKind.OTHER) {
+                    description = WorkspaceChip.capitalizeFirst(description);
+                }
+            } catch (Exception e) {
+                logger.error("Unable to obtain short description from {}!", fragment, e);
+            }
 
-                        label.setText(text);
+            final String text = description;
+            SwingUtilities.invokeLater(() -> {
+                label.setText(text);
 
-                        try {
-                            label.setToolTipText(buildDefaultTooltip(fragment));
-                            label.getAccessibleContext()
-                                    .setAccessibleDescription(
-                                            fragment.description().join());
-                        } catch (Exception ex) {
-                            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
-                        }
-                    });
+                try {
+                    label.setToolTipText(buildDefaultTooltip(fragment));
+                    label.getAccessibleContext()
+                            .setAccessibleDescription(fragment.description().join());
+                } catch (Exception ex) {
+                    logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+                }
+            });
         });
     }
 
