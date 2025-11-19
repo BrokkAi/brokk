@@ -390,94 +390,6 @@ public interface ContextFragment {
         String contentHash();
     }
 
-    /**
-     * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
-     * ComputedValue.
-     */
-    abstract class ComputedVirtualFragment extends VirtualFragment implements DynamicIdentity {
-        private @Nullable ComputedValue<String> textCv;
-        private @Nullable ComputedValue<String> descCv;
-        private @Nullable ComputedValue<String> syntaxCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<String> formatCv;
-
-        protected ComputedVirtualFragment(IContextManager contextManager) {
-            super(contextManager);
-        }
-
-        protected ComputedVirtualFragment(String existingId, IContextManager contextManager) {
-            super(existingId, contextManager);
-        }
-
-        @Override
-        public ComputedValue<String> text() {
-            // Subclasses should override; default empty content
-            return lazyInitCv(
-                    textCv, () -> textCv, () -> ComputedValue.completed("cvf-text-" + id(), ""), v -> textCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> description() {
-            // Subclasses should override; default empty description
-            return lazyInitCv(
-                    descCv, () -> descCv, () -> ComputedValue.completed("cvf-desc-" + id(), ""), v -> descCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> syntaxStyle() {
-            // Subclasses should override; default to NONE
-            return lazyInitCv(
-                    syntaxCv,
-                    () -> syntaxCv,
-                    () -> ComputedValue.completed("cvf-syntax-" + id(), SyntaxConstants.SYNTAX_STYLE_NONE),
-                    v -> syntaxCv = v);
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> files() {
-            return lazyInitCv(
-                    filesCv,
-                    () -> filesCv,
-                    () -> new ComputedValue<>(
-                            "cvf-files-" + id(),
-                            () -> parseProjectFiles(
-                                    text().future().join(), getContextManager().getProject()),
-                            getFragmentExecutor()),
-                    v -> filesCv = v);
-        }
-
-        @Override
-        public ComputedValue<Set<CodeUnit>> sources() {
-            return lazyInitCv(
-                    sourcesCv,
-                    () -> sourcesCv,
-                    () -> ComputedValue.completed("cvf-sources-" + id(), Set.of()),
-                    v -> sourcesCv = v);
-        }
-
-        @Override
-        public ComputedValue<String> format() {
-            return lazyInitCv(
-                    formatCv,
-                    () -> formatCv,
-                    () -> new ComputedValue<>(
-                            "cvf-format-" + id(),
-                            () ->
-                                    """
-                                    <fragment description="%s" fragmentid="%s">
-                                    %s
-                                    </fragment>
-                                    """
-                                            .formatted(
-                                                    description().future().join(),
-                                                    id(),
-                                                    text().future().join()),
-                            getFragmentExecutor()),
-                    v -> formatCv = v);
-        }
-    }
-
     static Set<ProjectFile> parseProjectFiles(String text, IProject project) {
         var exactMatches = project.getAllFiles().stream()
                 .parallel()
@@ -1903,7 +1815,7 @@ public interface ContextFragment {
         }
     }
 
-    class UsageFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
         private @Nullable ComputedValue<String> textCv;
@@ -1950,9 +1862,6 @@ public interface ContextFragment {
                             "usg-text-" + id(),
                             () -> {
                                 var analyzer = getAnalyzer();
-                                if (analyzer.isEmpty()) {
-                                    return "Code Intelligence cannot extract source for: " + targetIdentifier + ".";
-                                }
                                 FuzzyResult usageResult = FuzzyUsageFinder.create(getContextManager())
                                         .findUsages(targetIdentifier);
 
@@ -2079,7 +1988,7 @@ public interface ContextFragment {
     /**
      * Dynamic fragment that wraps a single CodeUnit and renders the full source
      */
-    class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
         private @Nullable ComputedValue<CodeUnit> unitCv;
         private @Nullable CodeUnit preResolvedUnit;
@@ -2260,7 +2169,7 @@ public interface ContextFragment {
         }
     }
 
-    class CallGraphFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+    class CallGraphFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
@@ -2406,7 +2315,7 @@ public interface ContextFragment {
         FILE_SKELETONS // Summaries for all top-level declarations in a file
     }
 
-    class SkeletonFragment extends ComputedVirtualFragment { // Dynamic composite wrapper around SummaryFragments
+    class SkeletonFragment extends VirtualFragment { // Dynamic composite wrapper around SummaryFragments
         private final List<SummaryFragment> summaries;
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
@@ -2552,7 +2461,7 @@ public interface ContextFragment {
         }
     }
 
-    class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
+    class SummaryFragment extends VirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
         private @Nullable ComputedValue<String> textCv;
