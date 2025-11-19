@@ -1661,7 +1661,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Instructions panel behavior
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
-        // Favorite Models Tab
+        // Models Configuration
         var currentQuickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
