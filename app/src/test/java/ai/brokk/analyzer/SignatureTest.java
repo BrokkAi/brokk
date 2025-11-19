@@ -28,17 +28,6 @@ class SignatureTest {
     }
 
     @Test
-    void toNullableString_ForNone_ReturnsNull() {
-        assertNull(Signature.none().toNullableString());
-    }
-
-    @Test
-    void toNullableString_ForParameters_ReturnsValue() {
-        var sig = Signature.of("(String, int)");
-        assertEquals("(String, int)", sig.toNullableString());
-    }
-
-    @Test
     void none_ReturnsSingletonInstance() {
         var none1 = Signature.none();
         var none2 = Signature.none();

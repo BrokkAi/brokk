@@ -29,7 +29,6 @@ public sealed interface Signature {
      * @return a Parameters signature
      * @throws IllegalArgumentException if params is null, empty, or malformed
      */
-    @SuppressWarnings("RedundantNullCheck") // Explicit validation for public API
     static Signature of(String params) {
         if (params == null) {
             throw new IllegalArgumentException("Use Signature.none() for null signatures");
@@ -82,17 +81,6 @@ public sealed interface Signature {
                         "Invalid signature format '" + value + "'. Must be (type1, type2, ...)");
             }
         }
-    }
-
-    /**
-     * Get the nullable string representation (for backward compatibility).
-     * Returns null for None, the parameter string for Parameters.
-     */
-    default @Nullable String toNullableString() {
-        return switch (this) {
-            case None ignored -> null;
-            case Parameters(var value) -> value;
-        };
     }
 
     /**
