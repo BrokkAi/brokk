@@ -199,9 +199,9 @@ public interface IAnalyzer {
      * @param query the search query
      * @return a list of candidates where their fully qualified names may match the query.
      */
-    default Set<CodeUnit> autocompleteDefinitions(String query) {
+    default SequencedSet<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
-            return Set.of();
+            return new LinkedHashSet<>();
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
@@ -221,7 +221,7 @@ public interface IAnalyzer {
         }
 
         if (fuzzyResults.isEmpty()) {
-            return baseResults;
+            return new LinkedHashSet<>(baseResults);
         }
 
         // Deduplicate by CodeUnit identity (includes signature), preserve insertion order
@@ -229,7 +229,7 @@ public interface IAnalyzer {
         for (CodeUnit cu : baseResults) seen.putIfAbsent(cu, cu);
         for (CodeUnit cu : fuzzyResults) seen.putIfAbsent(cu, cu);
 
-        return new HashSet<>(seen.values());
+        return new LinkedHashSet<>(seen.values());
     }
 
     /**

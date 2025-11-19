@@ -623,9 +623,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<CodeUnit> autocompleteDefinitions(String query) {
+    public SequencedSet<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
-            return Set.of();
+            return new LinkedHashSet<>();
         }
 
         var results = new LinkedHashSet<CodeUnit>();
@@ -693,7 +693,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     .forEach(results::add);
         }
 
-        return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).collect(Collectors.toSet());
+        return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

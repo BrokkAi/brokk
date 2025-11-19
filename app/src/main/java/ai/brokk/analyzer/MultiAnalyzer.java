@@ -190,10 +190,10 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Set<CodeUnit> autocompleteDefinitions(String query) {
+    public SequencedSet<CodeUnit> autocompleteDefinitions(String query) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.autocompleteDefinitions(query).stream())
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     @Override
