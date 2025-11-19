@@ -68,20 +68,8 @@ public sealed interface Signature {
 
     /**
      * Represents a function signature with parameters.
-     * Validates format in compact constructor.
      */
-    record Parameters(String value) implements Signature {
-        public Parameters {
-            if (value.isEmpty()) {
-                throw new IllegalArgumentException("Parameters cannot be empty. Use Signature.none() instead.");
-            }
-            // Minimal structural validation - only check parentheses
-            if (!value.startsWith("(") || !value.endsWith(")")) {
-                throw new IllegalArgumentException(
-                        "Invalid signature format '" + value + "'. Must be (type1, type2, ...)");
-            }
-        }
-    }
+    record Parameters(String value) implements Signature {}
 
     /**
      * Check if this signature represents absence of a signature.

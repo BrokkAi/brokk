@@ -55,24 +55,6 @@ class SignatureTest {
     }
 
     @Test
-    void of_WithoutParentheses_ThrowsException() {
-        var ex = assertThrows(IllegalArgumentException.class, () -> Signature.of("int, String"));
-        assertTrue(ex.getMessage().contains("Invalid signature format"));
-    }
-
-    @Test
-    void of_WithMissingOpenParen_ThrowsException() {
-        var ex = assertThrows(IllegalArgumentException.class, () -> Signature.of("int, String)"));
-        assertTrue(ex.getMessage().contains("Invalid signature format"));
-    }
-
-    @Test
-    void of_WithMissingCloseParen_ThrowsException() {
-        var ex = assertThrows(IllegalArgumentException.class, () -> Signature.of("(int, String"));
-        assertTrue(ex.getMessage().contains("Invalid signature format"));
-    }
-
-    @Test
     void isEmpty_ForNone_ReturnsTrue() {
         assertTrue(Signature.none().isEmpty());
     }
