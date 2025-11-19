@@ -7,27 +7,6 @@ import org.junit.jupiter.api.Test;
 class SignatureTest {
 
     @Test
-    void parse_WithNull_ReturnsNone() {
-        var sig = Signature.parse(null);
-        assertSame(Signature.none(), sig);
-    }
-
-    @Test
-    void parse_WithEmptyString_ReturnsNone() {
-        var sig = Signature.parse("");
-        assertSame(Signature.none(), sig);
-    }
-
-    @Test
-    void parse_WithValidSignature_ReturnsParameters() {
-        var sig = Signature.parse("(int, String)");
-        assertNotNull(sig);
-        assertEquals("(int, String)", sig.value());
-        assertNotSame(Signature.none(), sig);
-        assertInstanceOf(Signature.Parameters.class, sig);
-    }
-
-    @Test
     void none_ReturnsSingletonInstance() {
         var none1 = Signature.none();
         var none2 = Signature.none();

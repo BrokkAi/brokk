@@ -10,7 +10,6 @@ import org.jspecify.annotations.Nullable;
  * <p>
  * Use {@link #none()} for non-function CodeUnits (classes, fields, etc.).
  * Use {@link #of(String)} for functions with a signature like "(type1, type2, ...)".
- * Use {@link #parse(String)} to convert nullable strings (for backward compatibility).
  */
 public sealed interface Signature {
 
@@ -33,17 +32,6 @@ public sealed interface Signature {
             return none();
         }
         return new Parameters(params);
-    }
-
-    /**
-     * Parse a nullable string into a Signature.
-     * Null or empty strings map to none().
-     *
-     * @param s the string to parse, or null
-     * @return Signature.none() if s is null/empty, otherwise Signature.of(s)
-     */
-    static Signature parse(@Nullable String s) {
-        return (s == null || s.isEmpty()) ? none() : of(s);
     }
 
     /**

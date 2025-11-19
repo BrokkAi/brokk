@@ -883,7 +883,7 @@ public class JavaAnalyzerTest {
         if (signaturedOverloads.size() >= 2) {
             // Get one of the signatures
             var targetSignatureStr = signaturedOverloads.get(0).signature();
-            var targetSignature = Signature.parse(targetSignatureStr);
+            var targetSignature = Signature.of(targetSignatureStr);
 
             // Test exact match
             var result = analyzer.getFunctionDefinition("A.method2", targetSignature);
@@ -936,7 +936,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_WithSignatureType_MatchesExact() {
-        var sig = Signature.parse("(int)");
+        var sig = Signature.of("(int)");
         var result = analyzer.getFunctionDefinition("A.method2", sig);
 
         assertTrue(result.isPresent(), "Should find overload with Signature type");
