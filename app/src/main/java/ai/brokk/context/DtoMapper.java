@@ -461,21 +461,6 @@ public class DtoMapper {
         return new ExternalFile(path);
     }
 
-    private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment, ContentWriter writer) {
-        ProjectFile file = fragment.file();
-        String snapshotId = null;
-        if (fragment.getSnapshotTextOrNull() != null) {
-            String fileKey = file.getRoot() + ":" + file.getRelPath();
-            snapshotId = writer.writeContent(fragment.getSnapshotTextOrNull(), fileKey);
-        }
-        return new ProjectFileDto(
-                fragment.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
-    }
-
-    private static ProjectFileDto toProjectFileDto(ProjectFile pf) {
-        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), null);
-    }
-
     public static VirtualFragmentDto toVirtualFragmentDto(
             ContextFragment.VirtualFragment fragment, ContentWriter writer) {
         return switch (fragment) {
