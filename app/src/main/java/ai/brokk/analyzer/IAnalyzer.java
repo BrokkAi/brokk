@@ -106,38 +106,25 @@ public interface IAnalyzer {
 
     /**
      * Finds a function CodeUnit matching both fqName and signature.
-     * Useful for callers that need to disambiguate overloads.
-     *
-     * @param fqName The exact FQ name (without signature)
-     * @param signature The signature string (e.g., "(int, String)"), or null to match any signature
-     * @return Optional containing matching CodeUnit, or empty if not found
-     * @deprecated Use {@link #getFunctionDefinition(String, Signature)} with {@link Signature#NONE} instead of null for type safety
-     */
-    @Deprecated
-    default Optional<CodeUnit> getFunctionDefinition(String fqName, @Nullable String signature) {
-        var candidates =
-                getDefinitions(fqName).stream().filter(CodeUnit::isFunction).toList();
-
-        if (signature == null || candidates.isEmpty()) {
-            return candidates.stream().findFirst();
-        }
-
-        return candidates.stream()
-                .filter(cu -> signature.equals(cu.signature()))
-                .findFirst()
-                .or(() -> candidates.stream().findFirst()); // Fallback if signature doesn't match
-    }
-
-    /**
-     * Finds a function CodeUnit matching both fqName and signature.
      * Type-safe alternative to the String-based variant.
      *
      * @param fqName The exact FQ name (without signature)
-     * @param signature The signature (use Signature.NONE to match any signature)
+     * @param signature The signature (use Signature.none() to match any signature)
      * @return Optional containing matching CodeUnit, or empty if not found
      */
     default Optional<CodeUnit> getFunctionDefinition(String fqName, Signature signature) {
-        return getFunctionDefinition(fqName, signature.toNullableString());
+        var candidates =
+                getDefinitions(fqName).stream().filter(CodeUnit::isFunction).toList();
+
+        if (signature.isEmpty() || candidates.isEmpty()) {
+            return candidates.stream().findFirst();
+        }
+
+        String signatureStr = signature.value();
+        return candidates.stream()
+                .filter(cu -> signatureStr.equals(cu.signature()))
+                .findFirst()
+                .or(() -> candidates.stream().findFirst()); // Fallback if signature doesn't match
     }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {

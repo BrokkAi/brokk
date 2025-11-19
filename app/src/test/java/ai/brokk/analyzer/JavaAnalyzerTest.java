@@ -882,13 +882,14 @@ public class JavaAnalyzerTest {
 
         if (signaturedOverloads.size() >= 2) {
             // Get one of the signatures
-            var targetSignature = signaturedOverloads.get(0).signature();
+            var targetSignatureStr = signaturedOverloads.get(0).signature();
+            var targetSignature = Signature.parse(targetSignatureStr);
 
             // Test exact match
             var result = analyzer.getFunctionDefinition("A.method2", targetSignature);
 
             assertTrue(result.isPresent(), "Should find function with exact signature");
-            assertEquals(targetSignature, result.get().signature(), "Should return exact signature match");
+            assertEquals(targetSignatureStr, result.get().signature(), "Should return exact signature match");
             assertEquals("A.method2", result.get().fqName());
         } else {
             // Signatures not yet populated - test that the method still works with NONE

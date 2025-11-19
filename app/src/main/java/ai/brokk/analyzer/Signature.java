@@ -29,7 +29,11 @@ public sealed interface Signature {
      * @return a Parameters signature
      * @throws IllegalArgumentException if params is null, empty, or malformed
      */
+    @SuppressWarnings("RedundantNullCheck") // Explicit validation for public API
     static Signature of(String params) {
+        if (params == null) {
+            throw new IllegalArgumentException("Use Signature.none() for null signatures");
+        }
         if (params.isEmpty()) {
             throw new IllegalArgumentException("Use Signature.none() for empty signatures");
         }
