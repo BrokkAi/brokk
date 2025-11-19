@@ -186,8 +186,8 @@ public final class DiffService {
                         var result = ContentDiffUtils.computeDiffResult(
                                 "",
                                 newContent,
-                                "old/" + thisFragment.shortDescription(),
-                                "new/" + thisFragment.shortDescription());
+                                "old/" + thisFragment.shortDescription().join(),
+                                "new/" + thisFragment.shortDescription().join());
                         if (result.diff().isEmpty()) {
                             return null;
                         }
@@ -216,7 +216,7 @@ public final class DiffService {
                     .exceptionally(ex -> {
                         logger.warn(
                                 "Error computing image diff for fragment '{}': {}",
-                                thisFragment.shortDescription(),
+                                thisFragment.shortDescription().join(),
                                 ex.getMessage(),
                                 ex);
                         return new Context.DiffEntry(
@@ -233,7 +233,7 @@ public final class DiffService {
                             newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             curr.id(),
                             oldLineCount,
                             newLineCount);
@@ -241,12 +241,12 @@ public final class DiffService {
                     var result = ContentDiffUtils.computeDiffResult(
                             oldContent,
                             newContent,
-                            "old/" + thisFragment.shortDescription(),
-                            "new/" + thisFragment.shortDescription());
+                            "old/" + thisFragment.shortDescription().join(),
+                            "new/" + thisFragment.shortDescription().join());
 
                     logger.trace(
                             "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             result.added(),
                             result.deleted(),
                             result.diff().isEmpty());
@@ -261,7 +261,7 @@ public final class DiffService {
                 .exceptionally(ex -> {
                     logger.warn(
                             "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             ex.getMessage(),
                             ex);
                     return new Context.DiffEntry(

@@ -1882,6 +1882,7 @@ public class WorkspacePanel extends JPanel {
         contextManager.addFiles(files);
     }
 
+    @Blocking
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
         var sel = new StringSelection(content);
@@ -1890,6 +1891,7 @@ public class WorkspacePanel extends JPanel {
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
+    @Blocking
     private String getSelectedContent(List<? extends ContextFragment> selectedFragments) {
         String content;
         if (selectedFragments.isEmpty()) {
@@ -1915,7 +1917,7 @@ public class WorkspacePanel extends JPanel {
             // copy only selected fragments
             var sb = new StringBuilder();
             for (var frag : selectedFragments) {
-                sb.append(frag.text()).append("\n\n"); // No analyzer
+                sb.append(frag.text().join()).append("\n\n"); // No analyzer
             }
             content = sb.toString();
         }

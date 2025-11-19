@@ -751,6 +751,7 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
+        @Override
         public ComputedValue<String> shortDescription() {
             return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file().getFileName(), id));
         }
@@ -2266,7 +2267,6 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
         private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
-        private @Nullable ComputedValue<String> descCv;
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(contextManager); // Assigns dynamic numeric String ID

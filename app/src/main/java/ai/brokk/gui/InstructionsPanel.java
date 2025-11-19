@@ -1023,7 +1023,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var allFragments = ctx.getAllFragmentsInDisplayOrder();
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
-                                fullText.append(frag.text()).append("\n");
+                                fullText.append(frag.text().join()).append("\n");
                             }
                         }
                     }

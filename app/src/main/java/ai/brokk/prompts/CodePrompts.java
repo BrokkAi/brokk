@@ -79,6 +79,7 @@ public abstract class CodePrompts {
             """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
+    @Blocking
     public static String buildFeedbackPrompt(Context context) {
         var cf = context.getBuildFragment().orElseThrow();
         return """
@@ -91,7 +92,7 @@ public abstract class CodePrompts {
                 do your best to explain the problem but DO NOT provide any edits.
                 Otherwise, provide the edits as usual.
                 """
-                .formatted(cf.id(), cf.description());
+                .formatted(cf.id(), cf.description().join());
     }
 
     @Blocking
@@ -639,6 +640,7 @@ public abstract class CodePrompts {
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
      * @return A collection of ChatMessages (empty if no content).
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx, boolean combineSummaries) {
         var allContents = new ArrayList<Content>();
 
@@ -678,12 +680,13 @@ public abstract class CodePrompts {
                     var l4jImage = ImageUtil.toL4JImage(image);
                     readOnlyImageFragments.add(ImageContent.from(l4jImage));
                     // Add a placeholder in the text part for reference
-                    readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
+                    readOnlyTextFragments.append(fragment.format().join()).append("\n\n"); // No analyzer
                 } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
+                    var description = fragment.description().join();
+                    logger.error("Failed to process image fragment {} for LLM message", description, e);
                     // Add a placeholder indicating the error, do not call removeBadFragment from here
-                    readOnlyTextFragments.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                    readOnlyTextFragments.append(
+                            String.format("[Error processing image: %s - %s]\n\n", description, e.getMessage()));
                 }
             } else {
                 // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
@@ -871,9 +874,10 @@ public abstract class CodePrompts {
                     // The formatted string for the image should be the description
                     textBuilder.append(formatted).append("\n\n");
                 } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                    var description = fragment.description().join();
+                    logger.error("Failed to process image fragment {} for LLM message", description, e);
+                    textBuilder.append(
+                            String.format("[Error processing image: %s - %s]\n\n", description, e.getMessage()));
                 }
             } else {
                 // If the future for imageBytes was null (not provided), still append the formatted text.
