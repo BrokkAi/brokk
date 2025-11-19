@@ -2132,7 +2132,9 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
-            var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
+            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
 
             if (methodCodeUnit.isEmpty()) {
                 return "Method not found: " + methodName;
@@ -2163,7 +2165,11 @@ public interface ContextFragment {
         public Set<CodeUnit> sources() {
             // FIXME this is broken, needs to include the actual call sites as well
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDefinition(methodName).map(Set::of).orElse(Set.of());
+            return analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst()
+                    .map(Set::of)
+                    .orElse(Set.of());
         }
 
         @Override
