@@ -1968,11 +1968,13 @@ public class Chrome
         previewFrame.setVisible(true);
     }
 
-    /**
-     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews
-     * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
-     */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
+        // When showing a loading placeholder, always use a stable preview-based key so that
+        // subsequent async content replacement targets the same window regardless of file association.
+        if (title.endsWith("Loading...")) {
+            return "preview:" + title;
+        }
+
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
             // For file previews with an actual file, use file-based key
             if (title.startsWith("Preview: ")) {
@@ -2171,9 +2173,6 @@ public class Chrome
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
-            var latestCtx = contextManager.getContextHistory().liveContext();
-            boolean isCurrentContext = latestCtx.allFragments().anyMatch(f -> f.id().equals(fragment.id()));
-
             // Resolve title once and cache it for reuse
             String computedDescNow = fragment.description().renderNowOrNull();
             final String initialTitle = (computedDescNow != null && !computedDescNow.isBlank())
@@ -2201,11 +2200,9 @@ public class Chrome
             }
 
             // Live path fragments: load asynchronously to avoid I/O on EDT
-            if (fragment.getType().isPath()) {
-                if (isCurrentContext && fragment instanceof ContextFragment.PathFragment pf) {
-                    previewPathFragment(pf, initialTitle, computedDescNow);
-                    return;
-                }
+            if (fragment instanceof ContextFragment.PathFragment pf) {
+                previewPathFragment(pf, initialTitle, computedDescNow);
+                return;
             }
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
@@ -2334,9 +2331,6 @@ public class Chrome
         updateDescriptionAsync(initialTitle, placeholder, computedDescNow, pf);
     }
 
-    /**
-     * Loads a file asynchronously and previews it. Works for both ProjectFile and ExternalFile.
-     */
     private void loadAndPreviewFile(
             @Nullable ProjectFile projectFile, String style, String initialTitle, ContextFragment fragment) {
         contextManager.submitBackgroundTask("Load file preview", () -> {
@@ -2353,9 +2347,26 @@ public class Chrome
                 logger.debug("Error reading file for preview", e);
             }
             final String fTxt = txt;
+            final String initialStyle = style;
+
             SwingUtilities.invokeLater(() -> {
-                var panel = new PreviewTextPanel(contextManager, projectFile, fTxt, style, themeManager, fragment);
+                var panel =
+                        new PreviewTextPanel(contextManager, projectFile, fTxt, initialStyle, themeManager, fragment);
                 showPreviewFrame(contextManager, initialTitle, panel);
+                // Ensure title updates are also bound to the actual content panel,
+                // so when the description resolves, the window title updates appropriately.
+                updateDescriptionAsync(initialTitle, panel, null, fragment);
+            });
+
+            // Also resolve syntax style asynchronously and re-render if it differs
+            fragment.syntaxStyle().onComplete((resolvedStyle, ex) -> {
+                if (ex != null) {
+                    logger.debug("Failed to resolve syntax style for fragment {}", fragment.id(), ex);
+                    return;
+                }
+                if (!Objects.equals(resolvedStyle, initialStyle)) {
+                    SwingUtilities.invokeLater(() -> renderAndShowPreview(fTxt, resolvedStyle, initialTitle));
+                }
             });
         });
     }
