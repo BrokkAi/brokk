@@ -4,11 +4,8 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import ai.brokk.util.ImageUtil;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -319,7 +316,7 @@ public final class DiffService {
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
         var oldBytesOpt = otherFragment.imageBytes();
-        var newBytesOpt =  thisFragment.imageBytes();
+        var newBytesOpt = thisFragment.imageBytes();
 
         if (oldBytesOpt == null || newBytesOpt == null) {
             return null;
@@ -333,13 +330,7 @@ public final class DiffService {
             return null;
         }
         String diff = "[Image changed]";
-        return new Context.DiffEntry(
-                thisFragment,
-                diff,
-                1,
-                1,
-                "[image]",
-                "[image]");
+        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
@@ -348,6 +339,8 @@ public final class DiffService {
     @Blocking
     public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
         var diffs = computeDiff(curr, other);
-        return diffs.stream().flatMap(de -> de.fragment().files().join().stream()).collect(Collectors.toSet());
+        return diffs.stream()
+                .flatMap(de -> de.fragment().files().join().stream())
+                .collect(Collectors.toSet());
     }
 }

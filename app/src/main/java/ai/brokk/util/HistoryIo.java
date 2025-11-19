@@ -270,11 +270,9 @@ public final class HistoryIo {
                         if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
                             pastedImageFragments.add(aif);
                         } else {
-                            if (ff instanceof ContextFragment.ComputedFragment cf) {
-                                var futureImageBytes = cf.imageBytes();
-                                if (futureImageBytes != null)
-                                    futureImageBytes.start(); // ensure this starts for when we need it later
-                            }
+                            var futureImageBytes = vf.imageBytes();
+                            if (futureImageBytes != null)
+                                futureImageBytes.start(); // ensure this starts for when we need it later
                             imageDomainFragments.add(ff);
                         }
                     }
@@ -398,14 +396,9 @@ public final class HistoryIo {
 
                 for (ContextFragment.ImageFragment ff : imageDomainFragments) {
                     byte[] imageBytes = null;
-                    if (ff instanceof ContextFragment.ComputedFragment cf) {
-                        var futureBytes = cf.imageBytes();
-                        if (futureBytes != null) {
-                            imageBytes =
-                                    futureBytes.await(Duration.ofSeconds(10)).orElse(null);
-                        }
-                    } else {
-                        imageBytes = ImageUtil.imageToBytes(ff.image());
+                    var futureBytes = ff.imageBytes();
+                    if (futureBytes != null) {
+                        imageBytes = futureBytes.await(Duration.ofSeconds(10)).orElse(null);
                     }
                     if (imageBytes != null) {
                         ZipEntry entry = new ZipEntry(
@@ -424,11 +417,19 @@ public final class HistoryIo {
 
                 for (var aif : pastedImageFragments) {
                     try {
-                        byte[] imageBytes = aif.imageBytes();
-                        if (imageBytes == null) {
+                        var imageBytesFuture = aif.imageBytes();
+                        if (imageBytesFuture == null) {
                             logger.warn("Skipping image fragment {} because imageBytes is null", aif.id());
                             continue;
                         }
+                        var imageBytesOpt = imageBytesFuture.await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+                        if (imageBytesOpt.isEmpty()) {
+                            logger.error(
+                                    "Unable to read image bytes within a reasonable amount of time. Image will not be saved: {}",
+                                    aif);
+                            continue;
+                        }
+                        var imageBytes = imageBytesOpt.get();
                         ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
                         entry.setMethod(ZipEntry.STORED);
                         entry.setSize(imageBytes.length);

@@ -12,7 +12,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
-
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -47,7 +46,6 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
-
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -164,7 +162,8 @@ public class WorkspaceChip extends JPanel {
         readOnlyIcon.setIcon(null);
 
         ContextFragment fragment = getPrimaryFragment();
-        String safeShortDescription = fragment != null ? fragment.shortDescription().renderNowOr("") : "(no description)";
+        String safeShortDescription =
+                fragment != null ? fragment.shortDescription().renderNowOr("") : "(no description)";
         if (safeShortDescription.isBlank()) {
             safeShortDescription = "(no description)";
         }
@@ -609,7 +608,8 @@ public class WorkspaceChip extends JPanel {
 
         try {
             label.setToolTipText(buildDefaultTooltip(fragment));
-            label.getAccessibleContext().setAccessibleDescription(fragment.description().join());
+            label.getAccessibleContext()
+                    .setAccessibleDescription(fragment.description().join());
         } catch (Exception ex) {
             logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
         }
@@ -1111,8 +1111,7 @@ public class WorkspaceChip extends JPanel {
         }
 
         private String buildIndividualDropLabel(ContextFragment fragment) {
-            var files = fragment.files().renderNowOr(Set.of())
-                    .stream()
+            var files = fragment.files().renderNowOr(Set.of()).stream()
                     .map(pf -> {
                         String path = pf.toString();
                         int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));

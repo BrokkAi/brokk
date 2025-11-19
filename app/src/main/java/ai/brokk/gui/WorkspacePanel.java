@@ -39,6 +39,7 @@ import java.util.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,6 +54,7 @@ import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class WorkspacePanel extends JPanel {
@@ -151,12 +153,13 @@ public class WorkspacePanel extends JPanel {
         }
 
         @Override
+        @Blocking
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
             // Show in Project (for PROJECT_PATH fragments)
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream()
+                fragment.files().join().stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, projectFile)));
@@ -171,7 +174,7 @@ public class WorkspacePanel extends JPanel {
 
             // View History/Compress History
             if (panel.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream()
+                fragment.files().join().stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, projectFile)));
@@ -191,7 +194,7 @@ public class WorkspacePanel extends JPanel {
 
             // Add Run Tests action if the fragment is associated with a test file
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().stream().anyMatch(ContextManager::isTestFile)) {
+                    && fragment.files().join().stream().anyMatch(ContextManager::isTestFile)) {
                 actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -202,7 +205,7 @@ public class WorkspacePanel extends JPanel {
 
             // Edit/Read/Summarize
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream().findFirst().ifPresent(projectFile -> {
+                fragment.files().join().stream().findFirst().ifPresent(projectFile -> {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
 
@@ -257,6 +260,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         @Override
+        @Blocking
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
@@ -264,7 +268,7 @@ public class WorkspacePanel extends JPanel {
                     "Cannot view contents of multiple items at once."));
             actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
             // Add Run Tests action if all selected fragment is associated with a test file
-            if (fragments.stream().flatMap(f -> f.files().stream()).allMatch(ContextManager::isTestFile)) {
+            if (fragments.stream().flatMap(f -> f.files().join().stream()).allMatch(ContextManager::isTestFile)) {
                 actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -511,22 +515,19 @@ public class WorkspacePanel extends JPanel {
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
             // For dynamic fragments, use computed description (non-blocking)
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var descOpt = cf.description().tryGet();
-                if (descOpt.isPresent()) {
-                    description = descOpt.get();
-                } else {
-                    description = "(Loading...)";
-                    // Register for repaint when description completes; log failures
-                    cf.description().onComplete((desc, ex) -> {
-                        if (ex == null) {
-                            SwingUtilities.invokeLater(table::repaint);
-                        } else {
-                            logger.debug(
-                                    "Error computing fragment description for {}", fragment.shortDescription(), ex);
-                        }
-                    });
-                }
+            var descOpt = fragment.description().tryGet();
+            if (descOpt.isPresent()) {
+                description = descOpt.get();
+            } else {
+                description = "(Loading...)";
+                // Register for repaint when description completes; log failures
+                fragment.description().onComplete((desc, ex) -> {
+                    if (ex == null) {
+                        SwingUtilities.invokeLater(table::repaint);
+                    } else {
+                        logger.debug("Error computing fragment description for {}", fragment.shortDescription(), ex);
+                    }
+                });
             }
 
             // Calculate available width for description after reserving space for badges
@@ -963,12 +964,10 @@ public class WorkspacePanel extends JPanel {
                 }
 
                 // Classify scenario and build menu
-                PopupScenario scenario = classifyScenario(e, selectedFragments);
-                List<Action> actions = scenario.getActions(WorkspacePanel.this);
-
-                PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
-
-                e.consume();
+                classifyScenario(e, selectedFragments).thenAccept(scenario -> {
+                    List<Action> actions = scenario.getActions(WorkspacePanel.this);
+                    PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
+                });
             }
         });
 
@@ -1377,10 +1376,11 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Returns the set of selected project files that are part of the current context (editable or read-only). */
+    @Blocking
     public Set<ProjectFile> getSelectedProjectFiles() {
         return getSelectedFragments().stream()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1415,23 +1415,18 @@ public class WorkspacePanel extends JPanel {
             String locText;
             if (frag.isText() || frag.getType().isOutput()) {
                 String text;
-                if (frag instanceof ContextFragment.ComputedFragment cf) {
-                    // Non-blocking access for dynamic fragments
-                    var textOpt = cf.text().tryGet();
-                    text = textOpt.orElse("");
-                    // Register repaint when computation completes
-                    if (textOpt.isEmpty()) {
-                        cf.text().onComplete((value, ex) -> {
-                            if (ex == null && value != null) {
-                                SwingUtilities.invokeLater(this::updateContextTable);
-                            } else if (ex != null) {
-                                logger.debug("Error computing fragment text for {}", frag.shortDescription(), ex);
-                            }
-                        });
-                    }
-                } else {
-                    // Blocking access safe for non-dynamic fragments
-                    text = frag.text();
+                // Non-blocking access for dynamic fragments
+                var textOpt = frag.text().tryGet();
+                text = textOpt.orElse("");
+                // Register repaint when computation completes
+                if (textOpt.isEmpty()) {
+                    frag.text().onComplete((value, ex) -> {
+                        if (ex == null && value != null) {
+                            SwingUtilities.invokeLater(this::updateContextTable);
+                        } else if (ex != null) {
+                            logger.debug("Error computing fragment text for {}", frag.shortDescription(), ex);
+                        }
+                    });
                 }
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
@@ -1440,12 +1435,12 @@ public class WorkspacePanel extends JPanel {
             } else {
                 locText = "Image";
             }
-            var desc = frag.description();
+            var desc = frag.description().future();
 
             // Mark editable if it's in the editable streams
             boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
             if (isEditable) {
-                desc = "✏️ " + desc;
+                desc = desc.thenApply(s -> "✏️ " + s);
             }
 
             // Build file references for the record (supports async ComputedFileFragment)
@@ -1456,17 +1451,13 @@ public class WorkspacePanel extends JPanel {
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
                 try {
                     Set<ProjectFile> fragmentFiles;
-                    if (frag instanceof ContextFragment.ComputedFragment cff) {
-                        filesCv = cff.files();
-                        var filesOpt = filesCv.tryGet();
-                        if (filesOpt.isPresent()) {
-                            fragmentFiles = filesOpt.get();
-                        } else {
-                            fragmentFiles = Set.of();
-                            filesReady = false;
-                        }
+                    filesCv = frag.files();
+                    var filesOpt = filesCv.tryGet();
+                    if (filesOpt.isPresent()) {
+                        fragmentFiles = filesOpt.get();
                     } else {
-                        fragmentFiles = frag.files();
+                        fragmentFiles = Set.of();
+                        filesReady = false;
                     }
                     fileReferences = fragmentFiles.stream()
                             .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
@@ -1481,16 +1472,15 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Create rich description object
-            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            var descriptionWithRefs = new DescriptionWithReferences(desc.getNow("(Loading)"), fileReferences, frag);
             tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
 
             // If files were not ready, update the row once they are computed
             if (filesCv != null && !filesReady) {
                 final int rowIndex = tableModel.getRowCount() - 1;
-                final String frozenDesc = desc;
-                final ContextFragment frozenFrag = frag;
-                filesCv.onComplete((files, ex) -> {
-                    if (ex == null && files != null) {
+                final ContextFragment finalFrag = frag;
+                filesCv.onComplete((files, filesEx) -> {
+                    if (filesEx == null) {
                         var refs = files.stream()
                                 .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
                                         file.getFileName(), file.toString(), file))
@@ -1498,15 +1488,25 @@ public class WorkspacePanel extends JPanel {
                                 .sorted(Comparator.comparing(
                                         TableUtils.FileReferenceList.FileReferenceData::getFileName))
                                 .toList();
+
                         SwingUtilities.invokeLater(() -> {
                             if (rowIndex < contextTable.getRowCount()) {
-                                var updated = new DescriptionWithReferences(frozenDesc, refs, frozenFrag);
-                                tableModel.setValueAt(updated, rowIndex, DESCRIPTION_COLUMN);
-                                contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
+                                frag.description().onComplete((computedDesc, descEx) -> {
+                                    String finalDesc;
+                                    if (descEx != null) {
+                                        logger.warn("Error computing fragment description for {}", frag, descEx);
+                                        finalDesc = "(Error)";
+                                    } else {
+                                        finalDesc = computedDesc;
+                                    }
+                                    var updated = new DescriptionWithReferences(finalDesc, refs, finalFrag);
+                                    tableModel.setValueAt(updated, rowIndex, DESCRIPTION_COLUMN);
+                                    contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
+                                });
                             }
                         });
-                    } else if (ex != null) {
-                        logger.debug("Error computing associated files for {}", frozenFrag.shortDescription(), ex);
+                    } else {
+                        logger.debug("Error computing associated files for {}", finalFrag.shortDescription(), filesEx);
                     }
                 });
             }
@@ -1573,21 +1573,15 @@ public class WorkspacePanel extends JPanel {
         }
 
         // Determine associated file for better preview semantics (edit button, etc)
-        ProjectFile associatedFile = fragment.files().stream().findFirst().orElse(null);
+        ProjectFile associatedFile =
+                fragment.files().renderNowOr(Set.of()).stream().findFirst().orElse(null);
 
         // Try to get initial content and syntax style without blocking the EDT
-        String initialText = "(Loading...)";
-        String initialSyntax = null;
-
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            var textOpt = cf.text().tryGet();
-            initialText = textOpt.orElse("(Loading...)");
-            var styleOpt = cf.syntaxStyle().tryGet();
-            initialSyntax = styleOpt.orElse(null);
-        }
+        String initialText = fragment.text().renderNowOr("(Loading...)");
+        String initialSyntax = fragment.syntaxStyle().renderNowOrNull();
 
         // Create the initial preview panel
-        var title = fragment.shortDescription().isBlank() ? "Preview" : fragment.shortDescription();
+        var title = fragment.shortDescription().renderNowOr("Preview");
         var panel = new PreviewTextPanel(
                 contextManager, associatedFile, initialText, initialSyntax, chrome.getTheme(), fragment);
 
@@ -1595,34 +1589,27 @@ public class WorkspacePanel extends JPanel {
         chrome.showPreviewFrame(contextManager, title, panel);
 
         // Now asynchronously load/update the content
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            // Update when text is ready
-            cf.text().onComplete((txt, ex) -> {
-                if (ex == null) {
-                    // Try to also fetch syntax style if available (non-blocking)
-                    var styleOpt = cf.syntaxStyle().tryGet();
-                    var syntax = styleOpt.orElse(null);
-                    SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
-                } else {
-                    logger.error("Error computing fragment text for {}", fragment, ex);
-                    SwingUtilities.invokeLater(() -> panel.setContentAndStyle(
-                            "Unable to load content!", org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE));
-                }
-            });
-            // If syntax style completes separately later, update it without changing text
-            cf.syntaxStyle().onComplete((style, ex) -> {
-                if (ex == null) {
-                    SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
-                } else {
-                    logger.warn("Error computing fragment syntax style for {}", fragment, ex);
-                }
-            });
-        } else {
-            // Non-computed fragment: load text off-EDT to avoid blocking
-            contextManager
-                    .submitBackgroundTask("Load preview content", fragment::text)
-                    .thenAccept(text -> SwingUtilities.invokeLater(() -> panel.setContentAndStyle(text, null)));
-        }
+        // Update when text is ready
+        fragment.text().onComplete((txt, ex) -> {
+            if (ex == null) {
+                // Try to also fetch syntax style if available (non-blocking)
+                var styleOpt = fragment.syntaxStyle().tryGet();
+                var syntax = styleOpt.orElse(null);
+                SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
+            } else {
+                logger.error("Error computing fragment text for {}", fragment, ex);
+                SwingUtilities.invokeLater(() -> panel.setContentAndStyle(
+                        "Unable to load content!", org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE));
+            }
+        });
+        // If syntax style completes separately later, update it without changing text
+        fragment.syntaxStyle().onComplete((style, ex) -> {
+            if (ex == null) {
+                SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
+            } else {
+                logger.warn("Error computing fragment syntax style for {}", fragment, ex);
+            }
+        });
     }
 
     // ------------------------------------------------------------------
@@ -1652,17 +1639,20 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Returns true if the fragments have associated files */
+    @Blocking
     private boolean hasFiles(List<ContextFragment> fragments) {
         return fragments.stream()
-                .flatMap(frag -> frag.files().stream())
+                .flatMap(frag -> frag.files().join().stream())
                 .findAny()
                 .isPresent();
     }
 
     /** Returns true if all files from the fragments are tracked project files */
+    @Blocking
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
-        var allFiles = fragments.stream().flatMap(frag -> frag.files().stream()).collect(Collectors.toSet());
+        var allFiles =
+                fragments.stream().flatMap(frag -> frag.files().join().stream()).collect(Collectors.toSet());
 
         return !allFiles.isEmpty()
                 && allFiles.stream()
@@ -1679,7 +1669,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */
-    private PopupScenario classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
+    private CompletableFuture<PopupScenario> classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
@@ -1687,40 +1677,44 @@ public class WorkspacePanel extends JPanel {
         if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
             ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
             if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                var fileReferences = fragment.files().stream()
-                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
-                                file.getFileName(), file.toString(), file))
-                        .distinct()
-                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                        .toList();
+                return fragment.files().future().thenApply(files -> {
+                    var fileReferences = files.stream()
+                            .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
+                                    file.getFileName(), file.toString(), file))
+                            .distinct()
+                            .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                            .toList();
 
-                if (!fileReferences.isEmpty()) {
-                    // We need to determine if the click was specifically on a badge
-                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
-                    int yInCell = e.getPoint().y - cellRect.y;
+                    if (!fileReferences.isEmpty()) {
+                        // We need to determine if the click was specifically on a badge
+                        Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                        int yInCell = e.getPoint().y - cellRect.y;
 
-                    // Estimate if click is in lower half of cell (where badges are)
-                    if (yInCell > cellRect.height / 2) {
-                        // Try to find which specific badge was clicked
-                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
+                        // Estimate if click is in lower half of cell (where badges are)
+                        if (yInCell > cellRect.height / 2) {
+                            // Try to find which specific badge was clicked
+                            TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                    TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
 
-                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
-                            return new FileBadge(clickedFileRef);
+                            if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                                return new FileBadge(clickedFileRef);
+                            }
                         }
                     }
-                }
+
+                    // Handle selection-based scenarios
+                    if (selectedFragments.isEmpty()) {
+                        return new NoSelection();
+                    } else if (selectedFragments.size() == 1) {
+                        return new SingleFragment(selectedFragments.getFirst());
+                    } else {
+                        return new MultiFragment(selectedFragments);
+                    }
+                });
             }
         }
 
-        // Handle selection-based scenarios
-        if (selectedFragments.isEmpty()) {
-            return new NoSelection();
-        } else if (selectedFragments.size() == 1) {
-            return new SingleFragment(selectedFragments.getFirst());
-        } else {
-            return new MultiFragment(selectedFragments);
-        }
+        return CompletableFuture.completedFuture(new NoSelection());
     }
 
     /** Shows the symbol selection dialog and adds usage information for the selected symbol. */
@@ -1879,10 +1873,11 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Edit Action: Only allows selecting Project Files */
+    @Blocking
     private void doEditAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
         assert !selectedFragments.isEmpty();
         var files = selectedFragments.stream()
-                .flatMap(fragment -> fragment.files().stream())
+                .flatMap(fragment -> fragment.files().join().stream())
                 .collect(Collectors.toSet());
         contextManager.addFiles(files);
     }
@@ -2087,9 +2082,10 @@ public class WorkspacePanel extends JPanel {
         contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
+    @Blocking
     private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
         var testFiles = selectedFragments.stream()
-                .flatMap(frag -> frag.files().stream())
+                .flatMap(frag -> frag.files().join().stream())
                 .filter(ContextManager::isTestFile)
                 .collect(Collectors.toSet());
 
@@ -2129,7 +2125,7 @@ public class WorkspacePanel extends JPanel {
             for (var fragment : fragments) {
                 if (fragment instanceof ContextFragment.PathFragment pathFrag) {
                     if (summarize) {
-                        var files = pathFrag.files();
+                        var files = pathFrag.files().join(); // we are in a background task so we may block
                         contextManager.addSummaries(files, Collections.emptySet());
                     } else {
                         contextManager.addPathFragmentAsync(pathFrag);
@@ -2141,6 +2137,7 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
+    @Blocking
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
         if (!isAnalyzerReady()) {
             return;
@@ -2151,7 +2148,7 @@ public class WorkspacePanel extends JPanel {
 
         // Fragment case: Extract files and classes from selected fragments
         // FIXME: prefer classes where available (more selective)
-        selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
+        selectedFragments.stream().flatMap(frag -> frag.files().join().stream()).forEach(selectedFiles::add);
 
         if (selectedFiles.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");

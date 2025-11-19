@@ -32,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
     private static final int MAX_DEPTH = 100;
-    private static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
+    public static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
 

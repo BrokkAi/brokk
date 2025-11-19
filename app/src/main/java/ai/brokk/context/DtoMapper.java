@@ -461,19 +461,24 @@ public class DtoMapper {
             ContextFragment.VirtualFragment fragment, ContentWriter writer) {
         return switch (fragment) {
             case ContextFragment.SearchFragment searchFragment -> {
-                var sourcesDto = searchFragment.sources().stream()
+                // Below is fine to block on SearchFragment
+                var sourcesDto = searchFragment.sources().join().stream()
                         .map(DtoMapper::toCodeUnitDto)
                         .collect(Collectors.toSet());
                 var messagesDto = searchFragment.messages().stream()
                         .map(m -> toChatMessageDto(m, writer))
                         .toList();
                 yield new SearchFragmentDto(
-                        searchFragment.id(), searchFragment.description(), "", sourcesDto, messagesDto);
+                        searchFragment.id(), searchFragment.description().join(), "", sourcesDto, messagesDto);
             }
             case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
             case ContextFragment.StringFragment sf ->
+                // String fragment is fine to block on
                 new StringFragmentDto(
-                        sf.id(), writer.writeContent(sf.text(), null), sf.description(), sf.syntaxStyle());
+                        sf.id(),
+                        writer.writeContent(sf.text().join(), null),
+                        sf.description().join(),
+                        sf.syntaxStyle().join());
             case ContextFragment.SkeletonFragment skf ->
                 new SkeletonFragmentDto(
                         skf.id(),
@@ -487,8 +492,9 @@ public class DtoMapper {
             case ContextFragment.UsageFragment uf ->
                 new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
             case ContextFragment.PasteTextFragment ptf -> {
+                // Fine to block on
                 String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
-                String contentId = writer.writeContent(ptf.text(), null);
+                String contentId = writer.writeContent(ptf.text().join(), null);
                 String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
@@ -497,8 +503,10 @@ public class DtoMapper {
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
             case ContextFragment.StacktraceFragment stf -> {
-                var sourcesDto =
-                        stf.sources().stream().map(DtoMapper::toCodeUnitDto).collect(Collectors.toSet());
+                // Fine to block on
+                var sourcesDto = stf.sources().join().stream()
+                        .map(DtoMapper::toCodeUnitDto)
+                        .collect(Collectors.toSet());
                 String originalContentId = writer.writeContent(stf.getOriginal(), null);
                 String codeContentId = writer.writeContent(stf.getCode(), null);
                 yield new StacktraceFragmentDto(
@@ -555,7 +563,9 @@ public class DtoMapper {
         var messagesDto = fragment.messages().stream()
                 .map(m -> toChatMessageDto(m, writer))
                 .toList();
-        return new TaskFragmentDto(fragment.id(), messagesDto, fragment.description());
+        // Cheap to block on
+        return new TaskFragmentDto(
+                fragment.id(), messagesDto, fragment.description().join());
     }
 
     private static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
