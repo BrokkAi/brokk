@@ -272,4 +272,75 @@ public class SearchToolsTest {
         String result4 = tools.getClassSkeletons(List.of("A"));
         assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
     }
+
+    @Test
+    void testGetSymbolLocations_withOverloads() {
+        // Create a context manager that provides the Java analyzer
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> javaAnalyzer;
+                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
+                        case "getProject" -> javaTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // NOTE: Current JavaAnalyzer limitation - getDefinitions() only returns one overload
+        // This test verifies SearchTools handles what the analyzer provides correctly.
+        // When JavaAnalyzer is updated to return all overloads, this test should be updated
+        // to verify all overloads are shown with signatures.
+
+        var definitions = javaAnalyzer.getDefinitions("A.method2");
+        assertFalse(definitions.isEmpty(), "Should find at least one method");
+
+        String result = tools.getSymbolLocations(List.of("A.method2"));
+        assertFalse(result.isEmpty(), "Result should not be empty");
+        assertTrue(result.contains("A.method2"), "Should contain method name");
+        assertTrue(result.contains("A.java"), "Should contain file path");
+
+        // When overload support is added to JavaAnalyzer, verify both signatures appear:
+        // assertTrue(result.contains("A.method2(String)"));
+        // assertTrue(result.contains("A.method2(String, int)"));
+    }
+
+    @Test
+    void testGetMethodSources_withOverloads() {
+        // Create a context manager that provides the Java analyzer
+        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getAnalyzer" -> javaAnalyzer;
+                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
+                        case "getProject" -> javaTestProject;
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                    };
+                });
+
+        SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+        // NOTE: Current JavaAnalyzer limitation - getDefinitions() only returns one overload
+        // This test verifies SearchTools correctly retrieves method source for what's available
+        // When JavaAnalyzer is updated to return all overloads, verify both are included
+
+        String result = tools.getMethodSources(List.of("A.method2"));
+        assertFalse(result.isEmpty(), "Result should not be empty");
+
+        // Should contain at least one method2 signature
+        boolean hasMethod2Signature = result.contains("method2(String input)")
+                || result.contains("public String method2(String input)")
+                || result.contains("method2(String input, int otherInput)");
+        assertTrue(hasMethod2Signature, "Should contain method2 signature");
+
+        // Should contain method body (actual return statement)
+        boolean hasMethodBody = result.contains("return \"prefix_\" + input");
+        assertTrue(hasMethodBody, "Should contain method body");
+
+        // When overload support is added, verify BOTH overloads are present:
+        // assertTrue(result.contains("method2(String input)"));
+        // assertTrue(result.contains("method2(String input, int otherInput)"));
+        // assertTrue(result.contains("overload of method2"));
+    }
 }

@@ -388,7 +388,7 @@ public class SearchTools {
                 for (var cu : definitions) {
                     var filepath = cu.source().toString();
                     var sig = cu.signature();
-                    var displayName = sig.isEmpty() ? symbol : symbol + sig;
+                    var displayName = (sig == null || sig.isEmpty()) ? symbol : symbol + sig;
                     locationMappings.add(displayName + " -> " + filepath);
                 }
             } else {
