@@ -503,7 +503,9 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isClass);
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isClass)
@@ -531,23 +533,29 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
-        if (opt.isEmpty()) {
+        // Get all matching function definitions (handles overloads)
+        var matches = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .collect(Collectors.toSet());
+
+        if (matches.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
-                    .findFirst();
-            opt = s;
+                    .collect(Collectors.toSet());
+            matches = s;
         }
-        if (opt.isEmpty()) {
+        if (matches.isEmpty()) {
             selection = null;
             dispose();
             return;
         }
 
-        var cu = opt.get();
+        // Create a fragment for each matching overload
+        Set<ContextFragment> fragments = matches.stream()
+                .<ContextFragment>map(cu -> new ContextFragment.CodeFragment(cm, cu))
+                .collect(Collectors.toSet());
 
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        selection = new Result(fragments, summarizeCheck.isSelected());
         dispose();
     }
 
@@ -560,10 +568,13 @@ public class AttachContextDialog extends JDialog {
         }
 
         // Find best matching symbol (class or method). Prefer method if exact.
-        Optional<CodeUnit> exactMethod = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
         Optional<CodeUnit> any = exactMethod.isPresent()
                 ? exactMethod
-                : analyzer.getDefinition(input)
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
