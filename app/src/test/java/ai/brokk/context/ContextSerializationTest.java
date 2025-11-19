@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.List;
+import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
@@ -1404,7 +1405,7 @@ public class ContextSerializationTest {
         rewriteContextsInZip(original, longerZip, line -> {
             try {
                 var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
                 @SuppressWarnings("unchecked")
                 List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
                 readonly = new ArrayList<>(readonly);
@@ -1445,7 +1446,7 @@ public class ContextSerializationTest {
         rewriteContextsInZip(marked, shorterZip, line -> {
             try {
                 var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
                 obj.put("readonly", new ArrayList<>()); // clear readonly list
                 return mapper.writeValueAsString(obj);
             } catch (Exception e) {
@@ -1480,7 +1481,7 @@ public class ContextSerializationTest {
                             .orElse("");
                     if (firstLine.isEmpty()) return Set.of();
                     var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
+                    Map<String, Object> obj = mapper.readValue(firstLine, new TypeReference<Map<String, Object>>() {});
                     @SuppressWarnings("unchecked")
                     List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
                     return new java.util.HashSet<>(readonly);
