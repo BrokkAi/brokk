@@ -97,8 +97,11 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
+            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
+            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -384,6 +387,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public ModelConfig getQuickModelConfig() {
+        return getModelConfigInternal("Quick");
+    }
+
+    @Override
+    public void setQuickModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quick", config);
+    }
+
+    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -401,6 +414,22 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
         setModelConfigInternal("Architect", config);
+    }
+
+    public ModelConfig getQuickEditModelConfig() {
+        return getModelConfigInternal("QuickEdit");
+    }
+
+    public void setQuickEditModelConfig(ModelConfig config) {
+        setModelConfigInternal("QuickEdit", config);
+    }
+
+    public ModelConfig getQuickestModelConfig() {
+        return getModelConfigInternal("Quickest");
+    }
+
+    public void setQuickestModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quickest", config);
     }
 
     @Override
@@ -1302,6 +1331,7 @@ public final class MainProject extends AbstractProject {
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1418,6 +1448,34 @@ public final class MainProject extends AbstractProject {
             props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
         } else {
             props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static int getHistoryCompressionConcurrency() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        int def = 2;
+        if (value == null || value.isBlank()) {
+            return def;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1) parsed = 1;
+            if (parsed > 8) parsed = 8;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public static void setHistoryCompressionConcurrency(int value) {
+        int clamped = Math.max(1, Math.min(8, value));
+        var props = loadGlobalProperties();
+        if (clamped == 2) {
+            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        } else {
+            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
         }
         saveGlobalProperties(props);
     }

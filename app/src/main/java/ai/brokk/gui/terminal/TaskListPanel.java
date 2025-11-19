@@ -723,10 +723,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void editSelected() {
-        //        if (!taskListEditable) {
-        //            Toolkit.getDefaultToolkit().beep();
-        //            return;
-        //        }
         int idx = list.getSelectedIndex();
         if (idx < 0) return;
         if (runningIndex != null && idx == runningIndex.intValue()) {
@@ -770,6 +766,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         JTextField titleField = new JTextField(current.title());
         titleField.setFont(list.getFont());
+        titleField.setEditable(taskListEditable);
         titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
         fieldsPanel.add(titleField);
 
@@ -784,6 +781,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         bodyArea.setWrapStyleWord(true);
         bodyArea.setFont(list.getFont());
         bodyArea.setRows(8);
+        bodyArea.setEditable(taskListEditable);
 
         JScrollPane bodyScroll = new JScrollPane(
                 bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
@@ -796,6 +794,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         MaterialButton saveBtn = new MaterialButton("Save");
         SwingUtil.applyPrimaryButtonStyle(saveBtn);
+        saveBtn.setEnabled(taskListEditable);
+        if (!taskListEditable) {
+            saveBtn.setToolTipText(READ_ONLY_TIP);
+        }
         MaterialButton cancelBtn = new MaterialButton("Cancel");
 
         saveBtn.addActionListener(e -> {
@@ -1917,7 +1919,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.setSelectedIndex(firstIdx);
 
         clearExpansionOnStructureChange();
-        saveTasksForCurrentSession("Tasks removed");
+        saveTasksForCurrentSession("Tasks combined");
         updateButtonStates();
         // Combined tasks changed the model; update the Tasks tab badge.
         SwingUtilities.invokeLater(this::updateTasksTabBadge);

@@ -1566,6 +1566,12 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
+        // Delegate StringFragment preview to Chrome to leverage previewText/previewSyntaxStyle
+        if (fragment instanceof ContextFragment.StringFragment) {
+            chrome.openFragmentPreview(fragment);
+            return;
+        }
+
         // Determine associated file for better preview semantics (edit button, etc)
         ProjectFile associatedFile = fragment.files().stream().findFirst().orElse(null);
 

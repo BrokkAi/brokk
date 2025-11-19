@@ -180,12 +180,37 @@ public final class SpecialTextType {
 
             for (var item : data.tasks()) {
                 boolean done = item.done();
-                String label = item.text();
+                var title = item.title();
+                String text = item.text();
+                boolean hasTitle = title != null && !title.isBlank();
+                boolean hasText = !text.isBlank();
 
-                if (done) {
-                    sb.append("- [x] ~~").append(label).append("~~\n");
+                sb.append(done ? "- [x] " : "- [ ] ");
+
+                if (hasTitle) {
+                    String titleMd = "**" + title + "**";
+                    sb.append(done ? "~~" + titleMd + "~~" : titleMd);
+                    sb.append("\n");
+
+                    if (hasText) {
+                        String normalized = text.replace("\r\n", "\n").replace("\r", "\n");
+                        for (String line : normalized.split("\n", -1)) {
+                            sb.append("  > ");
+                            if (done) {
+                                sb.append("~~").append(line).append("~~");
+                            } else {
+                                sb.append(line);
+                            }
+                            sb.append("\n");
+                        }
+                    }
                 } else {
-                    sb.append("- [ ] ").append(label).append("\n");
+                    if (done) {
+                        sb.append("~~").append(text).append("~~");
+                    } else {
+                        sb.append(text);
+                    }
+                    sb.append("\n");
                 }
             }
 

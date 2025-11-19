@@ -525,6 +525,29 @@ new code
   expect(props.filename).toBe('script.js');
 });
 
+test('detects fenced with language then next-line filename', () => {
+  const md = `
+\`\`\`java
+app/src/test/java/ai/brokk/analyzer/CppAnalyzerTest.java
+<<<<<<< SEARCH
+A
+=======
+B
+>>>>>>> REPLACE
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('app/src/test/java/ai/brokk/analyzer/CppAnalyzerTest.java');
+  expect(props.adds).toBe('1');
+  expect(props.dels).toBe('1');
+  expect(props.changed).toBe('1');
+});
+
 
 test('foo2', () => {
   const md = `
