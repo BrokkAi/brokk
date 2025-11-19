@@ -582,50 +582,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        // Normalize generics / anonymous / location suffixes.
         String normalizedFqName = normalizeFullName(fqName);
 
-        // Split out any signature suffix "(...)" from the base name used for index lookup.
-        int parenIndex = normalizedFqName.indexOf('(');
-        String baseName;
-        String searchSignature;
-        if (parenIndex >= 0) {
-            baseName = normalizedFqName.substring(0, parenIndex);
-            searchSignature = normalizedFqName.substring(parenIndex);
-        } else {
-            baseName = normalizedFqName;
-            searchSignature = null;
-        }
-
-        // Use symbolIndex to pre-filter candidates instead of scanning all CodeUnits.
-        Set<CodeUnit> candidates = lookupCandidatesByFqName(baseName);
+        Set<CodeUnit> candidates = lookupCandidatesByFqName(normalizedFqName);
         if (candidates.isEmpty()) {
             return new LinkedHashSet<>();
         }
 
-        // Filter to exact fqName matches
-        var matches =
-                candidates.stream().filter(cu -> cu.fqName().equals(baseName)).collect(Collectors.toSet());
-
-        // If signature was provided, filter further by signature
-        if (searchSignature != null && !matches.isEmpty()) {
-            var signatureMatches = matches.stream()
-                    .filter(cu -> {
-                        String cuSig = cu.signature();
-                        return cuSig != null && cuSig.equals(searchSignature);
-                    })
-                    .collect(Collectors.toSet());
-            // If we found signature matches, use those; otherwise return all matches for that fqName
-            if (!signatureMatches.isEmpty()) {
-                matches = signatureMatches;
-            }
-        }
+        var matches = candidates.stream()
+                .filter(cu -> cu.fqName().equals(normalizedFqName))
+                .collect(Collectors.toSet());
 
         if (matches.isEmpty()) {
             return new LinkedHashSet<>();
         }
 
-        // Sort by priority and return
         return sortDefinitions(matches);
     }
 
