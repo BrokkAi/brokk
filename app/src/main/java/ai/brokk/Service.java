@@ -70,8 +70,13 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
         // these should always be available
-        var qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
-        quickModel = qm == null ? new UnavailableStreamingModel() : qm;
+        var quickCfg = project.getMainProject().getQuickModelConfig();
+        var qm = getModel(quickCfg);
+        if (qm == null) {
+            // Fallback to previous behavior if resolution fails
+            qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
+        }
+        quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
 
         // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
         boolean freeTier = false;

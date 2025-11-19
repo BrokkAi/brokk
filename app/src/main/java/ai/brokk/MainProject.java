@@ -97,6 +97,7 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
             "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
 
@@ -381,6 +382,16 @@ public final class MainProject extends AbstractProject {
                     e);
             throw new RuntimeException("Failed to serialize ModelConfig for " + modelTypeKey, e);
         }
+    }
+
+    @Override
+    public ModelConfig getQuickModelConfig() {
+        return getModelConfigInternal("Quick");
+    }
+
+    @Override
+    public void setQuickModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quick", config);
     }
 
     @Override

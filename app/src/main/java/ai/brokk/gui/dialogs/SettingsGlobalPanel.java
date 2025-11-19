@@ -86,6 +86,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<String> primaryModelCombo = new JComboBox<>();
+    private JComboBox<String> quickModelCombo = new JComboBox<>();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -1239,6 +1240,33 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(primaryComboHolder, gbc);
 
+        // Add Quick Model selector on a new row
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        topPanel.add(new JLabel("Quick Model:"), gbc);
+
+        quickModelCombo = new JComboBox<>();
+        var quickComboHolder = new JPanel(new BorderLayout(0, 0));
+        quickComboHolder.add(quickModelCombo, BorderLayout.CENTER);
+
+        var quickHelpButton = new MaterialButton();
+        quickHelpButton.setIcon(Icons.HELP);
+        quickHelpButton.setToolTipText("This model is used for quick operations like summarization and lightweight analysis.");
+        quickHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        quickHelpButton.setContentAreaFilled(false);
+        quickHelpButton.setFocusPainted(false);
+        quickHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        quickComboHolder.add(quickHelpButton, BorderLayout.EAST);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 0, 0);
+        topPanel.add(quickComboHolder, gbc);
+
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -1503,7 +1531,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Instructions panel behavior
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
-        // Quick Models Tab
+        // Favorite Models Tab
+        var currentQuickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
         var loadedFavorites = MainProject.loadFavoriteModels();
@@ -1519,6 +1548,28 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
         quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate quick model combo with favorite aliases
+        quickModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            quickModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current quick config
+        String selectedQuickAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentQuickConfig.name())
+                    && favorite.config().reasoning() == currentQuickConfig.reasoning()
+                    && favorite.config().tier() == currentQuickConfig.tier()) {
+                selectedQuickAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedQuickAlias != null) {
+            quickModelCombo.setSelectedItem(selectedQuickAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            quickModelCombo.setSelectedIndex(0);
+        }
 
         // Populate preferred code model combo with favorite aliases
         preferredCodeModelCombo.removeAllItems();
@@ -1817,6 +1868,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         MainProject.saveFavoriteModels(toSaveFavorites);
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
+
+        // Quick Model
+        var selectedQuickAlias = (String) quickModelCombo.getSelectedItem();
+        if (selectedQuickAlias != null && !selectedQuickAlias.isEmpty()) {
+            try {
+                var favoriteModel = MainProject.getFavoriteModel(selectedQuickAlias);
+                chrome.getProject().getMainProject().setQuickModelConfig(favoriteModel.config());
+                // Apply immediately so quickModel is updated without restart
+                chrome.getContextManager().reloadService();
+            } catch (IllegalArgumentException e) {
+                logger.warn("Selected favorite model alias '{}' no longer exists, skipping save.", selectedQuickAlias);
+            }
+        }
 
         // Preferred Code Model
         var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
