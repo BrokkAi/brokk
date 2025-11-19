@@ -3083,10 +3083,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 builder.addComparison(pair.left(), pair.right());
             });
 
-            // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
-            // user's choice when they toggle view (Fixes #1679)
-            var panel = builder.build();
-            panel.showInFrame("Diff: " + ctx.getAction());
+            SwingUtilities.invokeLater(() -> {
+                // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists
+                // the
+                // user's choice when they toggle view (Fixes #1679)
+                var panel = builder.build();
+                panel.showInFrame("Diff: " + ctx.getAction());
+            });
         });
     }
 
