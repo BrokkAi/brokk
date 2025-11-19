@@ -42,8 +42,8 @@ class CppAnalyzerUpdateTest {
     @Test
     void explicitUpdate() throws IOException {
         // New behavior: fqName is WITHOUT signature
-        assertTrue(analyzer.getDefinition("foo").isPresent());
-        assertTrue(analyzer.getDefinition("bar").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("bar").stream().findFirst().isEmpty());
 
         // mutate
         new ProjectFile(project.getRoot(), "A.cpp")
@@ -57,7 +57,7 @@ class CppAnalyzerUpdateTest {
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
-        assertTrue(analyzer.getDefinition("bar").isPresent());
+        assertTrue(analyzer.getDefinitions("bar").stream().findFirst().isPresent());
     }
 
     @Test
@@ -70,12 +70,12 @@ class CppAnalyzerUpdateTest {
                 """);
         analyzer = analyzer.update();
         // New behavior: fqName is WITHOUT signature
-        assertTrue(analyzer.getDefinition("baz").isPresent());
+        assertTrue(analyzer.getDefinitions("baz").stream().findFirst().isPresent());
 
         var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("foo").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo").stream().findFirst().isEmpty());
     }
 
     @Test
@@ -90,7 +90,7 @@ class CppAnalyzerUpdateTest {
 
             // New behavior: fqName is WITHOUT signature
             // "foo()" is not a valid fqName - it mixes fqName with signature
-            var withoutParen = localAnalyzer.getDefinition("foo");
+            var withoutParen = localAnalyzer.getDefinitions("foo").stream().findFirst();
             assertTrue(withoutParen.isPresent(), "Should find function by fqName 'foo'");
             assertEquals("foo", withoutParen.get().fqName());
 

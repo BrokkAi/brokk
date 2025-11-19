@@ -30,7 +30,7 @@ public sealed interface Signature {
      * @throws IllegalArgumentException if params is null, empty, or malformed
      */
     static Signature of(String params) {
-        if (params == null || params.isEmpty()) {
+        if (params.isEmpty()) {
             throw new IllegalArgumentException("Use Signature.none() for empty signatures");
         }
         return new Parameters(params);
@@ -69,8 +69,8 @@ public sealed interface Signature {
      */
     record Parameters(String value) implements Signature {
         public Parameters {
-            if (value == null || value.isEmpty()) {
-                throw new IllegalArgumentException("Parameters cannot be null/empty. Use Signature.none() instead.");
+            if (value.isEmpty()) {
+                throw new IllegalArgumentException("Parameters cannot be empty. Use Signature.none() instead.");
             }
             // Minimal structural validation - only check parentheses
             if (!value.startsWith("(") || !value.endsWith(")")) {

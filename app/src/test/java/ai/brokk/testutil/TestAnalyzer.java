@@ -110,11 +110,6 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).findFirst();
-    }
-
-    @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
         return Set.of(); // Return empty set for test purposes
     }

@@ -1611,7 +1611,7 @@ public class CppAnalyzerTest {
 
     @Test
     public void deprecatedGetDefinition_StillWorks() {
-        var result = analyzer.getDefinition("overloadedFunction");
+        var result = analyzer.getDefinitions("overloadedFunction").stream().findFirst();
 
         assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
         assertEquals("overloadedFunction", result.get().fqName());

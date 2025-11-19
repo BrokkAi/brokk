@@ -3,7 +3,6 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -30,9 +29,7 @@ public class CallGraphFragmentTest {
     static void setupAnalyzer() throws IOException {
         Path javaTestPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
-        assertTrue(
-                java.nio.file.Files.exists(javaTestPath),
-                "Test resource directory 'testcode-java' not found.");
+        assertTrue(java.nio.file.Files.exists(javaTestPath), "Test resource directory 'testcode-java' not found.");
         javaTestProject = new TestProject(javaTestPath, Languages.JAVA);
         javaAnalyzer = new JavaAnalyzer(javaTestProject);
     }
@@ -46,15 +43,12 @@ public class CallGraphFragmentTest {
 
     private IContextManager createMockContextManager(IAnalyzer analyzer) {
         return (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(),
-                new Class<?>[] {IContextManager.class},
-                (proxy, method, args) -> {
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
                     return switch (method.getName()) {
                         case "getAnalyzer" -> analyzer;
                         case "getAnalyzerUninterrupted" -> analyzer;
                         case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException(
-                                "Unexpected call: " + method.getName());
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
                     };
                 });
     }
@@ -110,9 +104,7 @@ public class CallGraphFragmentTest {
         assertTrue(
                 result.contains("Method not found"),
                 "Should return 'Method not found' message for non-existent method");
-        assertTrue(
-                result.contains("NonExistent.method"),
-                "Should include the method name in error message");
+        assertTrue(result.contains("NonExistent.method"), "Should include the method name in error message");
     }
 
     @Test
@@ -123,9 +115,7 @@ public class CallGraphFragmentTest {
         var files = fragment.files();
 
         assertFalse(files.isEmpty(), "Should find file for valid method");
-        assertTrue(
-                files.stream().anyMatch(f -> f.toString().contains("A.java")),
-                "Should include A.java file");
+        assertTrue(files.stream().anyMatch(f -> f.toString().contains("A.java")), "Should include A.java file");
     }
 
     @Test

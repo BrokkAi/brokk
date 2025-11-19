@@ -269,8 +269,7 @@ public final class FuzzyUsageFinder {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Set.of());
         }
-        var maybeCodeUnit = analyzer.getDefinitions(fqName).stream()
-                .findFirst();
+        var maybeCodeUnit = analyzer.getDefinitions(fqName).stream().findFirst();
         if (maybeCodeUnit.isEmpty()) {
             logger.warn("Unable to find code unit for fqName={}", fqName);
             return new FuzzyResult.Failure(fqName, "Unable to find associated code unit for the given name");

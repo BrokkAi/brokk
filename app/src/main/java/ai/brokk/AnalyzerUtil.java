@@ -116,18 +116,16 @@ public class AnalyzerUtil {
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
+        return analyzer.getDefinitions(fqName).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeleton(cu)));
     }
 
     /**
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinitions(className).stream()
-                .findFirst()
-                .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
+        return analyzer.getDefinitions(className).stream().findFirst().flatMap(cu -> analyzer.as(SkeletonProvider.class)
+                .flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
     /**
@@ -150,8 +148,8 @@ public class AnalyzerUtil {
         return analyzer.getDefinitions(fqName).stream()
                 .filter(CodeUnit::isFunction)
                 .findFirst()
-                .flatMap(cu -> analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getMethodSource(cu, includeComments)));
+                .flatMap(cu ->
+                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(cu, includeComments)));
     }
 
     /**
@@ -161,8 +159,8 @@ public class AnalyzerUtil {
         return analyzer.getDefinitions(fqcn).stream()
                 .filter(CodeUnit::isClass)
                 .findFirst()
-                .flatMap(cu -> analyzer.as(SourceCodeProvider.class)
-                        .flatMap(scp -> scp.getClassSource(cu, includeComments)));
+                .flatMap(cu ->
+                        analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
 
     /**

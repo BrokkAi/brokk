@@ -3355,7 +3355,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     public void deprecatedGetDefinition_StillWorks() {
-        var result = analyzer.getDefinition("add");
+        var result = analyzer.getDefinitions("add").stream().findFirst();
 
         assertTrue(result.isPresent(), "Deprecated getDefinition should still work");
         assertEquals("add", result.get().fqName());

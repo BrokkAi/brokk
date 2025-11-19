@@ -70,13 +70,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
-    // Comparator for sorting CodeUnit definitions by priority
-    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
-                    (CodeUnit cu) -> firstStartByteForSelection(cu))
-            .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(cu -> cu.kind().name());
-
     // ephemeral instance state
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSParser> threadLocalParser = ThreadLocal.withInitial(() -> {
@@ -864,13 +857,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected Comparator<CodeUnit> prioritizingComparator() {
         return Comparator.comparingInt(cu -> 0);
-    }
-
-    /**
-     * Returns the earliest startByte among recorded ranges for deterministic ordering.
-     */
-    private int firstStartByteForSelection(CodeUnit cu) {
-        return rangesOf(cu).stream().mapToInt(Range::startByte).min().orElse(Integer.MAX_VALUE);
     }
 
     @Override

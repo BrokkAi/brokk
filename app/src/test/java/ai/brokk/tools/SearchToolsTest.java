@@ -310,7 +310,7 @@ public class SearchToolsTest {
         // When JavaAnalyzer is updated to return all overloads, this test should be updated
         // to verify all overloads are shown with signatures.
 
-        var definitions = javaAnalyzer.getDefinitions("A.method2");
+        var definitions = javaAnalyzer.getDefinitions("A.method2").stream().findFirst();
         assertFalse(definitions.isEmpty(), "Should find at least one method");
 
         String result = tools.getSymbolLocations(List.of("A.method2"));
@@ -379,8 +379,7 @@ public class SearchToolsTest {
         // CppAnalyzer correctly returns ALL overloads (may include duplicates from multiple test files)
         var definitions = cppAnalyzer.getDefinitions("overloadedFunction");
         assertTrue(
-                definitions.size() >= 3,
-                "CppAnalyzer should return at least 3 overloads, got " + definitions.size());
+                definitions.size() >= 3, "CppAnalyzer should return at least 3 overloads, got " + definitions.size());
 
         String result = tools.getSymbolLocations(List.of("overloadedFunction"));
         assertFalse(result.isEmpty(), "Result should not be empty");
@@ -388,14 +387,11 @@ public class SearchToolsTest {
         // Verify all three overload signatures are present (no spaces in C++ signatures)
         assertTrue(result.contains("overloadedFunction(int)"), "Should contain int overload signature");
         assertTrue(result.contains("overloadedFunction(double)"), "Should contain double overload signature");
-        assertTrue(
-                result.contains("overloadedFunction(int,int)"),
-                "Should contain two-int overload signature");
+        assertTrue(result.contains("overloadedFunction(int,int)"), "Should contain two-int overload signature");
 
         // Verify file path is present
         assertTrue(
-                result.contains("simple_overloads.h") || result.contains("duplicates.h"),
-                "Should contain file path");
+                result.contains("simple_overloads.h") || result.contains("duplicates.h"), "Should contain file path");
     }
 
     @Test
@@ -421,8 +417,7 @@ public class SearchToolsTest {
                 result.contains("overloadedFunction(int x)") || result.contains("void overloadedFunction(int x)"),
                 "Should contain int overload source");
         assertTrue(
-                result.contains("overloadedFunction(double x)")
-                        || result.contains("void overloadedFunction(double x)"),
+                result.contains("overloadedFunction(double x)") || result.contains("void overloadedFunction(double x)"),
                 "Should contain double overload source");
         assertTrue(
                 result.contains("overloadedFunction(int x, int y)")

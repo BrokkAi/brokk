@@ -29,9 +29,7 @@ public class SkeletonFragmentTest {
     static void setupAnalyzer() throws IOException {
         Path javaTestPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
-        assertTrue(
-                java.nio.file.Files.exists(javaTestPath),
-                "Test resource directory 'testcode-java' not found.");
+        assertTrue(java.nio.file.Files.exists(javaTestPath), "Test resource directory 'testcode-java' not found.");
         javaTestProject = new TestProject(javaTestPath, Languages.JAVA);
         javaAnalyzer = new JavaAnalyzer(javaTestProject);
     }
@@ -45,15 +43,12 @@ public class SkeletonFragmentTest {
 
     private IContextManager createMockContextManager(IAnalyzer analyzer) {
         return (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(),
-                new Class<?>[] {IContextManager.class},
-                (proxy, method, args) -> {
+                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
                     return switch (method.getName()) {
                         case "getAnalyzer" -> analyzer;
                         case "getAnalyzerUninterrupted" -> analyzer;
                         case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException(
-                                "Unexpected call: " + method.getName());
+                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
                     };
                 });
     }
@@ -61,9 +56,8 @@ public class SkeletonFragmentTest {
     @Test
     void testSources_WithValidClass() {
         IContextManager cm = createMockContextManager(javaAnalyzer);
-        var fragment =
-                new ContextFragment.SkeletonFragment(
-                        cm, java.util.List.of("A"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(
+                cm, java.util.List.of("A"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         var sources = fragment.sources();
 
@@ -77,11 +71,8 @@ public class SkeletonFragmentTest {
     @Test
     void testSources_WithNonExistentSymbol() {
         IContextManager cm = createMockContextManager(javaAnalyzer);
-        var fragment =
-                new ContextFragment.SkeletonFragment(
-                        cm,
-                        java.util.List.of("NonExistent"),
-                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(
+                cm, java.util.List.of("NonExistent"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         var sources = fragment.sources();
 
@@ -92,11 +83,8 @@ public class SkeletonFragmentTest {
     void testSources_WithOverloadedMethod() {
         IContextManager cm = createMockContextManager(javaAnalyzer);
         // A.method2 has overloads in the test data
-        var fragment =
-                new ContextFragment.SkeletonFragment(
-                        cm,
-                        java.util.List.of("A.method2"),
-                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(
+                cm, java.util.List.of("A.method2"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         var sources = fragment.sources();
 
@@ -112,11 +100,8 @@ public class SkeletonFragmentTest {
     @Test
     void testText_WithNonExistentSymbol() {
         IContextManager cm = createMockContextManager(javaAnalyzer);
-        var fragment =
-                new ContextFragment.SkeletonFragment(
-                        cm,
-                        java.util.List.of("NonExistent"),
-                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(
+                cm, java.util.List.of("NonExistent"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         String result = fragment.text();
 
@@ -129,16 +114,14 @@ public class SkeletonFragmentTest {
     @Test
     void testText_WithValidClass() {
         IContextManager cm = createMockContextManager(javaAnalyzer);
-        var fragment =
-                new ContextFragment.SkeletonFragment(
-                        cm, java.util.List.of("A"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(
+                cm, java.util.List.of("A"), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         String result = fragment.text();
 
         assertFalse(result.isEmpty(), "Should return non-empty skeleton for valid class");
         assertTrue(result.contains("class A"), "Should contain class declaration");
         // Skeleton should not contain method bodies
-        assertFalse(
-                result.contains("System.out"), "Skeleton should not contain method body details");
+        assertFalse(result.contains("System.out"), "Skeleton should not contain method body details");
     }
 }
