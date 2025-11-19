@@ -116,7 +116,7 @@ public class AnalyzerUtil {
      * Get skeleton for a symbol by fully qualified name.
      */
     public static Optional<String> getSkeleton(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinition(fqName)
+        return analyzer.getDefinitions(fqName).stream().findFirst()
                 .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(cu)));
     }
 
@@ -124,7 +124,7 @@ public class AnalyzerUtil {
      * Get skeleton header (class signature + fields without method bodies) for a class by name.
      */
     public static Optional<String> getSkeletonHeader(IAnalyzer analyzer, String className) {
-        return analyzer.getDefinition(className)
+        return analyzer.getDefinitions(className).stream().findFirst()
                 .flatMap(cu -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(cu)));
     }
 
@@ -132,7 +132,7 @@ public class AnalyzerUtil {
      * Get all source code versions for a method (handles overloads) by fully qualified name.
      */
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinition(fqName)
+        return analyzer.getDefinitions(fqName).stream().findFirst()
                 .filter(CodeUnit::isFunction)
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
@@ -144,7 +144,7 @@ public class AnalyzerUtil {
      * concatenated.
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinition(fqName).filter(CodeUnit::isFunction).flatMap(cu -> analyzer.as(
+        return analyzer.getDefinitions(fqName).stream().findFirst().filter(CodeUnit::isFunction).flatMap(cu -> analyzer.as(
                         SourceCodeProvider.class)
                 .flatMap(scp -> scp.getMethodSource(cu, includeComments)));
     }
@@ -153,7 +153,7 @@ public class AnalyzerUtil {
      * Get source code for a class by fully qualified name.
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
-        return analyzer.getDefinition(fqcn).filter(CodeUnit::isClass).flatMap(cu -> analyzer.as(
+        return analyzer.getDefinitions(fqcn).stream().findFirst().filter(CodeUnit::isClass).flatMap(cu -> analyzer.as(
                         SourceCodeProvider.class)
                 .flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
@@ -162,7 +162,7 @@ public class AnalyzerUtil {
      * Get call graph showing what calls the given method.
      */
     public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinition(methodName)
+        return analyzer.getDefinitions(methodName).stream().findFirst()
                 .filter(CodeUnit::isFunction)
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
                 .orElse(Collections.emptyMap());
@@ -172,7 +172,7 @@ public class AnalyzerUtil {
      * Get call graph showing what the given method calls.
      */
     public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
-        return analyzer.getDefinition(methodName)
+        return analyzer.getDefinitions(methodName).stream().findFirst()
                 .filter(CodeUnit::isFunction)
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
                 .orElse(Collections.emptyMap());
@@ -182,7 +182,7 @@ public class AnalyzerUtil {
      * Get members (methods, fields, nested classes) of a class by fully qualified name.
      */
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
-        return analyzer.getDefinition(fqClass)
+        return analyzer.getDefinitions(fqClass).stream().findFirst()
                 .filter(CodeUnit::isClass)
                 .map(analyzer::getMembersInClass)
                 .orElse(List.of());
@@ -192,7 +192,7 @@ public class AnalyzerUtil {
      * Get the file containing the definition of a symbol by fully qualified name.
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinition(fqName).map(analyzer::getFileFor).flatMap(f -> f);
+        return analyzer.getDefinitions(fqName).stream().findFirst().map(analyzer::getFileFor).flatMap(f -> f);
     }
 
     /**

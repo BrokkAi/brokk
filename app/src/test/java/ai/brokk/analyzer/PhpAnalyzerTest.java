@@ -36,18 +36,18 @@ public class PhpAnalyzerTest {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
         // Accessing internal state for verification, ideally use public API if available
         // For now, check through a CU from that file
-        Optional<CodeUnit> fooClassCU = analyzer.getDefinition("My.Lib.Foo");
+        Optional<CodeUnit> fooClassCU = analyzer.getDefinitions("My.Lib.Foo").stream().findFirst();
         assertTrue(fooClassCU.isPresent(), "Foo class CU should be present.");
         assertEquals("My.Lib", fooClassCU.get().packageName(), "Package name for Foo.php should be My.Lib");
 
         ProjectFile barFile = new ProjectFile(testProject.getRoot(), "Namespaced/Bar.php");
-        Optional<CodeUnit> barClassCU = analyzer.getDefinition("Another.SubNs.Bar");
+        Optional<CodeUnit> barClassCU = analyzer.getDefinitions("Another.SubNs.Bar").stream().findFirst();
         assertTrue(barClassCU.isPresent(), "Bar class CU should be present.");
         assertEquals(
                 "Another.SubNs", barClassCU.get().packageName(), "Package name for Bar.php should be Another.SubNs");
 
         ProjectFile noNsFile = new ProjectFile(testProject.getRoot(), "NoNamespace.php");
-        Optional<CodeUnit> noNsClassCU = analyzer.getDefinition("NoNsClass"); // No package prefix
+        Optional<CodeUnit> noNsClassCU = analyzer.getDefinitions("NoNsClass").stream().findFirst(); // No package prefix
         assertTrue(noNsClassCU.isPresent(), "NoNsClass CU should be present.");
         assertEquals("", noNsClassCU.get().packageName(), "Package name for NoNamespace.php should be empty.");
     }
@@ -224,7 +224,7 @@ public class PhpAnalyzerTest {
 
     @Test
     void testGetClassSource() {
-        Optional<CodeUnit> fooClassCUOpt = analyzer.getDefinition("My.Lib.Foo");
+        Optional<CodeUnit> fooClassCUOpt = analyzer.getDefinitions("My.Lib.Foo").stream().findFirst();
         assertTrue(fooClassCUOpt.isPresent());
         final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "My.Lib.Foo", true);
         assertTrue(sourceOpt.isPresent());

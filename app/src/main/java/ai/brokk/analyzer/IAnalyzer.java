@@ -92,17 +92,47 @@ public interface IAnalyzer {
     }
 
     /**
-     * Finds a single CodeUnit definition matching the exact symbol name.
-     * For overloaded methods, returns a single CodeUnit representing all overloads.
+     * Returns a comparator for prioritizing among multiple definitions with the same FQN.
+     * Language-specific analyzers can override to provide custom ordering (e.g., preferring
+     * .cpp implementations over .h declarations in C++).
      *
-     * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
-     *               order, so if you have a field and a method with the same name, the method will be returned.
-     * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
+     * @return Comparator for definition prioritization (default returns no-op comparator)
      */
-    Optional<CodeUnit> getDefinition(String fqName);
+    default Comparator<CodeUnit> definitionPriorityComparator() {
+        return Comparator.comparingInt(cu -> 0);
+    }
 
-    default Optional<CodeUnit> getDefinition(CodeUnit cu) {
-        return getDefinition(cu.fqName());
+    /**
+     * Sorts a set of definitions by priority order.
+     * Helper method for implementing getDefinitions() with consistent ordering.
+     * Sorts by: language-specific priority → source file → fqName → kind.
+     *
+     * @param definitions Unsorted set of definitions
+     * @return SequencedSet with definitions in priority order (preserves uniqueness)
+     */
+    default SequencedSet<CodeUnit> sortDefinitions(Set<CodeUnit> definitions) {
+        var sorted = definitions.stream()
+                .sorted(definitionPriorityComparator()
+                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .toList();
+
+        // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
+        return new LinkedHashSet<>(sorted);
+    }
+
+    /**
+     * Finds ALL CodeUnits matching the given fqName, returned in priority order.
+     * For overloaded functions, returns all overloads ordered by language-specific prioritization.
+     * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
+     *
+     * @param fqName The exact, case-sensitive FQ name (without signature)
+     * @return SequencedSet of all CodeUnits with matching fqName, in priority order (may be empty)
+     */
+    default SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var results = searchDefinitions("^" + Pattern.quote(fqName) + "$");
+        return sortDefinitions(results);
     }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {

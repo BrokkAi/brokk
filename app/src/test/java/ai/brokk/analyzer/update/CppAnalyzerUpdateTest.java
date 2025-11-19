@@ -42,8 +42,8 @@ class CppAnalyzerUpdateTest {
     @Test
     void explicitUpdate() throws IOException {
         // Note: C++ function names include parameter signatures, e.g., "foo()"
-        assertTrue(analyzer.getDefinition("foo()").isPresent());
-        assertTrue(analyzer.getDefinition("bar()").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo()").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("bar()").stream().findFirst().isEmpty());
 
         // mutate
         new ProjectFile(project.getRoot(), "A.cpp")
@@ -57,7 +57,7 @@ class CppAnalyzerUpdateTest {
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
-        assertTrue(analyzer.getDefinition("bar()").isPresent());
+        assertTrue(analyzer.getDefinitions("bar()").stream().findFirst().isPresent());
     }
 
     @Test
@@ -70,12 +70,12 @@ class CppAnalyzerUpdateTest {
                 """);
         analyzer = analyzer.update();
         // Note: C++ function names include parameter signatures, e.g., "baz()"
-        assertTrue(analyzer.getDefinition("baz()").isPresent());
+        assertTrue(analyzer.getDefinitions("baz()").stream().findFirst().isPresent());
 
         var file = AnalyzerUtil.getFileFor(analyzer, "foo()").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("foo()").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo()").stream().findFirst().isEmpty());
     }
 
     @Test
@@ -88,8 +88,8 @@ class CppAnalyzerUpdateTest {
         try (proj) {
             var localAnalyzer = new CppAnalyzer(proj);
 
-            var withParen = localAnalyzer.getDefinition("foo()");
-            var withoutParen = localAnalyzer.getDefinition("foo");
+            var withParen = localAnalyzer.getDefinitions("foo()").stream().findFirst();
+            var withoutParen = localAnalyzer.getDefinitions("foo").stream().findFirst();
 
             // Both should be present or both absent, and when present they should refer to the same definition
             assertEquals(withParen.isPresent(), withoutParen.isPresent(), "Presence should match for 'foo' vs 'foo()'");

@@ -45,8 +45,8 @@ class JavaAnalyzerUpdateTest {
     @Test
     void explicitUpdateWithProvidedSet() throws IOException {
         // verify initial state
-        assertTrue(analyzer.getDefinition("A.method1").isPresent());
-        assertTrue(analyzer.getDefinition("A.method2").isEmpty());
+        assertTrue(analyzer.getDefinitions("A.method1").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isEmpty());
 
         // mutate source – add method2
         new ProjectFile(project.getRoot(), "A.java")
@@ -59,7 +59,7 @@ class JavaAnalyzerUpdateTest {
         """);
 
         // before update the analyzer still returns old view
-        assertTrue(analyzer.getDefinition("A.method2").isEmpty());
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isEmpty());
 
         // update ONLY this file
         var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
@@ -67,7 +67,7 @@ class JavaAnalyzerUpdateTest {
         analyzer = analyzer.update(Set.of(maybeFile.get()));
 
         // method2 should now be visible
-        assertTrue(analyzer.getDefinition("A.method2").isPresent());
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isPresent());
 
         // change again but don't include file in explicit set
         new ProjectFile(project.getRoot(), "A.java")
@@ -81,7 +81,7 @@ class JavaAnalyzerUpdateTest {
         """);
         // call update with empty set – no change expected
         analyzer = analyzer.update(Set.of());
-        assertTrue(analyzer.getDefinition("A.method3").isEmpty());
+        assertTrue(analyzer.getDefinitions("A.method3").stream().findFirst().isEmpty());
     }
 
     @Test
@@ -96,7 +96,7 @@ class JavaAnalyzerUpdateTest {
         }
         """);
         analyzer = analyzer.update(); // no-arg detection
-        assertTrue(analyzer.getDefinition("A.method4").isPresent());
+        assertTrue(analyzer.getDefinitions("A.method4").stream().findFirst().isPresent());
 
         // delete file – analyzer should drop symbols
         var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
@@ -104,6 +104,6 @@ class JavaAnalyzerUpdateTest {
         Files.deleteIfExists(maybeFile.get().absPath());
 
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("A").isEmpty());
+        assertTrue(analyzer.getDefinitions("A").stream().findFirst().isEmpty());
     }
 }

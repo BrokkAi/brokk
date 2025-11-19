@@ -150,12 +150,9 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
-        if (cus.size() == 1) {
-            return Optional.of(cus.get(0));
-        }
-        return Optional.empty(); // Ambiguous or not found
+        return sortDefinitions(new HashSet<>(cus));
     }
 
     @Override

@@ -575,16 +575,16 @@ public class CppAnalyzerTest {
 
         assertEquals(3, overloads.size(), "Precondition: expected 3 overloadedFunction declarations");
 
-        var intDef = analyzer.getDefinition("overloadedFunction(int)");
+        var intDef = analyzer.getDefinitions("overloadedFunction(int)").stream().findFirst();
         assertTrue(intDef.isPresent(), "Should resolve overloadedFunction(int)");
         assertEquals("overloadedFunction", intDef.get().fqName());
         assertEquals("(int)", intDef.get().signature());
 
-        var doubleDef = analyzer.getDefinition("overloadedFunction(double)");
+        var doubleDef = analyzer.getDefinitions("overloadedFunction(double)").stream().findFirst();
         assertTrue(doubleDef.isPresent(), "Should resolve overloadedFunction(double)");
         assertEquals("(double)", doubleDef.get().signature());
 
-        var twoIntsDef = analyzer.getDefinition("overloadedFunction(int,int)");
+        var twoIntsDef = analyzer.getDefinitions("overloadedFunction(int,int)").stream().findFirst();
         assertTrue(twoIntsDef.isPresent(), "Should resolve overloadedFunction(int,int)");
         assertEquals("(int,int)", twoIntsDef.get().signature());
     }

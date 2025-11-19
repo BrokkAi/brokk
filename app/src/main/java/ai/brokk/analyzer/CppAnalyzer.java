@@ -949,19 +949,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @return an Optional containing the matching CodeUnit, or empty if not found
      */
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // First, try the lookup as provided
-        var result = super.getDefinition(fqName);
-        if (result.isPresent()) {
+        var result = super.getDefinitions(fqName);
+        if (!result.isEmpty()) {
             return result;
         }
 
         // If empty and fqName doesn't already contain parentheses, retry with empty parameter list
         if (!fqName.contains("(") && !fqName.contains(")")) {
-            return super.getDefinition(fqName + "()");
+            return super.getDefinitions(fqName + "()");
         }
 
-        return Optional.empty();
+        return new LinkedHashSet<>();
     }
 
     @Override

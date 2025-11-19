@@ -241,10 +241,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
-        return super.getDefinition(normalized);
+        return super.getDefinitions(normalized);
     }
 
     /**
@@ -386,7 +386,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         normalized.substring(0, normalized.length() - 2).trim();
 
                 // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
-                Optional<CodeUnit> pkgModule = getDefinition(packageName);
+                Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream().findFirst();
                 if (pkgModule.isPresent() && pkgModule.get().isModule()) {
                     for (CodeUnit child : getDirectChildren(pkgModule.get())) {
                         if (child.isClass() && packageName.equals(child.packageName())) {
@@ -396,7 +396,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 }
             } else if (!normalized.isEmpty()) {
                 // Explicit import: try to find the exact class
-                Optional<CodeUnit> found = getDefinition(normalized);
+                Optional<CodeUnit> found = getDefinitions(normalized).stream().findFirst();
                 if (found.isPresent() && found.get().isClass()) {
                     resolved.add(found.get());
                 }
@@ -423,7 +423,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+                rawNames, cu.packageName(), resolvedImports, name -> getDefinitions(name).stream().findFirst(), (s) -> searchDefinitions(s, false));
     }
 
     @Override

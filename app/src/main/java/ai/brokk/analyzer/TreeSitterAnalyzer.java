@@ -27,6 +27,7 @@ import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -580,8 +581,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        // Normalize generics / anonymous / location suffixes as before.
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        // Normalize generics / anonymous / location suffixes.
         String normalizedFqName = normalizeFullName(fqName);
 
         // Split out any signature suffix "(...)" from the base name used for index lookup.
@@ -599,43 +600,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Use symbolIndex to pre-filter candidates instead of scanning all CodeUnits.
         Set<CodeUnit> candidates = lookupCandidatesByFqName(baseName);
         if (candidates.isEmpty()) {
-            return Optional.empty();
+            return new LinkedHashSet<>();
         }
 
-        final String finalBaseName = baseName;
-        final String finalSearchSignature = searchSignature;
+        // Filter to exact fqName matches
+        var matches = candidates.stream()
+                .filter(cu -> cu.fqName().equals(baseName))
+                .collect(Collectors.toSet());
 
-        List<CodeUnit> matches;
-
-        if (finalSearchSignature != null) {
-            // Caller supplied a signature: first try exact fqName + signature match.
-            matches = candidates.stream()
-                    .filter(cu -> cu.fqName().equals(finalBaseName))
+        // If signature was provided, filter further by signature
+        if (searchSignature != null && !matches.isEmpty()) {
+            var signatureMatches = matches.stream()
                     .filter(cu -> {
                         String cuSig = cu.signature();
-                        return cuSig != null && cuSig.equals(finalSearchSignature);
+                        return cuSig != null && cuSig.equals(searchSignature);
                     })
-                    .toList();
-
-            // If no exact signature match, fall back to base-name-only matches.
-            if (matches.isEmpty()) {
-                matches = candidates.stream()
-                        .filter(cu -> cu.fqName().equals(finalBaseName))
-                        .toList();
+                    .collect(Collectors.toSet());
+            // If we found signature matches, use those; otherwise return all matches for that fqName
+            if (!signatureMatches.isEmpty()) {
+                matches = signatureMatches;
             }
-        } else {
-            // No signature provided: match by base FQN only.
-            matches = candidates.stream()
-                    .filter(cu -> cu.fqName().equals(finalBaseName))
-                    .toList();
         }
 
         if (matches.isEmpty()) {
-            return Optional.empty();
+            return new LinkedHashSet<>();
         }
 
-        // Allow languages to prioritize which definition we return.
-        return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
+        // Sort by priority and return
+        return sortDefinitions(matches);
+    }
+
+    @Override
+    public Comparator<CodeUnit> definitionPriorityComparator() {
+        return prioritizingComparator().thenComparing(DEFINITION_COMPARATOR);
     }
 
     /**

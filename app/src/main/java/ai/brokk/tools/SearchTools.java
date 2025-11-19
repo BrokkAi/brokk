@@ -338,7 +338,7 @@ public class SearchTools {
 
         var analyzer = getAnalyzer();
         classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
-            var cuOpt = analyzer.getDefinition(className);
+            var cuOpt = analyzer.getDefinitions(className).stream().findFirst();
             if (cuOpt.isPresent() && cuOpt.get().isClass()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
@@ -381,7 +381,7 @@ public class SearchTools {
         List<String> notFound = new ArrayList<>();
 
         symbols.stream().distinct().filter(s -> !s.isBlank()).forEach(symbol -> {
-            var cuOpt = analyzer.getDefinition(symbol);
+            var cuOpt = analyzer.getDefinitions(symbol).stream().findFirst();
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 var filepath = cu.source().toString();
@@ -422,7 +422,7 @@ public class SearchTools {
 
         var analyzer = getAnalyzer();
         methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var cuOpt = analyzer.getDefinition(methodName);
+            var cuOpt = analyzer.getDefinitions(methodName).stream().findFirst();
             if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {

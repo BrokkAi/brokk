@@ -183,8 +183,11 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return findFirst(analyzer -> analyzer.getDefinition(fqName));
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var results = delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDefinitions(fqName).stream())
+                .collect(Collectors.toSet());
+        return sortDefinitions(results);
     }
 
     @Override
