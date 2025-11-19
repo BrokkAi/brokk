@@ -592,6 +592,30 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testAutocompleteDefinitionsPreservesOverloads() {
+        var results = analyzer.autocompleteDefinitions("overloadedFunction");
+
+        var overloads = results.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("overloadedFunction"))
+                .collect(Collectors.toList());
+
+        logger.debug("autocompleteDefinitions returned {} overloads", overloads.size());
+        overloads.forEach(cu -> logger.debug("  - {} signature={} file={}", cu.fqName(), cu.signature(), cu.source()));
+
+        // 6 overloads: 3 in simple_overloads.h + 3 in duplicates.h
+        assertEquals(6, overloads.size(), "autocompleteDefinitions should return all 6 overloads from both files");
+
+        var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+
+        // Should have 3 unique signatures
+        assertEquals(3, signatures.size(), "Should have 3 unique signatures");
+        assertTrue(signatures.contains("(int)"), "Should include (int) overload");
+        assertTrue(signatures.contains("(double)"), "Should include (double) overload");
+        assertTrue(signatures.contains("(int,int)"), "Should include (int,int) overload");
+    }
+
+    @Test
     public void testAnonymousStructHandling() {
         // Test that anonymous structs/classes don't generate warnings
         var advancedFile = testProject.getAllFiles().stream()

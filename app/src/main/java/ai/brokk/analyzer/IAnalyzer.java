@@ -201,12 +201,14 @@ public interface IAnalyzer {
             return baseResults;
         }
 
-        // Deduplicate by fqName, preserve insertion order (base first, then fuzzy)
-        LinkedHashMap<String, CodeUnit> byFqName = new LinkedHashMap<>();
-        for (CodeUnit cu : baseResults) byFqName.put(cu.fqName(), cu);
-        for (CodeUnit cu : fuzzyResults) byFqName.putIfAbsent(cu.fqName(), cu);
+        // Merge results, preserving all overloads (fqName is not unique)
+        LinkedHashMap<String, Set<CodeUnit>> byFqName = new LinkedHashMap<>();
+        for (CodeUnit cu : baseResults)
+            byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
+        for (CodeUnit cu : fuzzyResults)
+            byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
-        return new HashSet<>(byFqName.values());
+        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
     }
 
     /**
