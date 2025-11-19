@@ -97,8 +97,11 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
+            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
+            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -384,6 +387,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public ModelConfig getQuickModelConfig() {
+        return getModelConfigInternal("Quick");
+    }
+
+    @Override
+    public void setQuickModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quick", config);
+    }
+
+    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -401,6 +414,22 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
         setModelConfigInternal("Architect", config);
+    }
+
+    public ModelConfig getQuickEditModelConfig() {
+        return getModelConfigInternal("QuickEdit");
+    }
+
+    public void setQuickEditModelConfig(ModelConfig config) {
+        setModelConfigInternal("QuickEdit", config);
+    }
+
+    public ModelConfig getQuickestModelConfig() {
+        return getModelConfigInternal("Quickest");
+    }
+
+    public void setQuickestModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quickest", config);
     }
 
     @Override

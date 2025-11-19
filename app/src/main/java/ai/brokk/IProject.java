@@ -138,6 +138,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default Service.ModelConfig getQuickModelConfig() {
+        throw new UnsupportedOperationException();
+    }
+
     @Override
     default void close() {}
 
@@ -279,6 +283,10 @@ public interface IProject extends AutoCloseable {
 
     default boolean isGitIgnoreSet() {
         return false;
+    }
+
+    default void setQuickModelConfig(Service.ModelConfig modelConfig) {
+        throw new UnsupportedOperationException();
     }
 
     default void setCodeModelConfig(Service.ModelConfig modelConfig) {
