@@ -575,20 +575,27 @@ public class CppAnalyzerTest {
 
         assertEquals(3, overloads.size(), "Precondition: expected 3 overloadedFunction declarations");
 
-        var intDef = analyzer.getDefinitions("overloadedFunction(int)").stream().findFirst();
-        assertTrue(intDef.isPresent(), "Should resolve overloadedFunction(int)");
+        // getDefinitions returns all overloads from all files; filter to just this file
+        var allDefs = analyzer.getDefinitions("overloadedFunction").stream()
+                .filter(cu -> cu.source().equals(duplicatesFile))
+                .toList();
+        assertEquals(3, allDefs.size(), "Should return all 3 overloads from simple_overloads.h");
+
+        var intDef = allDefs.stream()
+                .filter(cu -> "(int)".equals(cu.signature()))
+                .findFirst();
+        assertTrue(intDef.isPresent(), "Should find (int) overload");
         assertEquals("overloadedFunction", intDef.get().fqName());
-        assertEquals("(int)", intDef.get().signature());
 
-        var doubleDef =
-                analyzer.getDefinitions("overloadedFunction(double)").stream().findFirst();
-        assertTrue(doubleDef.isPresent(), "Should resolve overloadedFunction(double)");
-        assertEquals("(double)", doubleDef.get().signature());
+        var doubleDef = allDefs.stream()
+                .filter(cu -> "(double)".equals(cu.signature()))
+                .findFirst();
+        assertTrue(doubleDef.isPresent(), "Should find (double) overload");
 
-        var twoIntsDef =
-                analyzer.getDefinitions("overloadedFunction(int,int)").stream().findFirst();
-        assertTrue(twoIntsDef.isPresent(), "Should resolve overloadedFunction(int,int)");
-        assertEquals("(int,int)", twoIntsDef.get().signature());
+        var twoIntsDef = allDefs.stream()
+                .filter(cu -> "(int,int)".equals(cu.signature()))
+                .findFirst();
+        assertTrue(twoIntsDef.isPresent(), "Should find (int,int) overload");
     }
 
     @Test
