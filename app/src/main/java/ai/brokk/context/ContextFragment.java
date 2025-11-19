@@ -515,10 +515,6 @@ public interface ContextFragment {
             this.primeComputations();
         }
 
-        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
-            this(file, id, contextManager, null);
-        }
-
         @Override
         public String id() {
             return id;

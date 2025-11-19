@@ -1793,6 +1793,18 @@ public class Chrome
         JFrame previewFrame = activePreviewWindows.get(windowKey);
         boolean isNewWindow = false;
 
+        // Fallback: if not found via primary key, try alternate key form to reuse placeholder/file-based windows
+        if (previewFrame == null || !previewFrame.isDisplayable()) {
+            String altKey = computeAlternatePreviewKey(title, contentComponent, windowKey);
+            if (altKey != null) {
+                JFrame altFrame = activePreviewWindows.get(altKey);
+                if (altFrame != null && altFrame.isDisplayable()) {
+                    previewFrame = altFrame;
+                    windowKey = altKey;
+                }
+            }
+        }
+
         if (previewFrame == null || !previewFrame.isDisplayable()) {
             // Create new window if none exists or existing one was disposed
             previewFrame = newFrame(title);
@@ -1989,6 +2001,40 @@ public class Chrome
     }
 
     /**
+     * Computes the alternate preview window key for cases where a placeholder (preview-based key)
+     * is followed by a final content panel (file-based key), or vice versa. This allows reusing
+     * the same window even if the content component switches between file/non-file variants.
+     */
+    private @Nullable String computeAlternatePreviewKey(String title, JComponent contentComponent, String primaryKey) {
+        try {
+            String strippedTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
+
+            if (primaryKey.startsWith("file:")) {
+                // Attempt preview-based variant
+                return "preview:" + title;
+            }
+
+            if (primaryKey.startsWith("preview:")) {
+                // Attempt file-based variant only if we actually have a file-associated component
+                if (contentComponent instanceof PreviewTextPanel ptp) {
+                    var file = ptp.getFile();
+                    if (file != null) {
+                        return "file:" + strippedTitle;
+                    }
+                } else if (contentComponent instanceof PreviewImagePanel img) {
+                    var f = img.getFile();
+                    if (f instanceof ProjectFile) {
+                        return "file:" + strippedTitle;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("computeAlternatePreviewKey failed", ex);
+        }
+        return null;
+    }
+
+    /**
      * Update the window title for an existing preview in a safe EDT manner and repaint.
      */
     private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
@@ -1996,6 +2042,12 @@ public class Chrome
             try {
                 String key = generatePreviewWindowKey(initialTitle, contentComponent);
                 JFrame previewFrame = activePreviewWindows.get(key);
+                if (previewFrame == null) {
+                    String altKey = computeAlternatePreviewKey(initialTitle, contentComponent, key);
+                    if (altKey != null) {
+                        previewFrame = activePreviewWindows.get(altKey);
+                    }
+                }
                 if (previewFrame != null) {
                     previewFrame.setTitle(newTitle);
                     if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {

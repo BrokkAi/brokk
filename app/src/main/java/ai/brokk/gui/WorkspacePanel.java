@@ -42,10 +42,12 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -686,9 +688,9 @@ public class WorkspacePanel extends JPanel {
     private JMenuItem dropAllMenuItem = null;
 
     // --- Debounced token estimation state ---
-    private javax.swing.Timer tokenEstimateDebounceTimer = null;
+    private @Nullable Timer tokenEstimateDebounceTimer = null;
     private volatile boolean tokenCalcInFlight = false;
-    private volatile int tokenCalcSequence = 0; // used to discard stale results
+    private AtomicInteger tokenCalcSequence = new AtomicInteger(0); // used to discard stale results
     private volatile int lastApproxTokens = -1; // -1 means no estimate yet
     private volatile String pendingFullText = "";
     private volatile int pendingTotalLines = 0;
@@ -2290,9 +2292,9 @@ public class WorkspacePanel extends JPanel {
         this.pendingTotalLines = totalLines;
 
         if (tokenEstimateDebounceTimer == null) {
-            tokenEstimateDebounceTimer = new javax.swing.Timer(250, e -> {
+            tokenEstimateDebounceTimer = new Timer(250, e -> {
                 // Start a new compute round
-                final int seq = ++tokenCalcSequence;
+                final int seq = tokenCalcSequence.incrementAndGet();
                 tokenCalcInFlight = true;
 
                 final String textForCompute = pendingFullText;
@@ -2303,7 +2305,7 @@ public class WorkspacePanel extends JPanel {
                                 "Compute token estimate", () -> Messages.getApproximateTokens(textForCompute))
                         .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
                             // Discard stale results
-                            if (seq != tokenCalcSequence) {
+                            if (seq != tokenCalcSequence.get()) {
                                 return;
                             }
 

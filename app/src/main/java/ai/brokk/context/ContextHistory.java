@@ -63,6 +63,8 @@ public class ContextHistory {
     public ContextHistory(Context liveContext) {
         pushContext(liveContext);
         this.diffService = new DiffService(this);
+        // Warm-up diffs for all contexts so UI can peek results soon after load
+        this.diffService.warmUp(getHistory());
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -91,6 +93,8 @@ public class ContextHistory {
         this.entryInfos.putAll(entryInfos);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
+        // Warm-up diffs for all contexts so the restored session has diffs computed asynchronously
+        this.diffService.warmUp(getHistory());
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -133,6 +137,8 @@ public class ContextHistory {
     public synchronized boolean setSelectedContext(@Nullable Context ctx) {
         if (ctx != null && getContextIds().contains(ctx.id())) {
             selected = ctx;
+            // Ensure diffs for the selected context start computing
+            diffService.diff(selected);
             return true;
         }
         if (logger.isWarnEnabled()) {
@@ -179,28 +185,59 @@ public class ContextHistory {
         selected = newLive;
     }
 
-    /**
-     * Processes external file changes using the refresh model with an explicit set of changed files.
-     * Uses liveContext.copyAndRefresh(changed) to selectively refresh affected fragments.
-     * <p>
-     * Keeps the existing "Load external changes (n)" counting behavior.
-     *
-     * @param changed the set of files that changed; may be empty
-     * @return The new frozen context if a change was made, otherwise null.
-     */
     @Blocking
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
-        var refreshedLive = liveContext().copyAndRefresh(changed); // This line is blocking
-        if (refreshedLive.equals(liveContext())) {
+        var base = liveContext();
+
+        // Refresh the affected fragments using the existing helper.
+        // Note: This call may drop unaffected fragments depending on implementation.
+        var refreshedLive = base.copyAndRefresh(changed); // Blocking
+        if (refreshedLive.equals(base)) {
             return null;
         }
 
-        var previousAction = liveContext().getAction();
+        // Determine which existing fragments are affected by the changed files.
+        List<ContextFragment> toReplace = base.allFragments()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .filter(f -> {
+                    var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
+                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
+                            .orElse(false);
+                })
+                .toList();
+
+        // Build replacement fragments from refreshedLive (matched by source).
+        List<ContextFragment.PathFragment> replacements = toReplace.stream()
+                .map(oldFrag -> refreshedLive
+                        .allFragments()
+                        .filter(f -> f instanceof ContextFragment.PathFragment)
+                        .filter(f -> f.hasSameSource(oldFrag))
+                        .map(f -> (ContextFragment.PathFragment) f)
+                        .findFirst()
+                        .orElse(null))
+                .filter(Objects::nonNull)
+                .toList();
+
+        // Merge: keep all unaffected fragments, but swap in the refreshed ones.
+        Context merged = base;
+        if (!toReplace.isEmpty()) {
+            merged = merged.removeFragments(toReplace);
+        }
+        if (!replacements.isEmpty()) {
+            merged = merged.addPathFragments(replacements);
+        }
+
+        // Fallback: if merge didn't change anything (e.g., no replacements resolved), use refreshed baseline.
+        if (merged.equals(base)) {
+            merged = refreshedLive;
+        }
+
+        // Maintain "Load external changes (n)" semantics.
+        var previousAction = base.getAction();
         boolean isContinuation = previousAction.startsWith("Load external changes");
 
         String newAction = "Load external changes";
         if (isContinuation) {
-            // Parse the existing action to extract the count if present
             var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
             var matcher = pattern.matcher(previousAction);
             int newCount;
@@ -216,7 +253,7 @@ public class ContextHistory {
             newAction = "Load external changes (%d)".formatted(newCount);
         }
 
-        var updatedLive = refreshedLive.withAction(CompletableFuture.completedFuture(newAction));
+        var updatedLive = merged.withAction(CompletableFuture.completedFuture(newAction));
 
         if (isContinuation) {
             replaceTop(updatedLive);
@@ -273,6 +310,8 @@ public class ContextHistory {
         }
         applySnapshotToWorkspace(liveContext(), io);
         selected = liveContext();
+        // Start computing diffs for the new live context post-undo
+        diffService.diff(selected);
         return UndoResult.success(toUndo);
     }
 
@@ -341,6 +380,8 @@ public class ContextHistory {
         truncateHistory();
         selected = liveContext();
         applySnapshotToWorkspace(history.peekLast(), io);
+        // Start computing diffs for the live context post-redo
+        diffService.diff(selected);
         redoFileDeletions(io, project, popped);
         return true;
     }

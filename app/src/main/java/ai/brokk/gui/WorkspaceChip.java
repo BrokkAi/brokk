@@ -50,7 +50,6 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -569,7 +568,6 @@ public class WorkspaceChip extends JPanel {
         }
     }
 
-    @Blocking
     protected void refreshLabelAndTooltip() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment == null) {
@@ -579,40 +577,36 @@ public class WorkspaceChip extends JPanel {
         applyTheme();
     }
 
-    @Blocking
     protected void updateTextAndTooltip(ContextFragment fragment) {
-        String newLabelText;
-        if (kind == ChipKind.SUMMARY) {
-            // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
-            newLabelText = fragment.shortDescription().join();
-        } else if (kind == ChipKind.OTHER) {
-            String sd;
-            try {
-                sd = fragment.shortDescription().join();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
-            newLabelText = capitalizeFirst(sd);
-        } else {
-            String sd;
-            try {
-                sd = fragment.shortDescription().join();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
-            newLabelText = sd.isBlank() ? label.getText() : sd;
-        }
-        label.setText(newLabelText);
+        contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
+            fragment.shortDescription()
+                    .future()
+                    .handleAsync((text, e) -> {
+                        if (e != null) {
+                            logger.error("Unable to obtain short description from {}!", fragment, e);
+                            return "<Error obtaining description>";
+                        } else {
+                            return text;
+                        }
+                    })
+                    .thenAcceptAsync(t -> {
+                        var text = t;
+                        if (kind == ChipKind.OTHER) {
+                            text = WorkspaceChip.capitalizeFirst(t);
+                        }
 
-        try {
-            label.setToolTipText(buildDefaultTooltip(fragment));
-            label.getAccessibleContext()
-                    .setAccessibleDescription(fragment.description().join());
-        } catch (Exception ex) {
-            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
-        }
+                        label.setText(text);
+
+                        try {
+                            label.setToolTipText(buildDefaultTooltip(fragment));
+                            label.getAccessibleContext()
+                                    .setAccessibleDescription(
+                                            fragment.description().join());
+                        } catch (Exception ex) {
+                            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+                        }
+                    });
+        });
     }
 
     private Icon buildCloseIcon(Color chipBackground) {
