@@ -1714,7 +1714,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Populate Quick Edit Model combo (fixed list)
         quickEditModelCombo.removeAllItems();
         quickEditModelCombo.addItem("cerebras/gpt-oss-120b");
-        quickEditModelCombo.addItem("gpt-5-nano");
+        quickEditModelCombo.addItem(Service.GPT_5_NANO);
         quickEditModelCombo.addItem("claude-haiku-4-5");
         quickEditModelCombo.addItem("gemini-2.5-flash");
         String currentQEName =
