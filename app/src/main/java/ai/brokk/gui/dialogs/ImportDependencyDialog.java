@@ -530,6 +530,8 @@ public class ImportDependencyDialog {
                             .distinct()
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
+                    AbstractProject.writeLocalPathDependencyMetadata(
+                            targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
                         dialog.dispose();
                         chrome.showNotification(
@@ -609,6 +611,8 @@ public class ImportDependencyDialog {
                         if (Files.exists(gitInternalDir)) {
                             FileUtil.deleteRecursively(gitInternalDir);
                         }
+
+                        AbstractProject.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag);
 
                         CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
                         CloneOperationTracker.unregisterCloneOperation(targetPath);

@@ -44,6 +44,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public static final String BROKK_DIR = ".brokk";
     public static final String SESSIONS_DIR = "sessions";
     public static final String DEPENDENCIES_DIR = "dependencies";
+    public static final String DEPENDENCY_METADATA_FILE = ".brokk-dependency.json";
     public static final String CACHE_DIR = "cache";
     public static final String PROJECT_PROPERTIES_FILE = "project.properties";
     public static final String WORKSPACE_PROPERTIES_FILE = "workspace.properties";
@@ -568,6 +569,126 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         } catch (IOException e) {
             logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
             return Set.of();
+        }
+    }
+
+    /**
+     * Type of source from which a dependency was imported.
+     */
+    public enum DependencySourceType {
+        LOCAL_PATH,
+        GITHUB
+    }
+
+    /**
+     * Metadata persisted alongside each imported dependency under its top-level directory.
+     * Stored as JSON in a file named {@link #DEPENDENCY_METADATA_FILE}.
+     */
+    public record DependencyMetadata(
+            DependencySourceType type,
+            @Nullable String sourcePath,
+            @Nullable String repoUrl,
+            @Nullable String ref,
+            long lastUpdatedMillis) {
+
+        /**
+         * Creates metadata for a dependency imported from a local directory.
+         *
+         * @param sourcePath absolute path to the original source directory
+         */
+        public static DependencyMetadata forLocalPath(Path sourcePath) {
+            java.util.Objects.requireNonNull(sourcePath, "sourcePath");
+            return new DependencyMetadata(
+                    DependencySourceType.LOCAL_PATH,
+                    sourcePath.toAbsolutePath().normalize().toString(),
+                    null,
+                    null,
+                    System.currentTimeMillis());
+        }
+
+        /**
+         * Creates metadata for a dependency imported from a Git repository.
+         *
+         * @param repoUrl normalized repository URL
+         * @param ref branch or tag name used during import
+         */
+        public static DependencyMetadata forGit(String repoUrl, String ref) {
+            java.util.Objects.requireNonNull(repoUrl, "repoUrl");
+            java.util.Objects.requireNonNull(ref, "ref");
+            return new DependencyMetadata(
+                    DependencySourceType.GITHUB,
+                    null,
+                    repoUrl,
+                    ref,
+                    System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * Returns the path to the metadata file for a dependency rooted at {@code dependencyRoot}.
+     */
+    public static Path getDependencyMetadataPath(Path dependencyRoot) {
+        return dependencyRoot.resolve(DEPENDENCY_METADATA_FILE);
+    }
+
+    /**
+     * Returns the path to the metadata file for the given dependency {@link ProjectFile}.
+     */
+    public static Path getDependencyMetadataPath(ProjectFile dependencyRoot) {
+        return getDependencyMetadataPath(dependencyRoot.absPath());
+    }
+
+    /**
+     * Reads dependency metadata for a dependency rooted at {@code dependencyRoot}, if present.
+     *
+     * @param dependencyRoot absolute path to the dependency root directory
+     * @return optional metadata, empty if the file is missing or malformed
+     */
+    public static Optional<DependencyMetadata> readDependencyMetadata(Path dependencyRoot) {
+        var metadataPath = getDependencyMetadataPath(dependencyRoot);
+        if (!Files.exists(metadataPath)) {
+            return Optional.empty();
+        }
+        try (var reader = Files.newBufferedReader(metadataPath)) {
+            var metadata = objectMapper.readValue(reader, DependencyMetadata.class);
+            return Optional.of(metadata);
+        } catch (Exception e) {
+            logger.warn("Error reading dependency metadata from {}: {}", metadataPath, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Reads dependency metadata for the given dependency {@link ProjectFile}, if present.
+     */
+    public static Optional<DependencyMetadata> readDependencyMetadata(ProjectFile dependencyRoot) {
+        return readDependencyMetadata(dependencyRoot.absPath());
+    }
+
+    /**
+     * Writes metadata describing a dependency imported from a local directory.
+     * Errors are logged but do not prevent the import from succeeding.
+     */
+    public static void writeLocalPathDependencyMetadata(Path dependencyRoot, Path sourcePath) {
+        writeDependencyMetadata(dependencyRoot, DependencyMetadata.forLocalPath(sourcePath));
+    }
+
+    /**
+     * Writes metadata describing a dependency imported from a Git repository.
+     * Errors are logged but do not prevent the import from succeeding.
+     */
+    public static void writeGitDependencyMetadata(Path dependencyRoot, String repoUrl, String ref) {
+        writeDependencyMetadata(dependencyRoot, DependencyMetadata.forGit(repoUrl, ref));
+    }
+
+    private static void writeDependencyMetadata(Path dependencyRoot, DependencyMetadata metadata) {
+        var metadataPath = getDependencyMetadataPath(dependencyRoot);
+        try {
+            Files.createDirectories(dependencyRoot);
+            String json = objectMapper.writeValueAsString(metadata);
+            Files.writeString(metadataPath, json);
+        } catch (Exception e) {
+            logger.warn("Error writing dependency metadata to {}: {}", metadataPath, e.getMessage());
         }
     }
 

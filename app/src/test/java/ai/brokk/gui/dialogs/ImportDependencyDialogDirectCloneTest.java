@@ -1,6 +1,8 @@
 package ai.brokk.gui.dialogs;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractProject;
@@ -88,5 +90,52 @@ public class ImportDependencyDialogDirectCloneTest {
 
         // No exceptions should be thrown - this tests the basic lifecycle
         assertTrue(true, "Registration and unregistration completed without errors");
+    }
+
+    @Test
+    void dependencyMetadata_forGitHub_shouldBePersistedAndParsed() throws IOException {
+        Path depDir = dependenciesRoot.resolve("github-dep");
+        Files.createDirectories(depDir);
+
+        String repoUrl = "https://github.com/test/repo.git";
+        String branch = "main";
+
+        AbstractProject.writeGitDependencyMetadata(depDir, repoUrl, branch);
+
+        Path metadataPath = depDir.resolve(AbstractProject.DEPENDENCY_METADATA_FILE);
+        assertTrue(Files.exists(metadataPath), "Metadata file should be created for GitHub dependency");
+
+        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        assertTrue(metadataOpt.isPresent(), "Metadata should be readable");
+        var metadata = metadataOpt.get();
+        assertEquals(AbstractProject.DependencySourceType.GITHUB, metadata.type());
+        assertEquals(repoUrl, metadata.repoUrl());
+        assertEquals(branch, metadata.ref());
+        assertNull(metadata.sourcePath());
+        assertTrue(metadata.lastUpdatedMillis() > 0, "lastUpdatedMillis should be a positive timestamp");
+    }
+
+    @Test
+    void dependencyMetadata_forLocalPath_shouldBePersistedAndParsed() throws IOException {
+        Path depDir = dependenciesRoot.resolve("local-dep");
+        Files.createDirectories(depDir);
+
+        Path sourceDir = testRoot.resolve("external-lib");
+        Files.createDirectories(sourceDir);
+
+        AbstractProject.writeLocalPathDependencyMetadata(depDir, sourceDir.toAbsolutePath().normalize());
+
+        Path metadataPath = depDir.resolve(AbstractProject.DEPENDENCY_METADATA_FILE);
+        assertTrue(Files.exists(metadataPath), "Metadata file should be created for local dependency");
+
+        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        assertTrue(metadataOpt.isPresent(), "Metadata should be readable");
+        var metadata = metadataOpt.get();
+        assertEquals(AbstractProject.DependencySourceType.LOCAL_PATH, metadata.type());
+        assertEquals(
+                sourceDir.toAbsolutePath().normalize().toString(), metadata.sourcePath());
+        assertNull(metadata.repoUrl());
+        assertNull(metadata.ref());
+        assertTrue(metadata.lastUpdatedMillis() > 0, "lastUpdatedMillis should be a positive timestamp");
     }
 }
