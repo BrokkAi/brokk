@@ -154,8 +154,7 @@ public interface IAnalyzer {
         String signatureStr = signature.value();
         return candidates.stream()
                 .filter(cu -> signatureStr.equals(cu.signature()))
-                .findFirst()
-                .or(() -> candidates.stream().findFirst()); // Fallback if signature doesn't match
+                .findFirst();
     }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {
@@ -199,9 +198,9 @@ public interface IAnalyzer {
      * @param query the search query
      * @return a list of candidates where their fully qualified names may match the query.
      */
-    default SequencedSet<CodeUnit> autocompleteDefinitions(String query) {
+    default Set<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
-            return new LinkedHashSet<>();
+            return Set.of();
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
@@ -221,7 +220,7 @@ public interface IAnalyzer {
         }
 
         if (fuzzyResults.isEmpty()) {
-            return new LinkedHashSet<>(baseResults);
+            return baseResults;
         }
 
         // Deduplicate by CodeUnit identity (includes signature), preserve insertion order
@@ -229,7 +228,7 @@ public interface IAnalyzer {
         for (CodeUnit cu : baseResults) seen.putIfAbsent(cu, cu);
         for (CodeUnit cu : fuzzyResults) seen.putIfAbsent(cu, cu);
 
-        return new LinkedHashSet<>(seen.values());
+        return new HashSet<>(seen.values());
     }
 
     /**
