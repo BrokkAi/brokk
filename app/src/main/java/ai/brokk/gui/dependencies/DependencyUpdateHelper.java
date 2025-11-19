@@ -180,6 +180,110 @@ public final class DependencyUpdateHelper {
         return future;
     }
 
+    /**
+     * Performs a single automatic update pass across all imported dependencies for the current
+     * project, honoring the project's auto-update flags.
+     *
+     * <p>This helper is intended for "run once on startup" style behavior. It delegates the
+     * on-disk work to {@link AbstractProject#autoUpdateDependenciesOnce(boolean, boolean)} and
+     * applies the resulting file changes to the analyzer in a single
+     * {@code AnalyzerWrapper.updateFiles(...)} call.
+     *
+     * @param chrome current Chrome instance
+     * @return future completing with the aggregate result of the auto-update pass
+     */
+    public static CompletableFuture<AbstractProject.DependencyAutoUpdateResult> autoUpdateEligibleDependencies(
+            Chrome chrome) {
+        var project = chrome.getProject();
+
+        if (!(project instanceof AbstractProject abstractProject)) {
+            logger.warn(
+                    "Project implementation {} does not support dependency auto-update",
+                    project.getClass().getName());
+            return CompletableFuture.completedFuture(
+                    new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0));
+        }
+
+        boolean includeLocal = abstractProject.getAutoUpdateLocalDependencies();
+        boolean includeGit = abstractProject.getAutoUpdateGitDependencies();
+
+        if (!includeLocal && !includeGit) {
+            logger.debug("Automatic dependency update skipped: both auto-update flags are disabled.");
+            return CompletableFuture.completedFuture(
+                    new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0));
+        }
+
+        var cm = chrome.getContextManager();
+
+        chrome.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Checking imported dependencies for updates in the background...");
+
+        var future = cm.submitBackgroundTask(
+                "Auto-update imported dependencies",
+                () -> {
+                    var analyzer = cm.getAnalyzerWrapper();
+                    analyzer.pause();
+                    try {
+                        AbstractProject.DependencyAutoUpdateResult result =
+                                abstractProject.autoUpdateDependenciesOnce(includeLocal, includeGit);
+
+                        if (!result.changedFiles().isEmpty()) {
+                            try {
+                                analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException(
+                                        "Interrupted while applying dependency auto-updates", ie);
+                            } catch (ExecutionException ee) {
+                                throw new RuntimeException(
+                                        "Analyzer update failed after dependency auto-update",
+                                        ee.getCause());
+                            }
+                        }
+
+                        return result;
+                    } finally {
+                        analyzer.resume();
+                    }
+                });
+
+        future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error during automatic dependency update: {}", ex.getMessage(), ex);
+                chrome.toolError(
+                        "Automatic dependency update failed: " + ex.getMessage(),
+                        "Dependency Auto-Update Error");
+                return;
+            }
+
+            AbstractProject.DependencyAutoUpdateResult nonNullResult = (result != null)
+                    ? result
+                    : new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0);
+
+            int depsUpdated = nonNullResult.updatedDependencies();
+            int filesChanged = nonNullResult.changedFiles().size();
+
+            if (depsUpdated == 0) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Checked imported dependencies; everything is already up to date.");
+            } else {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Updated "
+                                + depsUpdated
+                                + " imported dependenc"
+                                + (depsUpdated == 1 ? "y" : "ies")
+                                + " ("
+                                + filesChanged
+                                + " files changed).");
+            }
+        }));
+
+        return future;
+    }
+
     private static String capitalize(String label) {
         if (label.isEmpty()) {
             return label;

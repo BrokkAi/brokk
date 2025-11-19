@@ -2,6 +2,7 @@ package ai.brokk.gui.dependencies;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AbstractProject;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.BorderUtils;
@@ -81,6 +82,7 @@ public final class DependenciesPanel extends JPanel {
     private final List<DependencyStateChangeListener> stateChangeListeners = new ArrayList<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
+    private boolean autoUpdateAttempted = false;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
 
@@ -498,6 +500,7 @@ public final class DependenciesPanel extends JPanel {
         isInitialized = true;
 
         loadDependenciesAsync();
+        maybeAutoUpdateDependencies();
 
         // Ensure spacer size is set after initial layout
         SwingUtilities.invokeLater(this::updateBottomSpacer);
@@ -523,6 +526,29 @@ public final class DependenciesPanel extends JPanel {
                 updateBottomSpacer();
             }
         });
+    }
+
+    private void maybeAutoUpdateDependencies() {
+        if (autoUpdateAttempted) {
+            return;
+        }
+        autoUpdateAttempted = true;
+
+        var project = chrome.getProject();
+        boolean autoLocal = project.getAutoUpdateLocalDependencies();
+        boolean autoGit = project.getAutoUpdateGitDependencies();
+        if (!autoLocal && !autoGit) {
+            return;
+        }
+
+        if (!(project instanceof AbstractProject)) {
+            logger.warn(
+                    "Project implementation {} does not support dependency auto-update",
+                    project.getClass().getName());
+            return;
+        }
+
+        DependencyUpdateHelper.autoUpdateEligibleDependencies(chrome);
     }
 
     @Override
@@ -753,11 +779,30 @@ public final class DependenciesPanel extends JPanel {
 
         boolean isLive = Boolean.TRUE.equals(tableModel.getValueAt(modelRow, 0));
 
+        Object nameObj = tableModel.getValueAt(modelRow, 1);
+        String depName = nameObj instanceof String ? (String) nameObj : null;
+        ProjectFile pf = depName != null ? dependencyProjectFileMap.get(depName) : null;
+
         var menu = new JPopupMenu();
+
+        var updateItem = new JMenuItem("Update from Source");
+        boolean hasUpdatableMetadata = false;
+        if (pf != null) {
+            var metadataOpt = AbstractProject.readDependencyMetadata(pf);
+            hasUpdatableMetadata = metadataOpt
+                    .map(m -> m.type() == AbstractProject.DependencySourceType.LOCAL_PATH
+                            || m.type() == AbstractProject.DependencySourceType.GITHUB)
+                    .orElse(false);
+        }
+        updateItem.setEnabled(hasUpdatableMetadata);
+        updateItem.addActionListener(ev -> updateDependencyForRow(modelRow));
+        menu.add(updateItem);
+
         var summarizeItem = new JMenuItem("Summarize All Files");
         summarizeItem.setEnabled(isLive);
         summarizeItem.addActionListener(ev -> summarizeDependencyForRow(modelRow));
         menu.add(summarizeItem);
+
         menu.show(e.getComponent(), e.getX(), e.getY());
     }
 
@@ -787,6 +832,45 @@ public final class DependenciesPanel extends JPanel {
         var cm = chrome.getContextManager();
         cm.submitContextTask(() -> {
             cm.addSummaries(dep.files(), Set.of());
+        });
+    }
+
+    private void updateDependencyForRow(int modelRow) {
+        Object nameObj = tableModel.getValueAt(modelRow, 1);
+        if (!(nameObj instanceof String depName)) {
+            return;
+        }
+        var pf = dependencyProjectFileMap.get(depName);
+        if (pf == null) {
+            return;
+        }
+
+        var metadataOpt = AbstractProject.readDependencyMetadata(pf);
+        if (metadataOpt.isEmpty()) {
+            chrome.toolError(
+                    "This dependency does not have source metadata and cannot be updated automatically.",
+                    "Dependency Update");
+            return;
+        }
+
+        var metadata = metadataOpt.get();
+        CompletableFuture<Set<ProjectFile>> future;
+        if (metadata.type() == AbstractProject.DependencySourceType.GITHUB) {
+            future = DependencyUpdateHelper.updateGitDependency(chrome, pf, metadata);
+        } else if (metadata.type() == AbstractProject.DependencySourceType.LOCAL_PATH) {
+            future = DependencyUpdateHelper.updateLocalPathDependency(chrome, pf, metadata);
+        } else {
+            chrome.toolError(
+                    "Dependencies of type '" + metadata.type() + "' are not supported for automatic updates.",
+                    "Dependency Update");
+            return;
+        }
+
+        future.whenComplete((changed, ex) -> {
+            if (ex == null) {
+                // Re-count files across dependencies after an update
+                new FileCountingWorker().execute();
+            }
         });
     }
 

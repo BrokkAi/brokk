@@ -992,6 +992,97 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /**
+     * Aggregated result for a multi-dependency auto-update pass.
+     *
+     * @param changedFiles set of files that changed across all updated dependencies
+     * @param updatedDependencies number of dependencies that produced at least one changed file
+     */
+    public record DependencyAutoUpdateResult(Set<ProjectFile> changedFiles, int updatedDependencies) {}
+
+    /**
+     * Performs a single auto-update pass over all imported dependencies on disk.
+     *
+     * <p>This method:
+     * <ul>
+     *     <li>Enumerates all dependency roots under .brokk/dependencies.</li>
+     *     <li>Reads {@link DependencyMetadata} for each dependency, if present.</li>
+     *     <li>Invokes {@link #updateLocalPathDependencyOnDisk(ProjectFile, DependencyMetadata)} for
+     *         LOCAL_PATH dependencies when {@code includeLocal} is true.</li>
+     *     <li>Invokes {@link #updateGitDependencyOnDisk(ProjectFile, DependencyMetadata)} for
+     *         GITHUB dependencies when {@code includeGit} is true.</li>
+     *     <li>Aggregates the union of changed files and counts how many dependencies produced
+     *         at least one change.</li>
+     * </ul>
+     *
+     * <p>Errors updating an individual dependency are logged and do not abort the overall pass.
+     * Dependencies without metadata, or with unsupported types, are skipped.
+     *
+     * <p>This method is blocking and performs filesystem and (for Git) network I/O. Callers
+     * should invoke it off the EDT and are responsible for notifying the analyzer by calling
+     * {@code AnalyzerWrapper.updateFiles(result.changedFiles())} if desired.
+     *
+     * @param includeLocal whether to auto-update LOCAL_PATH dependencies
+     * @param includeGit whether to auto-update GITHUB dependencies
+     * @return aggregated result of the auto-update pass
+     */
+    public DependencyAutoUpdateResult autoUpdateDependenciesOnce(boolean includeLocal, boolean includeGit) {
+        var changedFiles = new HashSet<ProjectFile>();
+        int updatedDependencies = 0;
+
+        if (!includeLocal && !includeGit) {
+            return new DependencyAutoUpdateResult(Set.of(), 0);
+        }
+
+        var allDeps = getAllOnDiskDependencies();
+        if (allDeps.isEmpty()) {
+            return new DependencyAutoUpdateResult(Set.of(), 0);
+        }
+
+        for (var depRoot : allDeps) {
+            var metadataOpt = readDependencyMetadata(depRoot);
+            if (metadataOpt.isEmpty()) {
+                continue;
+            }
+            var metadata = metadataOpt.get();
+
+            boolean isLocal = metadata.type() == DependencySourceType.LOCAL_PATH;
+            boolean isGit = metadata.type() == DependencySourceType.GITHUB;
+
+            if ((isLocal && !includeLocal) || (isGit && !includeGit)) {
+                continue;
+            }
+            if (!isLocal && !isGit) {
+                // Unknown/unsupported type: ignore
+                continue;
+            }
+
+            try {
+                Set<ProjectFile> delta;
+                if (isLocal) {
+                    delta = updateLocalPathDependencyOnDisk(depRoot, metadata);
+                } else {
+                    delta = updateGitDependencyOnDisk(depRoot, metadata);
+                }
+                if (!delta.isEmpty()) {
+                    updatedDependencies++;
+                    changedFiles.addAll(delta);
+                }
+            } catch (IOException e) {
+                logger.warn(
+                        "Failed to auto-update dependency {} of type {}: {}",
+                        depRoot.absPath(),
+                        metadata.type(),
+                        e.getMessage());
+            }
+        }
+
+        if (changedFiles.isEmpty()) {
+            return new DependencyAutoUpdateResult(Set.of(), 0);
+        }
+        return new DependencyAutoUpdateResult(Collections.unmodifiableSet(changedFiles), updatedDependencies);
+    }
+
+    /**
      * Determine the predominant language for a dependency directory by scanning files inside it.
      * This is shared between MainProject and WorktreeProject to avoid duplication.
      */
