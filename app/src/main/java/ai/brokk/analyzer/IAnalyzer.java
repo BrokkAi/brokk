@@ -135,28 +135,6 @@ public interface IAnalyzer {
         return sortDefinitions(results);
     }
 
-    /**
-     * Finds a function CodeUnit matching both fqName and signature.
-     * Type-safe alternative to the String-based variant.
-     *
-     * @param fqName The exact FQ name (without signature)
-     * @param signature The signature (use Signature.none() to match any signature)
-     * @return Optional containing matching CodeUnit, or empty if not found
-     */
-    default Optional<CodeUnit> getFunctionDefinition(String fqName, Signature signature) {
-        var candidates =
-                getDefinitions(fqName).stream().filter(CodeUnit::isFunction).toList();
-
-        if (signature.isEmpty() || candidates.isEmpty()) {
-            return candidates.stream().findFirst();
-        }
-
-        String signatureStr = signature.value();
-        return candidates.stream()
-                .filter(cu -> signatureStr.equals(cu.signature()))
-                .findFirst();
-    }
-
     default Set<CodeUnit> searchDefinitions(String pattern) {
         return searchDefinitions(pattern, true);
     }

@@ -1576,15 +1576,6 @@ public class CppAnalyzerTest {
     }
 
     @Test
-    public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("overloadedFunction", Signature.none());
-
-        assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
-        assertEquals("overloadedFunction", result.get().fqName());
-        assertTrue(result.get().isFunction());
-    }
-
-    @Test
     public void autocompleteDefinitions_WithOverloads_DoesNotDropThem() {
         var results = analyzer.autocompleteDefinitions("overloadedFunction");
 
