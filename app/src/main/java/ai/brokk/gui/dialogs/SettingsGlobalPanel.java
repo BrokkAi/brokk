@@ -1658,154 +1658,33 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     public boolean applySettings() {
-        // Service Tab
+        // === PHASE 1: Validation ===
+
+        // Validate API key
         String currentBrokkKeyInSettings = MainProject.getBrokkKey();
         String newBrokkKeyFromField = brokkKeyField.getText().trim();
         boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
-        if (keyStateChangedInUI) {
-            if (!newBrokkKeyFromField.isEmpty()) {
-                try {
-                    Service.validateKey(newBrokkKeyFromField);
-                    MainProject.setBrokkKey(newBrokkKeyFromField);
-                    refreshBalanceDisplay();
-                    updateSignupLabelVisibility();
-                    parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
-                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
-                } catch (IllegalArgumentException ex) {
-                    JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
-                    return false;
-                } catch (IOException ex) { // Network error, but allow saving
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
-                            "Network Error",
-                            JOptionPane.WARNING_MESSAGE);
-                    MainProject.setBrokkKey(newBrokkKeyFromField);
-                    refreshBalanceDisplay();
-                    updateSignupLabelVisibility();
-                    parentDialog.triggerDataRetentionPolicyRefresh();
-                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
-                }
-            } else { // newBrokkKeyFromField is empty
-                MainProject.setBrokkKey(newBrokkKeyFromField);
-                refreshBalanceDisplay();
-                updateSignupLabelVisibility();
-                parentDialog.triggerDataRetentionPolicyRefresh();
-                chrome.getContextManager().reloadService(); // Reinitialize service with cleared key
-            }
-        }
-
-        if (brokkProxyRadio != null && localhostProxyRadio != null) { // Not STAGING
-            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected()
-                    ? MainProject.LlmProxySetting.BROKK
-                    : MainProject.LlmProxySetting.LOCALHOST;
-            if (proxySetting != MainProject.getProxySetting()) {
-                MainProject.setLlmProxySetting(proxySetting);
-                logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
-                // Consider notifying user about restart if changed. Dialog does this.
-            }
-        }
-
-        if (forceToolEmulationCheckbox != null) {
-            MainProject.setForceToolEmulation(forceToolEmulationCheckbox.isSelected());
-            logger.debug("Applied Force Tool Emulation: {}", forceToolEmulationCheckbox.isSelected());
-        }
-
-        // Save notification preferences
-        GlobalUiSettings.saveShowCostNotifications(showCostNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(showFreeInternalLLMCheckbox.isSelected());
-        GlobalUiSettings.saveShowErrorNotifications(showErrorNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowConfirmNotifications(showConfirmNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowInfoNotifications(showInfoNotificationsCheckbox.isSelected());
-
-        // Compression Tab
-        MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
-        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
-        MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
-
-        // General Tab - Advanced Mode
-        // Only apply if the setting actually changed to avoid unnecessary UI refreshes
-        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
-        boolean newAdvancedMode = advancedModeCheckbox.isSelected();
-        if (previousAdvancedMode != newAdvancedMode) {
-            GlobalUiSettings.saveAdvancedMode(newAdvancedMode);
+        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
             try {
-                // Chrome.applyAdvancedModeVisibility() handles instructions panel updates and keybinding refresh
-                // to avoid duplication and ensure consistent behavior
-                chrome.applyAdvancedModeVisibility();
-            } catch (Exception ex) {
-                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+                Service.validateKey(newBrokkKeyFromField);
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                return false;
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
+                        "Network Error",
+                        JOptionPane.WARNING_MESSAGE);
             }
         }
 
-        // General Tab - JVM Memory
-        try {
-            boolean automatic = memoryAutoRadio.isSelected();
-            int mb = ((Number) memorySpinner.getValue()).intValue();
-            var jvmSettings = new MainProject.JvmMemorySettings(automatic, mb);
-            MainProject.setJvmMemorySettings(jvmSettings);
-            JDeploySettingsUtil.updateJvmMemorySettings(jvmSettings);
-            logger.debug(
-                    "Applied JVM memory settings: mode={}, mb={}",
-                    automatic ? "auto" : "manual",
-                    automatic ? "n/a" : mb);
-        } catch (Exception e) {
-            logger.warn("Failed to persist JVM memory settings", e);
-        }
-
-        // Appearance Tab
-        // Get theme from the selected radio button's client property
-        String newTheme = GuiTheme.THEME_LIGHT; // default
-        if (lightThemeRadio.isSelected()) {
-            newTheme = (String) lightThemeRadio.getClientProperty("theme");
-        } else if (darkThemeRadio.isSelected()) {
-            newTheme = (String) darkThemeRadio.getClientProperty("theme");
-        } else if (highContrastThemeRadio.isSelected()) {
-            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
-        }
-
-        boolean newWrapMode = wordWrapCheckbox.isSelected();
-        boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
-
-        // Check if either theme or wrap mode changed
-        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
-        boolean wrapChanged = newWrapMode != currentWrapMode;
-
-        if (themeChanged || wrapChanged) {
-            // Save wrap mode setting globally
-            if (wrapChanged) {
-                MainProject.setCodeBlockWrapMode(newWrapMode);
-                logger.debug("Applied Code Block Wrap Mode: {}", newWrapMode);
-            }
-
-            // Apply theme and wrap mode changes via unified Chrome method
-            if (themeChanged || wrapChanged) {
-                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-                logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
-            }
-        }
-
-        boolean previousVerticalLayout = GlobalUiSettings.isVerticalActivityLayout();
-        boolean newVerticalLayout = verticalActivityLayoutCheckbox.isSelected();
-        if (previousVerticalLayout != newVerticalLayout) {
-            GlobalUiSettings.saveVerticalActivityLayout(newVerticalLayout);
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Restart required: Changing Vertical Activity Layout will take effect after restarting Brokk.",
-                    "Restart Required",
-                    JOptionPane.INFORMATION_MESSAGE);
-        }
-
-        // UI Scale preference (if present; hidden on macOS)
+        // Validate UI Scale
+        String uiScale;
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-            String before = MainProject.getUiScalePref();
             if (uiScaleAutoRadio.isSelected()) {
-                if (!"auto".equalsIgnoreCase(before)) {
-                    MainProject.setUiScalePrefAuto();
-                    parentDialog.markRestartNeededForUiScale();
-                    logger.debug("Applied UI scale preference: auto");
-                }
+                uiScale = "auto";
             } else {
                 String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
                 var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
@@ -1817,67 +1696,161 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                             JOptionPane.ERROR_MESSAGE);
                     return false;
                 }
-                if (!txt.equals(before)) {
-                    double v = Double.parseDouble(txt);
-                    MainProject.setUiScalePrefCustom(v);
-                    parentDialog.markRestartNeededForUiScale();
-                    logger.debug("Applied UI scale preference: {}", v);
-                }
+                uiScale = txt;
             }
+        } else {
+            uiScale = MainProject.getUiScalePref();
         }
 
-        // Terminal font size
-        float newTerminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
-        if (newTerminalFontSize != MainProject.getTerminalFontSize()) {
-            MainProject.setTerminalFontSize(newTerminalFontSize);
-            chrome.updateTerminalFontSize();
-            logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
+        // GitHub Tab validation
+        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+            return false;
         }
 
-        // Diff View preference
-        boolean useUnified = diffUnifiedRadio.isSelected();
-        GlobalUiSettings.saveDiffUnifiedView(useUnified);
-        logger.debug("Applied Diff View: {}", useUnified ? "Unified" : "Side-by-Side");
+        // === PHASE 2: Gather all values from UI ===
 
-        // TODO: Immediate application to existing diff panels
-        // Currently, newly opened diff panels will use the selected style immediately
-        // (BrokkDiffPanel reads GlobalUiSettings.isDiffUnifiedView() on initialization).
-        // Existing open diff panels can be toggled via their toolbar "Unified View" button.
-        // In the future, if a central registry of open diff panels becomes available
-        // (e.g., via Chrome or ContextManager), we can enumerate and call
-        // switchViewMode(useUnified) on each BrokkDiffPanel for immediate effect.
+        // Service settings
+        var proxySetting = (brokkProxyRadio != null && brokkProxyRadio.isSelected())
+                ? MainProject.LlmProxySetting.BROKK
+                : MainProject.LlmProxySetting.LOCALHOST;
+        var forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-        // Startup behavior
-        var currentStartupMode = MainProject.getStartupOpenMode();
-        var selectedStartupMode =
+        // Appearance settings
+        String newTheme = GuiTheme.THEME_LIGHT;
+        if (lightThemeRadio.isSelected()) {
+            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (darkThemeRadio.isSelected()) {
+            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (highContrastThemeRadio.isSelected()) {
+            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+        }
+        boolean newWrapMode = wordWrapCheckbox.isSelected();
+        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+
+        // Compression settings
+        boolean autoCompress = autoCompressCheckbox.isSelected();
+        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
+
+        // Startup settings
+        var startupMode =
                 startupOpenAllRadio.isSelected() ? MainProject.StartupOpenMode.ALL : MainProject.StartupOpenMode.LAST;
-        if (selectedStartupMode != currentStartupMode) {
-            MainProject.setStartupOpenMode(selectedStartupMode);
-            logger.debug("Applied Startup Open Mode: {}", selectedStartupMode);
-        }
-        // Save preference for per-project main window bounds persistence
-        GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
 
-        // Instructions panel behavior
-        GlobalUiSettings.saveInstructionsTabInsertIndentation(instructionsTabInsertIndentationCheckbox.isSelected());
+        // General settings
+        boolean jvmAutomatic = memoryAutoRadio.isSelected();
+        int jvmMb = ((Number) memorySpinner.getValue()).intValue();
 
-        // Quick Models Tab
+        // Model settings
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        var toSaveFavorites = quickModelsTableModel.getFavorites();
-        if (toSaveFavorites.isEmpty()) {
-            var defaultAlias = "default";
+        var favoriteModels = quickModelsTableModel.getFavorites();
+        if (favoriteModels.isEmpty()) {
             var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
-            toSaveFavorites = new ArrayList<>();
-            toSaveFavorites.add(defaultFavorite);
-            quickModelsTableModel.setFavorites(toSaveFavorites);
+            favoriteModels = List.of(new Service.FavoriteModel("default", currentCodeConfig));
+            quickModelsTableModel.setFavorites(favoriteModels);
         }
-        MainProject.saveFavoriteModels(toSaveFavorites);
-        // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
-        // Preferred Code Model
+        var mcpServers = new ArrayList<McpServer>();
+        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+            mcpServers.add(mcpServersListModel.getElementAt(i));
+        }
+        var mcpConfig = new McpConfig(mcpServers);
+
+        // UI preferences
+        boolean advancedMode = advancedModeCheckbox.isSelected();
+        boolean verticalLayout = verticalActivityLayoutCheckbox.isSelected();
+        boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
+        boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
+        boolean diffUnified = diffUnifiedRadio.isSelected();
+
+        // Capture "before" values for change detection (must be done before saving)
+        String previousTheme = MainProject.getTheme();
+        boolean previousWrapMode = MainProject.getCodeBlockWrapMode();
+        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        boolean previousVerticalLayout = GlobalUiSettings.isVerticalActivityLayout();
+        String previousUiScale = MainProject.getUiScalePref();
+
+        // === PHASE 3: Create grouped settings records ===
+
+        var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
+        var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
+        var compressionSettings = new MainProject.CompressionSettings(autoCompress, thresholdPercent);
+        var startupSettings = new MainProject.StartupSettings(startupMode);
+        var generalSettings = new MainProject.GeneralSettings(new MainProject.JvmMemorySettings(jvmAutomatic, jvmMb));
+        var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
+
+        var notificationSettings = new GlobalUiSettings.NotificationSettings(
+                showCostNotificationsCheckbox.isSelected(),
+                showFreeInternalLLMCheckbox.isSelected(),
+                showErrorNotificationsCheckbox.isSelected(),
+                showConfirmNotificationsCheckbox.isSelected(),
+                showInfoNotificationsCheckbox.isSelected());
+        var uiPreferences = new GlobalUiSettings.UiPreferences(
+                advancedMode, verticalLayout, persistPerProject, instructionsIndent, diffUnified);
+
+        // === PHASE 4: Atomic save (2 writes total) ===
+
+        MainProject.saveAllGlobalSettings(
+                serviceSettings,
+                appearanceSettings,
+                compressionSettings,
+                startupSettings,
+                generalSettings,
+                modelSettings);
+        GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+
+        // === PHASE 5: Side effects after successful save ===
+
+        // Determine what changed for side effects (using previously captured values)
+        boolean themeChanged = !newTheme.equals(previousTheme);
+        boolean wrapChanged = newWrapMode != previousWrapMode;
+        boolean advancedModeChanged = advancedMode != previousAdvancedMode;
+        boolean verticalLayoutChanged = verticalLayout != previousVerticalLayout;
+        boolean uiScaleChanged = !uiScale.equals(previousUiScale);
+
+        // API key side effects
+        if (keyStateChangedInUI) {
+            refreshBalanceDisplay();
+            updateSignupLabelVisibility();
+            parentDialog.triggerDataRetentionPolicyRefresh();
+            chrome.getContextManager().reloadService();
+        }
+
+        // Theme and wrap mode side effects
+        if (themeChanged || wrapChanged) {
+            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+        }
+
+        // Advanced mode side effects
+        if (advancedModeChanged) {
+            try {
+                chrome.applyAdvancedModeVisibility();
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+            }
+        }
+
+        // Vertical layout side effects
+        if (verticalLayoutChanged) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Restart required: Changing Vertical Activity Layout will take effect after restarting Brokk.",
+                    "Restart Required",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        // UI scale side effects
+        if (uiScaleChanged) {
+            parentDialog.markRestartNeededForUiScale();
+        }
+
+        // JVM memory side effects
+        JDeploySettingsUtil.updateJvmMemorySettings(generalSettings.jvmMemory());
+
+        // Terminal font size side effects
+        chrome.updateTerminalFontSize();
+
+        // Preferred Code Model (project-specific, not in global settings)
         var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
         if (selectedCodeAlias != null && !selectedCodeAlias.isEmpty()) {
             try {
@@ -1888,7 +1861,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        // Planner Model
+        // Planner Model (project-specific)
         var selectedPlannerAlias = (String) primaryModelCombo.getSelectedItem();
         if (selectedPlannerAlias != null && !selectedPlannerAlias.isEmpty()) {
             try {
@@ -1902,19 +1875,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        // GitHub Tab - managed via Connect/Disconnect flow
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
-            return false;
-        }
-
-        // MCP Servers Tab
-        var servers = new ArrayList<McpServer>();
-        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-            servers.add(mcpServersListModel.getElementAt(i));
-        }
-        var newMcpConfig = new McpConfig(servers);
-        chrome.getProject().getMainProject().setMcpConfig(newMcpConfig);
-
+        logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
     }
 
