@@ -466,6 +466,7 @@ public interface ContextFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
+        private final @Nullable String snapshotText;
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
@@ -473,15 +474,26 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
         private transient @Nullable ComputedValue<String> formatCv;
 
-        // Primary constructor for new dynamic fragments
+        // Primary constructor for new dynamic fragments (no snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
-        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
+        // Primary constructor for new dynamic fragments (with optional snapshot)
+        public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+        }
+
+        private ProjectPathFragment(
+                ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
+            this.snapshotText = snapshotText;
+        }
+
+        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
+            this(file, id, contextManager, null);
         }
 
         @Override
@@ -505,13 +517,18 @@ public interface ContextFragment {
         }
 
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
+            return withId(file, existingId, contextManager, null);
+        }
+
+        public static ProjectPathFragment withId(
+                ProjectFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             try {
                 int numericId = Integer.parseInt(existingId);
                 setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ProjectPathFragment(file, existingId, contextManager);
+            return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
         @Override
@@ -572,11 +589,15 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
+            // Clear snapshot on refresh so subsequent text() calls recompute from live content
             return ProjectPathFragment.withId(file, id, contextManager);
         }
 
         @Override
         public ComputedValue<String> text() {
+            if (snapshotText != null) {
+                return ComputedValue.completed("ppf-text-" + id(), snapshotText);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -603,16 +624,15 @@ public interface ContextFragment {
                     () -> formatCv,
                     () -> new ComputedValue<>(
                             "ppf-format-" + id(),
-                            () ->
-                                    """
-                                    <file path="%s" fragmentid="%s">
-                                    %s
-                                    </file>
-                                    """
-                                            .formatted(
-                                                    file().toString(),
-                                                    id(),
-                                                    this.text().future().join()),
+                            () -> """
+    <file path="%s" fragmentid="%s">
+    %s
+    </file>
+    """
+                                    .formatted(
+                                            file().toString(),
+                                            id(),
+                                            this.text().future().join()),
                             getFragmentExecutor()),
                     v -> formatCv = v);
         }
@@ -625,6 +645,10 @@ public interface ContextFragment {
             var pa = this.file().absPath().normalize();
             var pb = op.file().absPath().normalize();
             return pa.equals(pb);
+        }
+
+        public @Nullable String getSnapshotTextOrNull() {
+            return snapshotText;
         }
     }
 
@@ -1818,6 +1842,7 @@ public interface ContextFragment {
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+        private final @Nullable String snapshotText;
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
         private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
@@ -1825,27 +1850,46 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> descCv;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
-            this(contextManager, targetIdentifier, true);
+            this(contextManager, targetIdentifier, true, null);
         }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public UsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
             super(contextManager); // Assigns dynamic numeric String ID
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.snapshotText = snapshotText;
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
-            this(existingId, contextManager, targetIdentifier, true);
+            this(existingId, contextManager, targetIdentifier, true, null);
         }
 
         public UsageFragment(
                 String existingId, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(existingId, contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public UsageFragment(
+                String existingId,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+            this.snapshotText = snapshotText;
         }
 
         @Override
@@ -1855,6 +1899,9 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
+            if (snapshotText != null) {
+                return ComputedValue.completed("usg-text-" + id(), snapshotText);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -1979,17 +2026,20 @@ public interface ContextFragment {
             return includeTestFiles;
         }
 
+        public @Nullable String getSnapshotTextOrNull() {
+            return snapshotText;
+        }
+
         @Override
         public ContextFragment refreshCopy() {
+            // Create a new instance without snapshot so text recomputes from live data
             return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
         }
     }
 
-    /**
-     * Dynamic fragment that wraps a single CodeUnit and renders the full source
-     */
     class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String fullyQualifiedName;
+        private final @Nullable String snapshotText;
         private @Nullable ComputedValue<CodeUnit> unitCv;
         private @Nullable CodeUnit preResolvedUnit;
         private @Nullable ComputedValue<String> textCv;
@@ -2000,15 +2050,29 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> syntaxCv;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
+            this(contextManager, fullyQualifiedName, null);
+        }
+
+        public CodeFragment(IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
             super(contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            this.snapshotText = snapshotText;
         }
 
         public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
+            this(existingId, contextManager, fullyQualifiedName, null);
+        }
+
+        public CodeFragment(
+                String existingId,
+                IContextManager contextManager,
+                String fullyQualifiedName,
+                @Nullable String snapshotText) {
             super(existingId, contextManager);
             assert !fullyQualifiedName.isBlank();
             this.fullyQualifiedName = fullyQualifiedName;
+            this.snapshotText = snapshotText;
         }
 
         /**
@@ -2019,6 +2083,7 @@ public interface ContextFragment {
             validateCodeUnit(unit);
             this.fullyQualifiedName = unit.fqName();
             this.preResolvedUnit = unit;
+            this.snapshotText = null;
         }
 
         private static void validateCodeUnit(CodeUnit unit) {
@@ -2083,6 +2148,9 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
+            if (snapshotText != null) {
+                return ComputedValue.completed("cf-text-" + id(), snapshotText);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2163,8 +2231,13 @@ public interface ContextFragment {
             return fullyQualifiedName;
         }
 
+        public @Nullable String getSnapshotTextOrNull() {
+            return snapshotText;
+        }
+
         @Override
         public ContextFragment refreshCopy() {
+            // Clear snapshot on refresh so subsequent text() calls recompute from live content
             return new CodeFragment(id(), getContextManager(), fullyQualifiedName);
         }
     }

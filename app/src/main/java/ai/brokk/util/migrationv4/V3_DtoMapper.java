@@ -190,7 +190,10 @@ public class V3_DtoMapper {
                     if (relPath == null)
                         throw new IllegalArgumentException("Missing metadata 'relPath' for ProjectPathFragment");
                     var file = mgr.toFile(relPath);
-                    return new ContextFragment.ProjectPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.ProjectPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -263,7 +266,10 @@ public class V3_DtoMapper {
                     if (targetIdentifier == null) {
                         throw new IllegalArgumentException("Missing 'targetIdentifier' for UsageFragment");
                     }
-                    return new ContextFragment.UsageFragment(mgr, targetIdentifier);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
@@ -284,7 +290,10 @@ public class V3_DtoMapper {
                     if (fqName == null) {
                         throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
-                    return new ContextFragment.CodeFragment(mgr, fqName);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.CodeFragment(mgr, fqName, snapshot);
                 }
                 default -> {
                     throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);

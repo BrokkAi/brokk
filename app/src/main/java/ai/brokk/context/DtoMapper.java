@@ -237,7 +237,8 @@ public class DtoMapper {
             case ProjectFileDto pfd -> {
                 ContextFragment.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
-                yield ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
+                String snapshot = pfd.snapshotText() != null ? reader.readContent(pfd.snapshotText()) : null;
+                yield ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
             }
             case ExternalFileDto efd -> {
                 ContextFragment.setMinimumId(parseNumericId(efd.id()));
@@ -325,9 +326,11 @@ public class DtoMapper {
                         mgr,
                         summaryDto.targetIdentifier(),
                         ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
-            case UsageFragmentDto usageDto ->
-                new ContextFragment.UsageFragment(
-                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
+            case UsageFragmentDto usageDto -> {
+                String snapshot = usageDto.snapshotText() != null ? reader.readContent(usageDto.snapshotText()) : null;
+                yield new ContextFragment.UsageFragment(
+                        usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
+            }
             case PasteTextFragmentDto pasteTextDto ->
                 new ContextFragment.PasteTextFragment(
                         pasteTextDto.id(),
@@ -372,8 +375,10 @@ public class DtoMapper {
                         callGraphDto.methodName(),
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
-            case CodeFragmentDto codeDto ->
-                new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName());
+            case CodeFragmentDto codeDto -> {
+                String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
+                yield new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
+            }
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -386,8 +391,8 @@ public class DtoMapper {
             }
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
-                        .map(taskEntryDto -> _fromTaskEntryDto(
-                                taskEntryDto,
+                        .map(te -> _fromTaskEntryDto(
+                                te,
                                 mgr,
                                 fragmentCacheForRecursion,
                                 allReferencedDtos,
@@ -403,7 +408,16 @@ public class DtoMapper {
 
     public static ReferencedFragmentDto toReferencedFragmentDto(ContextFragment fragment, ContentWriter writer) {
         return switch (fragment) {
-            case ContextFragment.ProjectPathFragment pf -> toProjectFileDto(pf);
+            case ContextFragment.ProjectPathFragment pf -> {
+                ProjectFile file = pf.file();
+                String snapshotId = null;
+                if (pf.getSnapshotTextOrNull() != null) {
+                    String fileKey = file.getRoot() + ":" + file.getRelPath();
+                    snapshotId = writer.writeContent(pf.getSnapshotTextOrNull(), fileKey);
+                }
+                yield new ProjectFileDto(
+                        pf.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
+            }
             case ContextFragment.GitFileFragment gf -> {
                 var file = gf.file();
                 var fileKey = file.getRoot() + ":" + file.getRelPath();
@@ -447,14 +461,19 @@ public class DtoMapper {
         return new ExternalFile(path);
     }
 
-    private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment) {
+    private static ProjectFileDto toProjectFileDto(ContextFragment.ProjectPathFragment fragment, ContentWriter writer) {
         ProjectFile file = fragment.file();
+        String snapshotId = null;
+        if (fragment.getSnapshotTextOrNull() != null) {
+            String fileKey = file.getRoot() + ":" + file.getRelPath();
+            snapshotId = writer.writeContent(fragment.getSnapshotTextOrNull(), fileKey);
+        }
         return new ProjectFileDto(
-                fragment.id(), file.getRoot().toString(), file.getRelPath().toString());
+                fragment.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
     }
 
     private static ProjectFileDto toProjectFileDto(ProjectFile pf) {
-        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
+        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), null);
     }
 
     public static VirtualFragmentDto toVirtualFragmentDto(
@@ -489,8 +508,13 @@ public class DtoMapper {
                         sumf.id(),
                         sumf.getTargetIdentifier(),
                         sumf.getSummaryType().name());
-            case ContextFragment.UsageFragment uf ->
-                new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles());
+            case ContextFragment.UsageFragment uf -> {
+                String snapshotId = null;
+                if (uf.getSnapshotTextOrNull() != null) {
+                    snapshotId = writer.writeContent(uf.getSnapshotTextOrNull(), null);
+                }
+                yield new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles(), snapshotId);
+            }
             case ContextFragment.PasteTextFragment ptf -> {
                 // Fine to block on
                 String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
@@ -514,7 +538,13 @@ public class DtoMapper {
             }
             case ContextFragment.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf -> new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName());
+            case ContextFragment.CodeFragment cf -> {
+                String snapshotId = null;
+                if (cf.getSnapshotTextOrNull() != null) {
+                    snapshotId = writer.writeContent(cf.getSnapshotTextOrNull(), null);
+                }
+                yield new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName(), snapshotId);
+            }
             case ContextFragment.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
@@ -592,7 +622,7 @@ public class DtoMapper {
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) {
         ProjectFile pf = codeUnit.source();
         ProjectFileDto pfd =
-                new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
+                new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), null);
         return new CodeUnitDto(
                 pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
     }
@@ -786,7 +816,14 @@ public class DtoMapper {
     }
 
     private static DeletedFileDto toDeletedFileDto(ContextHistory.DeletedFile df) {
-        return new DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
+        return new DeletedFileDto(
+                new ProjectFileDto(
+                        "0",
+                        df.file().getRoot().toString(),
+                        df.file().getRelPath().toString(),
+                        null),
+                df.content(),
+                df.wasTracked());
     }
 
     private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto, IContextManager mgr) {
