@@ -194,7 +194,7 @@ public class EditBlock {
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(ctx, originalContent, block.afterText(), "");
+                    replaceMostSimilarChunk(originalContent, block.afterText(), "");
                     commentary =
                             """
                     The replacement text is already present in the file. If we no longer need to apply
@@ -320,7 +320,7 @@ public class EditBlock {
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
         String original = file.exists() ? file.read().orElse("") : "";
-        String updated = replaceMostSimilarChunk(ctx, original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -363,8 +363,8 @@ public class EditBlock {
      * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
      * edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(Context ctx, String content, String target, String replace)
-            throws AmbiguousMatchException, NoMatchException, InterruptedException {
+    static String replaceMostSimilarChunk(String content, String target, String replace)
+            throws AmbiguousMatchException, NoMatchException {
         // -----------------------------
         // 0) BRK_CONFLICT block special-cases
         // -----------------------------
