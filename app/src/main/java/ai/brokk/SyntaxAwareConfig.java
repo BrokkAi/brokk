@@ -67,7 +67,7 @@ public final class SyntaxAwareConfig {
      * @param extension file extension without leading dot (e.g. "java", "kt")
      */
     public static boolean isSyntaxAwareExtension(String extension) {
-        if (extension == null || extension.isBlank()) {
+        if (extension.isBlank()) {
             return false;
         }
         var normalized = extension.toLowerCase(Locale.ROOT);

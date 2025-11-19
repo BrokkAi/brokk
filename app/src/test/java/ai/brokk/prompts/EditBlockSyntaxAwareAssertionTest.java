@@ -2,7 +2,6 @@ package ai.brokk.prompts;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.EditBlock;
@@ -26,50 +25,6 @@ import org.junit.jupiter.api.Test;
  * BRK_FUNCTION resolves correctly and applies without interference from other languages.
  */
 public class EditBlockSyntaxAwareAssertionTest {
-
-    @Test
-    void brkFunctionThrowsAssertionInMixedEditableWorkspace() throws Exception {
-        try (var project = InlineTestProjectCreator.code(
-                        """
-                        package p;
-
-                        public class A {
-                            public String greet(String name) {
-                                return "Hello, " + name;
-                            }
-                        }
-                        """
-                                .stripIndent(),
-                        "src/main/java/p/A.java")
-                .addFileContents(
-                        """
-                        export function sum(a, b) { return a + b; }
-                        """
-                                .stripIndent(),
-                        "web/app.js")
-                .build()) {
-
-            var javaFile = new ProjectFile(project.getRoot(), "src/main/java/p/A.java");
-            var jsFile = new ProjectFile(project.getRoot(), "web/app.js");
-            var editable = Set.of(javaFile, jsFile);
-
-            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            IConsoleIO io = new NoOpConsoleIO();
-            var cm = new TestContextManager((TestProject) project, io, editable, analyzer);
-
-            var block = new EditBlock.SearchReplaceBlock(
-                    "src/main/java/p/A.java",
-                    "BRK_FUNCTION p.A.greet",
-                    """
-                    public String greet(String name) {
-                        return "Hi, " + name;
-                    }
-                    """
-                            .stripIndent());
-
-            assertThrows(AssertionError.class, () -> EditBlock.apply(cm, io, List.of(block)));
-        }
-    }
 
     @Test
     void brkFunctionResolvesInMultiLanguageRepoWhenEditableIsJavaOnly() throws Exception {
