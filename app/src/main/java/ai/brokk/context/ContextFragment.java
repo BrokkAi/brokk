@@ -1995,7 +1995,8 @@ public interface ContextFragment {
                                 "cf-unit-" + id(),
                                 () -> {
                                     var analyzer = getAnalyzer();
-                                    return analyzer.getDefinition(fullyQualifiedName)
+                                    return analyzer.getDefinitions(fullyQualifiedName).stream()
+                                            .findFirst()
                                             .orElseThrow(() -> new IllegalArgumentException(
                                                     "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
                                 },

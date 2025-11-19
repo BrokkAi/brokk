@@ -340,8 +340,10 @@ public class SearchTools {
 
         var analyzer = getAnalyzer();
         classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
-            var cuOpt = analyzer.getDefinition(className);
-            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);

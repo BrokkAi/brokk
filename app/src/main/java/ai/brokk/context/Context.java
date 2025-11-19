@@ -828,8 +828,10 @@ public class Context {
             if (className.isBlank()) {
                 continue;
             }
-            var cuOpt = analyzer.getDefinition(className);
-            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
@@ -928,8 +930,10 @@ public class Context {
             if (methodName.isBlank()) {
                 continue;
             }
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+            var cuOpt = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
