@@ -183,11 +183,6 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return findFirst(analyzer -> analyzer.getDefinition(fqName));
-    }
-
-    @Override
     public Set<CodeUnit> searchDefinitions(String pattern) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.searchDefinitions(pattern).stream())

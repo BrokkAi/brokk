@@ -586,11 +586,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return getDefinitions(fqName).stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return this.state.codeUnitState.keySet().stream()
                 .filter(CodeUnit::isClass)

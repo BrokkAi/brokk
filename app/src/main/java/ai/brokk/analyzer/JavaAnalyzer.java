@@ -240,13 +240,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         return "}";
     }
 
-    @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        // Normalize generics/anon/location suffixes for both class and method lookups
-        var normalized = normalizeFullName(fqName);
-        return super.getDefinition(normalized);
-    }
-
     /**
      * Strips Java generic type arguments (e.g., "<K, V extends X>") from any segments of the provided name. Handles
      * nested generics by tracking angle bracket depth.

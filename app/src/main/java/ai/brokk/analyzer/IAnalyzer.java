@@ -92,24 +92,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Finds a single CodeUnit definition matching the exact symbol name.
-     * For overloaded methods, returns an arbitrary overload.
-     *
-     * @deprecated Use {@link #getDefinitions(String)} instead to handle overloads explicitly.
-     *             This method returns the first overload when multiple exist.
-     * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
-     *               order, so if you have a field and a method with the same name, the method will be returned.
-     * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
-     */
-    @Deprecated
-    Optional<CodeUnit> getDefinition(String fqName);
-
-    @Deprecated
-    default Optional<CodeUnit> getDefinition(CodeUnit cu) {
-        return getDefinitions(cu.fqName()).stream().findFirst();
-    }
-
-    /**
      * Finds ALL CodeUnits matching the given fqName.
      * For overloaded functions, returns all overloads.
      *
