@@ -150,7 +150,8 @@ class SqlAnalyzerTest {
         assertEquals("t1", t1Opt.get().shortName());
         assertEquals("", t1Opt.get().packageName());
 
-        Optional<CodeUnit> v1Opt = analyzer.getDefinitions("v_schema.v1").stream().findFirst();
+        Optional<CodeUnit> v1Opt =
+                analyzer.getDefinitions("v_schema.v1").stream().findFirst();
         assertTrue(v1Opt.isPresent());
         assertEquals("v1", v1Opt.get().shortName());
         assertEquals("v_schema", v1Opt.get().packageName());
@@ -174,7 +175,8 @@ class SqlAnalyzerTest {
         var testProject = createTestProject(Set.of(projectFile));
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        Optional<CodeUnit> tblOneOpt = analyzer.getDefinitions("tbl_one").stream().findFirst();
+        Optional<CodeUnit> tblOneOpt =
+                analyzer.getDefinitions("tbl_one").stream().findFirst();
         assertTrue(tblOneOpt.isPresent());
         CodeUnit tblOne = tblOneOpt.get();
 
@@ -265,7 +267,8 @@ class SqlAnalyzerTest {
         assertEquals("tbl_included", allDecls.get(0).shortName());
 
         assertTrue(
-                analyzer.getDefinitions("tbl_excluded").stream().findFirst().isEmpty(), "Definition from excluded file should not be found.");
+                analyzer.getDefinitions("tbl_excluded").stream().findFirst().isEmpty(),
+                "Definition from excluded file should not be found.");
     }
 
     @Test

@@ -580,11 +580,13 @@ public class CppAnalyzerTest {
         assertEquals("overloadedFunction", intDef.get().fqName());
         assertEquals("(int)", intDef.get().signature());
 
-        var doubleDef = analyzer.getDefinitions("overloadedFunction(double)").stream().findFirst();
+        var doubleDef =
+                analyzer.getDefinitions("overloadedFunction(double)").stream().findFirst();
         assertTrue(doubleDef.isPresent(), "Should resolve overloadedFunction(double)");
         assertEquals("(double)", doubleDef.get().signature());
 
-        var twoIntsDef = analyzer.getDefinitions("overloadedFunction(int,int)").stream().findFirst();
+        var twoIntsDef =
+                analyzer.getDefinitions("overloadedFunction(int,int)").stream().findFirst();
         assertTrue(twoIntsDef.isPresent(), "Should resolve overloadedFunction(int,int)");
         assertEquals("(int,int)", twoIntsDef.get().signature());
     }

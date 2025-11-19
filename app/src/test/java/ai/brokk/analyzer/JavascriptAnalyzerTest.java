@@ -421,25 +421,29 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testGetDefinition() {
         // Test case 1: Arrow function component in Hello.jsx
-        Optional<CodeUnit> jsxArrowFnDef = jsAnalyzer.getDefinitions("JsxArrowFnComponent").stream().findFirst();
+        Optional<CodeUnit> jsxArrowFnDef =
+                jsAnalyzer.getDefinitions("JsxArrowFnComponent").stream().findFirst();
         assertTrue(jsxArrowFnDef.isPresent(), "Definition for 'JsxArrowFnComponent' should be found.");
         assertEquals("JsxArrowFnComponent", jsxArrowFnDef.get().fqName());
         assertEquals(helloJsxFile, jsxArrowFnDef.get().source());
 
         // Test case 2: Method in Hello.js
-        Optional<CodeUnit> greetMethodDef = jsAnalyzer.getDefinitions("Hello.greet").stream().findFirst();
+        Optional<CodeUnit> greetMethodDef =
+                jsAnalyzer.getDefinitions("Hello.greet").stream().findFirst();
         assertTrue(greetMethodDef.isPresent(), "Definition for 'Hello.greet' method should be found.");
         assertEquals("Hello.greet", greetMethodDef.get().fqName());
         assertEquals(helloJsFile, greetMethodDef.get().source());
 
         // Test case 3: Top-level variable in Vars.js
-        Optional<CodeUnit> topConstJsDef = jsAnalyzer.getDefinitions("Vars.js.TOP_CONST_JS").stream().findFirst();
+        Optional<CodeUnit> topConstJsDef =
+                jsAnalyzer.getDefinitions("Vars.js.TOP_CONST_JS").stream().findFirst();
         assertTrue(topConstJsDef.isPresent(), "Definition for 'Vars.js.TOP_CONST_JS' should be found.");
         assertEquals("Vars.js.TOP_CONST_JS", topConstJsDef.get().fqName());
         assertEquals(varsJsFile, topConstJsDef.get().source());
 
         // Test case 4: Non-existent FQ name
-        Optional<CodeUnit> nonExistentDef = jsAnalyzer.getDefinitions("NonExistentSymbol").stream().findFirst();
+        Optional<CodeUnit> nonExistentDef =
+                jsAnalyzer.getDefinitions("NonExistentSymbol").stream().findFirst();
         assertTrue(nonExistentDef.isEmpty(), "Definition for a non-existent symbol should not be found.");
     }
 

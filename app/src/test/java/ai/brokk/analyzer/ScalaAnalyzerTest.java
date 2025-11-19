@@ -23,7 +23,8 @@ public class ScalaAnalyzerTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("Foo").stream().findFirst()
+            analyzer.getDefinitions("Foo").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -32,7 +33,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo'!"));
-            analyzer.getDefinitions("Bar").stream().findFirst()
+            analyzer.getDefinitions("Bar").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -41,7 +43,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar'!"));
-            analyzer.getDefinitions("Baz$").stream().findFirst()
+            analyzer.getDefinitions("Baz$").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -50,7 +53,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Baz$", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Baz$'!"));
-            analyzer.getDefinitions("Color").stream().findFirst()
+            analyzer.getDefinitions("Color").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -71,7 +75,8 @@ public class ScalaAnalyzerTest {
                         "Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("Foo").stream().findFirst()
+            analyzer.getDefinitions("Foo").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -95,7 +100,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Foo").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -104,7 +110,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo'!"));
-            analyzer.getDefinitions("ai.brokk.Bar").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Bar").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isClass());
@@ -135,7 +142,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Foo.test1").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.test1").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -144,7 +152,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo.test1", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo.test1'!"));
-            analyzer.getDefinitions("ai.brokk.Bar.test2").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Bar.test2").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -153,7 +162,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Bar.test2", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Bar.test2'!"));
-            analyzer.getDefinitions("ai.brokk.Baz$.test3").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Baz$.test3").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -181,7 +191,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Foo.test1").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.test1").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -190,7 +201,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo.test1", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo.test1'!"));
-            analyzer.getDefinitions("ai.brokk.Foo.test1.test2").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.test1.test2").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -213,7 +225,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Foo.Foo").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.Foo").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -238,7 +251,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Foo.Foo").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.Foo").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isFunction());
@@ -266,7 +280,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.GLOBAL_VAR").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.GLOBAL_VAR").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -275,7 +290,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("GLOBAL_VAR", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'GLOBAL_VAR'!"));
-            analyzer.getDefinitions("ai.brokk.GLOBAL_VAL").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.GLOBAL_VAL").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -285,7 +301,8 @@ public class ScalaAnalyzerTest {
                             },
                             () -> fail("Could not find code unit 'GLOBAL_VAL'!"));
 
-            analyzer.getDefinitions("ai.brokk.Foo.Field1").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.Field1").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -294,7 +311,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Foo.Field1", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Foo.Field1'!"));
-            analyzer.getDefinitions("ai.brokk.Foo.Field2").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Foo.Field2").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -324,7 +342,8 @@ public class ScalaAnalyzerTest {
                         "ai/brokk/Foo.scala")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.Colors.BLUE").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Colors.BLUE").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -333,7 +352,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Colors.BLUE", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Colors.BLUE'!"));
-            analyzer.getDefinitions("ai.brokk.Colors.GREEN").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Colors.GREEN").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -343,7 +363,8 @@ public class ScalaAnalyzerTest {
                             },
                             () -> fail("Could not find code unit 'Colors.GREEN'!"));
 
-            analyzer.getDefinitions("ai.brokk.Sports.SOCCER").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Sports.SOCCER").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());
@@ -352,7 +373,8 @@ public class ScalaAnalyzerTest {
                                 assertEquals("Sports.SOCCER", cu.shortName());
                             },
                             () -> fail("Could not find code unit 'Sports.SOCCER'!"));
-            analyzer.getDefinitions("ai.brokk.Sports.RUGBY").stream().findFirst()
+            analyzer.getDefinitions("ai.brokk.Sports.RUGBY").stream()
+                    .findFirst()
                     .ifPresentOrElse(
                             cu -> {
                                 assertTrue(cu.isField());

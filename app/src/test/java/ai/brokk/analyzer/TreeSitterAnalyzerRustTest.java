@@ -39,20 +39,24 @@ public class TreeSitterAnalyzerRustTest {
 
         // Verify basic parsing by checking if some expected CodeUnits exist
         // Package name is "" because Point.rs is directly under testcode-rs (project root for this test)
-        Optional<CodeUnit> pointStructCU = rsAnalyzer.getDefinitions("Point").stream().findFirst();
+        Optional<CodeUnit> pointStructCU =
+                rsAnalyzer.getDefinitions("Point").stream().findFirst();
         assertTrue(pointStructCU.isPresent(), "CodeUnit for 'Point' struct should exist.");
         assertEquals(CodeUnit.cls(pointRsFile, "", "Point"), pointStructCU.get());
 
-        Optional<CodeUnit> originConstCU = rsAnalyzer.getDefinitions("_module_.ORIGIN").stream().findFirst();
+        Optional<CodeUnit> originConstCU =
+                rsAnalyzer.getDefinitions("_module_.ORIGIN").stream().findFirst();
         assertTrue(originConstCU.isPresent(), "CodeUnit for '_module_.ORIGIN' const should exist.");
         assertEquals(CodeUnit.field(pointRsFile, "", "_module_.ORIGIN"), originConstCU.get());
 
         // Test for newly added enum and trait
-        Optional<CodeUnit> colorEnumCU = rsAnalyzer.getDefinitions("Color").stream().findFirst();
+        Optional<CodeUnit> colorEnumCU =
+                rsAnalyzer.getDefinitions("Color").stream().findFirst();
         assertTrue(colorEnumCU.isPresent(), "CodeUnit for 'Color' enum should exist.");
         assertEquals(CodeUnit.cls(pointRsFile, "", "Color"), colorEnumCU.get());
 
-        Optional<CodeUnit> shapeTraitCU = rsAnalyzer.getDefinitions("Shape").stream().findFirst();
+        Optional<CodeUnit> shapeTraitCU =
+                rsAnalyzer.getDefinitions("Shape").stream().findFirst();
         assertTrue(shapeTraitCU.isPresent(), "CodeUnit for 'Shape' trait should exist.");
         assertEquals(CodeUnit.cls(pointRsFile, "", "Shape"), shapeTraitCU.get());
     }
@@ -399,34 +403,41 @@ public class TreeSitterAnalyzerRustTest {
 
     @Test
     void testGetDefinition_Rust() {
-        Optional<CodeUnit> pointDef = rsAnalyzer.getDefinitions("Point").stream().findFirst();
+        Optional<CodeUnit> pointDef =
+                rsAnalyzer.getDefinitions("Point").stream().findFirst();
         assertTrue(pointDef.isPresent());
         assertEquals(CodeUnit.cls(pointRsFile, "", "Point"), pointDef.get());
 
-        Optional<CodeUnit> newMethodDef = rsAnalyzer.getDefinitions("Point.new").stream().findFirst();
+        Optional<CodeUnit> newMethodDef =
+                rsAnalyzer.getDefinitions("Point.new").stream().findFirst();
         assertTrue(newMethodDef.isPresent());
         assertEquals(CodeUnit.fn(pointRsFile, "", "Point.new"), newMethodDef.get());
 
-        Optional<CodeUnit> originDef = rsAnalyzer.getDefinitions("_module_.ORIGIN").stream().findFirst();
+        Optional<CodeUnit> originDef =
+                rsAnalyzer.getDefinitions("_module_.ORIGIN").stream().findFirst();
         assertTrue(originDef.isPresent());
         assertEquals(CodeUnit.field(pointRsFile, "", "_module_.ORIGIN"), originDef.get());
 
         // Enum variant
-        Optional<CodeUnit> redVariantDef = rsAnalyzer.getDefinitions("Color.Red").stream().findFirst();
+        Optional<CodeUnit> redVariantDef =
+                rsAnalyzer.getDefinitions("Color.Red").stream().findFirst();
         assertTrue(redVariantDef.isPresent());
         assertEquals(CodeUnit.field(pointRsFile, "", "Color.Red"), redVariantDef.get());
 
         // Associated const in trait
-        Optional<CodeUnit> shapeIdDef = rsAnalyzer.getDefinitions("Shape.ID").stream().findFirst();
+        Optional<CodeUnit> shapeIdDef =
+                rsAnalyzer.getDefinitions("Shape.ID").stream().findFirst();
         assertTrue(shapeIdDef.isPresent());
         assertEquals(CodeUnit.field(pointRsFile, "", "Shape.ID"), shapeIdDef.get());
 
         // Associated const in impl
-        Optional<CodeUnit> pointIdDef = rsAnalyzer.getDefinitions("Point.ID").stream().findFirst();
+        Optional<CodeUnit> pointIdDef =
+                rsAnalyzer.getDefinitions("Point.ID").stream().findFirst();
         assertTrue(pointIdDef.isPresent());
         assertEquals(CodeUnit.field(pointRsFile, "", "Point.ID"), pointIdDef.get());
 
-        Optional<CodeUnit> nonExistentDef = rsAnalyzer.getDefinitions("NonExistent").stream().findFirst();
+        Optional<CodeUnit> nonExistentDef =
+                rsAnalyzer.getDefinitions("NonExistent").stream().findFirst();
         assertFalse(nonExistentDef.isPresent());
     }
 
@@ -617,13 +628,21 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testGetSymbols_Rust() {
         // Using Point.rs file
-        CodeUnit pointCU = rsAnalyzer.getDefinitions("Point").stream().findFirst().orElseThrow();
-        CodeUnit drawableCU = rsAnalyzer.getDefinitions("Drawable").stream().findFirst().orElseThrow();
-        CodeUnit originCU = rsAnalyzer.getDefinitions("_module_.ORIGIN").stream().findFirst().orElseThrow();
-        CodeUnit distanceCU = rsAnalyzer.getDefinitions("distance").stream().findFirst().orElseThrow();
-        CodeUnit colorCU = rsAnalyzer.getDefinitions("Color").stream().findFirst().orElseThrow();
-        CodeUnit shapeCU = rsAnalyzer.getDefinitions("Shape").stream().findFirst().orElseThrow();
-        CodeUnit circleCU = rsAnalyzer.getDefinitions("Circle").stream().findFirst().orElseThrow();
+        CodeUnit pointCU =
+                rsAnalyzer.getDefinitions("Point").stream().findFirst().orElseThrow();
+        CodeUnit drawableCU =
+                rsAnalyzer.getDefinitions("Drawable").stream().findFirst().orElseThrow();
+        CodeUnit originCU = rsAnalyzer.getDefinitions("_module_.ORIGIN").stream()
+                .findFirst()
+                .orElseThrow();
+        CodeUnit distanceCU =
+                rsAnalyzer.getDefinitions("distance").stream().findFirst().orElseThrow();
+        CodeUnit colorCU =
+                rsAnalyzer.getDefinitions("Color").stream().findFirst().orElseThrow();
+        CodeUnit shapeCU =
+                rsAnalyzer.getDefinitions("Shape").stream().findFirst().orElseThrow();
+        CodeUnit circleCU =
+                rsAnalyzer.getDefinitions("Circle").stream().findFirst().orElseThrow();
 
         // Test with Point struct (includes its fields and methods from impls)
         Set<String> pointSymbols = rsAnalyzer.getSymbols(Set.of(pointCU));

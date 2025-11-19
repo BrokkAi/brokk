@@ -113,7 +113,8 @@ public class JavaLambdaAnalyzerTest {
     @Test
     public void lambdaIsChildOfEnclosingMethod_getSomething() {
         // Verify the lambda is a direct child of the enclosing method
-        final var maybeMethod = analyzer.getDefinitions("AnonymousUsage.NestedClass.getSomething").stream().findFirst();
+        final var maybeMethod = analyzer.getDefinitions("AnonymousUsage.NestedClass.getSomething").stream()
+                .findFirst();
         assertTrue(maybeMethod.isPresent(), "Should resolve method definition for getSomething");
         final var methodCu = maybeMethod.get();
 

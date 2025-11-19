@@ -112,7 +112,9 @@ class ContextTest {
         var extFrag = new ContextFragment.ExternalPathFragment(new ExternalFile(extPath), contextManager);
 
         // Editable virtual: CodeFragment
-        var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream().findFirst().orElseThrow();
+        var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream()
+                .findFirst()
+                .orElseThrow();
         var codeFrag = new ContextFragment.CodeFragment(contextManager, cu);
 
         var ctx = new Context(contextManager, "init")

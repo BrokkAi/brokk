@@ -357,7 +357,8 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testGetDefinitionNonExistent() {
-        var nonExistentDef = analyzer.getDefinitions("NonExistentSymbol").stream().findFirst();
+        var nonExistentDef =
+                analyzer.getDefinitions("NonExistentSymbol").stream().findFirst();
         assertFalse(nonExistentDef.isPresent(), "Should not find definition for non-existent symbol");
     }
 

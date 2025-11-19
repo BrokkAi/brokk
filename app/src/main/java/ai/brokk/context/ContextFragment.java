@@ -2051,7 +2051,8 @@ public interface ContextFragment {
                                 "cf-unit-" + id(),
                                 () -> {
                                     var analyzer = getAnalyzer();
-                                    return analyzer.getDefinitions(fullyQualifiedName).stream().findFirst()
+                                    return analyzer.getDefinitions(fullyQualifiedName).stream()
+                                            .findFirst()
                                             .orElseThrow(() -> new IllegalArgumentException(
                                                     "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
                                 },
@@ -2188,7 +2189,8 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
-            var methodCodeUnit = analyzer.getDefinitions(methodName).stream().findFirst().filter(CodeUnit::isFunction);
+            var methodCodeUnit =
+                    analyzer.getDefinitions(methodName).stream().findFirst().filter(CodeUnit::isFunction);
 
             if (methodCodeUnit.isEmpty()) {
                 return "Method not found: " + methodName;
@@ -2219,7 +2221,10 @@ public interface ContextFragment {
         public Set<CodeUnit> sources() {
             // FIXME this is broken, needs to include the actual call sites as well
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDefinitions(methodName).stream().findFirst().map(Set::of).orElse(Set.of());
+            return analyzer.getDefinitions(methodName).stream()
+                    .findFirst()
+                    .map(Set::of)
+                    .orElse(Set.of());
         }
 
         @Override
@@ -2429,9 +2434,11 @@ public interface ContextFragment {
             analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
-                        analyzer.getDefinitions(targetIdentifier).stream().findFirst().ifPresent(cu -> {
-                            skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                        });
+                        analyzer.getDefinitions(targetIdentifier).stream()
+                                .findFirst()
+                                .ifPresent(cu -> {
+                                    skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+                                });
                     }
                     case FILE_SKELETONS -> {
                         IContextManager cm = getContextManager();

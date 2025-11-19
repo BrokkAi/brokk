@@ -326,7 +326,8 @@ public class SymbolLookupService {
                         "Generated {} candidate variants for '{}': {}", candidates.size(), rawClassName, candidates);
                 for (var candidate : candidates) {
                     // Try exact FQN match for candidate
-                    var classDefinition = analyzer.getDefinitions(candidate).stream().findFirst();
+                    var classDefinition =
+                            analyzer.getDefinitions(candidate).stream().findFirst();
                     if (classDefinition.isPresent() && classDefinition.get().isClass()) {
                         var processingTime = (System.nanoTime() - startTime) / 1_000_000;
                         logger.trace(

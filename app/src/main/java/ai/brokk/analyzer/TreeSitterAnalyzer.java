@@ -604,9 +604,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // Filter to exact fqName matches
-        var matches = candidates.stream()
-                .filter(cu -> cu.fqName().equals(baseName))
-                .collect(Collectors.toSet());
+        var matches =
+                candidates.stream().filter(cu -> cu.fqName().equals(baseName)).collect(Collectors.toSet());
 
         // If signature was provided, filter further by signature
         if (searchSignature != null && !matches.isEmpty()) {

@@ -78,7 +78,8 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeCls = analyzer.getDefinitions("ExtendsAndImplements").stream().findFirst();
+            var maybeCls =
+                    analyzer.getDefinitions("ExtendsAndImplements").stream().findFirst();
             assertTrue(maybeCls.isPresent(), "Definition for ExtendsAndImplements should be present");
             CodeUnit cls = maybeCls.get();
 

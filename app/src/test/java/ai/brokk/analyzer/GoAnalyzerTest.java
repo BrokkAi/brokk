@@ -237,22 +237,26 @@ public class GoAnalyzerTest {
     void testGetDefinition_FunctionsAndTypes() {
         ProjectFile pf = declarationsGoFile;
 
-        Optional<CodeUnit> funcDef = analyzer.getDefinitions("declpkg.MyTopLevelFunction").stream().findFirst();
+        Optional<CodeUnit> funcDef =
+                analyzer.getDefinitions("declpkg.MyTopLevelFunction").stream().findFirst();
         assertTrue(funcDef.isPresent(), "Definition for declpkg.MyTopLevelFunction should be found.");
         assertEquals(CodeUnit.fn(pf, "declpkg", "MyTopLevelFunction"), funcDef.get());
         assertTrue(funcDef.get().isFunction());
 
-        Optional<CodeUnit> structDef = analyzer.getDefinitions("declpkg.MyStruct").stream().findFirst();
+        Optional<CodeUnit> structDef =
+                analyzer.getDefinitions("declpkg.MyStruct").stream().findFirst();
         assertTrue(structDef.isPresent(), "Definition for declpkg.MyStruct should be found.");
         assertEquals(CodeUnit.cls(pf, "declpkg", "MyStruct"), structDef.get());
         assertTrue(structDef.get().isClass());
 
-        Optional<CodeUnit> interfaceDef = analyzer.getDefinitions("declpkg.MyInterface").stream().findFirst();
+        Optional<CodeUnit> interfaceDef =
+                analyzer.getDefinitions("declpkg.MyInterface").stream().findFirst();
         assertTrue(interfaceDef.isPresent(), "Definition for declpkg.MyInterface should be found.");
         assertEquals(CodeUnit.cls(pf, "declpkg", "MyInterface"), interfaceDef.get());
         assertTrue(interfaceDef.get().isClass());
 
-        Optional<CodeUnit> nonExistentDef = analyzer.getDefinitions("declpkg.NonExistent").stream().findFirst();
+        Optional<CodeUnit> nonExistentDef =
+                analyzer.getDefinitions("declpkg.NonExistent").stream().findFirst();
         assertFalse(nonExistentDef.isPresent(), "Definition for a non-existent symbol should not be found.");
     }
 
@@ -345,13 +349,15 @@ public class GoAnalyzerTest {
     void testGetDefinition_PackageLevelVarConst() {
         ProjectFile pf = declarationsGoFile;
 
-        Optional<CodeUnit> varDef = analyzer.getDefinitions("declpkg._module_.MyGlobalVar").stream().findFirst();
+        Optional<CodeUnit> varDef =
+                analyzer.getDefinitions("declpkg._module_.MyGlobalVar").stream().findFirst();
         assertTrue(varDef.isPresent(), "Definition for declpkg._module_.MyGlobalVar should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalVar"), varDef.get());
         assertFalse(varDef.get().isFunction());
         assertFalse(varDef.get().isClass());
 
-        Optional<CodeUnit> constDef = analyzer.getDefinitions("declpkg._module_.MyGlobalConst").stream().findFirst();
+        Optional<CodeUnit> constDef = analyzer.getDefinitions("declpkg._module_.MyGlobalConst").stream()
+                .findFirst();
         assertTrue(constDef.isPresent(), "Definition for declpkg._module_.MyGlobalConst should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalConst"), constDef.get());
         assertFalse(constDef.get().isFunction());

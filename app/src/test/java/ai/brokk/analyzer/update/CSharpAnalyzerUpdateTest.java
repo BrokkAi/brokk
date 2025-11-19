@@ -42,8 +42,10 @@ class CSharpAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinitions("TestNs.A.Method1").stream().findFirst().isPresent());
-        assertTrue(analyzer.getDefinitions("TestNs.A.Method2").stream().findFirst().isEmpty());
+        assertTrue(
+                analyzer.getDefinitions("TestNs.A.Method1").stream().findFirst().isPresent());
+        assertTrue(
+                analyzer.getDefinitions("TestNs.A.Method2").stream().findFirst().isEmpty());
 
         UpdateTestUtil.writeFile(
                 project.getRoot(),
@@ -60,7 +62,8 @@ class CSharpAnalyzerUpdateTest {
         var file = AnalyzerUtil.getFileFor(analyzer, "TestNs.A").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
 
-        assertTrue(analyzer.getDefinitions("TestNs.A.Method2").stream().findFirst().isPresent());
+        assertTrue(
+                analyzer.getDefinitions("TestNs.A.Method2").stream().findFirst().isPresent());
     }
 
     @Test
@@ -77,7 +80,8 @@ class CSharpAnalyzerUpdateTest {
                 }
                 """);
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinitions("TestNs.A.Method3").stream().findFirst().isPresent());
+        assertTrue(
+                analyzer.getDefinitions("TestNs.A.Method3").stream().findFirst().isPresent());
 
         var file = AnalyzerUtil.getFileFor(analyzer, "TestNs.A").orElseThrow();
         Files.deleteIfExists(file.absPath());
