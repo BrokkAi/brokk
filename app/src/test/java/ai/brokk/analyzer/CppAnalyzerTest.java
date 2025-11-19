@@ -581,15 +581,13 @@ public class CppAnalyzerTest {
                 .toList();
         assertEquals(3, allDefs.size(), "Should return all 3 overloads from simple_overloads.h");
 
-        var intDef = allDefs.stream()
-                .filter(cu -> "(int)".equals(cu.signature()))
-                .findFirst();
+        var intDef =
+                allDefs.stream().filter(cu -> "(int)".equals(cu.signature())).findFirst();
         assertTrue(intDef.isPresent(), "Should find (int) overload");
         assertEquals("overloadedFunction", intDef.get().fqName());
 
-        var doubleDef = allDefs.stream()
-                .filter(cu -> "(double)".equals(cu.signature()))
-                .findFirst();
+        var doubleDef =
+                allDefs.stream().filter(cu -> "(double)".equals(cu.signature())).findFirst();
         assertTrue(doubleDef.isPresent(), "Should find (double) overload");
 
         var twoIntsDef = allDefs.stream()

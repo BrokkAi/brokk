@@ -585,7 +585,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         String normalizedFqName = normalizeFullName(fqName);
 
         if (normalizedFqName.contains("(")) {
-            log.warn("getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead", fqName);
+            log.warn(
+                    "getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead",
+                    fqName);
         }
 
         Set<CodeUnit> candidates = lookupCandidatesByFqName(normalizedFqName);

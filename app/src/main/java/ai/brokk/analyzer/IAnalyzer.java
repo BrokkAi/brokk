@@ -98,6 +98,11 @@ public interface IAnalyzer {
      *
      * <p>To select a specific overload, filter the returned set by {@link CodeUnit#signature()}.
      *
+     * <p><b>API Contract:</b> fqName is never unique - multiple CodeUnits may share the same fqName
+     * (overloads, cross-file duplicates). Callers using {@code .findFirst()} get the highest-priority
+     * definition per {@link #sortDefinitions}. For call graphs or navigation where the specific
+     * overload matters, filter by signature or use the CodeUnit directly.
+     *
      * @param fqName The exact, case-sensitive FQ name (without signature)
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
