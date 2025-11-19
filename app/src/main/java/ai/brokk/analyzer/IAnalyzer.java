@@ -96,12 +96,9 @@ public interface IAnalyzer {
      * For overloaded functions, returns all overloads ordered by language-specific prioritization.
      * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
      *
-     * <p>The fqName parameter is typically just the qualified name (e.g., "MyClass.method").
-     * However, for languages with overloads, callers may optionally append a signature
-     * (e.g., "MyClass.method(int,String)") to disambiguate and retrieve a specific overload.
-     * When a signature is provided, only matching overloads are returned.
+     * <p>To select a specific overload, filter the returned set by {@link CodeUnit#signature()}.
      *
-     * @param fqName The exact, case-sensitive FQ name, optionally with signature for disambiguation
+     * @param fqName The exact, case-sensitive FQ name (without signature)
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
