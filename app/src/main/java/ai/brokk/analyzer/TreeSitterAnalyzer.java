@@ -860,6 +860,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
+    public Comparator<CodeUnit> definitionPriorityComparator() {
+        return prioritizingComparator();
+    }
+
+    @Override
     public Optional<String> getClassSource(CodeUnit cu, boolean includeComments) {
         if (!cu.isClass()) {
             return Optional.empty();

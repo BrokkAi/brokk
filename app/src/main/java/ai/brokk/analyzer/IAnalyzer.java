@@ -92,6 +92,17 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns a comparator for prioritizing among multiple definitions with the same FQN.
+     * Language-specific analyzers can override to provide custom ordering (e.g., preferring
+     * .cpp implementations over .h declarations in C++).
+     *
+     * @return Comparator for definition prioritization (default returns no-op comparator)
+     */
+    default Comparator<CodeUnit> definitionPriorityComparator() {
+        return Comparator.comparingInt(cu -> 0);
+    }
+
+    /**
      * Finds ALL CodeUnits matching the given fqName.
      * For overloaded functions, returns all overloads.
      *
