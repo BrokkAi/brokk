@@ -70,8 +70,7 @@ public sealed interface Signature {
     record Parameters(String value) implements Signature {
         public Parameters {
             if (value == null || value.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "Parameters cannot be null/empty. Use Signature.none() instead.");
+                throw new IllegalArgumentException("Parameters cannot be null/empty. Use Signature.none() instead.");
             }
             // Minimal structural validation - only check parentheses
             if (!value.startsWith("(") || !value.endsWith(")")) {

@@ -95,7 +95,7 @@ class CppAnalyzerUpdateTest {
             assertEquals("foo", withoutParen.get().fqName());
 
             // For signature-aware lookup, use getFunctionDefinition
-            var funcDef = localAnalyzer.getFunctionDefinition("foo", Signature.NONE);
+            var funcDef = localAnalyzer.getFunctionDefinition("foo", Signature.none());
             assertTrue(funcDef.isPresent(), "Should find function via getFunctionDefinition");
             assertEquals("foo", funcDef.get().fqName());
         }

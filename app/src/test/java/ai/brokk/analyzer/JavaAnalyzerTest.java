@@ -891,7 +891,7 @@ public class JavaAnalyzerTest {
             assertEquals("A.method2", result.get().fqName());
         } else {
             // Signatures not yet populated - test that the method still works with NONE
-            var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
+            var result = analyzer.getFunctionDefinition("A.method2", Signature.none());
             assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
             assertEquals("A.method2", result.get().fqName());
         }
@@ -899,7 +899,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
+        var result = analyzer.getFunctionDefinition("A.method2", Signature.none());
 
         assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
         assertEquals("A.method2", result.get().fqName());
@@ -918,16 +918,16 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_NonFunction_ReturnsEmpty() {
-        var result = analyzer.getFunctionDefinition("A", Signature.NONE);
+        var result = analyzer.getFunctionDefinition("A", Signature.none());
 
         assertTrue(result.isEmpty(), "Should return empty for non-function symbols");
     }
 
     @Test
     public void getFunctionDefinition_WithSignatureType_NONE_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("A.method2", Signature.NONE);
+        var result = analyzer.getFunctionDefinition("A.method2", Signature.none());
 
-        assertTrue(result.isPresent(), "Should return any overload with Signature.NONE");
+        assertTrue(result.isPresent(), "Should return any overload with Signature.none()");
         assertEquals("A.method2", result.get().fqName());
         assertTrue(result.get().isFunction());
     }

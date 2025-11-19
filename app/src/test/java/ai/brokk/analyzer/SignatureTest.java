@@ -107,20 +107,22 @@ class SignatureTest {
     @Test
     void patternMatching_WithNone() {
         Signature sig = Signature.none();
-        String result = switch (sig) {
-            case Signature.None ignored -> "none";
-            case Signature.Parameters(var value) -> "params: " + value;
-        };
+        String result =
+                switch (sig) {
+                    case Signature.None ignored -> "none";
+                    case Signature.Parameters(var value) -> "params: " + value;
+                };
         assertEquals("none", result);
     }
 
     @Test
     void patternMatching_WithParameters() {
         Signature sig = Signature.of("(int, String)");
-        String result = switch (sig) {
-            case Signature.None ignored -> "none";
-            case Signature.Parameters(var value) -> "params: " + value;
-        };
+        String result =
+                switch (sig) {
+                    case Signature.None ignored -> "none";
+                    case Signature.Parameters(var value) -> "params: " + value;
+                };
         assertEquals("params: (int, String)", result);
     }
 }

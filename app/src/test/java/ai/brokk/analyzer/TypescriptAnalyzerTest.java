@@ -3323,7 +3323,7 @@ public class TypescriptAnalyzerTest {
 
     @Test
     public void getFunctionDefinition_WithNullSignature_ReturnsAnyOverload() {
-        var result = analyzer.getFunctionDefinition("add", Signature.NONE);
+        var result = analyzer.getFunctionDefinition("add", Signature.none());
 
         assertTrue(result.isPresent(), "Should return any overload when signature is NONE");
         assertEquals("add", result.get().fqName());
