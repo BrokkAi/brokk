@@ -383,11 +383,14 @@ public class SearchTools {
         List<String> notFound = new ArrayList<>();
 
         symbols.stream().distinct().filter(s -> !s.isBlank()).forEach(symbol -> {
-            var cuOpt = analyzer.getDefinition(symbol);
-            if (cuOpt.isPresent()) {
-                var cu = cuOpt.get();
-                var filepath = cu.source().toString();
-                locationMappings.add(symbol + " -> " + filepath);
+            var definitions = analyzer.getDefinitions(symbol);
+            if (!definitions.isEmpty()) {
+                for (var cu : definitions) {
+                    var filepath = cu.source().toString();
+                    var sig = cu.signature();
+                    var displayName = sig.isEmpty() ? symbol : symbol + sig;
+                    locationMappings.add(displayName + " -> " + filepath);
+                }
             } else {
                 notFound.add(symbol);
             }
@@ -420,14 +423,13 @@ public class SearchTools {
         }
 
         StringBuilder result = new StringBuilder();
-        Set<String> added = new HashSet<>();
+        Set<CodeUnit> added = new HashSet<>();
 
         var analyzer = getAnalyzer();
         methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
-                var cu = cuOpt.get();
-                if (added.add(cu.fqName())) {
+            var definitions = analyzer.getDefinitions(methodName);
+            for (var cu : definitions) {
+                if (cu.isFunction() && added.add(cu)) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);
                     var text = fragment.text();
                     if (!text.isEmpty()) {
