@@ -974,9 +974,12 @@ public class WorkspacePanel extends JPanel {
                 }
 
                 // Classify scenario and build menu
-                classifyScenario(e, selectedFragments).thenAccept(scenario -> {
+                contextManager.submitBackgroundTask("Calculating pop-up scenario", () -> {
+                    PopupScenario scenario = classifyScenario(e, selectedFragments);
                     List<Action> actions = scenario.getActions(WorkspacePanel.this);
-                    PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
+                    SwingUtilities.invokeLater(() -> {
+                        PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
+                    });
                 });
             }
         });
@@ -1690,7 +1693,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */
-    private CompletableFuture<PopupScenario> classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
+    @Blocking
+    private PopupScenario classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
@@ -1698,44 +1702,42 @@ public class WorkspacePanel extends JPanel {
         if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
             ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
             if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                return fragment.files().future().thenApply(files -> {
-                    var fileReferences = files.stream()
-                            .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
-                                    file.getFileName(), file.toString(), file))
-                            .distinct()
-                            .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                            .toList();
+                var fileReferences = fragment.files().join().stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
+                                file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .toList();
 
-                    if (!fileReferences.isEmpty()) {
-                        // We need to determine if the click was specifically on a badge
-                        Rectangle cellRect = contextTable.getCellRect(row, col, false);
-                        int yInCell = e.getPoint().y - cellRect.y;
+                if (!fileReferences.isEmpty()) {
+                    // We need to determine if the click was specifically on a badge
+                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                    int yInCell = e.getPoint().y - cellRect.y;
 
-                        // Estimate if click is in lower half of cell (where badges are)
-                        if (yInCell > cellRect.height / 2) {
-                            // Try to find which specific badge was clicked
-                            TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                                    TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
+                    // Estimate if click is in lower half of cell (where badges are)
+                    if (yInCell > cellRect.height / 2) {
+                        // Try to find which specific badge was clicked
+                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
 
-                            if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
-                                return new FileBadge(clickedFileRef);
-                            }
+                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                            return new FileBadge(clickedFileRef);
                         }
                     }
+                }
 
-                    // Handle selection-based scenarios
-                    if (selectedFragments.isEmpty()) {
-                        return new NoSelection();
-                    } else if (selectedFragments.size() == 1) {
-                        return new SingleFragment(selectedFragments.getFirst());
-                    } else {
-                        return new MultiFragment(selectedFragments);
-                    }
-                });
+                // Handle selection-based scenarios
+                if (selectedFragments.isEmpty()) {
+                    return new NoSelection();
+                } else if (selectedFragments.size() == 1) {
+                    return new SingleFragment(selectedFragments.getFirst());
+                } else {
+                    return new MultiFragment(selectedFragments);
+                }
             }
         }
 
-        return CompletableFuture.completedFuture(new NoSelection());
+        return new NoSelection();
     }
 
     /** Shows the symbol selection dialog and adds usage information for the selected symbol. */
