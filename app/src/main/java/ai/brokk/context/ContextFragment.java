@@ -2189,8 +2189,9 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
-            var methodCodeUnit =
-                    analyzer.getDefinitions(methodName).stream().filter(CodeUnit::isFunction).findFirst();
+            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
 
             if (methodCodeUnit.isEmpty()) {
                 return "Method not found: " + methodName;

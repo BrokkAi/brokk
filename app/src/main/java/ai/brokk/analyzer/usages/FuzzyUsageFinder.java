@@ -288,12 +288,15 @@ public final class FuzzyUsageFinder {
                     allHits.addAll(ambiguous.hits());
                 }
                 case FuzzyResult.TooManyCallsites tooMany -> {
-                    logger.debug("Too many callsites for {} when finding usages of {}: {} > {}",
-                                 cu.fqName(), fqName, tooMany.totalCallsites(), tooMany.limit());
+                    logger.debug(
+                            "Too many callsites for {} when finding usages of {}: {} > {}",
+                            cu.fqName(),
+                            fqName,
+                            tooMany.totalCallsites(),
+                            tooMany.limit());
                 }
                 case FuzzyResult.Failure failure -> {
-                    logger.debug("Failure for {} when finding usages of {}: {}",
-                                 cu.fqName(), fqName, failure.reason());
+                    logger.debug("Failure for {} when finding usages of {}: {}", cu.fqName(), fqName, failure.reason());
                 }
             }
             if (allHits.size() >= maxUsages) {
