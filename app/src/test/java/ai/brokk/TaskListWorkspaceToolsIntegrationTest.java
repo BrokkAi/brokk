@@ -4,7 +4,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.tools.WorkspaceTools;
+import java.nio.file.Paths;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -16,22 +19,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplaceTaskList_delegatesToContextManager() {
-        var cm = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return new IConsoleIO() {
-                    @Override
-                    public void toolError(String msg, String title) {}
-
-                    @Override
-                    public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean isNewMessage,
-                            boolean isReasoning) {}
-                };
-            }
-        };
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var context = new Context(cm, (String) null);
         var wst = new WorkspaceTools(context);
 
@@ -54,7 +42,8 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_delegatesToContextManager() {
-        var initial = new Context(null, (String) null);
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var initial = new Context(cm, (String) null);
 
         // Create initial list (simulate via withTaskList)
         var c1 = initial.withTaskList(
@@ -83,22 +72,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_bothTaskListTools_updateContextImmutably() {
-        var cm = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return new IConsoleIO() {
-                    @Override
-                    public void toolError(String msg, String title) {}
-
-                    @Override
-                    public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean isNewMessage,
-                            boolean isReasoning) {}
-                };
-            }
-        };
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var context = new Context(cm, (String) null);
         var wst = new WorkspaceTools(context);
 
@@ -120,22 +94,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplaceTaskList_outputFormatted() {
-        var cm = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return new IConsoleIO() {
-                    @Override
-                    public void toolError(String msg, String title) {}
-
-                    @Override
-                    public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean isNewMessage,
-                            boolean isReasoning) {}
-                };
-            }
-        };
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var context = new Context(cm, (String) null);
         var wst = new WorkspaceTools(context);
 
@@ -151,22 +110,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_outputFormatted() {
-        var cm = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return new IConsoleIO() {
-                    @Override
-                    public void toolError(String msg, String title) {}
-
-                    @Override
-                    public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean isNewMessage,
-                            boolean isReasoning) {}
-                };
-            }
-        };
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var initial = new Context(cm, (String) null);
 
         // Create initial list via Context API
@@ -186,7 +130,8 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplace_dropsCompletedFromPrevious() {
-        var initial = new Context(null, (String) null);
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var initial = new Context(cm, (String) null);
 
         // Create list with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -207,22 +152,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_preservesCompletedFromPrevious() {
-        var cm = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return new IConsoleIO() {
-                    @Override
-                    public void toolError(String msg, String title) {}
-
-                    @Override
-                    public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean isNewMessage,
-                            boolean isReasoning) {}
-                };
-            }
-        };
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var initial = new Context(cm, (String) null);
 
         // Create list with completed task
@@ -242,7 +172,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
-        var cm = new IContextManager() {};
+        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var context = new Context(cm, (String) null);
         var wst = new WorkspaceTools(context);
 
