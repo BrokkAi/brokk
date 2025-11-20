@@ -2106,8 +2106,12 @@ public interface ContextFragment {
             return FragmentType.USAGE;
         }
 
-        @Override
         public ComputedValue<String> text() {
+            // Prefer frozen snapshot if available
+            var snap = getSnapshotTextOrNull();
+            if (snap != null) {
+                return ComputedValue.completed("usg-text-" + id(), snap);
+            }
             if (snapshotText != null) {
                 return ComputedValue.completed("usg-text-" + id(), snapshotText);
             }
@@ -2377,8 +2381,12 @@ public interface ContextFragment {
                     v -> shortCv = v);
         }
 
-        @Override
         public ComputedValue<String> text() {
+            // Prefer frozen snapshot if available
+            var snap = getSnapshotTextOrNull();
+            if (snap != null) {
+                return ComputedValue.completed("cf-text-" + id(), snap);
+            }
             if (snapshotText != null) {
                 return ComputedValue.completed("cf-text-" + id(), snapshotText);
             }
@@ -2535,8 +2543,12 @@ public interface ContextFragment {
             return FragmentType.CALL_GRAPH;
         }
 
-        @Override
         public ComputedValue<String> text() {
+            // Prefer frozen snapshot if available
+            var snap = getSnapshotTextOrNull();
+            if (snap != null) {
+                return ComputedValue.completed("cgf-text-" + id(), snap);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2692,8 +2704,12 @@ public interface ContextFragment {
             return FragmentType.SKELETON;
         }
 
-        @Override
         public ComputedValue<String> text() {
+            // Prefer frozen snapshot if available
+            var snap = getSnapshotTextOrNull();
+            if (snap != null) {
+                return ComputedValue.completed("skf-text-" + id(), snap);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2868,8 +2884,12 @@ public interface ContextFragment {
             return skeletonsMap;
         }
 
-        @Override
         public ComputedValue<String> text() {
+            // Prefer frozen snapshot if available
+            var snap = getSnapshotTextOrNull();
+            if (snap != null) {
+                return ComputedValue.completed("sumf-text-" + id(), snap);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
