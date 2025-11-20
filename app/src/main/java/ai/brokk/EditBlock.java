@@ -467,12 +467,6 @@ public class EditBlock {
         throw new NoMatchException("No matching oldLines found in content");
     }
 
-    /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
-    static int countLeadingBlankLines(String[] lines) {
-        // Delegate to shared utility to ensure consistent behavior.
-        return IndentUtil.countLeadingBlankLines(lines);
-    }
-
     /**
      * If the search/replace has lines of "..." as placeholders, do naive partial replacements. The
      * `originalEndsWithNewline` flag indicates if the `whole` string (original content) ended with a newline. The

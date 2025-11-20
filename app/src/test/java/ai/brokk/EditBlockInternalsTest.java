@@ -24,18 +24,6 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testCountLeadingBlankLines() {
-        // 1. No blank lines at start
-        String[] lines1 = {"line1", "line2", ""};
-        assertEquals(0, EditBlock.countLeadingBlankLines(lines1));
-
-        // 2. Some blank lines at start
-        String[] lines2 = {"", "  ", "lineA", "lineB"};
-        // Two blank lines at start
-        assertEquals(2, EditBlock.countLeadingBlankLines(lines2));
-    }
-
-    @Test
     void testCountLeadingSpaces() {
         // Simple checks
         assertEquals("", EditBlock.getLeadingWhitespace("line1"));
