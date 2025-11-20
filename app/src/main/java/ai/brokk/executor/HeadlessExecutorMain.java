@@ -9,6 +9,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.git.GitRepo;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.apache.logging.log4j.LogManager;
@@ -470,6 +472,12 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handleCreateSession(HttpExchange exchange) throws IOException {
+        if (jobReservation.current() != null) {
+            var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing, cannot create a new session.");
+            SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+            return;
+        }
+
         if (!exchange.getRequestMethod().equals("POST")) {
             var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
@@ -553,6 +561,12 @@ public final class HeadlessExecutorMain {
      * </ul>
      */
     void handlePutSession(HttpExchange exchange) throws IOException {
+        if (jobReservation.current() != null) {
+            var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing, cannot import a session.");
+            SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+            return;
+        }
+
         if (!exchange.getRequestMethod().equals("PUT")) {
             var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
@@ -1046,16 +1060,37 @@ public final class HeadlessExecutorMain {
     private record IssueDetails(String title, String url) {}
 
     private IssueDetails validateGitHubAuthAndFetchIssue(IssueFixRequest request, int issueNumber) {
-        // This is a placeholder for Task 2 implementation
-        // For now, validate that token looks reasonable and return mock data
         var token = request.githubToken();
-        if (token == null || token.length() < 10) {
-            throw new IllegalArgumentException("GitHub token appears invalid (too short)");
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException("GitHub token is required");
         }
 
-        // Full GitHub API call will be implemented in Task 2
-        logger.info("Validated GitHub token for {}/{}", request.owner(), request.repo());
-        return new IssueDetails("Issue " + issueNumber, "https://github.com/" + request.owner() + "/" + request.repo() + "/issues/" + issueNumber);
+        try {
+            var github = new org.kohsuke.github.GitHubBuilder()
+                    .withOAuthToken(token)
+                    .build();
+
+            var repo = github.getRepository(request.owner() + "/" + request.repo());
+            var issue = repo.getIssue(issueNumber);
+
+            var title = issue.getTitle();
+            var url = issue.getHtmlUrl().toString();
+
+            logger.info("Fetched issue #{}: {} from {}/{}", issueNumber, title, request.owner(), request.repo());
+            return new IssueDetails(title, url);
+        } catch (org.kohsuke.github.HttpException ex) {
+            if (ex.getResponseCode() == 401) {
+                throw new IllegalArgumentException("Invalid GitHub token: authentication failed", ex);
+            } else if (ex.getResponseCode() == 404) {
+                throw new IllegalArgumentException(
+                        "Issue #" + issueNumber + " not found in " + request.owner() + "/" + request.repo(), ex);
+            } else {
+                throw new IllegalArgumentException(
+                        "GitHub API error (HTTP " + ex.getResponseCode() + "): " + ex.getMessage(), ex);
+            }
+        } catch (java.io.IOException ex) {
+            throw new IllegalArgumentException("Failed to connect to GitHub API: " + ex.getMessage(), ex);
+        }
     }
 
     /**
@@ -1083,7 +1118,7 @@ public final class HeadlessExecutorMain {
 
     /**
      * Schedule async execution of the issue fix workflow.
-     * This is a placeholder for Task 3-5 implementation.
+     * Creates a worktree, session, and runs the job asynchronously.
      */
     private void executeIssueFixAsync(
             String jobId,
@@ -1093,26 +1128,103 @@ public final class HeadlessExecutorMain {
             String issueTitle,
             String branchName) {
         logger.info(
-                "Scheduling async issue fix execution: jobId={}, issue={}/{}/{}",
+                "Scheduling async issue fix execution: jobId={}, issue={}/{}/{}, branch={}",
                 jobId,
                 request.owner(),
                 request.repo(),
-                issueNumber);
+                issueNumber,
+                branchName);
 
-        // Placeholder: full implementation in Tasks 3-5
-        // This will:
-        // 1. Create a Git worktree with the derived branch name
-        // 2. Create a session for the worktree
-        // 3. Run the headless executor in lutz mode
-        // 4. Create a pull request on successful completion
-        jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
-            if (throwable != null) {
-                logger.error("Issue fix job {} execution failed", jobId, throwable);
-            } else {
-                logger.info("Issue fix job {} execution finished", jobId);
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Step 1: Get worktree storage directory and create worktree
+                var project = contextManager.getProject();
+                if (!(project instanceof MainProject mainProject)) {
+                    updateJobStatusFailed(jobId, "Project is not a MainProject");
+                    return;
+                }
+
+                var repo = mainProject.getRepo();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    updateJobStatusFailed(jobId, "Repository is not a Git repository");
+                    return;
+                }
+
+                var worktreeStorageDir = mainProject.getWorktreeStoragePath();
+                var worktreePath = gitRepo.worktrees().getNextWorktreePath(worktreeStorageDir);
+
+                logger.info("Creating worktree at {} for branch {}", worktreePath, branchName);
+                gitRepo.worktrees().addWorktree(branchName, worktreePath);
+                logger.info("Worktree created successfully at {}", worktreePath);
+
+                // Step 2: Create a session for the worktree
+                var sessionName = "Issue #" + issueNumber + ": " + issueTitle;
+                var frozenContext = contextManager.liveContext();
+                contextManager.createSessionWithoutGui(frozenContext, sessionName);
+                logger.info("Session created for worktree: {}", sessionName);
+
+                // Step 3: Run the job asynchronously
+                jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
+                    if (throwable != null) {
+                        logger.error("Issue fix job {} execution failed", jobId, throwable);
+                        updateJobStatusFailed(jobId, "Job execution failed: " + throwable.getMessage());
+                    } else {
+                        logger.info("Issue fix job {} execution finished successfully, creating PR.", jobId);
+                        try {
+                            var workflowService = new ai.brokk.git.GitWorkflow(contextManager);
+                            var targetBranch = gitRepo.getDefaultBranch();
+                            var prTitle = String.format("Fixes #%d: %s", issueNumber, issueTitle);
+                            var prBody = String.format("Automated fix for issue #%d.", issueNumber);
+
+                            var prUri = workflowService.createPullRequest(branchName, targetBranch, prTitle, prBody);
+                            var prUrl = prUri.toString();
+                            logger.info("Created PR for job {}: {}", jobId, prUrl);
+
+                            var result = java.util.Map.of("pullRequestUrl", prUrl);
+                            updateJobStatusCompleted(jobId, result);
+                        } catch (Exception prEx) {
+                            logger.error("Failed to create pull request for job {}", jobId, prEx);
+                            updateJobStatusFailed(jobId, "Fix generated, but failed to create PR: " + prEx.getMessage());
+                        }
+                    }
+                    jobReservation.releaseIfOwner(jobId);
+                });
+            } catch (Exception ex) {
+                logger.error("Error setting up issue fix workflow for job {}", jobId, ex);
+                updateJobStatusFailed(jobId, "Failed to set up workflow: " + ex.getMessage());
+                jobReservation.releaseIfOwner(jobId);
             }
-            jobReservation.releaseIfOwner(jobId);
         });
+    }
+
+    /**
+     * Update job status to FAILED with error message.
+     */
+    private void updateJobStatusFailed(String jobId, String errorMessage) {
+        try {
+            var failedStatus = ai.brokk.executor.jobs.JobStatus.queued(jobId)
+                    .withState(ai.brokk.executor.jobs.JobStatus.State.FAILED.toString())
+                    .failed(errorMessage);
+            jobStore.updateStatus(jobId, failedStatus);
+            logger.info("Updated job {} status to FAILED: {}", jobId, errorMessage);
+        } catch (Exception ex) {
+            logger.error("Error updating job status for {}", jobId, ex);
+        }
+    }
+
+    /**
+     * Update job status to COMPLETED with optional result.
+     */
+    private void updateJobStatusCompleted(String jobId, @Nullable Object result) {
+        try {
+            var completedStatus = ai.brokk.executor.jobs.JobStatus.queued(jobId)
+                    .withState(ai.brokk.executor.jobs.JobStatus.State.COMPLETED.toString())
+                    .completed(result);
+            jobStore.updateStatus(jobId, completedStatus);
+            logger.info("Updated job {} status to COMPLETED with result: {}", jobId, result);
+        } catch (Exception ex) {
+            logger.error("Error updating job status for {}", jobId, ex);
+        }
     }
 
     private record CreateSessionRequest(String name) {}
