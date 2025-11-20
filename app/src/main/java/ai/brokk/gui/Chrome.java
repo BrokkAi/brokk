@@ -1494,6 +1494,29 @@ public class Chrome
             }
         });
 
+        // Workspace actions
+        // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
+        KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+        bindKey(rootPane, attachContextKeyStroke, "attachContext");
+        rootPane.getActionMap().put("attachContext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+            }
+        });
+
+        // Ctrl+I => attach files and summarize
+        KeyStroke attachFilesAndSummarizeKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachFilesAndSummarize", KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+        bindKey(rootPane, attachFilesAndSummarizeKeyStroke, "attachFilesAndSummarize");
+        rootPane.getActionMap().put("attachFilesAndSummarize", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog(true));
+            }
+        });
+
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
@@ -1988,15 +2011,15 @@ public class Chrome
         }
 
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
-            // For file previews with an actual file, use file-based key
-            if (title.startsWith("Preview: ")) {
-                return "file:" + title.substring(9); // Remove "Preview: " prefix
-            } else {
-                return "file:" + title;
+            return "file:" + textPanel.getFile().toString();
+        }
+        if (contentComponent instanceof PreviewImagePanel imagePanel) {
+            var bf = imagePanel.getFile();
+            if (bf instanceof ProjectFile pf) {
+                return "file:" + pf.toString();
             }
         }
-        // For fragment previews (no file) or other content types, use title-based key
-        // This ensures placeholder and final content generate the same key for window reuse
+        // Fallback: title-based key for non-file content
         return "preview:" + title;
     }
 
@@ -2222,6 +2245,10 @@ public class Chrome
      * Opens an in-place preview of a context fragment without blocking on the EDT.
      * Uses non-blocking computed accessors when available; otherwise renders placeholders and
      * loads the actual values off-EDT, then updates the UI on the EDT.
+     *
+     * <p><b>Unified Entry Point:</b> This is the single entry point for all fragment preview operations
+     * across the application. All preview requests—whether from WorkspacePanel chips, TokenUsageBar segments,
+     * or other UI components—must route through this method to ensure consistent behavior, titles, and content.
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
@@ -2370,8 +2397,20 @@ public class Chrome
     private void previewPathFragment(
             ContextFragment.PathFragment pf, String initialTitle, @Nullable String computedDescNow) {
         var brokkFile = pf.file();
-        var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, pf);
+
+        // Use the same ProjectFile for the placeholder panel to ensure the same reuse key
+        ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p) ? p : null;
+
+        // Use the best-available syntax style even for the placeholder (helps early highlight)
+        String placeholderStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+        if (brokkFile instanceof ProjectFile p) {
+            placeholderStyle = p.getSyntaxStyle();
+        } else if (brokkFile instanceof ExternalFile ef) {
+            placeholderStyle = ef.getSyntaxStyle();
+        }
+
+        var placeholder =
+                new PreviewTextPanel(contextManager, placeholderFile, "Loading...", placeholderStyle, themeManager, pf);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {

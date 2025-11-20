@@ -77,6 +77,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox verticalActivityLayoutCheckbox = new JCheckBox("Beta: Vertical Activity Layout");
@@ -260,6 +261,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String currentTheme = MainProject.getTheme();
         switch (currentTheme) {
             case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_DARK_PLUS -> darkPlusThemeRadio.setSelected(true);
             case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
             default -> lightThemeRadio.setSelected(true);
         }
@@ -670,6 +672,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
 
+        // Workspace actions
+        adder.add("workspace.attachContext", "Add Content to Workspace");
+        adder.add("workspace.attachFilesAndSummarize", "Attach Files + Summarize");
+
         // Add global reset button
         var resetAllBtn = new JButton("Reset All to Defaults");
         resetAllBtn.setToolTipText("Reset all keybindings to their default values");
@@ -802,7 +808,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -843,6 +851,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
             case "view.resetZoom" -> "Reset Zoom";
+            case "workspace.attachContext" -> "Add Content to Workspace";
+            case "workspace.attachFilesAndSummarize" -> "Attach Files + Summarize";
             default -> id;
         };
     }
@@ -873,7 +883,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -1143,14 +1155,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio = new JRadioButton("Light");
         darkThemeRadio = new JRadioButton("Dark");
+        darkPlusThemeRadio = new JRadioButton("Dark+");
         highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
         themeGroup.add(darkThemeRadio);
+        themeGroup.add(darkPlusThemeRadio);
         themeGroup.add(highContrastThemeRadio);
 
         lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
         darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
+        darkPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK_PLUS);
         highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
@@ -1161,6 +1176,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(darkPlusThemeRadio, gbc);
 
         gbc.gridy = row++;
         appearancePanel.add(highContrastThemeRadio, gbc);
@@ -1977,6 +1995,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             newTheme = (String) lightThemeRadio.getClientProperty("theme");
         } else if (darkThemeRadio.isSelected()) {
             newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (darkPlusThemeRadio.isSelected()) {
+            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
         } else if (highContrastThemeRadio.isSelected()) {
             newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
         }
@@ -3863,6 +3883,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // General navigation
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+
+            // Workspace actions
+            case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
+            case "workspace.attachFilesAndSummarize" ->
+                KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
 
             default ->
                 KeyStroke.getKeyStroke(

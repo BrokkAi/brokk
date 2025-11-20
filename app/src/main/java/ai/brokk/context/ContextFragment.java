@@ -3119,7 +3119,7 @@ public interface ContextFragment {
         public ComputedValue<String> description() {
             return ComputedValue.completed(
                     "hf-desc-" + id(),
-                    "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : ""));
+                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""));
         }
 
         @Override

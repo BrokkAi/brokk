@@ -262,7 +262,7 @@ class HistoryV4MigrationTest {
             assertEquals(1, ctx.allFragments().count());
             var hf = findFragment(ctx, ContextFragment.HistoryFragment.class, f -> true);
             assertNotNull(hf);
-            assertTrue(hf.description().join().startsWith("Task History"));
+            assertTrue(hf.description().join().startsWith("Conversation"));
             assertFalse(hf.entries().isEmpty());
         } else if ("v3-pastetext-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());

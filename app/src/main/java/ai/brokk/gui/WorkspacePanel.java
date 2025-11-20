@@ -361,7 +361,7 @@ public class WorkspacePanel extends JPanel {
                         case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
                         case VIEW_FILE -> {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
-                            panel.showFragmentPreview(fragment);
+                            panel.chrome.openFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
                         default ->
@@ -419,7 +419,7 @@ public class WorkspacePanel extends JPanel {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
-                        case VIEW_FILE, SHOW_CONTENTS -> panel.showFragmentPreview(fragment);
+                        case VIEW_FILE, SHOW_CONTENTS -> panel.chrome.openFragmentPreview(fragment);
                         default ->
                             throw new UnsupportedOperationException(
                                     "Fragment action not implemented: " + WorkspaceAction.this);
@@ -906,7 +906,7 @@ public class WorkspacePanel extends JPanel {
                     if (row >= 0) {
                         var fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
                         if (fragment != null) {
-                            showFragmentPreview(fragment);
+                            chrome.openFragmentPreview(fragment);
                         }
                     }
                 }
@@ -1573,67 +1573,6 @@ public class WorkspacePanel extends JPanel {
         textArea.setToolTipText(tooltip);
         textArea.setBorder(null);
         return textArea;
-    }
-
-    /** Shows a preview of the fragment contents, opening once with "Loading..." and updating in-place when ready. */
-    void showFragmentPreview(ContextFragment fragment) {
-        // This must be done on EDT
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> showFragmentPreview(fragment));
-            return;
-        }
-
-        // If this is an image fragment, let Chrome's centralized preview handle it (proper image panel),
-        // instead of falling back to a text panel that shows "[Image content provided out of band]".
-        if (fragment instanceof ContextFragment.ImageFragment) {
-            chrome.openFragmentPreview(fragment);
-            return;
-        }
-
-        // Delegate StringFragment preview to Chrome to leverage previewText/previewSyntaxStyle
-        if (fragment instanceof ContextFragment.StringFragment) {
-            chrome.openFragmentPreview(fragment);
-            return;
-        }
-
-        // Determine associated file for better preview semantics (edit button, etc)
-        ProjectFile associatedFile =
-                fragment.files().renderNowOr(Set.of()).stream().findFirst().orElse(null);
-
-        // Try to get initial content and syntax style without blocking the EDT
-        String initialText = fragment.text().renderNowOr("(Loading...)");
-        String initialSyntax = fragment.syntaxStyle().renderNowOrNull();
-
-        // Create the initial preview panel
-        var title = fragment.shortDescription().renderNowOr("Preview");
-        var panel = new PreviewTextPanel(
-                contextManager, associatedFile, initialText, initialSyntax, chrome.getTheme(), fragment);
-
-        // Show the frame immediately with placeholder content
-        chrome.showPreviewFrame(contextManager, title, panel);
-
-        // Now asynchronously load/update the content
-        // Update when text is ready
-        fragment.text().onComplete((txt, ex) -> {
-            if (ex == null) {
-                // Try to also fetch syntax style if available (non-blocking)
-                var styleOpt = fragment.syntaxStyle().tryGet();
-                var syntax = styleOpt.orElse(null);
-                SwingUtilities.invokeLater(() -> panel.setContentAndStyle(txt, syntax));
-            } else {
-                logger.error("Error computing fragment text for {}", fragment, ex);
-                SwingUtilities.invokeLater(() -> panel.setContentAndStyle(
-                        "Unable to load content!", org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE));
-            }
-        });
-        // If syntax style completes separately later, update it without changing text
-        fragment.syntaxStyle().onComplete((style, ex) -> {
-            if (ex == null) {
-                SwingUtilities.invokeLater(() -> panel.setStyleOnly(style));
-            } else {
-                logger.warn("Error computing fragment syntax style for {}", fragment, ex);
-            }
-        });
     }
 
     // ------------------------------------------------------------------
