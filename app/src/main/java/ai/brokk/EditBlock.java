@@ -648,21 +648,8 @@ public class EditBlock {
             // This normalizes the replacement's relative indentation to match the target's structure.
             double scale = 1.0;
 
-            int targetIndentStep = -1;
-            for (int i = 1; i < truncatedTarget.length; i++) {
-                if (!truncatedTarget[i].isBlank()) {
-                    targetIndentStep = countLeadingWhitespace(truncatedTarget[i]) - baseTargetIndent;
-                    break;
-                }
-            }
-
-            int replaceIndentStep = -1;
-            for (int i = 1; i < truncatedReplace.length; i++) {
-                if (!truncatedReplace[i].isBlank()) {
-                    replaceIndentStep = countLeadingWhitespace(truncatedReplace[i]) - baseReplaceIndent;
-                    break;
-                }
-            }
+            int targetIndentStep = findFirstIndentStep(truncatedTarget, baseTargetIndent);
+            int replaceIndentStep = findFirstIndentStep(truncatedReplace, baseReplaceIndent);
 
             if (targetIndentStep > 0 && replaceIndentStep > 0) {
                 scale = (double) targetIndentStep / replaceIndentStep;
@@ -759,6 +746,20 @@ public class EditBlock {
             i++;
         }
         return i;
+    }
+
+    /**
+     * Returns the indent delta (relative to baseIndent) of the first non-blank line after the first line.
+     * Returns -1 if no such line exists.
+     */
+    private static int findFirstIndentStep(String[] lines, int baseIndent) {
+        for (int i = 1; i < lines.length; i++) {
+            var ln = lines[i];
+            if (!ln.isBlank()) {
+                return countLeadingWhitespace(ln) - baseIndent;
+            }
+        }
+        return -1;
     }
 
     /**
