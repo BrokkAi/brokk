@@ -2,15 +2,13 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.Context;
-import java.util.List;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests verifying SearchAgent exposes and references createOrReplaceTaskList
  * and appendTaskList tools correctly.
- * 
+ *
  * Note: These tests require a full ContextManager with project infrastructure and LLM access.
  * They are marked @Disabled pending proper test infrastructure setup.
  */

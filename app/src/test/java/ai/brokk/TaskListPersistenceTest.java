@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Persistence tests for task list create/replace and append operations.
  * Verifies that task lists are correctly serialized, stored, and deserialized.
- * 
+ *
  * Note: These tests require a full ContextManager instance which depends on project infrastructure.
  * They are marked @Disabled pending test infrastructure setup.
  */
@@ -28,10 +28,9 @@ public class TaskListPersistenceTest {
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
         var afterCreate = initial.withTaskList(
-                new TaskList.TaskListData(
-                        tasks.stream()
-                                .map(t -> new TaskList.TaskItem(t, t, false))
-                                .toList()),
+                new TaskList.TaskListData(tasks.stream()
+                        .map(t -> new TaskList.TaskItem(t, t, false))
+                        .toList()),
                 "Task list created");
 
         // Verify fragment exists and is JSON
@@ -65,22 +64,19 @@ public class TaskListPersistenceTest {
 
         // Create initial list
         var initialTasks = List.of("Task 1", "Task 2");
-        var initialData = new TaskList.TaskListData(
-                initialTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList());
+        var initialData = new TaskList.TaskListData(initialTasks.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false))
+                .toList());
         var afterCreate = initial.withTaskList(initialData, "Initial tasks");
 
         // Append more tasks
         var appendTasks = List.of("Task 3", "Task 4");
-        var existingTasks = new java.util.ArrayList<>(afterCreate.getTaskListDataOrEmpty().tasks());
-        existingTasks.addAll(
-                appendTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList());
-        var afterAppend = afterCreate.withTaskList(
-                new TaskList.TaskListData(existingTasks),
-                "Tasks appended");
+        var existingTasks =
+                new java.util.ArrayList<>(afterCreate.getTaskListDataOrEmpty().tasks());
+        existingTasks.addAll(appendTasks.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false))
+                .toList());
+        var afterAppend = afterCreate.withTaskList(new TaskList.TaskListData(existingTasks), "Tasks appended");
 
         // Verify all 4 tasks exist
         var data = afterAppend.getTaskListDataOrEmpty();
@@ -102,19 +98,16 @@ public class TaskListPersistenceTest {
         var initial = new Context(null, (String) null);
 
         // Create with mixed states
-        var mixed = new TaskList.TaskListData(
-                List.of(
-                        new TaskList.TaskItem("Done 1", "Completed", true),
-                        new TaskList.TaskItem("Incomplete", "To do", false),
-                        new TaskList.TaskItem("Done 2", "Also done", true)));
+        var mixed = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("Done 1", "Completed", true),
+                new TaskList.TaskItem("Incomplete", "To do", false),
+                new TaskList.TaskItem("Done 2", "Also done", true)));
         var contextWithMixed = initial.withTaskList(mixed, "Mixed initial");
 
         // Replace with new tasks (simulating replacement by creating new data)
         var newTasks = List.of("Fresh task 1", "Fresh task 2");
         var newData = new TaskList.TaskListData(
-                newTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList());
+                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
         var afterReplace = contextWithMixed.withTaskList(newData, "Task list replaced");
 
         // Verify replacement in persistent storage
@@ -137,17 +130,16 @@ public class TaskListPersistenceTest {
 
         // First create
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of("Task A", "Task B").stream()
-                                .map(t -> new TaskList.TaskItem(t, t, false))
-                                .toList()),
+                new TaskList.TaskListData(List.of("Task A", "Task B").stream()
+                        .map(t -> new TaskList.TaskItem(t, t, false))
+                        .toList()),
                 "Created A, B");
-        
+
         // First append
         var existing2 = new java.util.ArrayList<>(c1.getTaskListDataOrEmpty().tasks());
         existing2.add(new TaskList.TaskItem("Task C", "Task C", false));
         var c2 = c1.withTaskList(new TaskList.TaskListData(existing2), "Appended C");
-        
+
         // Second append
         var existing3 = new java.util.ArrayList<>(c2.getTaskListDataOrEmpty().tasks());
         existing3.add(new TaskList.TaskItem("Task D", "Task D", false));
@@ -168,8 +160,7 @@ public class TaskListPersistenceTest {
         var initial = new Context(null, (String) null);
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
                 "Task list created");
 
         var frag = result.getTaskListFragment();

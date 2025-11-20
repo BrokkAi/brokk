@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.context.Context;
 import ai.brokk.tasks.TaskList;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -23,20 +22,18 @@ public class TaskListUIRefreshTest {
         var initial = new Context(cm, (String) null);
 
         // Create context with mixed task states
-        var existingData = new TaskList.TaskListData(
-                List.of(
-                        new TaskList.TaskItem("Done 1", "Completed task", true),
-                        new TaskList.TaskItem("Incomplete 1", "Incomplete task 1", false),
-                        new TaskList.TaskItem("Done 2", "Another done", true),
-                        new TaskList.TaskItem("Incomplete 2", "Incomplete task 2", false)));
+        var existingData = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("Done 1", "Completed task", true),
+                new TaskList.TaskItem("Incomplete 1", "Incomplete task 1", false),
+                new TaskList.TaskItem("Done 2", "Another done", true),
+                new TaskList.TaskItem("Incomplete 2", "Incomplete task 2", false)));
         var contextWithTasks = initial.withTaskList(existingData, "Initial setup");
 
         // Capture pre-existing incomplete tasks by examining before replacement
-        var preExistingIncompleteTasks =
-                contextWithTasks.getTaskListDataOrEmpty().tasks().stream()
-                        .filter(t -> !t.done())
-                        .map(TaskList.TaskItem::text)
-                        .toList();
+        var preExistingIncompleteTasks = contextWithTasks.getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .toList();
 
         assertEquals(2, preExistingIncompleteTasks.size(), "Should have 2 incomplete tasks");
         assertTrue(preExistingIncompleteTasks.contains("Incomplete task 1"));
@@ -48,8 +45,7 @@ public class TaskListUIRefreshTest {
         var initial = new Context(null, (String) null);
 
         // Scenario: User has incomplete tasks, then replaces list
-        var existingData = new TaskList.TaskListData(
-                List.of(new TaskList.TaskItem("Work", "Incomplete work", false)));
+        var existingData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Work", "Incomplete work", false)));
         var contextWithTasks = initial.withTaskList(existingData, "Initial");
 
         // Capture pre-existing incomplete
@@ -61,10 +57,9 @@ public class TaskListUIRefreshTest {
         // Now replace the list
         var newTasks = List.of("New task A", "New task B");
         var result = contextWithTasks.withTaskList(
-                new TaskList.TaskListData(
-                        newTasks.stream()
-                                .map(t -> new TaskList.TaskItem(t, t, false))
-                                .toList()),
+                new TaskList.TaskListData(newTasks.stream()
+                        .map(t -> new TaskList.TaskItem(t, t, false))
+                        .toList()),
                 "Task list replaced");
 
         // Verify new tasks were created
@@ -84,10 +79,9 @@ public class TaskListUIRefreshTest {
         // Scenario: No existing tasks, user creates new list -> autoplay should be allowed
         var newTasks = List.of("Task 1", "Task 2");
         var result = initial.withTaskList(
-                new TaskList.TaskListData(
-                        newTasks.stream()
-                                .map(t -> new TaskList.TaskItem(t, t, false))
-                                .toList()),
+                new TaskList.TaskListData(newTasks.stream()
+                        .map(t -> new TaskList.TaskItem(t, t, false))
+                        .toList()),
                 "Task list created");
 
         // Verify new tasks exist
@@ -105,10 +99,9 @@ public class TaskListUIRefreshTest {
         // Create initial list with incomplete task
         var initialTasks = List.of("Existing incomplete");
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(
-                        initialTasks.stream()
-                                .map(t -> new TaskList.TaskItem(t, t, false))
-                                .toList()),
+                new TaskList.TaskListData(initialTasks.stream()
+                        .map(t -> new TaskList.TaskItem(t, t, false))
+                        .toList()),
                 "Initial task");
 
         // Capture pre-existing incomplete
@@ -137,8 +130,7 @@ public class TaskListUIRefreshTest {
         var initial = new Context(cm, (String) null);
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
                 "Task list created");
 
         var frag = result.getTaskListFragment();
@@ -156,8 +148,7 @@ public class TaskListUIRefreshTest {
 
         // Create with tasks
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
                 "Task list created");
         assertTrue(c1.getTaskListFragment().isPresent());
 

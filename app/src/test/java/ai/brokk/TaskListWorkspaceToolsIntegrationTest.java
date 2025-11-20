@@ -22,8 +22,13 @@ public class TaskListWorkspaceToolsIntegrationTest {
                 return new IConsoleIO() {
                     @Override
                     public void toolError(String msg, String title) {}
+
                     @Override
-                    public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean isNewMessage,
+                            boolean isReasoning) {}
                 };
             }
         };
@@ -53,8 +58,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
         // Create initial list (simulate via withTaskList)
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of(new TaskList.TaskItem("Initial task", "Initial task", false))),
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Initial task", "Initial task", false))),
                 "Initial task created");
 
         // Now use WorkspaceTools to append
@@ -85,8 +89,13 @@ public class TaskListWorkspaceToolsIntegrationTest {
                 return new IConsoleIO() {
                     @Override
                     public void toolError(String msg, String title) {}
+
                     @Override
-                    public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean isNewMessage,
+                            boolean isReasoning) {}
                 };
             }
         };
@@ -117,8 +126,13 @@ public class TaskListWorkspaceToolsIntegrationTest {
                 return new IConsoleIO() {
                     @Override
                     public void toolError(String msg, String title) {}
+
                     @Override
-                    public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean isNewMessage,
+                            boolean isReasoning) {}
                 };
             }
         };
@@ -143,8 +157,13 @@ public class TaskListWorkspaceToolsIntegrationTest {
                 return new IConsoleIO() {
                     @Override
                     public void toolError(String msg, String title) {}
+
                     @Override
-                    public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean isNewMessage,
+                            boolean isReasoning) {}
                 };
             }
         };
@@ -152,8 +171,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
         // Create initial list via Context API
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(
-                        List.of(new TaskList.TaskItem("Initial", "Initial", false))),
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Initial", "Initial", false))),
                 "Initial created");
         var wst = new WorkspaceTools(c1);
 
@@ -171,10 +189,8 @@ public class TaskListWorkspaceToolsIntegrationTest {
         var initial = new Context(null, (String) null);
 
         // Create list with mixed states
-        var mixed = new TaskList.TaskListData(
-                List.of(
-                        new TaskList.TaskItem("Done", "Completed", true),
-                        new TaskList.TaskItem("Todo", "Not done", false)));
+        var mixed = new TaskList.TaskListData(List.of(
+                new TaskList.TaskItem("Done", "Completed", true), new TaskList.TaskItem("Todo", "Not done", false)));
         var c1 = initial.withTaskList(mixed, "Mixed");
 
         // Use WorkspaceTools to replace
@@ -197,16 +213,20 @@ public class TaskListWorkspaceToolsIntegrationTest {
                 return new IConsoleIO() {
                     @Override
                     public void toolError(String msg, String title) {}
+
                     @Override
-                    public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean isNewMessage,
+                            boolean isReasoning) {}
                 };
             }
         };
         var initial = new Context(cm, (String) null);
 
         // Create list with completed task
-        var completed = new TaskList.TaskListData(
-                List.of(new TaskList.TaskItem("Done", "Finished", true)));
+        var completed = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Done", "Finished", true)));
         var c1 = initial.withTaskList(completed, "With completed");
 
         // Use WorkspaceTools to append
