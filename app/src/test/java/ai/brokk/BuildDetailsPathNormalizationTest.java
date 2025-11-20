@@ -66,10 +66,7 @@ public class BuildDetailsPathNormalizationTest {
 
         var project = new MainProject(root);
 
-        var details = new BuildAgent.BuildDetails(
-                "", "", "",
-                rawExcludesOrdered,
-                Map.of());
+        var details = new BuildAgent.BuildDetails("", "", "", rawExcludesOrdered, Map.of());
 
         // Act: save and read back from properties
         project.saveBuildDetails(details);
@@ -81,16 +78,11 @@ public class BuildDetailsPathNormalizationTest {
         var parsed1 = parseDetailsFromProps(props1);
 
         // Assert: canonicalized exclusions in order
-        var expectedCanonicalOrder = List.of(
-                "bin",
-                "gradle",
-                "build",
-                "subdir/vendor",
-                "/nbdist",
-                "absUnder"
-        );
-        assertEquals(expectedCanonicalOrder.size(), parsed1.excludedDirectories().size(), "Unexpected excludes size");
-        assertIterableEquals(expectedCanonicalOrder, parsed1.excludedDirectories(), "Exclusions not canonicalized as expected");
+        var expectedCanonicalOrder = List.of("bin", "gradle", "build", "subdir/vendor", "/nbdist", "absUnder");
+        assertEquals(
+                expectedCanonicalOrder.size(), parsed1.excludedDirectories().size(), "Unexpected excludes size");
+        assertIterableEquals(
+                expectedCanonicalOrder, parsed1.excludedDirectories(), "Exclusions not canonicalized as expected");
 
         // Assert: JSON stability across subsequent save of canonical content
         project.saveBuildDetails(parsed1);
@@ -106,9 +98,8 @@ public class BuildDetailsPathNormalizationTest {
         var legacyExcludes = List.of(
                 "build\\",
                 "/nbdist",
-                fooAbs.toString(),      // absolute under project -> should become "foo"
-                ".\\out/"
-        );
+                fooAbs.toString(), // absolute under project -> should become "foo"
+                ".\\out/");
 
         var legacyDetails = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(legacyExcludes), Map.of());
         String legacyJson = MAPPER.writeValueAsString(legacyDetails);

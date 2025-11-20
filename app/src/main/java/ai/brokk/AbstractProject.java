@@ -956,122 +956,97 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return false;
     }
 
-    private boolean isBaselineExcludedRawAware(
-            ProjectFile file, Set<String> normalizedExclusions, Set<String> rawLeadingSlashExclusions) {
-        // First check using the normalized exclusions
-        if (isBaselineExcluded(file, normalizedExclusions)) {
-            return true;
-        }
-
-        // Additionally, if any raw exclusion had a leading slash, match it to the file's first path segment.
-        if (rawLeadingSlashExclusions.isEmpty()) {
-            return false;
-        }
-
-        String fileRel = file.getRelPath().toString().replace('\\', '/');
-        String firstSegment;
-        int slashIdx = fileRel.indexOf('/');
-        if (slashIdx > 0) {
-            firstSegment = fileRel.substring(0, slashIdx);
-        } else {
-            firstSegment = fileRel;
-        }
-
-        // Build a synthetic absolute form: '/' + firstSegment
-        return rawLeadingSlashExclusions.contains("/" + firstSegment);
-    }
-
     /**
-    * Applies gitignore and baseline filtering to the given set of files.
-    * Uses manual IgnoreNode parsing to provide comprehensive ignore support including
-    * nested .gitignore files, global ignores, and .git/info/exclude.
-    *
-    * Note: We use manual IgnoreNode parsing instead of JGit's WorkingTreeIterator
-    * because WorkingTreeIterator is designed for tree walking/discovery, not for
-    * efficiently filtering a pre-existing list of files. Using WorkingTreeIterator
-    * would require creating thousands of TreeWalk instances or walking the entire
-    * repository tree, both of which are significantly slower than direct path checking.
-    *
-    * @param files The raw set of files to filter
-    * @return Filtered set of files that are not ignored by gitignore or baseline exclusions
-    */
+     * Applies gitignore and baseline filtering to the given set of files.
+     * Uses manual IgnoreNode parsing to provide comprehensive ignore support including
+     * nested .gitignore files, global ignores, and .git/info/exclude.
+     *
+     * Note: We use manual IgnoreNode parsing instead of JGit's WorkingTreeIterator
+     * because WorkingTreeIterator is designed for tree walking/discovery, not for
+     * efficiently filtering a pre-existing list of files. Using WorkingTreeIterator
+     * would require creating thousands of TreeWalk instances or walking the entire
+     * repository tree, both of which are significantly slower than direct path checking.
+     *
+     * @param files The raw set of files to filter
+     * @return Filtered set of files that are not ignored by gitignore or baseline exclusions
+     */
     protected Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-    // Always apply baseline exclusions, regardless of Git presence
-    Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
-    
-    // Extract raw exclusions that start with '/' before normalization
-    Set<String> rawLeadingSlashExclusions = rawExclusions.stream()
-            .map(String::trim)
-            .filter(s -> s.startsWith("/"))
-            .collect(Collectors.toSet());
-    
-    var baselineExclusions = rawExclusions.stream()
-    .map(s -> s.replace('\\', '/').trim())
-    // Tolerate a single leading slash from historical values, e.g. "/nbdist" -> "nbdist"
-    .map(s -> s.startsWith("/") ? s.substring(1) : s)
-    .map(s -> s.startsWith("./") ? s.substring(2) : s)
-    .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
-    .filter(s -> !s.isEmpty())
-    .collect(Collectors.toSet());
-    
-    // Add fallback normalization of raw leading-slash exclusions to guarantee matches
-    Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
-            .map(s -> s.substring(1)) // strip the leading '/'
-            .map(s -> s.replace('\\', '/'))
-            .map(String::trim)
-            .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
-            .filter(s -> !s.isEmpty())
-            .collect(Collectors.toSet());
-    
-    // Create union of all normalized exclusions
-    Set<String> unionNormalized = new HashSet<>(baselineExclusions);
-    unionNormalized.addAll(normalizedFromRawLeading);
-    
-    Set<ProjectFile> baselineFiltered = files.stream()
-    .filter(file -> !isBaselineExcluded(file, unionNormalized))
-    .collect(Collectors.toSet());
-    
-    // If no Git repo, return after applying baseline exclusions only
-    if (!(repo instanceof GitRepo gitRepo)) {
-    return baselineFiltered;
-    }
-    
-    try {
-    // Precompute fixed gitignore pairs once for all files (performance optimization)
-    var gitTopLevel = gitRepo.getGitTopLevel();
-    var workTreeRoot = gitRepo.getWorkTreeRoot();
-    
-    // Check if project root is under git working tree
-    if (!root.startsWith(workTreeRoot)) {
-    logger.warn(
-    "Project root {} is outside git working tree {}; gitignore filtering skipped",
-    root,
-    workTreeRoot);
-    return baselineFiltered; // Return only baseline-filtered when outside worktree
-    }
-    
-    var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
-    
-    return baselineFiltered.stream()
-    .filter(file -> {
-    try {
-    // do not filter out deps
-    var isDep = file.getRelPath()
-    .startsWith(Path.of(BROKK_DIR).resolve(DEPENDENCIES_DIR));
-    return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignorePairs);
-    } catch (IOException e) {
-    logger.warn(
-    "Error checking if path {} is ignored, including it: {}",
-    file.getRelPath(),
-    e.getMessage());
-    return true; // Include file if we can't determine if it's ignored
-    }
-    })
-    .collect(Collectors.toSet());
-    } catch (Exception e) {
-    logger.warn("Error applying gitignore filtering, returning baseline-filtered files: {}", e.getMessage());
-    return baselineFiltered;
-    }
+        // Always apply baseline exclusions, regardless of Git presence
+        Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
+
+        // Extract raw exclusions that start with '/' before normalization
+        Set<String> rawLeadingSlashExclusions = rawExclusions.stream()
+                .map(String::trim)
+                .filter(s -> s.startsWith("/"))
+                .collect(Collectors.toSet());
+
+        var baselineExclusions = rawExclusions.stream()
+                .map(s -> s.replace('\\', '/').trim())
+                // Tolerate a single leading slash from historical values, e.g. "/nbdist" -> "nbdist"
+                .map(s -> s.startsWith("/") ? s.substring(1) : s)
+                .map(s -> s.startsWith("./") ? s.substring(2) : s)
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        // Add fallback normalization of raw leading-slash exclusions to guarantee matches
+        Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
+                .map(s -> s.substring(1)) // strip the leading '/'
+                .map(s -> s.replace('\\', '/'))
+                .map(String::trim)
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        // Create union of all normalized exclusions
+        Set<String> unionNormalized = new HashSet<>(baselineExclusions);
+        unionNormalized.addAll(normalizedFromRawLeading);
+
+        Set<ProjectFile> baselineFiltered = files.stream()
+                .filter(file -> !isBaselineExcluded(file, unionNormalized))
+                .collect(Collectors.toSet());
+
+        // If no Git repo, return after applying baseline exclusions only
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return baselineFiltered;
+        }
+
+        try {
+            // Precompute fixed gitignore pairs once for all files (performance optimization)
+            var gitTopLevel = gitRepo.getGitTopLevel();
+            var workTreeRoot = gitRepo.getWorkTreeRoot();
+
+            // Check if project root is under git working tree
+            if (!root.startsWith(workTreeRoot)) {
+                logger.warn(
+                        "Project root {} is outside git working tree {}; gitignore filtering skipped",
+                        root,
+                        workTreeRoot);
+                return baselineFiltered; // Return only baseline-filtered when outside worktree
+            }
+
+            var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
+
+            return baselineFiltered.stream()
+                    .filter(file -> {
+                        try {
+                            // do not filter out deps
+                            var isDep = file.getRelPath()
+                                    .startsWith(Path.of(BROKK_DIR).resolve(DEPENDENCIES_DIR));
+                            return isDep || !isPathIgnored(gitRepo, file.getRelPath(), fixedGitignorePairs);
+                        } catch (IOException e) {
+                            logger.warn(
+                                    "Error checking if path {} is ignored, including it: {}",
+                                    file.getRelPath(),
+                                    e.getMessage());
+                            return true; // Include file if we can't determine if it's ignored
+                        }
+                    })
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            logger.warn("Error applying gitignore filtering, returning baseline-filtered files: {}", e.getMessage());
+            return baselineFiltered;
+        }
     }
 
     @Override

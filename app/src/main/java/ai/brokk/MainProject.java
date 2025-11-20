@@ -286,19 +286,18 @@ public final class MainProject extends AbstractProject {
 
                 // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
                 Map<String, String> envIn = details.environmentVariables();
-                Map<String, String> canonicalEnv = new HashMap<>(envIn == null ? 0 : envIn.size());
-                if (envIn != null) {
-                    for (Map.Entry<String, String> e : envIn.entrySet()) {
-                        String k = e.getKey();
-                        String v = e.getValue();
-                        if (v == null) {
-                            continue;
-                        }
-                        if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                            canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-                        } else {
-                            canonicalEnv.put(k, v);
-                        }
+                Map<String, String> canonicalEnv = new HashMap<>(envIn.size());
+
+                for (Map.Entry<String, String> e : envIn.entrySet()) {
+                    String k = e.getKey();
+                    String v = e.getValue();
+                    if (v == null) {
+                        continue;
+                    }
+                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                    } else {
+                        canonicalEnv.put(k, v);
                     }
                 }
 

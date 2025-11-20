@@ -4,8 +4,8 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility for canonicalizing path-like strings into an OS-agnostic, stable on-disk representation.
@@ -38,8 +38,6 @@ public final class PathNormalizer {
      * @return canonical String using forward slashes, or empty string if {@code raw} is blank
      */
     public static String canonicalizeForProject(String raw, Path projectRoot) {
-        Objects.requireNonNull(projectRoot, "projectRoot");
-        if (raw == null) return "";
         String s = raw.trim();
         if (s.isEmpty()) return "";
 
@@ -89,9 +87,6 @@ public final class PathNormalizer {
      * @return a LinkedHashSet containing canonicalized entries
      */
     public static Set<String> canonicalizeAllForProject(Collection<String> raws, Path projectRoot) {
-        Objects.requireNonNull(raws, "raws");
-        Objects.requireNonNull(projectRoot, "projectRoot");
-
         Set<String> result = new LinkedHashSet<>();
         for (String r : raws) {
             String c = canonicalizeForProject(r, projectRoot);
@@ -114,7 +109,6 @@ public final class PathNormalizer {
      * @return canonicalized path string, or empty string if blank/null
      */
     public static String canonicalizeEnvPathValue(String raw) {
-        if (raw == null) return "";
         String s = raw.trim();
         if (s.isEmpty()) return "";
 
@@ -141,8 +135,8 @@ public final class PathNormalizer {
     }
 
     private static boolean looksAbsolute(String s) {
-        if (s.startsWith("/")) return true;                // POSIX absolute
-        if (s.startsWith("//")) return true;               // UNC-like
+        if (s.startsWith("/")) return true; // POSIX absolute
+        if (s.startsWith("//")) return true; // UNC-like
         // Windows drive-absolute in forward-slash form: "C:/..."
         return s.matches("^[A-Za-z]:/.*");
     }
@@ -235,6 +229,7 @@ public final class PathNormalizer {
      * If the given path cannot be parsed as an absolute path on this OS, or is outside the project root,
      * return null. Otherwise return a forward-slash relative path.
      */
+    @Nullable
     private static String tryRelativizeAgainstProject(String absForwardSlashPath, Path projectRoot) {
         try {
             Path projectAbs = projectRoot.toAbsolutePath().normalize();
@@ -269,6 +264,7 @@ public final class PathNormalizer {
      * Convert a forward-slash path string to a system Path best-effort,
      * accounting for Windows vs POSIX differences.
      */
+    @Nullable
     private static Path toSystemPath(String forwardSlashPath) {
         try {
             if (isWindows()) {

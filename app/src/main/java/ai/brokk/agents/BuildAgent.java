@@ -370,7 +370,8 @@ public class BuildAgent {
             String testAllCommand,
             String testSomeCommand,
             @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
-            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
+            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Map<String, String> environmentVariables) {
 
         @VisibleForTesting
         BuildDetails(
