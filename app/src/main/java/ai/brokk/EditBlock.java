@@ -644,29 +644,28 @@ public class EditBlock {
             int baseTargetIndent = countLeadingWhitespace(truncatedTarget[0]);
             int baseReplaceIndent = countLeadingWhitespace(truncatedReplace[0]);
 
-            // When a search block has no indent (e.g. BRK_FUNCTION), its body's indentation may be absolute.
-            // We calculate a scaling factor to normalize the replacement's indentation to match the target's structure.
+            // Always derive a scale from the post-resolved target snippet and the replacement block.
+            // This normalizes the replacement's relative indentation to match the target's structure.
             double scale = 1.0;
-            if (baseTargetIndent == 0) {
-                int targetIndentStep = -1;
-                for (int i = 1; i < truncatedTarget.length; i++) {
-                    if (!truncatedTarget[i].isBlank()) {
-                        targetIndentStep = countLeadingWhitespace(truncatedTarget[i]) - baseTargetIndent;
-                        break;
-                    }
-                }
 
-                int replaceIndentStep = -1;
-                for (int i = 1; i < truncatedReplace.length; i++) {
-                    if (!truncatedReplace[i].isBlank()) {
-                        replaceIndentStep = countLeadingWhitespace(truncatedReplace[i]) - baseReplaceIndent;
-                        break;
-                    }
+            int targetIndentStep = -1;
+            for (int i = 1; i < truncatedTarget.length; i++) {
+                if (!truncatedTarget[i].isBlank()) {
+                    targetIndentStep = countLeadingWhitespace(truncatedTarget[i]) - baseTargetIndent;
+                    break;
                 }
+            }
 
-                if (targetIndentStep > 0 && replaceIndentStep > 0) {
-                    scale = (double) targetIndentStep / replaceIndentStep;
+            int replaceIndentStep = -1;
+            for (int i = 1; i < truncatedReplace.length; i++) {
+                if (!truncatedReplace[i].isBlank()) {
+                    replaceIndentStep = countLeadingWhitespace(truncatedReplace[i]) - baseReplaceIndent;
+                    break;
                 }
+            }
+
+            if (targetIndentStep > 0 && replaceIndentStep > 0) {
+                scale = (double) targetIndentStep / replaceIndentStep;
             }
 
             for (String replLine : truncatedReplace) {
