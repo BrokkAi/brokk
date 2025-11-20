@@ -110,6 +110,9 @@ public class ThemeColors {
     public static final String CHIP_HISTORY_BACKGROUND = "chip_history_bg";
     public static final String CHIP_HISTORY_FOREGROUND = "chip_history_fg";
     public static final String CHIP_HISTORY_BORDER = "chip_history_border";
+    public static final String CHIP_TASKLIST_BACKGROUND = "chip_tasklist_bg";
+    public static final String CHIP_TASKLIST_FOREGROUND = "chip_tasklist_fg";
+    public static final String CHIP_TASKLIST_BORDER = "chip_tasklist_border";
     public static final String CHIP_OTHER_BACKGROUND = "chip_other_bg";
     public static final String CHIP_OTHER_FOREGROUND = "chip_other_fg";
     public static final String CHIP_OTHER_BORDER = "chip_other_border";
