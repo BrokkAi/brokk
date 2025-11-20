@@ -99,7 +99,7 @@ public interface GitTabUiUtil {
         SwingUtilities.invokeLater(() -> {
             resetUiState.run();
             cancelActiveTasks.run();
-            SwingUtilities.invokeLater(refreshData);
+            refreshData.run();
         });
     }
 }
