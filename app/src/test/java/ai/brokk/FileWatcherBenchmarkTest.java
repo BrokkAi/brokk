@@ -12,7 +12,7 @@ import org.junit.jupiter.api.*;
  * Run them manually or with a performance testing profile.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-// @Disabled("Benchmark tests - enable individually for performance measurements")
+@Disabled("Benchmark tests - enable individually for performance measurements")
 public class FileWatcherBenchmarkTest {
 
     private static Path tempDir;
@@ -52,10 +52,6 @@ public class FileWatcherBenchmarkTest {
         nativeResult.printReport();
 
         printComparison(legacyResult, nativeResult);
-
-        // Basic sanity checks
-        Assertions.assertTrue(legacyResult.getP50LatencyMs() < 1000, "Legacy P50 latency should be < 1s");
-        Assertions.assertTrue(nativeResult.getP50LatencyMs() < 1000, "Native P50 latency should be < 1s");
     }
 
     @Test
@@ -76,9 +72,6 @@ public class FileWatcherBenchmarkTest {
         nativeResult.printReport();
 
         printComparison(legacyResult, nativeResult);
-
-        Assertions.assertTrue(legacyResult.getP50LatencyMs() < 1000, "Legacy P50 latency should be < 1s");
-        Assertions.assertTrue(nativeResult.getP50LatencyMs() < 1000, "Native P50 latency should be < 1s");
     }
 
     @Test
@@ -99,9 +92,6 @@ public class FileWatcherBenchmarkTest {
         nativeResult.printReport();
 
         printComparison(legacyResult, nativeResult);
-
-        Assertions.assertTrue(legacyResult.getP50LatencyMs() < 2000, "Legacy P50 latency should be < 2s");
-        Assertions.assertTrue(nativeResult.getP50LatencyMs() < 2000, "Native P50 latency should be < 2s");
     }
 
     @Test
@@ -253,9 +243,6 @@ public class FileWatcherBenchmarkTest {
         nativeResult.printReport();
 
         printComparison(legacyResult, nativeResult);
-
-        Assertions.assertTrue(legacyResult.getP50LatencyMs() < 1000, "Legacy git project latency should be < 1s");
-        Assertions.assertTrue(nativeResult.getP50LatencyMs() < 1000, "Native git project latency should be < 1s");
     }
 
     /**

@@ -1,8 +1,8 @@
 package ai.brokk;
 
+import ai.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -72,7 +72,14 @@ public class WatchServiceFactory {
      * Package-private for testing.
      */
     static String getOsName() {
-        return System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        if (Environment.isMacOs()) {
+            return "mac";
+        } else if (Environment.isLinux()) {
+            return "linux";
+        } else if (Environment.isWindows()) {
+            return "windows";
+        }
+        return "unknown";
     }
 
     /**
