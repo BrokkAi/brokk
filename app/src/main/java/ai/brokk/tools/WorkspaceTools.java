@@ -445,7 +445,13 @@ public class WorkspaceTools {
 
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-        io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
 
         return formattedTaskList;
     }
@@ -472,7 +478,13 @@ public class WorkspaceTools {
 
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-        io.llmOutput("I am appending the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Added** %d task%s to the list. Review them in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
 
         return formattedTaskList;
     }
