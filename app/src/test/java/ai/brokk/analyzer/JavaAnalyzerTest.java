@@ -286,6 +286,8 @@ public class JavaAnalyzerTest {
                 "Interface",
                 "MethodReferenceUsage",
                 "MethodReturner",
+                "Overloads",
+                "OverloadsUser",
                 "ServiceImpl",
                 "ServiceInterface",
                 "UseE",

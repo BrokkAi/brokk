@@ -263,18 +263,51 @@ public final class FuzzyUsageFinder {
      * Find usages by fully-qualified name.
      *
      * <p>For an empty project/analyzer, returns Success with an empty hit list.
+     * <p>If multiple definitions exist (e.g., overloaded methods), aggregates usages from all of them.
      */
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) {
         if (isEffectivelyEmpty()) {
             logger.debug("Project/analyzer empty; returning empty Success for fqName={}", fqName);
             return new FuzzyResult.Success(Set.of());
         }
-        var maybeCodeUnit = analyzer.getDefinitions(fqName).stream().findFirst();
-        if (maybeCodeUnit.isEmpty()) {
-            logger.warn("Unable to find code unit for fqName={}", fqName);
-            return new FuzzyResult.Failure(fqName, "Unable to find associated code unit for the given name");
+        var definitions = analyzer.getDefinitions(fqName);
+        if (definitions.isEmpty()) {
+            logger.debug("No definitions found for fqName={}; returning Failure", fqName);
+            return new FuzzyResult.Failure(fqName, "No definitions found");
         }
-        return findUsages(maybeCodeUnit.get(), maxFiles, maxUsages);
+
+        // Aggregate usages from all definitions (handles overloads)
+        Set<UsageHit> allHits = new HashSet<>();
+        for (var cu : definitions) {
+            var result = findUsages(cu, maxFiles, maxUsages);
+            switch (result) {
+                case FuzzyResult.Success success -> {
+                    allHits.addAll(success.hits());
+                }
+                case FuzzyResult.Ambiguous ambiguous -> {
+                    allHits.addAll(ambiguous.hits());
+                }
+                case FuzzyResult.TooManyCallsites tooMany -> {
+                    logger.debug("Too many callsites for {} when finding usages of {}: {} > {}",
+                                 cu.fqName(), fqName, tooMany.totalCallsites(), tooMany.limit());
+                }
+                case FuzzyResult.Failure failure -> {
+                    logger.debug("Failure for {} when finding usages of {}: {}",
+                                 cu.fqName(), fqName, failure.reason());
+                }
+            }
+            if (allHits.size() >= maxUsages) {
+                break;
+            }
+        }
+        logger.debug("Total aggregated hits for {}: {}", fqName, allHits.size());
+
+        // Apply maxUsages limit to total
+        if (allHits.size() > maxUsages) {
+            allHits = allHits.stream().limit(maxUsages).collect(Collectors.toSet());
+        }
+
+        return new FuzzyResult.Success(allHits);
     }
 
     public FuzzyResult findUsages(String fqName) {
