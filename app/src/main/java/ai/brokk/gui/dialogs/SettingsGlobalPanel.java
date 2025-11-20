@@ -183,6 +183,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         populateMcpServersTab();
     }
 
+    /**
+     * Override to recursively enable/disable all child components.
+     * JPanel's default setEnabled only affects the panel itself.
+     */
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        setEnabledRecursive(this, enabled);
+    }
+
+    private void setEnabledRecursive(Container container, boolean enabled) {
+        for (Component comp : container.getComponents()) {
+            comp.setEnabled(enabled);
+            if (comp instanceof Container c) {
+                setEnabledRecursive(c, enabled);
+            }
+        }
+    }
+
     private void populateGeneralTab(SettingsData data) {
         // JVM Memory
         try {

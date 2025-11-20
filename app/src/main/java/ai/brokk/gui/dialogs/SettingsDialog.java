@@ -83,10 +83,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             // No restart needed if cancelled
         });
         applyButton.addActionListener(e -> {
-            if (applySettings()) {
-                // Reload settings in panels to reflect saved state
-                loadSettingsInBackground();
-            }
+            applySettings();
         });
 
         getRootPane()

@@ -767,33 +767,34 @@ public class MenuBar {
                 private record ErrorInfo(String title, String message) {}
 
                 private ErrorInfo buildErrorDialog() {
-                    String title;
-                    String message;
-                    var kind = java.util.Objects.requireNonNull(
-                            failureKind, "failureKind must be set before calling buildErrorDialog()");
+                    var kind = failureKind;
+                    ErrorInfo result;
 
-                    switch (kind) {
-                        case INVALID_FORMAT -> {
-                            title = "Invalid API Key";
-                            message = "The Brokk API key appears to be invalid. "
-                                    + "Please check the key format and try again.";
-                        }
-                        case NETWORK -> {
-                            title = "API Key Validation Failed";
-                            message = "Could not validate the Brokk API key due to a "
-                                    + "network or server error. Please check your connection and try again.";
-                        }
-                        case OTHER -> {
-                            title = "Error";
-                            message = "An unexpected error occurred during API key validation. Please try again.";
-                        }
+                    if (kind == null) {
+                        result = new ErrorInfo(
+                                "Error", "An unknown error occurred during API key validation. Please try again.");
+                    } else {
+                        result = switch (kind) {
+                            case INVALID_FORMAT ->
+                                new ErrorInfo(
+                                        "Invalid API Key",
+                                        "The Brokk API key appears to be invalid. Please check the key format and try again.");
+                            case NETWORK ->
+                                new ErrorInfo(
+                                        "API Key Validation Failed",
+                                        "Could not validate the Brokk API key due to a network or server error. Please check your connection and try again.");
+                            case OTHER ->
+                                new ErrorInfo(
+                                        "Error",
+                                        "An unexpected error occurred during API key validation. Please try again.");
+                        };
                     }
 
                     if (errorMessage != null && !errorMessage.isBlank()) {
-                        message += "\n\nError: " + errorMessage;
+                        return new ErrorInfo(result.title(), result.message() + "\n\nError: " + errorMessage);
                     }
 
-                    return new ErrorInfo(title, message);
+                    return result;
                 }
             }.execute();
         });

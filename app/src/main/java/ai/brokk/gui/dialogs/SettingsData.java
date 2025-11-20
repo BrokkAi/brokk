@@ -45,7 +45,7 @@ public record SettingsData(
         var models = MainProject.loadFavoriteModels(); // file I/O
 
         // If empty, create default and save
-        if (models.isEmpty() && project != null) {
+        if (project != null && models.isEmpty()) {
             var currentCodeConfig = project.getMainProject().getCodeModelConfig();
             var defaultAlias = "default";
             var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
