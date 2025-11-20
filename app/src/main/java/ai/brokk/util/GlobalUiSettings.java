@@ -97,6 +97,47 @@ public final class GlobalUiSettings {
         }
     }
 
+    // Grouped settings records for atomic batch saving
+    public record NotificationSettings(
+            boolean showCost,
+            boolean showFreeInternalLLMCost,
+            boolean showError,
+            boolean showConfirm,
+            boolean showInfo) {
+        public void applyTo(Properties props) {
+            props.setProperty(KEY_SHOW_COST_NOTIFICATIONS, Boolean.toString(showCost));
+            props.setProperty(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, Boolean.toString(showFreeInternalLLMCost));
+            props.setProperty(KEY_SHOW_ERROR_NOTIFICATIONS, Boolean.toString(showError));
+            props.setProperty(KEY_SHOW_CONFIRM_NOTIFICATIONS, Boolean.toString(showConfirm));
+            props.setProperty(KEY_SHOW_INFO_NOTIFICATIONS, Boolean.toString(showInfo));
+        }
+    }
+
+    public record UiPreferences(
+            boolean advancedMode,
+            boolean verticalActivityLayout,
+            boolean persistPerProjectBounds,
+            boolean instructionsTabInsertIndentation,
+            boolean diffUnifiedView) {
+        public void applyTo(Properties props) {
+            props.setProperty(KEY_UI_ADVANCED_MODE, Boolean.toString(advancedMode));
+            props.setProperty(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, Boolean.toString(verticalActivityLayout));
+            props.setProperty(KEY_PERSIST_PER_PROJECT_BOUNDS, Boolean.toString(persistPerProjectBounds));
+            props.setProperty(
+                    KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, Boolean.toString(instructionsTabInsertIndentation));
+            props.setProperty(KEY_DIFF_UNIFIED_VIEW, Boolean.toString(diffUnifiedView));
+        }
+    }
+
+    public static void saveAllUiSettings(NotificationSettings notifications, UiPreferences preferences) {
+        var props = loadProps();
+        notifications.applyTo(props);
+        preferences.applyTo(props);
+        cachedProps = props;
+        saveProps(props);
+        logger.debug("Saved all UI settings atomically");
+    }
+
     // --- Keybinding persistence ---
     public static KeyStroke getKeybinding(String id, KeyStroke fallback) {
         var props = loadProps();

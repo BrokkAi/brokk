@@ -1518,6 +1518,107 @@ public final class MainProject extends AbstractProject {
                 settings.automatic() ? "n/a" : settings.manualMb());
     }
 
+    // Grouped settings records for atomic batch saving
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+        public void applyTo(Properties props) {
+            if (brokkApiKey.isBlank()) {
+                props.remove("brokkApiKey");
+            } else {
+                props.setProperty("brokkApiKey", brokkApiKey.trim());
+            }
+            props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
+            if (forceToolEmulation) {
+                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
+            } else {
+                props.remove(FORCE_TOOL_EMULATION_KEY);
+            }
+        }
+    }
+
+    public record AppearanceSettings(String theme, boolean wordWrap, String uiScale, float terminalFontSize) {
+        public void applyTo(Properties props) {
+            props.setProperty("theme", theme);
+            props.setProperty("wordWrap", String.valueOf(wordWrap));
+            props.setProperty(UI_SCALE_KEY, uiScale);
+            if (terminalFontSize == 11.0f) {
+                props.remove(TERMINAL_FONT_SIZE_KEY);
+            } else {
+                props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(terminalFontSize));
+            }
+        }
+    }
+
+    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
+        public void applyTo(Properties props) {
+            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
+            int clamped = Math.max(0, Math.min(100, thresholdPercent));
+            if (clamped == 80) {
+                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+            } else {
+                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
+            }
+        }
+    }
+
+    public record StartupSettings(StartupOpenMode openMode) {
+        public void applyTo(Properties props) {
+            props.setProperty(STARTUP_OPEN_MODE_KEY, openMode.name());
+        }
+    }
+
+    public record GeneralSettings(JvmMemorySettings jvmMemory) {
+        public void applyTo(Properties props) {
+            if (jvmMemory.automatic()) {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "auto");
+                props.remove(JVM_MEMORY_MB_KEY);
+            } else {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "manual");
+                props.setProperty(JVM_MEMORY_MB_KEY, Integer.toString(jvmMemory.manualMb()));
+            }
+        }
+    }
+
+    public record ModelSettings(List<Service.FavoriteModel> favoriteModels, McpConfig mcpConfig) {
+        public void applyTo(Properties props) {
+            try {
+                String json = objectMapper.writeValueAsString(favoriteModels);
+                props.setProperty("favoriteModelsJson", json);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing favorite models to JSON", e);
+            }
+            try {
+                String mcpJson = objectMapper.writeValueAsString(mcpConfig);
+                props.setProperty("mcpConfigJson", mcpJson);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing MCP config to JSON", e);
+            }
+        }
+    }
+
+    public static void saveAllGlobalSettings(
+            ServiceSettings service,
+            AppearanceSettings appearance,
+            CompressionSettings compression,
+            StartupSettings startup,
+            GeneralSettings general,
+            ModelSettings models) {
+        var props = loadGlobalProperties();
+        service.applyTo(props);
+        appearance.applyTo(props);
+        compression.applyTo(props);
+        startup.applyTo(props);
+        general.applyTo(props);
+        models.applyTo(props);
+        saveGlobalProperties(props);
+
+        // Clear cache if brokk key changed
+        if (!service.brokkApiKey().equals(getBrokkKey())) {
+            isDataShareAllowedCache = null;
+        }
+
+        logger.debug("Saved all global settings atomically");
+    }
+
     public static String getBrokkKey() {
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
