@@ -8,6 +8,7 @@ import ai.brokk.MainProject;
 import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.IssueFixJobManager;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.git.GitRepo;
 import com.google.common.base.Splitter;
@@ -997,8 +998,19 @@ public final class HeadlessExecutorMain {
                 }
 
                 try {
-                // Schedule async execution (worktree creation, fix generation, PR creation)
-                executeIssueFixAsync(jobId, jobSpec, request, issueNumber, issueTitle, branchName);
+                    // Schedule async execution via IssueFixJobManager
+                    var manager = new IssueFixJobManager(
+                            jobStore,
+                            contextManager,
+                            jobRunner,
+                            jobSpec,
+                            request,
+                            jobId,
+                            jobReservation,
+                            issueNumber,
+                            issueTitle,
+                            branchName);
+                    manager.execute();
                 } catch (Exception ex) {
                     var rolledBack = jobReservation.releaseIfOwner(jobId);
                     logger.warn(
@@ -1116,116 +1128,6 @@ public final class HeadlessExecutorMain {
                 issueNumber, issueTitle, owner, repo, issueTitle);
     }
 
-    /**
-     * Schedule async execution of the issue fix workflow.
-     * Creates a worktree, session, and runs the job asynchronously.
-     */
-    private void executeIssueFixAsync(
-            String jobId,
-            ai.brokk.executor.jobs.JobSpec jobSpec,
-            IssueFixRequest request,
-            int issueNumber,
-            String issueTitle,
-            String branchName) {
-        logger.info(
-                "Scheduling async issue fix execution: jobId={}, issue={}/{}/{}, branch={}",
-                jobId,
-                request.owner(),
-                request.repo(),
-                issueNumber,
-                branchName);
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                // Step 1: Get worktree storage directory and create worktree
-                var project = contextManager.getProject();
-                if (!(project instanceof MainProject mainProject)) {
-                    updateJobStatusFailed(jobId, "Project is not a MainProject");
-                    return;
-                }
-
-                var repo = mainProject.getRepo();
-                if (!(repo instanceof GitRepo gitRepo)) {
-                    updateJobStatusFailed(jobId, "Repository is not a Git repository");
-                    return;
-                }
-
-                var worktreeStorageDir = mainProject.getWorktreeStoragePath();
-                var worktreePath = gitRepo.worktrees().getNextWorktreePath(worktreeStorageDir);
-
-                logger.info("Creating worktree at {} for branch {}", worktreePath, branchName);
-                gitRepo.worktrees().addWorktree(branchName, worktreePath);
-                logger.info("Worktree created successfully at {}", worktreePath);
-
-                // Step 2: Create a session for the worktree
-                var sessionName = "Issue #" + issueNumber + ": " + issueTitle;
-                var frozenContext = contextManager.liveContext();
-                contextManager.createSessionWithoutGui(frozenContext, sessionName);
-                logger.info("Session created for worktree: {}", sessionName);
-
-                // Step 3: Run the job asynchronously
-                jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
-                    if (throwable != null) {
-                        logger.error("Issue fix job {} execution failed", jobId, throwable);
-                        updateJobStatusFailed(jobId, "Job execution failed: " + throwable.getMessage());
-                    } else {
-                        logger.info("Issue fix job {} execution finished successfully, creating PR.", jobId);
-                        try {
-                            var workflowService = new ai.brokk.git.GitWorkflow(contextManager);
-                            var targetBranch = gitRepo.getDefaultBranch();
-                            var prTitle = String.format("Fixes #%d: %s", issueNumber, issueTitle);
-                            var prBody = String.format("Automated fix for issue #%d.", issueNumber);
-
-                            var prUri = workflowService.createPullRequest(branchName, targetBranch, prTitle, prBody);
-                            var prUrl = prUri.toString();
-                            logger.info("Created PR for job {}: {}", jobId, prUrl);
-
-                            var result = java.util.Map.of("pullRequestUrl", prUrl);
-                            updateJobStatusCompleted(jobId, result);
-                        } catch (Exception prEx) {
-                            logger.error("Failed to create pull request for job {}", jobId, prEx);
-                            updateJobStatusFailed(jobId, "Fix generated, but failed to create PR: " + prEx.getMessage());
-                        }
-                    }
-                    jobReservation.releaseIfOwner(jobId);
-                });
-            } catch (Exception ex) {
-                logger.error("Error setting up issue fix workflow for job {}", jobId, ex);
-                updateJobStatusFailed(jobId, "Failed to set up workflow: " + ex.getMessage());
-                jobReservation.releaseIfOwner(jobId);
-            }
-        });
-    }
-
-    /**
-     * Update job status to FAILED with error message.
-     */
-    private void updateJobStatusFailed(String jobId, String errorMessage) {
-        try {
-            var failedStatus = ai.brokk.executor.jobs.JobStatus.queued(jobId)
-                    .withState(ai.brokk.executor.jobs.JobStatus.State.FAILED.toString())
-                    .failed(errorMessage);
-            jobStore.updateStatus(jobId, failedStatus);
-            logger.info("Updated job {} status to FAILED: {}", jobId, errorMessage);
-        } catch (Exception ex) {
-            logger.error("Error updating job status for {}", jobId, ex);
-        }
-    }
-
-    /**
-     * Update job status to COMPLETED with optional result.
-     */
-    private void updateJobStatusCompleted(String jobId, @Nullable Object result) {
-        try {
-            var completedStatus = ai.brokk.executor.jobs.JobStatus.queued(jobId)
-                    .withState(ai.brokk.executor.jobs.JobStatus.State.COMPLETED.toString())
-                    .completed(result);
-            jobStore.updateStatus(jobId, completedStatus);
-            logger.info("Updated job {} status to COMPLETED with result: {}", jobId, result);
-        } catch (Exception ex) {
-            logger.error("Error updating job status for {}", jobId, ex);
-        }
-    }
 
     private record CreateSessionRequest(String name) {}
 
