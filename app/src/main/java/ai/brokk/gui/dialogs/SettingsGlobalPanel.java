@@ -1571,7 +1571,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(quickEditModelLabel, gbc);
 
         quickEditModelCombo.setModel(new DefaultComboBoxModel<>(
-                new String[] {"cerebras/gpt-oss-120b", Service.GPT_5_NANO, Service.HAIKU_4_5}));
+                new String[] {Service.CEREBRAS_GPT_OSS_120B, Service.GPT_5_NANO, Service.HAIKU_4_5}));
         quickEditModelHolder.add(quickEditModelCombo, BorderLayout.CENTER);
         var qeHelp = new MaterialButton();
         qeHelp.setIcon(Icons.HELP);
@@ -1596,7 +1596,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         var quickestHolder = new JPanel(new BorderLayout(0, 0));
         quickestModelCombo.setModel(new DefaultComboBoxModel<>(
-                new String[] {"gemini-2.0-flash-lite", Service.GPT_5_NANO, Service.HAIKU_4_5}));
+                new String[] {Service.GEMINI_2_0_FLASH_LITE, Service.GPT_5_NANO, Service.HAIKU_4_5}));
         quickestHolder.add(quickestModelCombo, BorderLayout.CENTER);
         var qkHelp = new MaterialButton();
         qkHelp.setIcon(Icons.HELP);
