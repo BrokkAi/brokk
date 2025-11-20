@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.tasks;
 
 import static org.junit.jupiter.api.Assertions.*;
 
