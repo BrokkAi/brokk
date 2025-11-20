@@ -1147,13 +1147,6 @@ public class Context {
         }
     }
 
-    /**
-     * Create a new Context reflecting external file changes.
-     * - Unchanged fragments are reused.
-     * - For ComputedFragments whose files() intersect 'changed', a refreshed copy is created to clear cached values.
-     * - Preserves taskHistory and parsedOutput; sets action to "Load external changes".
-     * - If 'changed' is empty, returns this.
-     */
     @Blocking
     public Context copyAndRefresh(Set<ProjectFile> changed) {
         if (changed.isEmpty()) {
@@ -1168,15 +1161,20 @@ public class Context {
 
         for (var f : fragments) {
             // Refresh computed fragments whose referenced files intersect the changed set
-            if (!Collections.disjoint(f.files().join(), changed)) {
+            boolean intersects = !Collections.disjoint(f.files().join(), changed);
+            if (intersects) {
                 var refreshed = f.refreshCopy();
-                newFragments.add(refreshed);
                 if (refreshed != f) {
                     anyReplaced = true;
                     replacementMap.put(f, refreshed);
+                    newFragments.add(refreshed);
                 } else {
+                    // If refresh returns the same instance, add exactly once
                     newFragments.add(f);
                 }
+            } else {
+                // Unaffected fragments are preserved as-is
+                newFragments.add(f);
             }
         }
 
