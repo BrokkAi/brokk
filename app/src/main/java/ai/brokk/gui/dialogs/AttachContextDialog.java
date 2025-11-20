@@ -504,7 +504,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         Optional<CodeUnit> opt =
-                analyzer.getDefinitions(input).stream().findFirst().filter(CodeUnit::isClass);
+                analyzer.getDefinitions(input).stream().filter(CodeUnit::isClass).findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isClass)
@@ -533,7 +533,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         Optional<CodeUnit> opt =
-                analyzer.getDefinitions(input).stream().findFirst().filter(CodeUnit::isFunction);
+                analyzer.getDefinitions(input).stream().filter(CodeUnit::isFunction).findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
@@ -563,7 +563,7 @@ public class AttachContextDialog extends JDialog {
 
         // Find best matching symbol (class or method). Prefer method if exact.
         Optional<CodeUnit> exactMethod =
-                analyzer.getDefinitions(input).stream().findFirst().filter(CodeUnit::isFunction);
+                analyzer.getDefinitions(input).stream().filter(CodeUnit::isFunction).findFirst();
         Optional<CodeUnit> any = exactMethod.isPresent()
                 ? exactMethod
                 : analyzer.getDefinitions(input).stream()
