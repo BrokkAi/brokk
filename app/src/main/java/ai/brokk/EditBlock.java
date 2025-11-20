@@ -3,6 +3,7 @@ package ai.brokk;
 import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import ai.brokk.analyzer.*;
+import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -641,19 +642,13 @@ public class EditBlock {
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
             String baseIndent = getLeadingWhitespace(originalLines[matchStart]);
-            int baseTargetIndent = countLeadingWhitespace(truncatedTarget[0]);
-            int baseReplaceIndent = countLeadingWhitespace(truncatedReplace[0]);
+            int baseTargetIndent = IndentUtil.countLeadingWhitespace(truncatedTarget[0]);
+            int baseReplaceIndent = IndentUtil.countLeadingWhitespace(truncatedReplace[0]);
 
-            // Always derive a scale from the post-resolved target snippet and the replacement block.
-            // This normalizes the replacement's relative indentation to match the target's structure.
-            double scale = 1.0;
-
-            int targetIndentStep = findFirstIndentStep(truncatedTarget, baseTargetIndent);
-            int replaceIndentStep = findFirstIndentStep(truncatedReplace, baseReplaceIndent);
-
-            if (targetIndentStep > 0 && replaceIndentStep > 0) {
-                scale = (double) targetIndentStep / replaceIndentStep;
-            }
+            // Compute a scaling factor using shared utility to keep logic consistent across prod and tests.
+            int targetIndentStep = IndentUtil.findFirstIndentStep(truncatedTarget, baseTargetIndent);
+            int replaceIndentStep = IndentUtil.findFirstIndentStep(truncatedReplace, baseReplaceIndent);
+            double scale = IndentUtil.computeIndentScale(targetIndentStep, replaceIndentStep);
 
             for (String replLine : truncatedReplace) {
                 if (replLine.trim().isEmpty()) {
@@ -661,7 +656,7 @@ public class EditBlock {
                     resultLines.add("");
                     continue;
                 }
-                int replaceRelativeIndent = countLeadingWhitespace(replLine) - baseReplaceIndent;
+                int replaceRelativeIndent = IndentUtil.countLeadingWhitespace(replLine) - baseReplaceIndent;
                 int rawAdjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
                 int adjustedRelativeIndent = Math.max(0, rawAdjustedRelativeIndent);
                 if (rawAdjustedRelativeIndent < 0) {
@@ -737,29 +732,6 @@ public class EditBlock {
             }
         }
         return line.substring(0, count);
-    }
-
-    /** @return the count of leading whitespace characters on this line. */
-    private static int countLeadingWhitespace(String line) {
-        int i = 0;
-        while (i < line.length() && Character.isWhitespace(line.charAt(i))) {
-            i++;
-        }
-        return i;
-    }
-
-    /**
-     * Returns the indent delta (relative to baseIndent) of the first non-blank line after the first line.
-     * Returns -1 if no such line exists.
-     */
-    private static int findFirstIndentStep(String[] lines, int baseIndent) {
-        for (int i = 1; i < lines.length; i++) {
-            var ln = lines[i];
-            if (!ln.isBlank()) {
-                return countLeadingWhitespace(ln) - baseIndent;
-            }
-        }
-        return -1;
     }
 
     /**

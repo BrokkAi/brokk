@@ -10,6 +10,7 @@ import ai.brokk.testutil.AssertionHelperUtil;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.IndentUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -239,7 +240,7 @@ public class EditBlockSyntaxTest {
         // This 4-space delta should also be scaled by the same factor used for the 'if' statement's indent.
         // The scaling factor is derived from the analyzer snippet's first indent level (expectedIndentDelta)
         // and the replacement block's first indent level (hardcoded as 4 for this test).
-        double scale = (expectedIndentDelta > 0) ? (double) expectedIndentDelta / REPLACEMENT_BLOCK_INDENT_LEVEL : 1.0;
+        double scale = IndentUtil.computeIndentScale(expectedIndentDelta, REPLACEMENT_BLOCK_INDENT_LEVEL);
         int printlnIndent = ifIndent + (int) Math.round(REPLACEMENT_BLOCK_INDENT_LEVEL * scale);
 
         AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
