@@ -77,6 +77,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox verticalActivityLayoutCheckbox = new JCheckBox("Beta: Vertical Activity Layout");
@@ -260,6 +261,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String currentTheme = MainProject.getTheme();
         switch (currentTheme) {
             case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_DARK_PLUS -> darkPlusThemeRadio.setSelected(true);
             case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
             default -> lightThemeRadio.setSelected(true);
         }
@@ -1153,14 +1155,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio = new JRadioButton("Light");
         darkThemeRadio = new JRadioButton("Dark");
+        darkPlusThemeRadio = new JRadioButton("Dark+");
         highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
         themeGroup.add(darkThemeRadio);
+        themeGroup.add(darkPlusThemeRadio);
         themeGroup.add(highContrastThemeRadio);
 
         lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
         darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
+        darkPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK_PLUS);
         highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
@@ -1171,6 +1176,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(darkPlusThemeRadio, gbc);
 
         gbc.gridy = row++;
         appearancePanel.add(highContrastThemeRadio, gbc);
@@ -1987,6 +1995,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             newTheme = (String) lightThemeRadio.getClientProperty("theme");
         } else if (darkThemeRadio.isSelected()) {
             newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (darkPlusThemeRadio.isSelected()) {
+            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
         } else if (highContrastThemeRadio.isSelected()) {
             newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
         }

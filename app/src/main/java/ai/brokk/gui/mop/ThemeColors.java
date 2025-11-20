@@ -113,6 +113,27 @@ public class ThemeColors {
     public static final String CHIP_OTHER_BACKGROUND = "chip_other_bg";
     public static final String CHIP_OTHER_FOREGROUND = "chip_other_fg";
     public static final String CHIP_OTHER_BORDER = "chip_other_border";
+    public static final String CHIP_NEUTRAL_BACKGROUND = "chip_neutral_bg";
+    public static final String CHIP_NEUTRAL_FOREGROUND = "chip_neutral_fg";
+    public static final String CHIP_NEUTRAL_BORDER = "chip_neutral_border";
+
+    // Extended palette colors for modern visuals (gradients, transparency, overlays)
+    public static final String ACCENT_GRADIENT_START = "accent_gradient_start";
+    public static final String ACCENT_GRADIENT_END = "accent_gradient_end";
+    public static final String GLASS_PANEL_BG = "glass_panel_bg";
+    public static final String SURFACE_OVERLAY = "surface_overlay";
+    public static final String PANEL_TINT = "panel_tint";
+    public static final String HEADER_GRADIENT_START = "header_gradient_start";
+    public static final String HEADER_GRADIENT_END = "header_gradient_end";
+    public static final String TOOLTIP_BG_TRANSLUCENT = "tooltip_bg_translucent";
+    public static final String MODAL_SCRIM = "modal_scrim";
+    public static final String SELECTION_TINT = "selection_tint";
+    public static final String FOCUS_RING = "focus_ring";
+    public static final String BADGE_MUTED_BACKGROUND = "badge_muted_bg";
+    public static final String BADGE_MUTED_FOREGROUND = "badge_muted_fg";
+    public static final String TOOLBAR_BG = "toolbar_bg";
+    public static final String TOOLBAR_BORDER = "toolbar_border";
+    public static final String CODE_BLOCK_GLOW = "code_block_glow";
 
     /**
      * Provides fallback colors for critical keys if UIManager doesn't have them.
