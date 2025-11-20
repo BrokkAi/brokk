@@ -101,8 +101,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
+    /**
+     * Constructor for creating panel without data (will be populated later).
+     * Panel starts in disabled state until data is loaded.
+     */
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -111,7 +116,92 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         setLayout(new BorderLayout());
         initComponents();
-        loadSettings(); // Load settings after components are initialized
+
+        // Disable panel until data is loaded
+        setEnabled(false);
+    }
+
+    /**
+     * Populates UI fields from pre-loaded settings data. No I/O operations.
+     * Must be called on EDT. Enables the panel after populating.
+     */
+    public void populateFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Enable panel now that we have data
+        setEnabled(true);
+
+        populateGeneralTab(data);
+        populateIssuesTab();
+        loadCodeIntelligenceSettings();
+        populateBuildTab(data);
+    }
+
+    private void populateGeneralTab(SettingsData data) {
+        styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
+        styleGuideArea.setCaretPosition(0); // Reset scroll position to top
+        commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
+        commitFormatArea.setCaretPosition(0); // Reset scroll position to top
+        if (reviewGuideArea != null) {
+            reviewGuideArea.setText(data.reviewGuide() != null ? data.reviewGuide() : "");
+            reviewGuideArea.setCaretPosition(0); // Reset scroll position to top
+        }
+    }
+
+    private void populateIssuesTab() {
+        var project = chrome.getProject();
+        IssueProvider currentProvider = project.getIssuesProvider();
+        issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
+
+        githubOwnerField.setEnabled(false);
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false);
+        githubOverrideCheckbox.setSelected(false);
+
+        switch (currentProvider.type()) {
+            case JIRA:
+                if (currentProvider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig) {
+                    jiraBaseUrlField.setText(jiraConfig.baseUrl());
+                    jiraApiTokenField.setText(jiraConfig.apiToken());
+                    jiraProjectKeyField.setText(jiraConfig.projectKey());
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
+                break;
+            case GITHUB:
+                if (currentProvider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
+                    if (!githubConfig.isDefault()) {
+                        githubOwnerField.setText(githubConfig.owner());
+                        githubRepoField.setText(githubConfig.repo());
+                        githubHostField.setText(githubConfig.host());
+                        githubOwnerField.setEnabled(true);
+                        githubRepoField.setEnabled(true);
+                        githubHostField.setEnabled(true);
+                        githubOverrideCheckbox.setSelected(true);
+                    } else {
+                        githubOwnerField.setText("");
+                        githubRepoField.setText("");
+                        githubHostField.setText("");
+                    }
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
+                break;
+            case NONE:
+            default:
+                issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
+                break;
+        }
+    }
+
+    private void populateBuildTab(SettingsData data) {
+        // Build details - use pre-loaded data
+        if (data.buildDetails() != null) {
+            updateExcludedDirectories(data.buildDetails().excludedDirectories());
+        } else {
+            updateExcludedDirectories(List.of());
+        }
+
+        // Build Tab - delegate to buildPanelInstance
+        buildPanelInstance.loadBuildPanelSettings();
     }
 
     private void initComponents() {
@@ -223,12 +313,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 migrateButton.setEnabled(false);
                 boolean success = mainProject.performStyleMdToAgentsMdMigration(chrome);
                 if (success) {
-                    // Migration succeeded - hide button and refresh UI
+                    // Migration succeeded - hide button and reload settings from parent dialog
                     migrateButton.setVisible(false);
-                    SwingUtilities.invokeLater(() -> loadSettings());
+                    parentDialog.loadSettingsInBackground();
                 } else {
                     // Migration failed - re-enable button
-                    SwingUtilities.invokeLater(() -> migrateButton.setEnabled(true));
+                    migrateButton.setEnabled(true);
                 }
             }
         });
@@ -438,7 +528,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.insets = new Insets(8, 2, 2, 2);
         gitHubCard.add(ghInfoLabel, gbcGitHub);
 
-        // Enable/disable owner/repo/host fields based on checkbox
         githubOverrideCheckbox.addActionListener(e -> {
             boolean selected = githubOverrideCheckbox.isSelected();
             githubOwnerField.setEnabled(selected);
@@ -957,83 +1046,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         worker.execute();
     }
 
-    public void loadSettings() {
-        var project = chrome.getProject();
-
-        // General Tab
-        styleGuideArea.setText(project.getStyleGuide());
-        commitFormatArea.setText(project.getCommitMessageFormat());
-        if (reviewGuideArea != null) {
-            reviewGuideArea.setText(project.getReviewGuide());
-        }
-
-        // Issues Tab
-        IssueProvider currentProvider = project.getIssuesProvider();
-        issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
-
-        githubOwnerField.setEnabled(false); // Default state
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false); // Default state for host field
-        githubOverrideCheckbox.setSelected(false);
-
-        switch (currentProvider.type()) {
-            case JIRA:
-                if (currentProvider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig) {
-                    jiraBaseUrlField.setText(jiraConfig.baseUrl());
-                    jiraApiTokenField.setText(jiraConfig.apiToken());
-                    jiraProjectKeyField.setText(jiraConfig.projectKey());
-                }
-                issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
-                break;
-            case GITHUB:
-                if (currentProvider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
-                    if (!githubConfig.isDefault()) {
-                        githubOwnerField.setText(githubConfig.owner());
-                        githubRepoField.setText(githubConfig.repo());
-                        githubHostField.setText(githubConfig.host()); // Load host
-                        githubOwnerField.setEnabled(true);
-                        githubRepoField.setEnabled(true);
-                        githubHostField.setEnabled(true); // Enable host field if override is active
-                        githubOverrideCheckbox.setSelected(true);
-                    } else {
-                        // Fields remain disabled and empty, checkbox unchecked
-                        githubOwnerField.setText("");
-                        githubRepoField.setText("");
-                        githubHostField.setText("");
-                    }
-                }
-                issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
-                break;
-            case NONE:
-            default:
-                issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
-                break;
-        }
-
-        loadCodeIntelligenceSettings();
-        loadCiExclusionsFromBuildDetails();
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
-    }
-
     private void loadCodeIntelligenceSettings() {
         var project = chrome.getProject();
         currentAnalyzerLanguagesForDialog.clear();
         currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
-        }
-    }
-
-    private void loadCiExclusionsFromBuildDetails() {
-        var project = chrome.getProject();
-        try {
-            BuildDetails details = project.loadBuildDetails();
-            updateExcludedDirectories(details.excludedDirectories());
-        } catch (Exception ex) {
-            logger.warn("Failed to load BuildDetails for CI exclusions: {}", ex.getMessage(), ex);
-            updateExcludedDirectories(List.of());
         }
     }
 

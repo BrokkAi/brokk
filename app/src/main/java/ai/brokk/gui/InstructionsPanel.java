@@ -1563,7 +1563,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question, model);
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,

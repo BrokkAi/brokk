@@ -114,7 +114,8 @@ public record TaskResult(
         SEARCH,
         CONTEXT,
         MERGE,
-        BLITZFORGE;
+        BLITZFORGE,
+        COPY;
 
         public String displayName() {
             if (this == SEARCH) {

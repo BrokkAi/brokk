@@ -10,6 +10,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
@@ -818,7 +819,13 @@ class CodeAgentTest {
         var changedFiles = Collections.<ProjectFile>emptySet();
 
         var messages = CodePrompts.instance.collectCodeMessages(
-                new Service.UnavailableStreamingModel(), ctx, prologue, taskMessages, nextRequest, changedFiles);
+                new Service.UnavailableStreamingModel(),
+                ctx,
+                prologue,
+                taskMessages,
+                nextRequest,
+                changedFiles,
+                new ViewingPolicy(TaskResult.Type.CODE));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
