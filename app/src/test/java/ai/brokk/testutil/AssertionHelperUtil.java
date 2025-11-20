@@ -3,6 +3,7 @@ package ai.brokk.testutil;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.util.IndentUtil;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -92,22 +93,11 @@ public final class AssertionHelperUtil {
     // -------------------------
 
     /**
-     * Count the number of leading whitespace characters on a single line.
-     */
-    private static int leadingWhitespaceCount(String line) {
-        int i = 0;
-        while (i < line.length() && Character.isWhitespace(line.charAt(i))) {
-            i++;
-        }
-        return i;
-    }
-
-    /**
      * Returns the indent count (leading whitespace chars) of the first line in the given code string.
      */
     public static int indentOfFirstLine(String code) {
         var firstLine = code.replaceAll("\\R", "\n").split("\n", -1)[0];
-        return leadingWhitespaceCount(firstLine);
+        return IndentUtil.countLeadingWhitespace(firstLine);
     }
 
     /**
@@ -122,10 +112,10 @@ public final class AssertionHelperUtil {
         for (int i = 1; i < lines.length; i++) {
             var ln = lines[i];
             if (!ln.trim().isEmpty()) {
-                return leadingWhitespaceCount(ln);
+                return IndentUtil.countLeadingWhitespace(ln);
             }
         }
-        return leadingWhitespaceCount(lines[0]);
+        return IndentUtil.countLeadingWhitespace(lines[0]);
     }
 
     /**
@@ -139,7 +129,7 @@ public final class AssertionHelperUtil {
         var target = targetLine.stripLeading();
         for (var ln : lines) {
             if (ln.stripLeading().equals(target)) {
-                return leadingWhitespaceCount(ln);
+                return IndentUtil.countLeadingWhitespace(ln);
             }
         }
         return -1;
