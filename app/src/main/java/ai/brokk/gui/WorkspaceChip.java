@@ -567,7 +567,15 @@ public class WorkspaceChip extends JPanel {
     protected void bindComputed() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment != null) {
+            // Bind to any ComputedValue changes for this fragment.
             ComputedSubscription.bind(fragment, this, this::refreshLabelAndTooltip);
+            // Prime key ComputedValues so they resolve off-EDT without blocking.
+            try {
+                fragment.shortDescription().start();
+                fragment.description().start();
+            } catch (Exception ex) {
+                logger.trace("Failed to prime fragment computed values", ex);
+            }
         }
     }
 
@@ -576,41 +584,54 @@ public class WorkspaceChip extends JPanel {
         if (fragment == null) {
             return;
         }
-        updateTextAndTooltip(fragment);
-        applyTheme();
+        // Ensure UI updates occur on the EDT and avoid scheduling background tasks.
+        SwingUtilities.invokeLater(() -> {
+            try {
+                updateTextAndTooltip(fragment);
+                applyTheme();
+            } catch (Exception ex) {
+                logger.warn("Failed to refresh chip UI for fragment {}", fragment, ex);
+            }
+        });
     }
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
-        contextManager.submitBackgroundTask("Updating text and tooltip for " + fragment, () -> {
-            String description = "<Error obtaining description>";
-            String shortDescription = "<Error obtaining description>";
-            try {
-                shortDescription = fragment.shortDescription().join();
-                if (kind == ChipKind.OTHER) {
-                    shortDescription = WorkspaceChip.capitalizeFirst(shortDescription);
-                }
-            } catch (Exception e) {
-                logger.error("Unable to obtain short description from {}!", fragment, e);
+        // Non-blocking reads; values refine as ComputedValues complete via ComputedSubscription.
+        String shortDescription = fragment.shortDescription().renderNowOr("");
+        if (shortDescription.isBlank()) {
+            shortDescription = "(no description)";
+        }
+        if (kind == ChipKind.OTHER) {
+            shortDescription = WorkspaceChip.capitalizeFirst(shortDescription);
+        }
+
+        String description = fragment.description().renderNowOr("");
+
+        // Only update label text if it actually changed to avoid flicker
+        String currentText = label.getText();
+        if (!Objects.equals(currentText, shortDescription)) {
+            label.setText(shortDescription);
+        }
+
+        // Only update tooltip if it actually changed to avoid flicker
+        try {
+            String newTooltip = buildDefaultTooltip(fragment);
+            String currentTooltip = label.getToolTipText();
+            if (!Objects.equals(currentTooltip, newTooltip)) {
+                label.setToolTipText(newTooltip);
             }
 
-            try {
-                description = fragment.description().join();
-            } catch (Exception e) {
-                logger.error("Unable to obtain description from {}!", fragment, e);
-            }
-
-            final String text = shortDescription;
-            final String accessibleDescription = description;
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    label.setText(text);
-                    label.setToolTipText(buildDefaultTooltip(fragment));
-                    label.getAccessibleContext().setAccessibleDescription(accessibleDescription);
-                } catch (Exception ex) {
-                    logger.warn("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+            // Update accessible description only if it changed
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                String currentDesc = ac.getAccessibleDescription();
+                if (!Objects.equals(currentDesc, description)) {
+                    ac.setAccessibleDescription(description);
                 }
-            });
-        });
+            }
+        } catch (Exception ex) {
+            logger.warn("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+        }
     }
 
     private Icon buildCloseIcon(Color chipBackground) {
@@ -1006,19 +1027,88 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
-            contextManager.submitBackgroundTask("Updating text and tooltip for " + fragment, () -> {
-                String text = buildSummaryLabel();
-                String toolTip = buildAggregateSummaryTooltip();
-                SwingUtilities.invokeLater(() -> {
-                    label.setText(text);
-                    try {
-                        label.setToolTipText(toolTip);
-                        label.getAccessibleContext().setAccessibleDescription("All summaries combined");
-                    } catch (Exception ex) {
-                        logger.warn("Failed to set tooltip for synthetic summary chip", ex);
+            // Non-blocking reads; values refine as underlying ComputedValues complete.
+            String text = computeSummaryLabelNonBlocking();
+            String toolTip = computeAggregateSummaryTooltipNonBlocking();
+
+            // Only update label text if changed
+            String currentText = label.getText();
+            if (!Objects.equals(currentText, text)) {
+                label.setText(text);
+            }
+
+            // Only update tooltip if changed
+            try {
+                String currentTooltip = label.getToolTipText();
+                if (!Objects.equals(currentTooltip, toolTip)) {
+                    label.setToolTipText(toolTip);
+                }
+
+                var ac = label.getAccessibleContext();
+                if (ac != null) {
+                    String currentDesc = ac.getAccessibleDescription();
+                    String newDesc = "All summaries combined";
+                    if (!Objects.equals(currentDesc, newDesc)) {
+                        ac.setAccessibleDescription(newDesc);
                     }
-                });
-            });
+                }
+            } catch (Exception ex) {
+                logger.warn("Failed to set tooltip for synthetic summary chip", ex);
+            }
+        }
+
+        private String computeSummaryLabelNonBlocking() {
+            int totalFiles = (int) summaryFragments.stream()
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .map(ProjectFile::toString)
+                    .distinct()
+                    .count();
+            return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+        }
+
+        private String computeAggregateSummaryTooltipNonBlocking() {
+            var allFiles = summaryFragments.stream()
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .map(ProjectFile::toString)
+                    .distinct()
+                    .sorted()
+                    .toList();
+
+            StringBuilder body = new StringBuilder();
+
+            // Best-effort metrics using non-blocking renders
+            int totalLoc = 0;
+            int totalTokens = 0;
+            for (var summary : summaryFragments) {
+                String text = summary.text().renderNowOr("");
+                if (!text.isEmpty()) {
+                    totalLoc += text.split("\\r?\\n", -1).length;
+                    totalTokens += Messages.getApproximateTokens(text);
+                }
+            }
+            if (totalLoc > 0 || totalTokens > 0) {
+                body.append("<div>")
+                        .append(formatCount(totalLoc))
+                        .append(" LOC \u2022 ~")
+                        .append(formatCount(totalTokens))
+                        .append(" tokens</div><br/>");
+            }
+
+            body.append("<div><b>Summaries</b></div>");
+            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+
+            if (allFiles.isEmpty()) {
+                body.append("Multiple summaries");
+            } else {
+                body.append("<ul style='margin:0;padding-left:16px'>");
+                for (var f : allFiles) {
+                    body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+                }
+                body.append("</ul>");
+            }
+
+            body.append("<br/><i>Click to preview all contents</i>");
+            return wrapTooltipHtml(body.toString(), 420);
         }
 
         @Blocking
