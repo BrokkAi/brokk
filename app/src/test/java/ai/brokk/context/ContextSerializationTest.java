@@ -176,7 +176,7 @@ public class ContextSerializationTest {
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description()))
+                .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description().join()))
                 .findFirst();
         assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted Red Image fragment not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
@@ -297,7 +297,7 @@ public class ContextSerializationTest {
         } else {
             assertNotNull(expected.log());
             assertNotNull(actual.log());
-            assertEquals(expected.log().description(), actual.log().description());
+            assertEquals(expected.log().description().join(), actual.log().description().join());
             assertEquals(
                     expected.log().messages().size(), actual.log().messages().size());
             for (int i = 0; i < expected.log().messages().size(); i++) {
@@ -365,13 +365,13 @@ public class ContextSerializationTest {
         // Find the image fragments in each context
         var fragment1 = loadedCtx1
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
+                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
 
         var fragment2 = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
+                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
 
@@ -405,8 +405,8 @@ public class ContextSerializationTest {
         assertEquals(8, reconstructedImage2.getHeight());
 
         // Verify descriptions
-        assertEquals(sharedDescription, fragment1.description());
-        assertEquals(sharedDescription, fragment2.description());
+        assertEquals(sharedDescription, fragment1.description().join());
+        assertEquals(sharedDescription, fragment2.description().join());
     }
 
     @Test
@@ -635,7 +635,7 @@ public class ContextSerializationTest {
                 loadedStringFrag1,
                 loadedStringFrag2,
                 "StringFragments with the same content-hash ID should be the same instance after deserialization.");
-        assertEquals("unique string fragment content for interning test", loadedStringFrag1.text());
+        assertEquals("unique string fragment content for interning test", loadedStringFrag1.text().join());
 
         /* ---------- shared TaskFragment via TaskEntry ---------- */
         var taskMessages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
@@ -816,7 +816,7 @@ public class ContextSerializationTest {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.SEARCH)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Search: foobar", loadedFragment.description());
+        assertEquals("Search: foobar", loadedFragment.description().join());
         assertEquals(2, loadedFragment.messages().size());
         assertEquals(1, loadedFragment.sources().join().size());
         assertEquals(
@@ -990,8 +990,8 @@ public class ContextSerializationTest {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Pasted text content", loadedFragment.text());
-        assertEquals("Paste of Pasted text summary", loadedFragment.description());
+        assertEquals("Pasted text content", loadedFragment.text().join());
+        assertEquals("Paste of Pasted text summary", loadedFragment.description().join());
     }
 
     @Test
@@ -1022,7 +1022,7 @@ public class ContextSerializationTest {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.STACKTRACE)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("stacktrace of NullPointerException", loadedFragment.description());
+        assertEquals("stacktrace of NullPointerException", loadedFragment.description().join());
         assertTrue(loadedFragment.text().join().contains("Full stacktrace original text"));
         assertTrue(loadedFragment.text().join().contains("ErrorSource.java:10"));
         assertEquals(1, loadedFragment.sources().join().size());
@@ -1097,18 +1097,18 @@ public class ContextSerializationTest {
         // Verify that the specific fragments kept are the first ones encountered
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText1".equals(f.description())
-                                && "Content for uniqueText1 (first)".equals(f.text())),
+                        .anyMatch(f -> "uniqueText1".equals(f.description().join())
+                                && "Content for uniqueText1 (first)".equals(f.text().join())),
                 "Expected first instance of 'uniqueText1' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "duplicateText".equals(f.description())
-                                && "Content for duplicateText (first)".equals(f.text())),
+                        .anyMatch(f -> "duplicateText".equals(f.description().join())
+                                && "Content for duplicateText (first)".equals(f.text().join())),
                 "Expected first instance of 'duplicateText' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
                         .anyMatch(f ->
-                                "uniqueText2".equals(f.description()) && "Content for uniqueText2".equals(f.text())),
+                                "uniqueText2".equals(f.description().join()) && "Content for uniqueText2".equals(f.text().join())),
                 "Expected 'uniqueText2' to be present.");
     }
 
