@@ -1560,6 +1560,26 @@ public class WorkspacePanel extends JPanel {
     /**
      * Shows a preview of the fragment contents.
      * 
+     * <p><b>Unified Preview Behavior:</b> This method delegates to {@link Chrome#openFragmentPreview(ContextFragment)}
+     * to ensure all fragment previews—from chips, table rows, action menus, and other UI entry points—
+     * route through a single code path. This guarantees consistent:
+     * <ul>
+     *   <li>Preview window titles (resolved with computed descriptions when available)</li>
+     *   <li>Content rendering (markdown, syntax-highlighted code, images)</li>
+     *   <li>Window reuse (same key → same window updated with new content)</li>
+     *   <li>Placeholder/async loading behavior</li>
+     * </ul>
+     *
+     * <p><b>Integration Verification:</b> To verify consistency across entry points, see TESTING.md
+     * for manual QA steps. Key scenarios to test:
+     * <ul>
+     *   <li>Click chip in workspace → preview opens</li>
+     *   <li>Double-click table row in workspace → same preview opens (window reused)</li>
+     *   <li>Click action menu "Show Contents" → same preview opens (window reused)</li>
+     *   <li>Click TokenUsageBar segment → equivalent single-fragment chip shows same preview</li>
+     *   <li>Verify titles, content, and window reuse behavior match across all entry points</li>
+     * </ul>
+     * 
      * @deprecated This method now delegates to {@link Chrome#openFragmentPreview(ContextFragment)} for unified
      *             behavior across all preview entry points. Use that method directly for new code.
      */
