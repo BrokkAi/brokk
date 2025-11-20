@@ -270,45 +270,50 @@ public final class MainProject extends AbstractProject {
     }
 
     private BuildAgent.BuildDetails loadBuildDetailsInternal() { // Renamed to avoid conflict with IProject
-    String json = projectProps.getProperty(BUILD_DETAILS_KEY);
-    if (json != null && !json.isEmpty()) {
-    try {
-    var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
-    
-    // Canonicalize excluded directories relative to the master root for config
-    var canonicalExcludes =
-    PathNormalizer.canonicalizeAllForProject(details.excludedDirectories(), getMasterRootPathForConfig());
-    
-    // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
-    Map<String, String> envIn = details.environmentVariables();
-    Map<String, String> canonicalEnv = new HashMap<>(envIn == null ? 0 : envIn.size());
-    if (envIn != null) {
-    for (Map.Entry<String, String> e : envIn.entrySet()) {
-    String k = e.getKey();
-    String v = e.getValue();
-    if (v == null) {
-    continue;
-    }
-    if ("JAVA_HOME".equalsIgnoreCase(k)) {
-    canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-    } else {
-    canonicalEnv.put(k, v);
-    }
-    }
-    }
-    
-    // Return a re-wrapped BuildDetails with canonicalized content
-    return new BuildAgent.BuildDetails(
-    details.buildLintCommand(),
-    details.testAllCommand(),
-    details.testSomeCommand(),
-    canonicalExcludes,
-    canonicalEnv);
-    } catch (JsonProcessingException e) {
-    logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
-    }
-    }
-    return BuildAgent.BuildDetails.EMPTY;
+        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
+        if (json != null && !json.isEmpty()) {
+            try {
+                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
+                var canonicalExcludes = new LinkedHashSet<String>();
+                for (String r : details.excludedDirectories()) {
+                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExcludes.add(c);
+                    }
+                }
+
+                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                Map<String, String> envIn = details.environmentVariables();
+                Map<String, String> canonicalEnv = new HashMap<>(envIn == null ? 0 : envIn.size());
+                if (envIn != null) {
+                    for (Map.Entry<String, String> e : envIn.entrySet()) {
+                        String k = e.getKey();
+                        String v = e.getValue();
+                        if (v == null) {
+                            continue;
+                        }
+                        if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                            canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                        } else {
+                            canonicalEnv.put(k, v);
+                        }
+                    }
+                }
+
+                // Return a re-wrapped BuildDetails with canonicalized content
+                return new BuildAgent.BuildDetails(
+                        details.buildLintCommand(),
+                        details.testAllCommand(),
+                        details.testSomeCommand(),
+                        canonicalExcludes,
+                        canonicalEnv);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
+            }
+        }
+        return BuildAgent.BuildDetails.EMPTY;
     }
 
     @Override
@@ -318,46 +323,51 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
-    // Build canonical details for stable on-disk representation
-    // 1) Canonicalize excluded directories relative to masterRootPathForConfig
-    var canonicalExcludes =
-    PathNormalizer.canonicalizeAllForProject(details.excludedDirectories(), getMasterRootPathForConfig());
-    
-    // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
-    Map<String, String> envIn = details.environmentVariables();
-    Map<String, String> canonicalEnv = new HashMap<>(envIn.size());
-    for (Map.Entry<String, String> e : envIn.entrySet()) {
-    String k = e.getKey();
-    String v = e.getValue();
-    if (v == null) {
-    continue; // NullAway should avoid this, but be defensive
-    }
-    if ("JAVA_HOME".equalsIgnoreCase(k)) {
-    canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-    } else {
-    canonicalEnv.put(k, v);
-    }
-    }
-    
-    var canonicalDetails = new BuildAgent.BuildDetails(
-    details.buildLintCommand(),
-    details.testAllCommand(),
-    details.testSomeCommand(),
-    canonicalExcludes,
-    canonicalEnv);
-    
-    if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-    try {
-    String json = objectMapper.writeValueAsString(canonicalDetails);
-    projectProps.setProperty(BUILD_DETAILS_KEY, json);
-    logger.debug("Saving build details to project properties.");
-    } catch (JsonProcessingException e) {
-    throw new RuntimeException(e);
-    }
-    saveProjectProperties();
-    }
-    setBuildDetails(canonicalDetails);
-    invalidateAllFiles();
+        // Build canonical details for stable on-disk representation
+        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
+        var canonicalExcludes = new LinkedHashSet<String>();
+        for (String r : details.excludedDirectories()) {
+            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+            if (!c.isBlank()) {
+                canonicalExcludes.add(c);
+            }
+        }
+
+        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        Map<String, String> envIn = details.environmentVariables();
+        Map<String, String> canonicalEnv = new HashMap<>(envIn.size());
+        for (Map.Entry<String, String> e : envIn.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (v == null) {
+                continue; // NullAway should avoid this, but be defensive
+            }
+            if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+            } else {
+                canonicalEnv.put(k, v);
+            }
+        }
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.testAllCommand(),
+                details.testSomeCommand(),
+                canonicalExcludes,
+                canonicalEnv);
+
+        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
+            try {
+                String json = objectMapper.writeValueAsString(canonicalDetails);
+                projectProps.setProperty(BUILD_DETAILS_KEY, json);
+                logger.debug("Saving build details to project properties.");
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+            saveProjectProperties();
+        }
+        setBuildDetails(canonicalDetails);
+        invalidateAllFiles();
     }
 
     public void setBuildDetails(BuildAgent.BuildDetails details) {
