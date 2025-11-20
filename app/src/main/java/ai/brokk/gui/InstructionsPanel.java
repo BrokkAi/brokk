@@ -343,13 +343,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-        KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(),
-                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
-                "attachContext",
-                () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
-
         // Load stored action with cascading fallback: project → global → default
         storedAction = loadActionMode();
 
@@ -867,10 +860,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
-        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
         attachButton.setFocusable(false);
         attachButton.setOpaque(false);
         attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+
+        // Set dynamic tooltip based on configured keybinding
+        SwingUtilities.invokeLater(() -> {
+            try {
+                KeyStroke ks = GlobalUiSettings.getKeybinding(
+                        "workspace.attachContext",
+                        KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+                String chord = KeyboardShortcutUtil.formatKeyStroke(ks);
+                if (chord == null || chord.isBlank()) {
+                    attachButton.setToolTipText("Add content to workspace");
+                } else {
+                    attachButton.setToolTipText("Add content to workspace (" + chord + ")");
+                }
+            } catch (Exception ex) {
+                logger.debug("Failed to set dynamic tooltip for attach button", ex);
+                attachButton.setToolTipText("Add content to workspace");
+            }
+        });
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);

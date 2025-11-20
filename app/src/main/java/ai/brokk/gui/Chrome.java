@@ -1496,6 +1496,19 @@ public class Chrome
             }
         });
 
+        // Workspace actions
+        // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
+        KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachContext",
+                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+        bindKey(rootPane, attachContextKeyStroke, "attachContext");
+        rootPane.getActionMap().put("attachContext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+            }
+        });
+
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
