@@ -89,10 +89,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<String> quickModelCombo = new JComboBox<>();
     private JComboBox<String> quickEditModelCombo = new JComboBox<>();
     private JComboBox<String> quickestModelCombo = new JComboBox<>();
+    private JComboBox<String> scanModelCombo = new JComboBox<>();
     private JLabel quickEditModelLabel = new JLabel("Quick Edit Model:");
-    ;
+    private JLabel scanModelLabel = new JLabel("Scan Model:");
     private JPanel quickEditModelHolder = new JPanel(new BorderLayout(0, 0));
-    ;
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -384,6 +384,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             primaryModelCombo.setSelectedItem(selectedPlannerAlias);
         } else if (!loadedFavorites.isEmpty()) {
             primaryModelCombo.setSelectedIndex(0);
+        }
+
+        // Populate and select Scan Model from a fixed list
+        var currentScanConfig = chrome.getProject().getMainProject().getScanModelConfig();
+        String scanName = currentScanConfig.name();
+        @SuppressWarnings("unchecked")
+        var scanComboModel = (DefaultComboBoxModel<String>) scanModelCombo.getModel();
+        boolean found = false;
+        for (int i = 0; i < scanComboModel.getSize(); i++) {
+            if (scanComboModel.getElementAt(i).equals(scanName)) {
+                scanModelCombo.setSelectedIndex(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found && scanComboModel.getSize() > 0) {
+            scanModelCombo.setSelectedIndex(0);
         }
 
         // Add listener to sync planner combo when model changes in InstructionsPanel
@@ -1613,6 +1630,39 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(quickestHolder, gbc);
 
+        // Row 3: Scan Model
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(scanModelLabel, gbc);
+
+        var scanHolder = new JPanel(new BorderLayout(0, 0));
+        scanModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {
+                    Service.GPT_5_MINI,
+                    Service.GPT_5_NANO,
+                    Service.SONNET_4_5,
+                    Service.HAIKU_4_5,
+                    Service.GEMINI_2_5_FLASH
+                }));
+        scanHolder.add(scanModelCombo, BorderLayout.CENTER);
+        var scanHelp = new MaterialButton();
+        scanHelp.setIcon(Icons.HELP);
+        scanHelp.setToolTipText("Model used for scanning and analyzing code for Search operations.");
+        scanHelp.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        scanHelp.setContentAreaFilled(false);
+        scanHelp.setFocusPainted(false);
+        scanHelp.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        scanHolder.add(scanHelp, BorderLayout.EAST);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(scanHolder, gbc);
+
         // Create Favorites panel (table + buttons)
         var favoritesPanel = new JPanel(new BorderLayout(5, 5));
         favoritesPanel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
@@ -1688,6 +1738,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     break;
                 }
             }
+
+            // Reset Scan Model to default (guaranteed to be in fixed list)
+            scanModelCombo.setSelectedItem(Service.GEMINI_2_5_FLASH);
 
             JOptionPane.showMessageDialog(
                     SettingsGlobalPanel.this,
@@ -2076,6 +2129,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var selQK = (String) quickestModelCombo.getSelectedItem();
         if (selQK != null && !selQK.isEmpty()) {
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(selQK));
+        }
+
+        // Scan Model (global)
+        var selScan = (String) scanModelCombo.getSelectedItem();
+        if (selScan != null && !selScan.isEmpty()) {
+            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(selScan));
         }
 
         // Preferred Code Model (project-specific)

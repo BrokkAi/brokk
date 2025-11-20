@@ -59,6 +59,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
+    protected final IProject project;
 
     // display name -> location
     protected Map<String, String> modelLocations = Map.of(UNAVAILABLE, "not_a_model");
@@ -73,6 +74,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public AbstractService(IProject project) {
         // Intentionally minimal: no network calls here
+        this.project = project;
     }
 
     public abstract float getUserBalance() throws IOException;
@@ -665,6 +667,20 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getScanModel() {
+        // First attempt: use project-configured scan model if available
+        if (project != null) {
+            try {
+                var cfg = project.getMainProject().getScanModelConfig();
+                var model = getModel(cfg);
+                if (model != null) {
+                    return model;
+                }
+            } catch (Exception e) {
+                logger.debug("Failed to get project-configured scan model, falling back to dynamic selection: {}", e.getMessage());
+            }
+        }
+
+        // Fallback: dynamic selection preferring GEMINI_2_5_FLASH if available, else GPT_5_MINI
         var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
