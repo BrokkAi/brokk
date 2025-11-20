@@ -592,7 +592,8 @@ public class SearchAgent {
                     <beast-mode>
                     The Workspace is full or execution was interrupted.
                     Finalize now using the best available information.
-                    Prefer answer(String) for informational requests; for code-change requests, provide a concise createOrReplaceTaskList(String explanation, List<String> tasks) if feasible; otherwise use abortSearch with reasons.
+                    Prefer answer(String) when no code changes are needed.
+                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) when replacing the entire list (completed tasks will be dropped), or appendTaskList(String explanation, List<String> tasks) to add tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
         }
@@ -648,6 +649,10 @@ public class SearchAgent {
         if (!mcpTools.isEmpty()) {
             names.add("callMcpTool");
         }
+
+        // Task list tools (exposed here for general availability; also added via globalTerminals in buildPrompt)
+        names.add("createOrReplaceTaskList");
+        names.add("appendTaskList");
 
         logger.debug("Allowed tool names: {}", names);
         return names;
