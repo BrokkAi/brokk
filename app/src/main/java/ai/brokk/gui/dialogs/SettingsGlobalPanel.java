@@ -1541,11 +1541,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(new JLabel("Quick Model:"), gbc);
 
         quickModelCombo = new JComboBox<>();
-        quickModelCombo.setModel(new DefaultComboBoxModel<>(new String[] {
-            Service.GEMINI_2_0_FLASH,
-            Service.GPT_5_NANO,
-            Service.HAIKU_4_5
-        }));
+        quickModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {Service.GEMINI_2_0_FLASH, Service.GPT_5_NANO, Service.HAIKU_4_5}));
         var quickComboHolder = new JPanel(new BorderLayout(0, 0));
         quickComboHolder.add(quickModelCombo, BorderLayout.CENTER);
         var quickHelpButton = new MaterialButton();
@@ -1573,11 +1570,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.insets = new Insets(0, 10, 10, 0);
         topPanel.add(quickEditModelLabel, gbc);
 
-        quickEditModelCombo.setModel(new DefaultComboBoxModel<>(new String[] {
-            "cerebras/gpt-oss-120b",
-            Service.GPT_5_NANO,
-            Service.HAIKU_4_5
-        }));
+        quickEditModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {"cerebras/gpt-oss-120b", Service.GPT_5_NANO, Service.HAIKU_4_5}));
         quickEditModelHolder.add(quickEditModelCombo, BorderLayout.CENTER);
         var qeHelp = new MaterialButton();
         qeHelp.setIcon(Icons.HELP);
@@ -1601,11 +1595,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(new JLabel("Quickest Model:"), gbc);
 
         var quickestHolder = new JPanel(new BorderLayout(0, 0));
-        quickestModelCombo.setModel(new DefaultComboBoxModel<>(new String[] {
-            "gemini-2.0-flash-lite",
-            Service.GPT_5_NANO,
-            Service.HAIKU_4_5
-        }));
+        quickestModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {"gemini-2.0-flash-lite", Service.GPT_5_NANO, Service.HAIKU_4_5}));
         quickestHolder.add(quickestModelCombo, BorderLayout.CENTER);
         var qkHelp = new MaterialButton();
         qkHelp.setIcon(Icons.HELP);
