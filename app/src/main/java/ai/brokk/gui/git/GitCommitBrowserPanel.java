@@ -19,6 +19,7 @@ import ai.brokk.gui.dialogs.CreateBranchDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import com.google.common.base.Splitter;
 import java.awt.*;
@@ -268,7 +269,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             if (commitsTable.getSelectedRowCount() == 1) {
                 var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
                 if (ci.stashIndex().isEmpty()) { // Only for non-stash commits
-                    GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+                    GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
                 }
             }
         });
@@ -393,7 +394,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 }
                 if (column == 2 && value instanceof Instant instant) {
                     var today = LocalDate.now(ZoneId.systemDefault());
-                    setText(GitUiUtil.formatRelativeDate(instant, today));
+                    setText(GitDiffUiUtil.formatRelativeDate(instant, today));
                 } else {
                     setValue(value);
                 }
@@ -418,7 +419,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         if (commitsTable.getSelectedRow() == row) {
                             var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
                             if (ci.stashIndex().isEmpty()) { // Action only for non-stash commits
-                                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+                                GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
                             }
                         }
                     }
@@ -485,7 +486,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 if (selectedRows.length == 1) {
                     labelParts.add(getShortId(allSelectedCommitsFlat.getFirst().id()));
                 } else {
-                    var contiguousRowIndexGroups = GitUiUtil.groupContiguous(selectedRows);
+                    var contiguousRowIndexGroups = GitDiffUiUtil.groupContiguous(selectedRows);
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
                         var firstCommitInGroup =
                                 (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), COL_COMMIT_OBJ);
@@ -664,7 +665,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             int[] selectedRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
             if (selectedRows.length == 0) return;
             selectedRows = Arrays.stream(selectedRows).sorted().toArray();
-            var contiguousRowGroups = GitUiUtil.groupContiguous(selectedRows);
+            var contiguousRowGroups = GitDiffUiUtil.groupContiguous(selectedRows);
 
             for (var group : contiguousRowGroups) {
                 if (group.isEmpty()) continue;
@@ -672,7 +673,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                         (ICommitInfo) commitsTableModel.getValueAt(group.getFirst(), COL_COMMIT_OBJ);
                 ICommitInfo oldestCommitInGroup =
                         (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
-                GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
+                GitDiffUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
             }
         });
 
@@ -729,7 +730,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         viewChangesItem.addActionListener(e -> {
             if (commitsTable.getSelectedRowCount() == 1) {
                 var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
-                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+                GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
             }
         });
 
@@ -817,7 +818,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         compareAllToLocalItem.addActionListener(e -> {
             if (commitsTable.getSelectedRowCount() == 1) {
                 var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
-                GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
+                GitDiffUiUtil.compareCommitToLocal(contextManager, chrome, ci);
             }
         });
 
@@ -964,7 +965,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 var firstCid = ((ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ)).id();
                 var lastCid =
                         ((ICommitInfo) commitsTableModel.getValueAt(selRows[selRows.length - 1], COL_COMMIT_OBJ)).id();
-                GitUiUtil.addFilesChangeToContext(
+                GitDiffUiUtil.addFilesChangeToContext(
                         contextManager,
                         chrome,
                         firstCid,
@@ -974,18 +975,18 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         });
 
         compareFileWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction(
-                (cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
+                (cid, fp) -> GitDiffUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
         comparePrevWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction(
-                (cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
+                (cid, fp) -> GitDiffUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
         viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction(
-                (cid, fp) -> GitUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
+                (cid, fp) -> GitDiffUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
         viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction(
-                (cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
+                (cid, fp) -> GitDiffUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
 
         viewHistoryItem.addActionListener(
                 e -> getSelectedFilePathsFromTree().forEach(fp -> chrome.addFileHistoryTab(contextManager.toFile(fp))));
         editFileItem.addActionListener(
-                e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
+                e -> getSelectedFilePathsFromTree().forEach(fp -> GitDiffUiUtil.editFile(contextManager, fp)));
         rollbackFilesItem.addActionListener(e -> {
             TreePath[] paths = changesTree.getSelectionPaths();
             int[] selRows = commitsTable.getSelectedRows();
@@ -1001,7 +1002,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                             .map(fp -> new ProjectFile(contextManager.getRoot(), fp))
                             .toList();
 
-                    GitUiUtil.rollbackFilesToCommit(contextManager, chrome, commitId, projectFiles);
+                    GitDiffUiUtil.rollbackFilesToCommit(contextManager, chrome, commitId, projectFiles);
                 }
             }
         });
@@ -1035,7 +1036,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                                 TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
                         if (filePath == null) return;
                         var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
-                        GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, filePath);
+                        GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, filePath);
                     }
                 }
             }

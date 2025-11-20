@@ -23,6 +23,9 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
+import ai.brokk.gui.util.GitHostUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
 import com.google.common.base.Ascii;
@@ -612,7 +615,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
             if (selectedModelRows.length == 0) return;
 
-            var contiguousModelRowGroups = GitUiUtil.groupContiguous(selectedModelRows);
+            var contiguousModelRowGroups = GitDiffUiUtil.groupContiguous(selectedModelRows);
 
             for (var group : contiguousModelRowGroups) {
                 if (group.isEmpty()) continue;
@@ -621,7 +624,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 ICommitInfo oldestCommitInGroup = currentPrCommitDetailsList.get(group.getFirst());
                 ICommitInfo newestCommitInGroup = currentPrCommitDetailsList.get(group.getLast());
 
-                GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
+                GitDiffUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
             }
         });
         contextMenu.add(capturePrCommitDiffMenuItem);
@@ -632,7 +635,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 int modelRow = prCommitsTable.convertRowIndexToModel(prCommitsTable.getSelectedRow());
                 if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
                     ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
-                    GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
+                    GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
                 }
             }
         });
@@ -644,7 +647,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 int modelRow = prCommitsTable.convertRowIndexToModel(prCommitsTable.getSelectedRow());
                 if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
                     ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
-                    GitUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
+                    GitDiffUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
                 }
             }
         });
@@ -706,8 +709,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     Object cellValue = prFilesTableModel.getValueAt(selectedFileModelRow, 0);
                                     if (cellValue instanceof String filename) {
                                         // Extract the file path from "filename - full/path" format
-                                        String targetFilePath = GitUiUtil.extractFilePathFromDisplay(filename);
-                                        GitUiUtil.openCommitDiffPanel(
+                                        String targetFilePath = GitDiffUiUtil.extractFilePathFromDisplay(filename);
+                                        GitDiffUiUtil.openCommitDiffPanel(
                                                 contextManager, chrome, commitInfo, targetFilePath);
                                         return;
                                     }
@@ -715,7 +718,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             }
 
                             // Fallback to original behavior if no file selected
-                            GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
+                            GitDiffUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
                         }
                     }
                 }
@@ -737,7 +740,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 int selectedRow = prTable.getSelectedRow();
                                 if (selectedRow != -1 && selectedRow < displayedPrs.size()) {
                                     GHPullRequest pr = displayedPrs.get(selectedRow);
-                                    GitUiUtil.openPrDiffPanel(contextManager, chrome, pr, filename);
+                                    GitDiffUiUtil.openPrDiffPanel(contextManager, chrome, pr, filename);
                                 }
                             }
                         }
@@ -930,7 +933,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         try {
             var repo = getRepo();
             var remoteUrl = repo.getRemoteUrl();
-            GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            GitRepoIdUtil.OwnerRepo ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
                 // PR is from the same repository - use the actual branch name
@@ -1192,7 +1195,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     if (pr.getUser() != null) author = pr.getUser().getLogin();
                     if (pr.getUpdatedAt() != null) {
                         Date date = pr.getUpdatedAt();
-                        formattedUpdated = GitUiUtil.formatRelativeDate(date.toInstant(), today);
+                        formattedUpdated = GitDiffUiUtil.formatRelativeDate(date.toInstant(), today);
                     }
                 } catch (IOException ex) {
                     logger.warn("Could not get metadata for PR #{}", pr.getNumber(), ex);
@@ -1350,7 +1353,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     // Ensure head SHA is available
                     String headFetchRefSpec =
                             String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    headLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
+                    headLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
 
                     if (!headLocallyAvailable) {
                         // If direct PR head fetch fails, try fetching the source branch if it's from origin
@@ -1365,7 +1368,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             String headBranchFetchRefSpec = String.format(
                                     "+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
                             headLocallyAvailable =
-                                    GitUiUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
+                                    GitHostUtil.ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
                         } else {
                             logger.warn(
                                     "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.",
@@ -1379,7 +1382,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     String baseBranchName = pr.getBase().getRef(); // e.g. "main"
                     String baseFetchRefSpec =
                             String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                    baseLocallyAvailable = GitUiUtil.ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
+                    baseLocallyAvailable = GitHostUtil.ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
 
                     if (headLocallyAvailable && baseLocallyAvailable) {
                         List<String> changedFiles;
@@ -1511,7 +1514,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!GitUiUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!GitHostUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Capture Diff Error");
@@ -1519,9 +1522,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
                 // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
                 // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
-                GitUiUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
+                GitHostUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
 
-                GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
+                GitDiffUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
 
                 // Also edit files mentioned in the diff (excluding binary files)
                 List<GitRepo.ModifiedFile> modifiedFiles;
@@ -1533,7 +1536,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     return;
                 }
 
-                var textFiles = GitUiUtil.filterTextFiles(modifiedFiles);
+                var textFiles = GitDiffUiUtil.filterTextFiles(modifiedFiles);
                 var allFiles =
                         modifiedFiles.stream().map(GitRepo.ModifiedFile::file).toList();
                 var filteredCount = allFiles.size() - textFiles.size();
@@ -1648,13 +1651,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!GitUiUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!GitHostUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
-                if (!GitUiUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                if (!GitHostUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
                     // This is a warning because prBaseSha might be an old commit not on the current tip of the base
                     // branch.
                     // listFilesChangedBetweenBranches might still work if it's an ancestor.
@@ -1910,8 +1913,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         contextManager.submitExclusiveAction(() -> {
             try {
                 var remoteUrl = getRepo().getRemoteUrl(); // Can be null
-                GitUiUtil.OwnerRepo ownerRepo =
-                        GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+                GitRepoIdUtil.OwnerRepo ownerRepo =
+                        GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
                 if (ownerRepo == null) {
                     throw new IOException("Could not parse 'owner/repo' from remote: " + remoteUrl);
                 }

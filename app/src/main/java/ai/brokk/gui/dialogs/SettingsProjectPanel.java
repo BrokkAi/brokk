@@ -15,6 +15,8 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.IssueProviderType;
@@ -430,7 +432,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
                 return Optional.empty();
             }
-            return GitUiUtil.validateOwnerFormat(ownerText);
+            return GitRepoIdUtil.validateOwnerFormat(ownerText);
         };
 
         // Individual validation for repo field
@@ -438,15 +440,15 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
                 return Optional.empty();
             }
-            return GitUiUtil.validateRepoFormat(repoText);
+            return GitRepoIdUtil.validateRepoFormat(repoText);
         };
 
         githubOwnerField
                 .getDocument()
-                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubOwnerField, ownerValidator));
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubOwnerField, ownerValidator));
         githubRepoField
                 .getDocument()
-                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubRepoField, repoValidator));
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubRepoField, repoValidator));
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
@@ -466,12 +468,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (hostText.isEmpty() || !githubOverrideCheckbox.isSelected()) {
                 return Optional.empty();
             }
-            var normalizedOpt = GitUiUtil.normalizeGitHubHost(hostText);
-            return normalizedOpt.flatMap(GitUiUtil::validateGitHubHost);
+            var normalizedOpt = GitRepoIdUtil.normalizeGitHubHost(hostText);
+            return normalizedOpt.flatMap(GitRepoIdUtil::validateGitHubHost);
         };
         githubHostField
                 .getDocument()
-                .addDocumentListener(GitUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
 
         githubInfoLabel.setText(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
@@ -529,7 +531,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             private void onRepoFieldChanged() {
                 String repoText = githubRepoField.getText().trim();
                 if (!repoText.isEmpty()) {
-                    var parseResult = GitUiUtil.parseOwnerRepoFlexible(repoText);
+                    var parseResult = GitRepoIdUtil.parseOwnerRepoFlexible(repoText);
                     parseResult.ifPresent(ownerRepo -> SwingUtilities.invokeLater(() -> {
                         githubOwnerField.setText(ownerRepo.owner());
                         githubRepoField.setText(ownerRepo.repo());
@@ -1165,7 +1167,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
 
-                    var validationError = GitUiUtil.validateOwnerRepo(owner, repo);
+                    var validationError = GitRepoIdUtil.validateOwnerRepo(owner, repo);
                     if (validationError.isPresent()) {
                         JOptionPane.showMessageDialog(
                                 parentDialog,
@@ -1176,9 +1178,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     }
 
                     if (!host.isEmpty()) {
-                        var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(host);
+                        var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(host);
                         if (normalizedHostOpt.isPresent()) {
-                            var hostValidationError = GitUiUtil.validateGitHubHost(normalizedHostOpt.get());
+                            var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
                             if (hostValidationError.isPresent()) {
                                 JOptionPane.showMessageDialog(
                                         parentDialog,

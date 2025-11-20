@@ -8,6 +8,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -157,7 +158,7 @@ public class OpenProjectDialog extends JDialog {
         var table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getColumnModel().getColumn(1).setCellRenderer((table1, value, isSelected, hasFocus, row, column) -> {
-            var label = new JLabel(GitUiUtil.formatRelativeDate((Instant) value, today));
+            var label = new JLabel(GitDiffUiUtil.formatRelativeDate((Instant) value, today));
             label.setOpaque(true);
             if (isSelected) {
                 label.setBackground(table1.getSelectionBackground());
@@ -553,7 +554,7 @@ public class OpenProjectDialog extends JDialog {
 
     private Component renderDateColumn(
             JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-        var dateText = GitUiUtil.formatRelativeDate((Instant) value, LocalDate.now(ZoneId.systemDefault()));
+        var dateText = GitDiffUiUtil.formatRelativeDate((Instant) value, LocalDate.now(ZoneId.systemDefault()));
         return createStyledLabel(dateText, table, isSelected);
     }
 

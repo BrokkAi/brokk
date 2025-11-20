@@ -8,6 +8,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -125,7 +126,7 @@ public class ProjectFilesPanel extends JPanel {
      * use this to ensure consistency.
      */
     public void updateBorderTitle() {
-        var branchName = GitUiUtil.getCurrentBranchName(project);
+        var branchName = GitHostUtil.getCurrentBranchName(project);
         int dependencyCount = chrome.getProject().getLiveDependencies().size();
         updateBorderTitle(branchName, dependencyCount);
     }

@@ -6,6 +6,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -154,7 +155,7 @@ public class GitHistoryTab extends JPanel {
                 fileHistoryTable.setRowSelectionInterval(row, row);
                 var commitId = (String) fileHistoryModel.getValueAt(row, 3);
                 var histFile = (ProjectFile) fileHistoryModel.getValueAt(row, 4);
-                GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
+                GitDiffUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
             }
         });
 
@@ -163,7 +164,7 @@ public class GitHistoryTab extends JPanel {
             if (row < 0) return;
             var commitId = (String) fileHistoryModel.getValueAt(row, 3);
             var histFile = (ProjectFile) fileHistoryModel.getValueAt(row, 4);
-            GitUiUtil.addFileChangeToContext(contextManager, chrome, commitId, histFile);
+            GitDiffUiUtil.addFileChangeToContext(contextManager, chrome, commitId, histFile);
         });
 
         viewFileAtRevItem.addActionListener(e -> {
@@ -171,7 +172,7 @@ public class GitHistoryTab extends JPanel {
             if (row < 0) return;
             var commitId = (String) fileHistoryTable.getValueAt(row, 3);
             var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
-            GitUiUtil.viewFileAtRevision(contextManager, chrome, commitId, histFile.toString());
+            GitDiffUiUtil.viewFileAtRevision(contextManager, chrome, commitId, histFile.toString());
         });
 
         viewDiffItem.addActionListener(e -> {
@@ -179,7 +180,7 @@ public class GitHistoryTab extends JPanel {
             if (row < 0) return;
             var commitId = (String) fileHistoryTable.getValueAt(row, 3);
             var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
-            GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
+            GitDiffUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
         });
 
         compareWithLocalItem.addActionListener(e -> {
@@ -187,7 +188,7 @@ public class GitHistoryTab extends JPanel {
             if (row < 0) return;
             var commitId = (String) fileHistoryTable.getValueAt(row, 3);
             var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
-            GitUiUtil.showDiffVsLocal(contextManager, chrome, commitId, histFile.toString(), false);
+            GitDiffUiUtil.showDiffVsLocal(contextManager, chrome, commitId, histFile.toString(), false);
         });
 
         viewInLogItem.addActionListener(e -> {
@@ -198,7 +199,7 @@ public class GitHistoryTab extends JPanel {
             }
         });
 
-        editFileItem.addActionListener(e -> GitUiUtil.editFile(contextManager, getFilePath()));
+        editFileItem.addActionListener(e -> GitDiffUiUtil.editFile(contextManager, getFilePath()));
 
         add(new JScrollPane(fileHistoryTable), BorderLayout.CENTER);
     }
@@ -217,7 +218,7 @@ public class GitHistoryTab extends JPanel {
                     var today = LocalDate.now(ZoneId.systemDefault());
 
                     for (var entry : history) {
-                        var date = GitUiUtil.formatRelativeDate(entry.commit().date(), today);
+                        var date = GitDiffUiUtil.formatRelativeDate(entry.commit().date(), today);
                         fileHistoryModel.addRow(new Object[] {
                             entry.commit().message(),
                             entry.commit().author(),

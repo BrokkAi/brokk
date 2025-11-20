@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -94,7 +95,7 @@ public class GitHubAuth {
 
             var remoteUrl = repo.getRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
-            var parsedOwnerRepoDetails = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            var parsedOwnerRepoDetails = GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (parsedOwnerRepoDetails != null) {
                 effectiveOwner = parsedOwnerRepoDetails.owner();
@@ -117,9 +118,9 @@ public class GitHubAuth {
         }
 
         if (effectiveHost != null && !effectiveHost.isBlank()) {
-            var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(effectiveHost);
+            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(effectiveHost);
             if (normalizedHostOpt.isPresent()) {
-                var hostValidationError = GitUiUtil.validateGitHubHost(normalizedHostOpt.get());
+                var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
                 if (hostValidationError.isPresent()) {
                     logger.warn(
                             "Invalid GitHub host for project '{}': '{}'. Validation error: {}",
@@ -154,7 +155,7 @@ public class GitHubAuth {
         }
 
         try {
-            GitUiUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
+            GitRepoIdUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
         } catch (IllegalArgumentException e) {
             String source = usingOverride ? "GitHub config override" : "git remote URL";
             logger.warn(
@@ -607,7 +608,7 @@ public class GitHubAuth {
 
         String slug;
         try {
-            slug = GitUiUtil.buildRepoSlug(owner, repoName);
+            slug = GitRepoIdUtil.buildRepoSlug(owner, repoName);
         } catch (IllegalArgumentException e) {
             logger.warn(
                     "Validation failed for repository identifier: owner='{}', repo='{}'. Error: {}",
@@ -623,7 +624,7 @@ public class GitHubAuth {
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
-            var normalizedHostOpt = GitUiUtil.normalizeGitHubHost(this.host);
+            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(this.host);
             String enterpriseHost = normalizedHostOpt.orElse(this.host);
             builder.withEndpoint("https://" + enterpriseHost + "/api/v3");
             logger.debug("Configuring GitHub client for enterprise host: {}", enterpriseHost);

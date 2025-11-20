@@ -21,6 +21,7 @@ import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;
 import ai.brokk.issues.Comment;
@@ -1049,7 +1050,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
                             ? ""
-                            : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
+                            : GitDiffUiUtil.formatRelativeDate(header.updated().toInstant(), today);
                     issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
                 }
             }

@@ -20,6 +20,7 @@ import ai.brokk.gui.components.ResponsiveButtonPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -181,7 +182,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         captureDiffItem.addActionListener(e -> {
             // Unified call:
             var selectedFiles = getSelectedFilesFromTable();
-            GitUiUtil.captureUncommittedDiff(contextManager, chrome, selectedFiles);
+            GitDiffUiUtil.captureUncommittedDiff(contextManager, chrome, selectedFiles);
         });
 
         editFileItem.addActionListener(e -> {
@@ -727,7 +728,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 7. Create a new context history entry for the rollback action.
-                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
                 var rollbackDescription =
                         otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
                 contextManager.pushContext(ctx -> ctx.withParsedOutput(null, rollbackDescription));
@@ -800,7 +801,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "All changes stashed successfully: " + stashDescription);
             } else {
-                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
