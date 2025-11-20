@@ -2046,7 +2046,7 @@ public interface ContextFragment {
         }
     }
 
-    class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
+    class UsageFragment extends VirtualFragment implements DynamicIdentity { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
         private volatile @Nullable String snapshotText;
@@ -2267,7 +2267,7 @@ public interface ContextFragment {
         }
     }
 
-    class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
+    class CodeFragment extends VirtualFragment implements DynamicIdentity { // Dynamic, uses nextId
         private final String fullyQualifiedName;
         private volatile @Nullable String snapshotText;
         private @Nullable ComputedValue<CodeUnit> unitCv;
@@ -2500,7 +2500,7 @@ public interface ContextFragment {
         }
     }
 
-    class CallGraphFragment extends VirtualFragment { // Dynamic, uses nextId
+    class CallGraphFragment extends VirtualFragment implements DynamicIdentity { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
@@ -2662,7 +2662,8 @@ public interface ContextFragment {
         FILE_SKELETONS // Summaries for all top-level declarations in a file
     }
 
-    class SkeletonFragment extends VirtualFragment { // Dynamic composite wrapper around SummaryFragments
+    class SkeletonFragment extends VirtualFragment
+            implements DynamicIdentity { // Dynamic composite wrapper around SummaryFragments
         private final List<SummaryFragment> summaries;
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
@@ -2823,7 +2824,7 @@ public interface ContextFragment {
         }
     }
 
-    class SummaryFragment extends VirtualFragment { // Dynamic, single-target, uses nextId
+    class SummaryFragment extends VirtualFragment implements DynamicIdentity { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
         private @Nullable ComputedValue<String> textCv;
