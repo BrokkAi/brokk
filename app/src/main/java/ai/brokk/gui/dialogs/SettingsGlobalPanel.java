@@ -655,6 +655,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Workspace actions
         adder.add("workspace.attachContext", "Add Content to Workspace");
+        adder.add("workspace.attachFilesAndSummarize", "Attach Files + Summarize");
 
         // Add global reset button
         var resetAllBtn = new JButton("Reset All to Defaults");
@@ -789,7 +790,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomInAlt",
             "view.zoomOut",
             "view.resetZoom",
-            "workspace.attachContext"
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -831,6 +833,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.zoomOut" -> "Zoom Out";
             case "view.resetZoom" -> "Reset Zoom";
             case "workspace.attachContext" -> "Add Content to Workspace";
+            case "workspace.attachFilesAndSummarize" -> "Attach Files + Summarize";
             default -> id;
         };
     }
@@ -862,7 +865,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomInAlt",
             "view.zoomOut",
             "view.resetZoom",
-            "workspace.attachContext"
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -3812,6 +3816,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
             // Workspace actions
             case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
+            case "workspace.attachFilesAndSummarize" ->
+                KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
 
             default ->
                 KeyStroke.getKeyStroke(

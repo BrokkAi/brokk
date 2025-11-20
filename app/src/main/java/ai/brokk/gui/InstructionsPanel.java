@@ -864,20 +864,32 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         attachButton.setOpaque(false);
         attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
 
-        // Set dynamic tooltip based on configured keybinding
+        // Set dynamic tooltip based on configured keybindings
         SwingUtilities.invokeLater(() -> {
             try {
-                KeyStroke ks = GlobalUiSettings.getKeybinding(
-                        "workspace.attachContext",
-                        KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
-                String chord = KeyboardShortcutUtil.formatKeyStroke(ks);
-                if (chord == null || chord.isBlank()) {
-                    attachButton.setToolTipText("Add content to workspace");
-                } else {
-                    attachButton.setToolTipText("Add content to workspace (" + chord + ")");
+                KeyStroke ksAttach = GlobalUiSettings.getKeybinding(
+                        "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+                KeyStroke ksSumm = GlobalUiSettings.getKeybinding(
+                        "workspace.attachFilesAndSummarize",
+                        KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+                String attachStr = KeyboardShortcutUtil.formatKeyStroke(ksAttach);
+                String summStr = KeyboardShortcutUtil.formatKeyStroke(ksSumm);
+
+                StringBuilder tip = new StringBuilder();
+                tip.append("<html>");
+                tip.append("Add content to workspace");
+                if (attachStr != null && !attachStr.isBlank()) {
+                    tip.append(" (").append(attachStr).append(")");
                 }
+                tip.append("<br/>");
+                tip.append("Attach Files + Summarize");
+                if (summStr != null && !summStr.isBlank()) {
+                    tip.append(" (").append(summStr).append(")");
+                }
+                tip.append("</html>");
+                attachButton.setToolTipText(tip.toString());
             } catch (Exception ex) {
-                logger.debug("Failed to set dynamic tooltip for attach button", ex);
+                logger.debug("Failed to set dynamic tooltip for attach button (summarize)", ex);
                 attachButton.setToolTipText("Add content to workspace");
             }
         });
