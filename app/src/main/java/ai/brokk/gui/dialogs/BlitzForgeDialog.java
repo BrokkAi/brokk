@@ -843,13 +843,22 @@ public class BlitzForgeDialog extends JDialog {
 
         // Wire actions
         addEntireButton.addActionListener(e -> {
-            var files = chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
+            // Capture language selection on EDT before offloading to background
             String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
-            var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
-                    ? files
-                    : files.filter(pf -> langSel.equals(
-                            Languages.fromExtension(pf.extension()).toString()));
-            addProjectFilesToTable(filtered.toList());
+
+            // Offload expensive file enumeration and filtering to background thread
+            var cm = chrome.getContextManager();
+            cm.submitBackgroundTask("Enumerate project files", () -> {
+                        var files = chrome.getProject().getRepo().getTrackedFiles().stream()
+                                .filter(ProjectFile::isText);
+                        var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
+                                ? files.toList()
+                                : files.filter(pf -> langSel.equals(Languages.fromExtension(pf.extension())
+                                                .toString()))
+                                        .toList();
+                        return filtered;
+                    })
+                    .thenAccept(fileList -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(fileList)));
         });
         attachFilesButton.addActionListener(e -> openAttachFilesDialog());
 
