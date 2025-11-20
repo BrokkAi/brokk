@@ -12,7 +12,6 @@ import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -3249,9 +3248,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     dialog.setLocationRelativeTo(chrome.getFrame());
                     Chrome.applyIcon(dialog);
 
-                    if (content instanceof ThemeAware themeAware) {
-                        themeAware.applyTheme(chrome.getTheme());
-                    }
+                    content.applyTheme(chrome.getTheme());
 
                     dialog.setVisible(true);
                 });
@@ -3792,77 +3789,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             logger.warn("Failed to compute baseline for changes", e);
             return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
         }
-    }
-
-    /** Performs the "Commit All" action: opens CommitDialog with all modified files. */
-    private void performCommitAll() {
-        var repoOpt = repo();
-        if (repoOpt.isEmpty()) {
-            showNotification(IConsoleIO.NotificationRole.INFO, "No repository detected.");
-            return;
-        }
-
-        try {
-            var modified = repoOpt.get().getModifiedFiles();
-            var files = modified.stream().map(IGitRepo.ModifiedFile::file).toList();
-
-            if (files.isEmpty()) {
-                showNotification(IConsoleIO.NotificationRole.INFO, "No changes to commit.");
-                return;
-            }
-
-            var workflow = new GitWorkflow(contextManager);
-            var dlg = new CommitDialog(
-                    chrome.getFrame(),
-                    chrome,
-                    contextManager,
-                    workflow,
-                    new ArrayList<>(files),
-                    result -> SwingUtilities.invokeLater(() -> {
-                        refreshBranchDiffPanel();
-                        chrome.updateCommitPanel();
-                        chrome.updateGitRepo();
-                    }));
-            dlg.setLocationRelativeTo(chrome.getFrame());
-            dlg.setVisible(true);
-        } catch (Exception e) {
-            logger.warn("Error preparing commit dialog", e);
-            chrome.toolError("Failed to prepare commit: " + e.getMessage(), "Commit All");
-        }
-    }
-
-    /** Performs the "Stash All" action: creates a stash of all uncommitted changes in background. */
-    private void performStashAll() {
-        contextManager.submitBackgroundTask("Stash all changes", () -> {
-            try {
-                var repo = contextManager.getProject().getRepo();
-                if (!(repo instanceof GitRepo gitRepo)) {
-                    SwingUtilities.invokeLater(() -> showNotification(
-                            IConsoleIO.NotificationRole.INFO, "Repository does not support stashing."));
-                    return;
-                }
-
-                var rev = gitRepo.createStash("WIP: Stash from Review tab");
-                if (rev == null) {
-                    SwingUtilities.invokeLater(
-                            () -> showNotification(IConsoleIO.NotificationRole.INFO, "Nothing to stash."));
-                } else {
-                    var shortId = gitRepo.shortHash(rev.getName());
-                    SwingUtilities.invokeLater(
-                            () -> showNotification(IConsoleIO.NotificationRole.INFO, "Created stash " + shortId));
-                }
-
-                SwingUtilities.invokeLater(() -> {
-                    refreshBranchDiffPanel();
-                    chrome.updateCommitPanel();
-                    chrome.updateGitRepo();
-                });
-            } catch (Exception e) {
-                logger.warn("Error stashing changes", e);
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Failed to stash changes: " + e.getMessage(), "Stash All"));
-            }
-        });
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
