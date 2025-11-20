@@ -18,7 +18,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -156,6 +158,9 @@ public final class HeadlessExecutorMain {
         // - PUT  /v1/sessions  (import/load an existing session from a zip)
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        // Issues router handles:
+        // - POST /v1/issues/{issue_number}/fix (create fix for GitHub issue)
+        this.server.registerAuthenticatedContext("/v1/issues", this::handleIssuesRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -338,6 +343,39 @@ public final class HeadlessExecutorMain {
         }
         var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
         SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+    }
+
+    // ============================================================================
+    // Router for /v1/issues endpoints
+    // ============================================================================
+
+    /**
+     * Route requests to /v1/issues and sub-paths based on method and path.
+     */
+    void handleIssuesRouter(HttpExchange exchange) throws IOException {
+        var path = exchange.getRequestURI().getPath();
+        var method = exchange.getRequestMethod();
+
+        // POST /v1/issues/{issue_number}/fix - create fix for GitHub issue
+        if (path.startsWith("/v1/issues/") && path.endsWith("/fix") && method.equals("POST")) {
+            // Extract issue number from path like /v1/issues/42/fix
+            var parts = Splitter.on('/').splitToList(path);
+            if (parts.size() >= 4 && "issues".equals(parts.get(2)) && "fix".equals(parts.get(4))) {
+                try {
+                    int issueNumber = Integer.parseInt(parts.get(3));
+                    handlePostIssueFix(exchange, issueNumber);
+                    return;
+                } catch (NumberFormatException e) {
+                    var error = ErrorPayload.validationError("Invalid issue number in path");
+                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    return;
+                }
+            }
+        }
+
+        // Unknown endpoint
+        var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+        SimpleHttpServer.sendJsonResponse(exchange, 404, error);
     }
 
     // ============================================================================
@@ -811,6 +849,270 @@ public final class HeadlessExecutorMain {
             var error = ErrorPayload.internalError("Failed to compute diff", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
+    }
+
+    /**
+     * POST /v1/issues/{issue_number}/fix - Create and propose a fix for a GitHub issue.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "owner": "github-owner",
+     *   "repo": "repo-name",
+     *   "issueNumber": 42,
+     *   "githubToken": "gho_...",
+     *   "autoCommit": true,
+     *   "autoCompress": true,
+     *   "plannerModel": "gpt-5",
+     *   "codeModel": "gpt-5-mini",
+     *   "tags": { "mode": "ARCHITECT" }
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (201 Created):</b>
+     * <pre>
+     * {
+     *   "jobId": "uuid",
+     *   "state": "queued",
+     *   "issue": {
+     *     "number": 42,
+     *     "title": "Fix broken feature",
+     *     "url": "https://github.com/owner/repo/issues/42"
+     *   },
+     *   "worktreeBranch": "fix/42-fix-broken-feature",
+     *   "prUrl": null
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Repository owner and name are required and must not be blank</li>
+     *   <li>Issue number must be positive</li>
+     *   <li>plannerModel is required and must not be blank</li>
+     *   <li>GitHub token is required for authentication with GitHub API</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Fetches issue details from GitHub API using provided token</li>
+     *   <li>Creates a new Git worktree with branch derived from issue title and number</li>
+     *   <li>Creates a new job to run automated fix generation (lutz mode)</li>
+     *   <li>Job will asynchronously create a pull request upon successful completion</li>
+     * </ul>
+     */
+    void handlePostIssueFix(HttpExchange exchange, int issueNumber) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        IssueFixRequest request;
+        try {
+            request = SimpleHttpServer.parseJsonRequest(exchange, IssueFixRequest.class);
+        } catch (Exception parseEx) {
+            logger.warn("Invalid JSON in POST /v1/issues/{}/fix", issueNumber, parseEx);
+            var error = ErrorPayload.validationError("Invalid JSON request body");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        if (request == null) {
+            var error = ErrorPayload.validationError("Request body is required");
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        // Validation: required fields
+        var validationErrors = validateIssueFixRequest(request, issueNumber);
+        if (!validationErrors.isEmpty()) {
+            var error = ErrorPayload.validationError(String.join("; ", validationErrors));
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+            return;
+        }
+
+        try {
+            // Validate GitHub authentication and fetch issue details
+            var issueDetails = validateGitHubAuthAndFetchIssue(request, issueNumber);
+            var issueTitle = issueDetails.title();
+            var issueUrl = issueDetails.url();
+
+            // Create sanitized branch name from issue title and number
+            var branchName = createIssueBranchName(issueNumber, issueTitle);
+
+            // Create job spec for issue fix (will be extended with worktree and PR logic in later tasks)
+            var tags = request.tags() != null ? Map.copyOf(request.tags()) : Map.of("mode", "ARCHITECT");
+            var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
+                    formatIssueTaskInput(issueNumber, issueTitle, request.owner(), request.repo()),
+                    request.autoCommit(),
+                    request.autoCompress(),
+                    request.plannerModel(),
+                    request.codeModel(),
+                    tags);
+
+            // Create job (idempotent via issue-based key)
+            var idempotencyKey = "issue-fix-" + request.owner() + "-" + request.repo() + "-" + issueNumber;
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            logger.info(
+                    "Issue fix job {}: isNewJob={}, jobId={}, issue={}/{}/{}",
+                    idempotencyKey,
+                    isNewJob,
+                    jobId,
+                    request.owner(),
+                    request.repo(),
+                    issueNumber);
+
+            var response = IssueFixResponse.created(jobId, issueNumber, issueTitle, issueUrl, branchName);
+
+            if (isNewJob) {
+                // Reserve the job slot and schedule async execution (extended in later tasks)
+                if (!tryReserveJobSlot(jobId)) {
+                    logger.info(
+                            "Job reservation failed for issue fix; another job in progress: {}, requested jobId={}, idempotencyKey={}",
+                            jobReservation.current(),
+                            jobId,
+                            idempotencyKey);
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                try {
+                // Schedule async execution (worktree creation, fix generation, PR creation)
+                executeIssueFixAsync(jobId, jobSpec, request, issueNumber, issueTitle, branchName);
+                } catch (Exception ex) {
+                    var rolledBack = jobReservation.releaseIfOwner(jobId);
+                    logger.warn(
+                            "Reservation rollback after scheduling failure; jobId={}, idempotencyKey={}, rolledBack={}",
+                            jobId,
+                            idempotencyKey,
+                            rolledBack);
+                    logger.error("Failed to start issue fix job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start issue fix execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (IllegalArgumentException validEx) {
+            logger.warn("Validation error in issue fix request", validEx);
+            var error = ErrorPayload.validationError(validEx.getMessage());
+            SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/issues/{}/fix", issueNumber, e);
+            var error = ErrorPayload.internalError("Failed to create issue fix job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * Validate the issue fix request and return any validation errors.
+     */
+    private java.util.List<String> validateIssueFixRequest(IssueFixRequest request, int issueNumber) {
+        var errors = new java.util.ArrayList<String>();
+
+        if (request.owner() == null || request.owner().isBlank()) {
+            errors.add("Repository owner is required and must not be blank");
+        }
+        if (request.repo() == null || request.repo().isBlank()) {
+            errors.add("Repository name is required and must not be blank");
+        }
+        if (issueNumber <= 0) {
+            errors.add("Issue number must be positive");
+        }
+        if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+            errors.add("plannerModel is required and must not be blank");
+        }
+        if (request.githubToken() == null || request.githubToken().isBlank()) {
+            errors.add("GitHub token is required for API authentication");
+        }
+
+        return errors;
+    }
+
+    /**
+     * Validate GitHub authentication and fetch issue details from GitHub API.
+     *
+     * @return tuple of (issue title, issue URL)
+     * @throws IllegalArgumentException if token is invalid or issue not found
+     */
+    private record IssueDetails(String title, String url) {}
+
+    private IssueDetails validateGitHubAuthAndFetchIssue(IssueFixRequest request, int issueNumber) {
+        // This is a placeholder for Task 2 implementation
+        // For now, validate that token looks reasonable and return mock data
+        var token = request.githubToken();
+        if (token == null || token.length() < 10) {
+            throw new IllegalArgumentException("GitHub token appears invalid (too short)");
+        }
+
+        // Full GitHub API call will be implemented in Task 2
+        logger.info("Validated GitHub token for {}/{}", request.owner(), request.repo());
+        return new IssueDetails("Issue " + issueNumber, "https://github.com/" + request.owner() + "/" + request.repo() + "/issues/" + issueNumber);
+    }
+
+    /**
+     * Create a sanitized branch name from issue title and number.
+     * Format: fix/{issue_number}-{sanitized-title}
+     */
+    private String createIssueBranchName(int issueNumber, String issueTitle) {
+        // Sanitize title: lowercase, replace spaces/special chars with hyphens, max 50 chars
+        var sanitized = issueTitle
+                .toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "")
+                .substring(0, Math.min(50, issueTitle.length()));
+        return "fix/" + issueNumber + "-" + sanitized;
+    }
+
+    /**
+     * Format task input for the issue fix job.
+     */
+    private String formatIssueTaskInput(int issueNumber, String issueTitle, String owner, String repo) {
+        return String.format(
+                "Fix GitHub issue #%d: %s\n\nRepository: %s/%s\n\nIssue: %s",
+                issueNumber, issueTitle, owner, repo, issueTitle);
+    }
+
+    /**
+     * Schedule async execution of the issue fix workflow.
+     * This is a placeholder for Task 3-5 implementation.
+     */
+    private void executeIssueFixAsync(
+            String jobId,
+            ai.brokk.executor.jobs.JobSpec jobSpec,
+            IssueFixRequest request,
+            int issueNumber,
+            String issueTitle,
+            String branchName) {
+        logger.info(
+                "Scheduling async issue fix execution: jobId={}, issue={}/{}/{}",
+                jobId,
+                request.owner(),
+                request.repo(),
+                issueNumber);
+
+        // Placeholder: full implementation in Tasks 3-5
+        // This will:
+        // 1. Create a Git worktree with the derived branch name
+        // 2. Create a session for the worktree
+        // 3. Run the headless executor in lutz mode
+        // 4. Create a pull request on successful completion
+        jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
+            if (throwable != null) {
+                logger.error("Issue fix job {} execution failed", jobId, throwable);
+            } else {
+                logger.info("Issue fix job {} execution finished", jobId);
+            }
+            jobReservation.releaseIfOwner(jobId);
+        });
     }
 
     private record CreateSessionRequest(String name) {}
