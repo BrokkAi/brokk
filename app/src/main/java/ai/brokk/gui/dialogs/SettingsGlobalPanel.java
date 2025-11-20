@@ -653,6 +653,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
 
+        // Workspace actions
+        adder.add("workspace.attachContext", "Add Content to Workspace");
+
         // Add global reset button
         var resetAllBtn = new JButton("Reset All to Defaults");
         resetAllBtn.setToolTipText("Reset all keybindings to their default values");
@@ -785,7 +788,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext"
         };
 
         for (String id : allKeybindingIds) {
@@ -826,6 +830,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
             case "view.resetZoom" -> "Reset Zoom";
+            case "workspace.attachContext" -> "Add Content to Workspace";
             default -> id;
         };
     }
@@ -856,7 +861,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext"
         };
 
         for (String id : allKeybindingIds) {
@@ -3803,6 +3809,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // General navigation
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+
+            // Workspace actions
+            case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
 
             default ->
                 KeyStroke.getKeyStroke(
