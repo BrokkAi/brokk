@@ -395,13 +395,12 @@ public class WorkspaceTools {
         return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 
-    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
-    public String createTaskList(
-            @P(
-                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
-                    String explanation,
-            @P(
-                            """
+    /**
+     * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
+     * Used in @Tool parameter descriptions to keep guidance synchronized.
+     */
+    private static final String TASK_LIST_GUIDANCE =
+            """
             Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
 
             Requirements (apply to EACH task):
@@ -421,9 +420,17 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            """)
-                    List<String> tasks) {
-        logger.debug("createTaskList selected with {} tasks", tasks.size());
+            """;
+
+    @Tool(
+            value =
+                    "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")
+    public String createOrReplaceTaskList(
+            @P(
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                    String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
         if (tasks.isEmpty()) {
             return "No tasks provided.";
         }
@@ -432,15 +439,46 @@ public class WorkspaceTools {
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
 
-        // Append tasks to the local context
-        // also takes care of autostarting tasks in EZ mode
-        context = cm.appendTasksToTaskList(context, tasks);
+        // Replace the entire task list via ContextManager
+        context = ((ContextManager) cm).createOrReplaceTaskList(context, tasks);
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
         io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+        }
+
+        return formattedTaskList;
+    }
+
+    @Tool(
+            value =
+                    "Append new tasks to the existing task list without modifying or removing existing tasks. Use this when you want to extend the current task list incrementally.")
+    public String appendTaskList(
+            @P(
+                            "Explanation of why these tasks are being added, formatted in Markdown.")
+                    String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("appendTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var cm = context.getContextManager();
+        var io = cm.getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+
+        // Append tasks to the existing task list via ContextManager
+        context = ((ContextManager) cm).appendTasksToTaskList(context, tasks);
+
+        var lines = IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+        io.llmOutput("I am appending the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
         if (io instanceof Chrome chrome) {
             SwingUtilities.invokeLater(chrome::refreshTaskListUI);
         }

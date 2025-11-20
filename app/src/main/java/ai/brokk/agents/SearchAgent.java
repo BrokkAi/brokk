@@ -238,7 +238,8 @@ public class SearchAgent {
             // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
             var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                globalTerminals.add("createTaskList");
+                globalTerminals.add("createOrReplaceTaskList");
+                globalTerminals.add("appendTaskList");
             }
 
             // Merge allowed names with agent terminals and global terminals
@@ -505,8 +506,9 @@ public class SearchAgent {
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
                     """
-                    - Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
-                      Guidance:
+                    - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
+                    - Use appendTaskList(String explanation, List<String> tasks) to add new tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Use this when you want to extend the current task list incrementally.
+                      Guidance for both:
                         - Each task should be self-contained and verifiable via code review or automated tests.
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
@@ -590,7 +592,7 @@ public class SearchAgent {
                     <beast-mode>
                     The Workspace is full or execution was interrupted.
                     Finalize now using the best available information.
-                    Prefer answer(String) for informational requests; for code-change requests, provide a concise createTaskList(List<String>) if feasible; otherwise use abortSearch with reasons.
+                    Prefer answer(String) for informational requests; for code-change requests, provide a concise createOrReplaceTaskList(String explanation, List<String> tasks) if feasible; otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
         }
@@ -682,7 +684,7 @@ public class SearchAgent {
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
                       - Prefer callCodeAgent(String) if the requested change is small.
-                      - Otherwise, decompose the problem with createTaskList(List<String>); do not attempt to write code yet.
+                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks) or appendTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """);
         };
     }
@@ -698,7 +700,8 @@ public class SearchAgent {
             case "answer",
                     "askForClarification",
                     "callCodeAgent",
-                    "createTaskList",
+                    "createOrReplaceTaskList",
+                    "appendTaskList",
                     "workspaceComplete",
                     "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
@@ -733,7 +736,7 @@ public class SearchAgent {
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "callCodeAgent" -> 99;
-            case "createTaskList" -> 100;
+            case "createOrReplaceTaskList", "appendTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;

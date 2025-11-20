@@ -1424,24 +1424,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return liveContext().getTaskListDataOrEmpty();
     }
 
+    /**
+     * Builds TaskItem instances from plain text strings, summarizing titles with timeout fallback.
+     * Shared helper for both append and replace paths to ensure consistent behavior.
+     *
+     * @param texts List of task text strings (titles will be auto-summarized).
+     * @return List of TaskItem with summarized titles and done=false.
+     */
     @Blocking
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var additionsTexts =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (additionsTexts.isEmpty()) {
-            return context;
+    private List<TaskList.TaskItem> buildTaskItemsFromTexts(List<String> texts) {
+        var cleanedTexts = texts.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleanedTexts.isEmpty()) {
+            return List.of();
         }
 
         // Kick off title summarizations in parallel for all additions.
         // Each future completes on Swing EDT (SwingWorker.done). This method is @Blocking,
         // so it must not be invoked from the EDT to avoid deadlock.
-        var futures = additionsTexts.stream()
+        var futures = cleanedTexts.stream()
                 .map(text -> Map.entry(text, summarizeTaskForConversation(text)))
                 .toList();
 
         // Resolve each future with timeout; fallback to title=text on any failure.
-        List<TaskList.TaskItem> additions = new ArrayList<>(futures.size());
+        List<TaskList.TaskItem> items = new ArrayList<>(futures.size());
         for (var entry : futures) {
             String text = entry.getKey();
             String title;
@@ -1453,7 +1458,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Timeout, interruption, or execution error: fallback to original text as title
                 title = text;
             }
-            additions.add(new TaskList.TaskItem(title, text, false));
+            items.add(new TaskList.TaskItem(title, text, false));
+        }
+
+        return items;
+    }
+
+    @Blocking
+    @Override
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
+        var additions = buildTaskItemsFromTexts(tasks);
+        if (additions.isEmpty()) {
+            return context;
         }
 
         // Use the provided Context's task list as the source of truth (no liveContext use).
@@ -1469,6 +1485,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Pure function: return updated Context without pushing or UI side effects.
         return context.withTaskList(newData, action);
+    }
+
+    /**
+     * Replaces the entire task list with the provided tasks, dropping any previously completed tasks.
+     * This method is the counterpart to appendTasksToTaskList; it uses the same title summarization logic.
+     *
+     * @param context The current context.
+     * @param tasks List of task text strings (titles will be auto-summarized, done=false).
+     * @return Updated context with the entire task list replaced.
+     */
+    @Blocking
+    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        var items = buildTaskItemsFromTexts(tasks);
+        if (items.isEmpty()) {
+            // If no valid tasks provided, clear the task list
+            var newData = new TaskList.TaskListData(List.of());
+            return context.withTaskList(newData, "Task list cleared");
+        }
+
+        var newData = new TaskList.TaskListData(List.copyOf(items));
+        return context.withTaskList(newData, "Task list replaced");
     }
 
     /**
