@@ -12,11 +12,13 @@ import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -70,6 +72,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
+import javax.swing.JDialog;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -3196,7 +3199,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
-        // Build header with baseline label and Create PR button
+        // Build header with baseline label and buttons
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
 
@@ -3208,6 +3211,54 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
         headerPanel.add(baselineLabel, BorderLayout.WEST);
 
+        // Create right-aligned button panel for all action buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setOpaque(false);
+
+        // Determine if there are uncommitted working tree changes
+        boolean hasUncommittedChanges = false;
+        try {
+            var repoOpt = repo();
+            if (repoOpt.isPresent()) {
+                hasUncommittedChanges = !repoOpt.get().getModifiedFiles().isEmpty();
+            }
+        } catch (Exception e) {
+            logger.debug("Unable to determine uncommitted changes state", e);
+            hasUncommittedChanges = false; // default safe behavior
+        }
+
+        // Add "Changes to Commit" primary button when uncommitted changes exist
+        if (hasUncommittedChanges) {
+            var changesToCommitButton = new MaterialButton("Changes to Commit");
+            SwingUtil.applyPrimaryButtonStyle(changesToCommitButton);
+            changesToCommitButton.setToolTipText("Review and commit pending changes");
+            changesToCommitButton.addActionListener(e -> {
+                SwingUtilities.invokeLater(() -> {
+                    var content = new GitCommitTab(chrome, contextManager);
+                    content.updateCommitPanel();
+
+                    var dialog = new JDialog(chrome.getFrame(), "Changes", true);
+                    dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                    dialog.getContentPane().add(content);
+
+                    Dimension prefSize = content.getPreferredSize();
+                    int width = Math.max(prefSize.width, 800);
+                    int height = Math.max(prefSize.height, 600);
+                    dialog.setSize(width, height);
+
+                    dialog.setLocationRelativeTo(chrome.getFrame());
+                    Chrome.applyIcon(dialog);
+
+                    if (content instanceof ThemeAware themeAware) {
+                        themeAware.applyTheme(chrome.getTheme());
+                    }
+
+                    dialog.setVisible(true);
+                });
+            });
+            buttonPanel.add(changesToCommitButton);
+        }
+
         // Create PR button on the right (conditionally visible)
         boolean showCreatePR = false;
         if (lastBaselineMode != null) {
@@ -3217,16 +3268,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (showCreatePR) {
             var createPRButton = new MaterialButton("Create PR");
             createPRButton.setToolTipText("Create a Pull Request for these changes");
+            createPRButton.setEnabled(!hasUncommittedChanges);
             createPRButton.addActionListener(e -> {
                 SwingUtilities.invokeLater(() -> {
                     CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
                 });
             });
-            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-            buttonPanel.setOpaque(false);
             buttonPanel.add(createPRButton);
-            headerPanel.add(buttonPanel, BorderLayout.EAST);
         }
+
+        // Always add button panel to header for consistent UI
+        headerPanel.add(buttonPanel, BorderLayout.EAST);
 
         var topContainer = new JPanel(new BorderLayout(0, 6));
         topContainer.setOpaque(false);
@@ -3740,6 +3792,77 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             logger.warn("Failed to compute baseline for changes", e);
             return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
         }
+    }
+
+    /** Performs the "Commit All" action: opens CommitDialog with all modified files. */
+    private void performCommitAll() {
+        var repoOpt = repo();
+        if (repoOpt.isEmpty()) {
+            showNotification(IConsoleIO.NotificationRole.INFO, "No repository detected.");
+            return;
+        }
+
+        try {
+            var modified = repoOpt.get().getModifiedFiles();
+            var files = modified.stream().map(IGitRepo.ModifiedFile::file).toList();
+
+            if (files.isEmpty()) {
+                showNotification(IConsoleIO.NotificationRole.INFO, "No changes to commit.");
+                return;
+            }
+
+            var workflow = new GitWorkflow(contextManager);
+            var dlg = new CommitDialog(
+                    chrome.getFrame(),
+                    chrome,
+                    contextManager,
+                    workflow,
+                    new ArrayList<>(files),
+                    result -> SwingUtilities.invokeLater(() -> {
+                        refreshBranchDiffPanel();
+                        chrome.updateCommitPanel();
+                        chrome.updateGitRepo();
+                    }));
+            dlg.setLocationRelativeTo(chrome.getFrame());
+            dlg.setVisible(true);
+        } catch (Exception e) {
+            logger.warn("Error preparing commit dialog", e);
+            chrome.toolError("Failed to prepare commit: " + e.getMessage(), "Commit All");
+        }
+    }
+
+    /** Performs the "Stash All" action: creates a stash of all uncommitted changes in background. */
+    private void performStashAll() {
+        contextManager.submitBackgroundTask("Stash all changes", () -> {
+            try {
+                var repo = contextManager.getProject().getRepo();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    SwingUtilities.invokeLater(() -> showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Repository does not support stashing."));
+                    return;
+                }
+
+                var rev = gitRepo.createStash("WIP: Stash from Review tab");
+                if (rev == null) {
+                    SwingUtilities.invokeLater(
+                            () -> showNotification(IConsoleIO.NotificationRole.INFO, "Nothing to stash."));
+                } else {
+                    var shortId = gitRepo.shortHash(rev.getName());
+                    SwingUtilities.invokeLater(
+                            () -> showNotification(IConsoleIO.NotificationRole.INFO, "Created stash " + shortId));
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    refreshBranchDiffPanel();
+                    chrome.updateCommitPanel();
+                    chrome.updateGitRepo();
+                });
+            } catch (Exception e) {
+                logger.warn("Error stashing changes", e);
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("Failed to stash changes: " + e.getMessage(), "Stash All"));
+            }
+        });
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
