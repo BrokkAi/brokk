@@ -300,14 +300,14 @@ public class WorkspaceChip extends JPanel {
         if (fragment == null) {
             return;
         }
-        // Ensure a single preview window that starts with "Loading..." and updates in-place.
         try {
             var panel = chrome.getContextPanel();
-            contextManager.submitBackgroundTask("Showing chip preview", () -> panel.showFragmentPreview(fragment));
+            // Non-blocking UI action: showFragmentPreview marshals to the EDT as needed.
+            panel.showFragmentPreview(fragment);
         } catch (Exception ex) {
             logger.error("Failed to open preview via WorkspacePanel; falling back to Chrome", ex);
-            // Fallback (should not normally be needed)
-            contextManager.submitBackgroundTask("Showing chip preview", () -> chrome.openFragmentPreview(fragment));
+            // Fallback should also be safe to call directly
+            chrome.openFragmentPreview(fragment);
         }
     }
 
