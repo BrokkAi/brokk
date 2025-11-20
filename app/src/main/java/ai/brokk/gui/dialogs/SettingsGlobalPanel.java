@@ -1906,10 +1906,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // === PHASE 2: Gather all values from UI ===
 
-        // Service settings
-        var proxySetting = (brokkProxyRadio != null && brokkProxyRadio.isSelected())
-                ? MainProject.LlmProxySetting.BROKK
-                : MainProject.LlmProxySetting.LOCALHOST;
+        // Service settings - preserve current if radio buttons are null (STAGING mode)
+        MainProject.LlmProxySetting proxySetting;
+        if (brokkProxyRadio == null) {
+            proxySetting = MainProject.getProxySetting(); // Keep current (e.g., STAGING)
+        } else {
+            proxySetting = brokkProxyRadio.isSelected()
+                    ? MainProject.LlmProxySetting.BROKK
+                    : MainProject.LlmProxySetting.LOCALHOST;
+        }
         var forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
         // Appearance settings
