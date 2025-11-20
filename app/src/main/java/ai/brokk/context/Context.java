@@ -408,11 +408,14 @@ public class Context {
                         } catch (IOException e) {
                             logger.warn(
                                     "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                    pf.shortDescription(),
+                                    pf.shortDescription().renderNowOr(toString()),
                                     e);
                             return new EditableFileWithMtime(pf, -1L);
                         }
                     } else {
+                        logger.warn(
+                                "Could not get mtime for editable file [{}] as it no longer exists. It will be excluded from ordered editable fragments.",
+                                pf.shortDescription().renderNowOr(toString()));
                         return new EditableFileWithMtime(pf, -1L);
                     }
                 })
