@@ -981,6 +981,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
             var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
                     .map(s -> s.replace('\\', '/').trim())
+                    // Tolerate a single leading slash from historical values, e.g. "/nbdist" -> "nbdist"
+                    .map(s -> s.startsWith("/") ? s.substring(1) : s)
                     .map(s -> s.startsWith("./") ? s.substring(2) : s)
                     .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
                     .filter(s -> !s.isEmpty())
