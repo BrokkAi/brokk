@@ -50,7 +50,6 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -1092,61 +1091,6 @@ public class WorkspaceChip extends JPanel {
                         .append(" LOC \u2022 ~")
                         .append(formatCount(totalTokens))
                         .append(" tokens</div><br/>");
-            }
-
-            body.append("<div><b>Summaries</b></div>");
-            body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
-
-            if (allFiles.isEmpty()) {
-                body.append("Multiple summaries");
-            } else {
-                body.append("<ul style='margin:0;padding-left:16px'>");
-                for (var f : allFiles) {
-                    body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
-                }
-                body.append("</ul>");
-            }
-
-            body.append("<br/><i>Click to preview all contents</i>");
-            return wrapTooltipHtml(body.toString(), 420);
-        }
-
-        @Blocking
-        private String buildSummaryLabel() {
-            int totalFiles = (int) summaryFragments.stream()
-                    .flatMap(f -> f.files().join().stream())
-                    .map(ProjectFile::toString)
-                    .distinct()
-                    .count();
-            return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
-        }
-
-        @Blocking
-        private String buildAggregateSummaryTooltip() {
-            var allFiles = summaryFragments.stream()
-                    .flatMap(f -> f.files().join().stream())
-                    .map(ProjectFile::toString)
-                    .distinct()
-                    .sorted()
-                    .toList();
-
-            StringBuilder body = new StringBuilder();
-
-            int totalLoc = 0;
-            int totalTokens = 0;
-            try {
-                for (var summary : summaryFragments) {
-                    String text = summary.text().join();
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
-                }
-                body.append("<div>")
-                        .append(formatCount(totalLoc))
-                        .append(" LOC \u2022 ~")
-                        .append(formatCount(totalTokens))
-                        .append(" tokens</div><br/>");
-            } catch (Exception e) {
-                logger.error(e);
             }
 
             body.append("<div><b>Summaries</b></div>");

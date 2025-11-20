@@ -789,7 +789,7 @@ public abstract class CodePrompts {
                             %s
                             </fragment>
                             """
-                                    .formatted(sf.description(), sf.id(), visibleText);
+                                    .formatted(sf.description().join(), sf.id(), visibleText);
                 } else {
                     formatted = fragment.format().join();
                 }
@@ -802,11 +802,12 @@ public abstract class CodePrompts {
                     var imageBytesCv = Objects.requireNonNull(fragment.imageBytes(), "Image bytes were null");
                     var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytesCv.join()));
                     imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
+                    textBuilder.append(fragment.format().join()).append("\n\n");
                 } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                    var description = fragment.description().join();
+                    logger.error("Failed to process image fragment {} for LLM message", description, e);
+                    textBuilder.append(
+                            String.format("[Error processing image: %s - %s]\n\n", description, e.getMessage()));
                 }
             } else {
                 String formatted = fragment.format().join();

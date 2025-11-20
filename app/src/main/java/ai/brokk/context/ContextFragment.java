@@ -2117,6 +2117,7 @@ public interface ContextFragment {
             return FragmentType.USAGE;
         }
 
+        @Override
         public ComputedValue<String> text() {
             // Prefer frozen snapshot if available
             var snap = getSnapshotTextOrNull();
@@ -2390,6 +2391,7 @@ public interface ContextFragment {
                     v -> shortCv = v);
         }
 
+        @Override
         public ComputedValue<String> text() {
             // Prefer frozen snapshot if available
             var snap = getSnapshotTextOrNull();
@@ -2550,6 +2552,7 @@ public interface ContextFragment {
             return FragmentType.CALL_GRAPH;
         }
 
+        @Override
         public ComputedValue<String> text() {
             // Prefer frozen snapshot if available
             var snap = getSnapshotTextOrNull();
@@ -2709,6 +2712,7 @@ public interface ContextFragment {
             return FragmentType.SKELETON;
         }
 
+        @Override
         public ComputedValue<String> text() {
             // Prefer frozen snapshot if available
             var snap = getSnapshotTextOrNull();
@@ -2887,6 +2891,7 @@ public interface ContextFragment {
             return skeletonsMap;
         }
 
+        @Override
         public ComputedValue<String> text() {
             // Prefer frozen snapshot if available
             var snap = getSnapshotTextOrNull();
