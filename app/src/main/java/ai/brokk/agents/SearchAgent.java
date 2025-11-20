@@ -570,7 +570,7 @@ public class SearchAgent {
 
                         You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
                         each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
+                        Final actions (answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
                         If you include a final together with other tools, the final will be ignored for this turn.
                         It is NOT your objective to write code.
 
@@ -672,7 +672,7 @@ public class SearchAgent {
                 new TerminalObjective(
                         "instructions",
                         """
-                    Deliver a task list using the createTaskList(List<String>) tool.
+                    Deliver a task list using the createOrReplaceTaskList(List<String>) or appendTaskList(List<String>) tool.
                     """);
             case WORKSPACE_ONLY ->
                 new TerminalObjective(
@@ -695,7 +695,7 @@ public class SearchAgent {
     }
 
     private enum ToolCategory {
-        TERMINAL, // answer, createTaskList, workspaceComplete, abortSearch
+        TERMINAL, // answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch
         WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
         RESEARCH // everything else (blocks terminals)
     }
