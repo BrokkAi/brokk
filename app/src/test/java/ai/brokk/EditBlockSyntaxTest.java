@@ -28,6 +28,8 @@ import org.junit.jupiter.api.io.TempDir;
  */
 public class EditBlockSyntaxTest {
 
+    private static final int REPLACEMENT_BLOCK_INDENT_LEVEL = 4;
+
     @TempDir
     Path tempDir;
 
@@ -237,8 +239,8 @@ public class EditBlockSyntaxTest {
         // This 4-space delta should also be scaled by the same factor used for the 'if' statement's indent.
         // The scaling factor is derived from the analyzer snippet's first indent level (expectedIndentDelta)
         // and the replacement block's first indent level (hardcoded as 4 for this test).
-        double scale = (expectedIndentDelta > 0) ? (double) expectedIndentDelta / 4.0 : 1.0;
-        int printlnIndent = ifIndent + (int) Math.round(4 * scale);
+        double scale = (expectedIndentDelta > 0) ? (double) expectedIndentDelta / REPLACEMENT_BLOCK_INDENT_LEVEL : 1.0;
+        int printlnIndent = ifIndent + (int) Math.round(REPLACEMENT_BLOCK_INDENT_LEVEL * scale);
 
         AssertionHelperUtil.assertLineIndentEqualsIgnoringLeadingWhitespace(
                 content,
