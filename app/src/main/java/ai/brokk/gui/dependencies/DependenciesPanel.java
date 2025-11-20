@@ -541,13 +541,6 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
 
-        if (!(project instanceof AbstractProject)) {
-            logger.warn(
-                    "Project implementation {} does not support dependency auto-update",
-                    project.getClass().getName());
-            return;
-        }
-
         DependencyUpdateHelper.autoUpdateEligibleDependencies(chrome);
     }
 
@@ -780,7 +773,7 @@ public final class DependenciesPanel extends JPanel {
         boolean isLive = Boolean.TRUE.equals(tableModel.getValueAt(modelRow, 0));
 
         Object nameObj = tableModel.getValueAt(modelRow, 1);
-        String depName = nameObj instanceof String ? (String) nameObj : null;
+        String depName = nameObj instanceof String s ? s : null;
         ProjectFile pf = depName != null ? dependencyProjectFileMap.get(depName) : null;
 
         var menu = new JPopupMenu();

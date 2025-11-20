@@ -7,6 +7,7 @@ import ai.brokk.gui.Chrome;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -47,19 +48,13 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
             Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
-        return runUpdate(
-                chrome,
-                dependencyRoot,
-                metadata,
-                "GitHub",
-                abstractProject -> {
-                    try {
-                        return abstractProject.updateGitDependencyOnDisk(dependencyRoot, metadata);
-                    } catch (IOException e) {
-                        throw new RuntimeException(
-                                "I/O error while updating GitHub dependency on disk: " + dependencyRoot, e);
-                    }
-                });
+        return runUpdate(chrome, dependencyRoot, "GitHub", abstractProject -> {
+            try {
+                return abstractProject.updateGitDependencyOnDisk(dependencyRoot, metadata);
+            } catch (IOException e) {
+                throw new RuntimeException("I/O error while updating GitHub dependency on disk: " + dependencyRoot, e);
+            }
+        });
     }
 
     /**
@@ -77,37 +72,23 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
             Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
-        return runUpdate(
-                chrome,
-                dependencyRoot,
-                metadata,
-                "local path",
-                abstractProject -> {
-                    try {
-                        return abstractProject.updateLocalPathDependencyOnDisk(dependencyRoot, metadata);
-                    } catch (IOException e) {
-                        throw new RuntimeException(
-                                "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
-                    }
-                });
+        return runUpdate(chrome, dependencyRoot, "local path", abstractProject -> {
+            try {
+                return abstractProject.updateLocalPathDependencyOnDisk(dependencyRoot, metadata);
+            } catch (IOException e) {
+                throw new RuntimeException(
+                        "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
+            }
+        });
     }
 
     private static CompletableFuture<Set<ProjectFile>> runUpdate(
             Chrome chrome,
             ProjectFile dependencyRoot,
-            AbstractProject.DependencyMetadata metadata,
             String dependencyKindLabel,
             Function<AbstractProject, Set<ProjectFile>> updateOperation) {
 
         var project = chrome.getProject();
-        if (!(project instanceof AbstractProject abstractProject)) {
-            logger.warn(
-                    "Project implementation {} does not extend AbstractProject; cannot update {} dependency {}",
-                    project.getClass().getName(),
-                    dependencyKindLabel,
-                    dependencyRoot);
-            return CompletableFuture.completedFuture(Collections.emptySet());
-        }
 
         String depName = dependencyRoot.getRelPath().getFileName().toString();
         var cm = chrome.getContextManager();
@@ -116,41 +97,32 @@ public final class DependencyUpdateHelper {
                 IConsoleIO.NotificationRole.INFO,
                 "Updating " + dependencyKindLabel + " dependency '" + depName + "' in the background...");
 
-        var future = cm.submitBackgroundTask(
-                "Update " + dependencyKindLabel + " dependency " + depName,
-                () -> {
-                    var analyzer = cm.getAnalyzerWrapper();
-                    analyzer.pause();
+        var future = cm.submitBackgroundTask("Update " + dependencyKindLabel + " dependency " + depName, () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                Set<ProjectFile> changedFiles = updateOperation.apply(project);
+
+                if (!changedFiles.isEmpty()) {
                     try {
-                        Set<ProjectFile> changedFiles = updateOperation.apply(abstractProject);
-
-                        if (!changedFiles.isEmpty()) {
-                            try {
-                                analyzer.updateFiles(new HashSet<>(changedFiles)).get();
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                throw new RuntimeException(
-                                        "Interrupted while updating analyzer for dependency " + depName, ie);
-                            } catch (ExecutionException ee) {
-                                throw new RuntimeException(
-                                        "Analyzer update failed for dependency " + depName, ee.getCause());
-                            }
-                        }
-
-                        return changedFiles;
-                    } finally {
-                        analyzer.resume();
+                        analyzer.updateFiles(new HashSet<>(changedFiles)).get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while updating analyzer for dependency " + depName, ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException("Analyzer update failed for dependency " + depName, ee.getCause());
                     }
-                });
+                }
+
+                return changedFiles;
+            } finally {
+                analyzer.resume();
+            }
+        });
 
         future.whenComplete((changedFiles, ex) -> SwingUtilities.invokeLater(() -> {
             if (ex != null) {
-                logger.error(
-                        "Error updating {} dependency {}: {}",
-                        dependencyKindLabel,
-                        depName,
-                        ex.getMessage(),
-                        ex);
+                logger.error("Error updating {} dependency {}: {}", dependencyKindLabel, depName, ex.getMessage(), ex);
                 chrome.toolError(
                         "Failed to update " + dependencyKindLabel + " dependency '" + depName + "': " + ex.getMessage(),
                         "Dependency Update Error");
@@ -159,10 +131,7 @@ public final class DependencyUpdateHelper {
                 if (nonNullChanged.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            capitalize(dependencyKindLabel)
-                                    + " dependency '"
-                                    + depName
-                                    + "' is already up to date.");
+                            capitalize(dependencyKindLabel) + " dependency '" + depName + "' is already up to date.");
                 } else {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
@@ -196,16 +165,8 @@ public final class DependencyUpdateHelper {
             Chrome chrome) {
         var project = chrome.getProject();
 
-        if (!(project instanceof AbstractProject abstractProject)) {
-            logger.warn(
-                    "Project implementation {} does not support dependency auto-update",
-                    project.getClass().getName());
-            return CompletableFuture.completedFuture(
-                    new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0));
-        }
-
-        boolean includeLocal = abstractProject.getAutoUpdateLocalDependencies();
-        boolean includeGit = abstractProject.getAutoUpdateGitDependencies();
+        boolean includeLocal = project.getAutoUpdateLocalDependencies();
+        boolean includeGit = project.getAutoUpdateGitDependencies();
 
         if (!includeLocal && !includeGit) {
             logger.debug("Automatic dependency update skipped: both auto-update flags are disabled.");
@@ -216,44 +177,39 @@ public final class DependencyUpdateHelper {
         var cm = chrome.getContextManager();
 
         chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Checking imported dependencies for updates in the background...");
+                IConsoleIO.NotificationRole.INFO, "Checking imported dependencies for updates in the background...");
 
-        var future = cm.submitBackgroundTask(
-                "Auto-update imported dependencies",
-                () -> {
-                    var analyzer = cm.getAnalyzerWrapper();
-                    analyzer.pause();
+        var future = cm.submitBackgroundTask("Auto-update imported dependencies", () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                AbstractProject.DependencyAutoUpdateResult result =
+                        project.autoUpdateDependenciesOnce(includeLocal, includeGit);
+
+                if (!result.changedFiles().isEmpty()) {
                     try {
-                        AbstractProject.DependencyAutoUpdateResult result =
-                                abstractProject.autoUpdateDependenciesOnce(includeLocal, includeGit);
-
-                        if (!result.changedFiles().isEmpty()) {
-                            try {
-                                analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                throw new RuntimeException(
-                                        "Interrupted while applying dependency auto-updates", ie);
-                            } catch (ExecutionException ee) {
-                                throw new RuntimeException(
-                                        "Analyzer update failed after dependency auto-update",
-                                        ee.getCause());
-                            }
-                        }
-
-                        return result;
-                    } finally {
-                        analyzer.resume();
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                .get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while applying dependency auto-updates", ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException(
+                                "Analyzer update failed after dependency auto-update", ee.getCause());
                     }
-                });
+                }
+
+                return result;
+            } finally {
+                analyzer.resume();
+            }
+        });
 
         future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
             if (ex != null) {
                 logger.error("Error during automatic dependency update: {}", ex.getMessage(), ex);
                 chrome.toolError(
-                        "Automatic dependency update failed: " + ex.getMessage(),
-                        "Dependency Auto-Update Error");
+                        "Automatic dependency update failed: " + ex.getMessage(), "Dependency Auto-Update Error");
                 return;
             }
 
@@ -289,7 +245,7 @@ public final class DependencyUpdateHelper {
             return label;
         }
         if (label.length() == 1) {
-            return label.toUpperCase();
+            return label.toUpperCase(Locale.ROOT);
         }
         return Character.toUpperCase(label.charAt(0)) + label.substring(1);
     }

@@ -30,8 +30,7 @@ class LocalPathDependencyAutoUpdateTest {
     @BeforeEach
     void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("brokk-local-dep-update-");
-        dependenciesRoot =
-                tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+        dependenciesRoot = tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
         Files.createDirectories(dependenciesRoot);
 
         sourceDir = Files.createDirectory(tempRoot.resolve("external-lib"));
@@ -56,7 +55,8 @@ class LocalPathDependencyAutoUpdateTest {
         Files.copy(sourceDir.resolve("Foo.java"), depDir.resolve("Foo.java"));
 
         // Record dependency metadata pointing at our local source directory.
-        AbstractProject.writeLocalPathDependencyMetadata(depDir, sourceDir.toAbsolutePath().normalize());
+        AbstractProject.writeLocalPathDependencyMetadata(
+                depDir, sourceDir.toAbsolutePath().normalize());
 
         var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata to be present for local path dependency");
@@ -69,8 +69,7 @@ class LocalPathDependencyAutoUpdateTest {
                 project.getMasterRootPathForConfig(),
                 project.getMasterRootPathForConfig().relativize(depDir));
 
-        Set<ProjectFile> changedFiles =
-                project.updateLocalPathDependencyOnDisk(depProjectFile, metadataOpt.get());
+        Set<ProjectFile> changedFiles = project.updateLocalPathDependencyOnDisk(depProjectFile, metadataOpt.get());
 
         assertFalse(changedFiles.isEmpty(), "Changed files set should not be empty after source update");
 
@@ -83,9 +82,7 @@ class LocalPathDependencyAutoUpdateTest {
                 .relativize(depDir.resolve("Bar.java"))
                 .toString();
 
-        assertTrue(
-                relPaths.contains(expectedNewFileRel),
-                "Changed files should contain newly added Bar.java");
+        assertTrue(relPaths.contains(expectedNewFileRel), "Changed files should contain newly added Bar.java");
 
         assertTrue(
                 Files.exists(depDir.resolve("Bar.java")),
@@ -104,7 +101,8 @@ class LocalPathDependencyAutoUpdateTest {
         Path depDir = dependenciesRoot.resolve("local-dep");
         Files.createDirectories(depDir);
 
-        AbstractProject.writeLocalPathDependencyMetadata(depDir, badSource.toAbsolutePath().normalize());
+        AbstractProject.writeLocalPathDependencyMetadata(
+                depDir, badSource.toAbsolutePath().normalize());
 
         var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata for local path dependency");

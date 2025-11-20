@@ -35,8 +35,7 @@ class DependencyAutoUpdateCoordinatorTest {
     @BeforeEach
     void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("brokk-dep-auto-coord-");
-        dependenciesRoot =
-                tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+        dependenciesRoot = tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
         Files.createDirectories(dependenciesRoot);
 
         // Local source used for LOCAL_PATH dependencies
@@ -62,7 +61,11 @@ class DependencyAutoUpdateCoordinatorTest {
         remoteGit = Git.init().setDirectory(remoteRepoDir.toFile()).call();
         Files.writeString(remoteRepoDir.resolve("file1.txt"), "v1");
         remoteGit.add().addFilepattern(".").call();
-        remoteGit.commit().setMessage("initial").setAuthor("Test", "test@example.com").call();
+        remoteGit
+                .commit()
+                .setMessage("initial")
+                .setAuthor("Test", "test@example.com")
+                .call();
     }
 
     private void seedLocalDependency(Path depDir) throws IOException {
@@ -96,9 +99,7 @@ class DependencyAutoUpdateCoordinatorTest {
         Files.writeString(localSourceDir.resolve("LocalFoo.java"), "class LocalFooV2 {}");
 
         // Sanity check: dependency still has old contents
-        assertEquals(
-                "class LocalFooV1 {}",
-                Files.readString(localDepDir.resolve("LocalFoo.java")));
+        assertEquals("class LocalFooV1 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));
 
         var result = project.autoUpdateDependenciesOnce(false, false);
 
@@ -126,14 +127,16 @@ class DependencyAutoUpdateCoordinatorTest {
 
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
         remoteGit.add().addFilepattern(".").call();
-        remoteGit.commit().setMessage("add file2").setAuthor("Test", "test@example.com").call();
+        remoteGit
+                .commit()
+                .setMessage("add file2")
+                .setAuthor("Test", "test@example.com")
+                .call();
 
         var result = project.autoUpdateDependenciesOnce(true, false);
 
         // Local dependency should be updated
-        assertEquals(
-                "class LocalFooV2 {}",
-                Files.readString(localDepDir.resolve("LocalFoo.java")));
+        assertEquals("class LocalFooV2 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));
         assertTrue(Files.exists(localDepDir.resolve("LocalBar.java")));
 
         // Git dependency should remain at original state (no file2.txt)
@@ -141,8 +144,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 Files.exists(gitDepDir.resolve("file2.txt")),
                 "Git dependency should not be updated when Git auto-update is disabled");
 
-        assertEquals(
-                1, result.updatedDependencies(), "Exactly one dependency (local) should be reported as updated");
+        assertEquals(1, result.updatedDependencies(), "Exactly one dependency (local) should be reported as updated");
 
         Set<String> changedRelPaths = result.changedFiles().stream()
                 .map(ProjectFile::getRelPath)
@@ -172,7 +174,11 @@ class DependencyAutoUpdateCoordinatorTest {
 
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
         remoteGit.add().addFilepattern(".").call();
-        remoteGit.commit().setMessage("add file2").setAuthor("Test", "test@example.com").call();
+        remoteGit
+                .commit()
+                .setMessage("add file2")
+                .setAuthor("Test", "test@example.com")
+                .call();
 
         var result = project.autoUpdateDependenciesOnce(false, true);
 
@@ -188,8 +194,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 Files.readString(gitDepDir.resolve("file2.txt")),
                 "Git dependency should contain latest contents from remote");
 
-        assertEquals(
-                1, result.updatedDependencies(), "Exactly one dependency (Git) should be reported as updated");
+        assertEquals(1, result.updatedDependencies(), "Exactly one dependency (Git) should be reported as updated");
 
         Set<String> changedRelPaths = result.changedFiles().stream()
                 .map(ProjectFile::getRelPath)
@@ -222,9 +227,7 @@ class DependencyAutoUpdateCoordinatorTest {
         var result = project.autoUpdateDependenciesOnce(true, false);
 
         // Local dependency should be updated as usual
-        assertEquals(
-                "class LocalFooV2 {}",
-                Files.readString(localDepDir.resolve("LocalFoo.java")));
+        assertEquals("class LocalFooV2 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));
 
         // no-meta-dep should be untouched
         assertEquals(

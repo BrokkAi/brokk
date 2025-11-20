@@ -8,8 +8,8 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.AtomicWrites;
-import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -599,7 +599,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
          * @param sourcePath absolute path to the original source directory
          */
         public static DependencyMetadata forLocalPath(Path sourcePath) {
-            java.util.Objects.requireNonNull(sourcePath, "sourcePath");
             return new DependencyMetadata(
                     DependencySourceType.LOCAL_PATH,
                     sourcePath.toAbsolutePath().normalize().toString(),
@@ -615,14 +614,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
          * @param ref branch or tag name used during import
          */
         public static DependencyMetadata forGit(String repoUrl, String ref) {
-            java.util.Objects.requireNonNull(repoUrl, "repoUrl");
-            java.util.Objects.requireNonNull(ref, "ref");
-            return new DependencyMetadata(
-                    DependencySourceType.GITHUB,
-                    null,
-                    repoUrl,
-                    ref,
-                    System.currentTimeMillis());
+            return new DependencyMetadata(DependencySourceType.GITHUB, null, repoUrl, ref, System.currentTimeMillis());
         }
     }
 
@@ -701,157 +693,157 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /**
-    * Updates a dependency imported from a Git repository on disk using the metadata recorded
-    * at import time.
-    *
-    * <p>This method:
-    * <ul>
-    *   <li>Clones the remote repo at the recorded URL and ref into a temporary directory.</li>
-    *   <li>Removes any .git metadata from the temporary clone.</li>
-    *   <li>Computes the symmetric difference between files in the existing dependency directory
-    *       and the new clone (added/removed paths).</li>
-    *   <li>Swaps the existing dependency directory contents with the updated clone.</li>
-    *   <li>Refreshes the dependency metadata timestamp.</li>
-    * </ul>
-    *
-    * <p>The returned {@link ProjectFile} set represents files that were added or removed as part of
-    * the update. This method performs blocking I/O and must not be called on the Swing EDT.
-    *
-    * @param dependencyRoot top-level dependency directory as a {@link ProjectFile}
-    * @param metadata parsed dependency metadata (must be of type GITHUB with non-null repoUrl/ref)
-    * @return set of files that changed (added or removed) as a result of the update
-    * @throws IllegalArgumentException if metadata is not of type GITHUB or missing required fields
-    * @throws IOException if cloning or filesystem operations fail
-    */
+     * Updates a dependency imported from a Git repository on disk using the metadata recorded
+     * at import time.
+     *
+     * <p>This method:
+     * <ul>
+     *   <li>Clones the remote repo at the recorded URL and ref into a temporary directory.</li>
+     *   <li>Removes any .git metadata from the temporary clone.</li>
+     *   <li>Computes the symmetric difference between files in the existing dependency directory
+     *       and the new clone (added/removed paths).</li>
+     *   <li>Swaps the existing dependency directory contents with the updated clone.</li>
+     *   <li>Refreshes the dependency metadata timestamp.</li>
+     * </ul>
+     *
+     * <p>The returned {@link ProjectFile} set represents files that were added or removed as part of
+     * the update. This method performs blocking I/O and must not be called on the Swing EDT.
+     *
+     * @param dependencyRoot top-level dependency directory as a {@link ProjectFile}
+     * @param metadata parsed dependency metadata (must be of type GITHUB with non-null repoUrl/ref)
+     * @return set of files that changed (added or removed) as a result of the update
+     * @throws IllegalArgumentException if metadata is not of type GITHUB or missing required fields
+     * @throws IOException if cloning or filesystem operations fail
+     */
     public Set<ProjectFile> updateGitDependencyOnDisk(ProjectFile dependencyRoot, DependencyMetadata metadata)
-    throws IOException {
-    if (metadata.type() != DependencySourceType.GITHUB) {
-    throw new IllegalArgumentException("updateGitDependencyOnDisk requires GITHUB metadata");
-    }
-    String repoUrl = metadata.repoUrl();
-    String ref = metadata.ref();
-    if (repoUrl == null || ref == null) {
-    throw new IllegalArgumentException("GITHUB metadata must contain repoUrl and ref");
-    }
-    
-    Path targetPath = dependencyRoot.absPath();
-    if (!Files.exists(targetPath) || !Files.isDirectory(targetPath)) {
-    logger.warn(
-    "Git dependency root {} does not exist or is not a directory; treating as empty before update",
-    targetPath);
-    }
-    
-    Path depsParent = targetPath.getParent();
-    if (depsParent == null) {
-    throw new IOException("Dependency root has no parent: " + targetPath);
-    }
-    
-    String depName = targetPath.getFileName().toString();
-    Path tempDir = Files.createTempDirectory(depsParent, depName + "-update-");
-    
-    // First, clone into an empty temporary directory. Only after a successful clone do we
-    // create clone markers and register the operation, mirroring ImportDependencyDialog.
-    try {
-    // Clone latest version into the temporary directory (must be empty)
-    GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref);
-    
-    // Mark this clone as in-progress for cleanup purposes and register shutdown-hook tracking
-    CloneOperationTracker.createInProgressMarker(tempDir, repoUrl, ref);
-    CloneOperationTracker.registerCloneOperation(tempDir);
-    try {
-    // Remove any .git metadata from the temporary clone
-    Path gitInternalDir = tempDir.resolve(".git");
-    if (Files.exists(gitInternalDir)) {
-    FileUtil.deleteRecursively(gitInternalDir);
-    }
-    
-    // Mark clone as complete once post-clone cleanup succeeds
-    CloneOperationTracker.createCompleteMarker(tempDir, repoUrl, ref);
-    } finally {
-    CloneOperationTracker.unregisterCloneOperation(tempDir);
-    }
-    } catch (Exception e) {
-    // Best-effort cleanup of the temporary clone directory; do not touch the existing dependency
-    try {
-    if (Files.exists(tempDir)) {
-    FileUtil.deleteRecursively(tempDir);
-    }
-    } catch (Exception cleanupEx) {
-    logger.warn(
-    "Failed to cleanup temporary clone directory {} after failure: {}",
-    tempDir,
-    cleanupEx.getMessage());
-    }
-    throw new IOException("Failed to clone Git dependency from " + repoUrl + " at " + ref, e);
-    }
-    
-    // At this point tempDir contains the updated tree. Compute changed files and swap.
-    try {
-    Path masterRoot = getMasterRootPathForConfig();
-    
-    var oldFiles = new HashSet<Path>();
-    if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
-    try (var pathStream = Files.walk(targetPath)) {
-    pathStream
-    .filter(Files::isRegularFile)
-    .filter(p -> !isCloneMarker(p))
-    .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
-    }
-    }
-    
-    var newFiles = new HashSet<Path>();
-    try (var pathStream = Files.walk(tempDir)) {
-    pathStream
-    .filter(Files::isRegularFile)
-    .filter(p -> !isCloneMarker(p))
-    .forEach(p -> {
-    // Map temporary path to its eventual location under the real dependency root
-    Path relWithinTemp = tempDir.relativize(p);
-    Path futureLocation = targetPath.resolve(relWithinTemp);
-    newFiles.add(masterRoot.relativize(futureLocation));
-    });
-    }
-    
-    // Symmetric difference: added + removed paths relative to master root
-    var changedRelPaths = new HashSet<Path>(newFiles);
-    changedRelPaths.removeAll(oldFiles);
-    var removedRelPaths = new HashSet<Path>(oldFiles);
-    removedRelPaths.removeAll(newFiles);
-    changedRelPaths.addAll(removedRelPaths);
-    
-    // Swap directories: remove old dependency directory and move new clone in its place
-    if (Files.exists(targetPath)) {
-    boolean deleted = FileUtil.deleteRecursively(targetPath);
-    if (!deleted && Files.exists(targetPath)) {
-    throw new IOException("Failed to delete existing dependency directory " + targetPath);
-    }
-    }
-    Files.move(tempDir, targetPath);
-    
-    // Refresh metadata timestamp for this dependency
-    writeGitDependencyMetadata(targetPath, repoUrl, ref);
-    
-    return changedRelPaths.stream()
-    .map(rel -> new ProjectFile(masterRoot, rel))
-    .collect(Collectors.toSet());
-    } catch (IOException e) {
-    // On failure after clone, try to cleanup tempDir but do not touch the original directory
-    try {
-    if (Files.exists(tempDir)) {
-    FileUtil.deleteRecursively(tempDir);
-    }
-    } catch (Exception cleanupEx) {
-    logger.warn(
-    "Failed to cleanup temporary clone directory {} after swap failure: {}",
-    tempDir,
-    cleanupEx.getMessage());
-    }
-    throw e;
-    }
+            throws IOException {
+        if (metadata.type() != DependencySourceType.GITHUB) {
+            throw new IllegalArgumentException("updateGitDependencyOnDisk requires GITHUB metadata");
+        }
+        String repoUrl = metadata.repoUrl();
+        String ref = metadata.ref();
+        if (repoUrl == null || ref == null) {
+            throw new IllegalArgumentException("GITHUB metadata must contain repoUrl and ref");
+        }
+
+        Path targetPath = dependencyRoot.absPath();
+        if (!Files.exists(targetPath) || !Files.isDirectory(targetPath)) {
+            logger.warn(
+                    "Git dependency root {} does not exist or is not a directory; treating as empty before update",
+                    targetPath);
+        }
+
+        Path depsParent = targetPath.getParent();
+        if (depsParent == null) {
+            throw new IOException("Dependency root has no parent: " + targetPath);
+        }
+
+        String depName = targetPath.getFileName().toString();
+        Path tempDir = Files.createTempDirectory(depsParent, depName + "-update-");
+
+        // First, clone into an empty temporary directory. Only after a successful clone do we
+        // create clone markers and register the operation, mirroring ImportDependencyDialog.
+        try {
+            // Clone latest version into the temporary directory (must be empty)
+            GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref);
+
+            // Mark this clone as in-progress for cleanup purposes and register shutdown-hook tracking
+            CloneOperationTracker.createInProgressMarker(tempDir, repoUrl, ref);
+            CloneOperationTracker.registerCloneOperation(tempDir);
+            try {
+                // Remove any .git metadata from the temporary clone
+                Path gitInternalDir = tempDir.resolve(".git");
+                if (Files.exists(gitInternalDir)) {
+                    FileUtil.deleteRecursively(gitInternalDir);
+                }
+
+                // Mark clone as complete once post-clone cleanup succeeds
+                CloneOperationTracker.createCompleteMarker(tempDir, repoUrl, ref);
+            } finally {
+                CloneOperationTracker.unregisterCloneOperation(tempDir);
+            }
+        } catch (Exception e) {
+            // Best-effort cleanup of the temporary clone directory; do not touch the existing dependency
+            try {
+                if (Files.exists(tempDir)) {
+                    FileUtil.deleteRecursively(tempDir);
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Failed to cleanup temporary clone directory {} after failure: {}",
+                        tempDir,
+                        cleanupEx.getMessage());
+            }
+            throw new IOException("Failed to clone Git dependency from " + repoUrl + " at " + ref, e);
+        }
+
+        // At this point tempDir contains the updated tree. Compute changed files and swap.
+        try {
+            Path masterRoot = getMasterRootPathForConfig();
+
+            var oldFiles = new HashSet<Path>();
+            if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
+                try (var pathStream = Files.walk(targetPath)) {
+                    pathStream
+                            .filter(Files::isRegularFile)
+                            .filter(p -> !isCloneMarker(p))
+                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
+                }
+            }
+
+            var newFiles = new HashSet<Path>();
+            try (var pathStream = Files.walk(tempDir)) {
+                pathStream
+                        .filter(Files::isRegularFile)
+                        .filter(p -> !isCloneMarker(p))
+                        .forEach(p -> {
+                            // Map temporary path to its eventual location under the real dependency root
+                            Path relWithinTemp = tempDir.relativize(p);
+                            Path futureLocation = targetPath.resolve(relWithinTemp);
+                            newFiles.add(masterRoot.relativize(futureLocation));
+                        });
+            }
+
+            // Symmetric difference: added + removed paths relative to master root
+            var changedRelPaths = new HashSet<Path>(newFiles);
+            changedRelPaths.removeAll(oldFiles);
+            var removedRelPaths = new HashSet<Path>(oldFiles);
+            removedRelPaths.removeAll(newFiles);
+            changedRelPaths.addAll(removedRelPaths);
+
+            // Swap directories: remove old dependency directory and move new clone in its place
+            if (Files.exists(targetPath)) {
+                boolean deleted = FileUtil.deleteRecursively(targetPath);
+                if (!deleted && Files.exists(targetPath)) {
+                    throw new IOException("Failed to delete existing dependency directory " + targetPath);
+                }
+            }
+            Files.move(tempDir, targetPath);
+
+            // Refresh metadata timestamp for this dependency
+            writeGitDependencyMetadata(targetPath, repoUrl, ref);
+
+            return changedRelPaths.stream()
+                    .map(rel -> new ProjectFile(masterRoot, rel))
+                    .collect(Collectors.toSet());
+        } catch (IOException e) {
+            // On failure after clone, try to cleanup tempDir but do not touch the original directory
+            try {
+                if (Files.exists(tempDir)) {
+                    FileUtil.deleteRecursively(tempDir);
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Failed to cleanup temporary clone directory {} after swap failure: {}",
+                        tempDir,
+                        cleanupEx.getMessage());
+            }
+            throw e;
+        }
     }
 
-    public Set<ProjectFile> updateLocalPathDependencyOnDisk(
-            ProjectFile dependencyRoot, DependencyMetadata metadata) throws IOException {
+    public Set<ProjectFile> updateLocalPathDependencyOnDisk(ProjectFile dependencyRoot, DependencyMetadata metadata)
+            throws IOException {
         if (metadata.type() != DependencySourceType.LOCAL_PATH) {
             throw new IllegalArgumentException("updateLocalPathDependencyOnDisk requires LOCAL_PATH metadata");
         }
@@ -874,20 +866,18 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         Path normalizedTarget = targetPath.normalize();
 
         if (normalizedSource.startsWith(normalizedDepsRoot)) {
-            String msg =
-                    "Local dependency source "
-                            + normalizedSource
-                            + " must not be inside dependencies root "
-                            + normalizedDepsRoot;
+            String msg = "Local dependency source "
+                    + normalizedSource
+                    + " must not be inside dependencies root "
+                    + normalizedDepsRoot;
             logger.warn(msg);
             throw new IOException(msg);
         }
         if (normalizedSource.startsWith(normalizedTarget) || normalizedTarget.startsWith(normalizedSource)) {
-            String msg =
-                    "Local dependency source "
-                            + normalizedSource
-                            + " must not be the same as or inside its target directory "
-                            + normalizedTarget;
+            String msg = "Local dependency source "
+                    + normalizedSource
+                    + " must not be the same as or inside its target directory "
+                    + normalizedTarget;
             logger.warn(msg);
             throw new IOException(msg);
         }
@@ -908,53 +898,47 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     .distinct()
                     .collect(Collectors.toList());
 
-            java.nio.file.Files.walkFileTree(
-                    sourcePath,
-                    new java.nio.file.SimpleFileVisitor<Path>() {
-                        @Override
-                        public java.nio.file.FileVisitResult preVisitDirectory(
-                                Path dir, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
-                            Path targetSubdir = tempDir.resolve(sourcePath.relativize(dir));
-                            Files.createDirectories(targetSubdir);
-                            return java.nio.file.FileVisitResult.CONTINUE;
-                        }
+            java.nio.file.Files.walkFileTree(sourcePath, new java.nio.file.SimpleFileVisitor<Path>() {
+                @Override
+                public java.nio.file.FileVisitResult preVisitDirectory(
+                        Path dir, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                    Path targetSubdir = tempDir.resolve(sourcePath.relativize(dir));
+                    Files.createDirectories(targetSubdir);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
 
-                        @Override
-                        public java.nio.file.FileVisitResult visitFile(
-                                Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
-                            String fileName = file.getFileName().toString();
-                            int lastDot = fileName.lastIndexOf('.');
-                            if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                                String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                                if (allowedExtensions.contains(ext)) {
-                                    Path dest = tempDir.resolve(sourcePath.relativize(file));
-                                    Files.copy(file, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                }
-                            }
-                            return java.nio.file.FileVisitResult.CONTINUE;
+                @Override
+                public java.nio.file.FileVisitResult visitFile(
+                        Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                    String fileName = file.getFileName().toString();
+                    int lastDot = fileName.lastIndexOf('.');
+                    if (lastDot > 0 && lastDot < fileName.length() - 1) {
+                        String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
+                        if (allowedExtensions.contains(ext)) {
+                            Path dest = tempDir.resolve(sourcePath.relativize(file));
+                            Files.copy(file, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                         }
-                    });
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+            });
 
             Path masterRoot = getMasterRootPathForConfig();
 
             var oldFiles = new HashSet<Path>();
             if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
                 try (var pathStream = Files.walk(targetPath)) {
-                    pathStream
-                            .filter(Files::isRegularFile)
-                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
+                    pathStream.filter(Files::isRegularFile).forEach(p -> oldFiles.add(masterRoot.relativize(p)));
                 }
             }
 
             var newFiles = new HashSet<Path>();
             try (var pathStream = Files.walk(tempDir)) {
-                pathStream
-                        .filter(Files::isRegularFile)
-                        .forEach(p -> {
-                            Path relWithinTemp = tempDir.relativize(p);
-                            Path futureLocation = targetPath.resolve(relWithinTemp);
-                            newFiles.add(masterRoot.relativize(futureLocation));
-                        });
+                pathStream.filter(Files::isRegularFile).forEach(p -> {
+                    Path relWithinTemp = tempDir.relativize(p);
+                    Path futureLocation = targetPath.resolve(relWithinTemp);
+                    newFiles.add(masterRoot.relativize(futureLocation));
+                });
             }
 
             var changedRelPaths = new HashSet<Path>(newFiles);

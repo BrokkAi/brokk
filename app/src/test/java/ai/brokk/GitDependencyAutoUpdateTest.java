@@ -30,8 +30,7 @@ class GitDependencyAutoUpdateTest {
     @BeforeEach
     void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("brokk-git-dep-update-");
-        Files.createDirectories(
-                tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
+        Files.createDirectories(tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
 
         remoteRepoDir = Files.createTempDirectory("brokk-git-remote-");
         remoteGit = Git.init().setDirectory(remoteRepoDir.toFile()).call();
@@ -39,7 +38,11 @@ class GitDependencyAutoUpdateTest {
         // Initial commit in the remote repository
         Files.writeString(remoteRepoDir.resolve("file1.txt"), "v1");
         remoteGit.add().addFilepattern(".").call();
-        remoteGit.commit().setMessage("initial").setAuthor("Test", "test@example.com").call();
+        remoteGit
+                .commit()
+                .setMessage("initial")
+                .setAuthor("Test", "test@example.com")
+                .call();
     }
 
     @AfterEach
@@ -59,8 +62,7 @@ class GitDependencyAutoUpdateTest {
     void updateGitDependencyOnDisk_shouldReplaceFilesAndReportChanges() throws Exception {
         var project = new MainProject(tempRoot);
 
-        Path dependenciesRoot =
-                tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+        Path dependenciesRoot = tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
         Path depDir = dependenciesRoot.resolve("test-dep");
 
         String remoteUrl = remoteRepoDir.toUri().toString();
@@ -81,7 +83,11 @@ class GitDependencyAutoUpdateTest {
         // Mutate the remote repository: add a new file and commit.
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
         remoteGit.add().addFilepattern(".").call();
-        remoteGit.commit().setMessage("add file2").setAuthor("Test", "test@example.com").call();
+        remoteGit
+                .commit()
+                .setMessage("add file2")
+                .setAuthor("Test", "test@example.com")
+                .call();
 
         // Build the ProjectFile for the on-disk dependency root.
         var depProjectFile = new ProjectFile(
@@ -91,8 +97,7 @@ class GitDependencyAutoUpdateTest {
         var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata to be present for Git dependency");
 
-        Set<ProjectFile> changedFiles =
-                project.updateGitDependencyOnDisk(depProjectFile, metadataOpt.get());
+        Set<ProjectFile> changedFiles = project.updateGitDependencyOnDisk(depProjectFile, metadataOpt.get());
 
         assertFalse(changedFiles.isEmpty(), "Changed files set should not be empty after remote update");
 
@@ -105,9 +110,7 @@ class GitDependencyAutoUpdateTest {
                 .relativize(depDir.resolve("file2.txt"))
                 .toString();
 
-        assertTrue(
-                relPaths.contains(expectedNewFileRel),
-                "Changed files should contain newly added file2.txt");
+        assertTrue(relPaths.contains(expectedNewFileRel), "Changed files should contain newly added file2.txt");
 
         assertEquals(
                 "new",

@@ -123,7 +123,8 @@ public class ImportDependencyDialogDirectCloneTest {
         Path sourceDir = testRoot.resolve("external-lib");
         Files.createDirectories(sourceDir);
 
-        AbstractProject.writeLocalPathDependencyMetadata(depDir, sourceDir.toAbsolutePath().normalize());
+        AbstractProject.writeLocalPathDependencyMetadata(
+                depDir, sourceDir.toAbsolutePath().normalize());
 
         Path metadataPath = depDir.resolve(AbstractProject.DEPENDENCY_METADATA_FILE);
         assertTrue(Files.exists(metadataPath), "Metadata file should be created for local dependency");
@@ -132,8 +133,7 @@ public class ImportDependencyDialogDirectCloneTest {
         assertTrue(metadataOpt.isPresent(), "Metadata should be readable");
         var metadata = metadataOpt.get();
         assertEquals(AbstractProject.DependencySourceType.LOCAL_PATH, metadata.type());
-        assertEquals(
-                sourceDir.toAbsolutePath().normalize().toString(), metadata.sourcePath());
+        assertEquals(sourceDir.toAbsolutePath().normalize().toString(), metadata.sourcePath());
         assertNull(metadata.repoUrl());
         assertNull(metadata.ref());
         assertTrue(metadata.lastUpdatedMillis() > 0, "lastUpdatedMillis should be a positive timestamp");

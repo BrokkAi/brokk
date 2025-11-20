@@ -834,8 +834,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         autoUpdateGitDependenciesCheckBox.setToolTipText(
                 "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
 
-        var autoUpdateInfoLabel = new JLabel(
-                "<html>Auto-update applies only to dependencies imported via the Dependencies panel "
+        var autoUpdateInfoLabel =
+                new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
                         + "(local directories and GitHub repositories).</html>");
         autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
                 .getFont()
