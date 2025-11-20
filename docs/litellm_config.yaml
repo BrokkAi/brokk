@@ -512,6 +512,25 @@ model_list:
       supports_function_calling: true
       tokens_per_minute: 4000000
 
+  - model_name: grok-4.1-fast
+    litellm_params:
+      model: xai/grok-4-1-fast-reasoning
+      api_key: "os.environ/GROK_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 2000000
+      max_input_tokens: 2000000
+      max_output_tokens: 256000 # ???
+      input_cost_per_token: 2e-07
+      output_cost_per_token: 5e-07
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      tokens_per_minute: 4000000
+
   - model_name: grok-4
     litellm_params:
       model: xai/grok-4-0709
