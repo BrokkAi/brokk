@@ -50,42 +50,35 @@ public final class ComputedSubscription {
     }
 
     /**
-     * Bind a ComputedFragment's computed values to a Swing component, automatically managing subscriptions
-     * and running UI updates on the EDT. Starts all relevant computed values (text, description, files)
-     * and registers completion handlers that run uiUpdate on the EDT when any of them complete.
-     * Subscriptions are automatically disposed when the owner component is removed from its parent.
+     * Bind a ComputedFragment's computed values to a Swing component, automatically managing subscriptions.
+     *
+     * <p>Starts all relevant computed values (text, description, files) and registers completion handlers that
+     * simply invoke {@code callback} on the worker thread when any computed value completes.
+     *
+     * <p>Subscriptions are automatically disposed when the owner component is removed from its parent.
+     *
+     * <p><b>Important:</b> This method does not marshal {@code callback} onto the EDT. Callers are responsible
+     * for wrapping any Swing updates in {@link SwingUtilities#invokeLater(Runnable)} if needed.
      *
      * @param fragment the ComputedFragment whose values will be bound
      * @param owner the Swing component that owns these subscriptions
-     * @param uiUpdate a runnable to execute on the EDT when any computed value completes
+     * @param callback a runnable to execute when any computed value completes (runs on the worker thread)
      */
-    public static void bind(ContextFragment.ComputedFragment fragment, JComponent owner, Runnable uiUpdate) {
+    public static void bind(ContextFragment.ComputedFragment fragment, JComponent owner, Runnable callback) {
         fragment.computedText().start();
         fragment.computedDescription().start();
         fragment.computedFiles().start();
 
-        // Helper to run UI update, coalesced onto EDT
-        final boolean[] scheduled = {false};
-        Runnable scheduleUpdate = () -> {
-            if (!scheduled[0]) {
-                scheduled[0] = true;
-                SwingUtilities.invokeLater(() -> {
-                    scheduled[0] = false;
-                    uiUpdate.run();
-                });
-            }
-        };
-
         // Subscribe to text completion
-        var s1 = fragment.computedText().onComplete((v, ex) -> scheduleUpdate.run());
+        var s1 = fragment.computedText().onComplete((v, ex) -> callback.run());
         register(owner, s1);
 
         // Subscribe to description completion
-        var s2 = fragment.computedDescription().onComplete((v, ex) -> scheduleUpdate.run());
+        var s2 = fragment.computedDescription().onComplete((v, ex) -> callback.run());
         register(owner, s2);
 
         // Subscribe to files completion
-        var s3 = fragment.computedFiles().onComplete((v, ex) -> scheduleUpdate.run());
+        var s3 = fragment.computedFiles().onComplete((v, ex) -> callback.run());
         register(owner, s3);
     }
 

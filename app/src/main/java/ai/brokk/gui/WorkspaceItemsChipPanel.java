@@ -295,15 +295,6 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
         revalidate();
         repaint();
-
-        java.awt.Container p = getParent();
-        while (p != null) {
-            if (p instanceof JComponent jc) {
-                jc.revalidate();
-                jc.repaint();
-            }
-            p = p.getParent();
-        }
     }
 
     private WorkspaceChip.ChipKind classify(ContextFragment fragment) {
