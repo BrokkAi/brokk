@@ -386,9 +386,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         normalized.substring(0, normalized.length() - 2).trim();
 
                 // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
-                Optional<CodeUnit> pkgModule =
-                        getDefinitions(packageName).stream().findFirst();
-                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
+                Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+                        .filter(CodeUnit::isModule)
+                        .findFirst();
+                if (pkgModule.isPresent()) {
                     for (CodeUnit child : getDirectChildren(pkgModule.get())) {
                         if (child.isClass() && packageName.equals(child.packageName())) {
                             resolved.add(child);
@@ -397,10 +398,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 }
             } else if (!normalized.isEmpty()) {
                 // Explicit import: try to find the exact class
-                Optional<CodeUnit> found = getDefinitions(normalized).stream().findFirst();
-                if (found.isPresent() && found.get().isClass()) {
-                    resolved.add(found.get());
-                }
+                getDefinitions(normalized).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .ifPresent(resolved::add);
             }
         }
 
