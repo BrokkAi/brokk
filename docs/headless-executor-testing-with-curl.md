@@ -163,8 +163,79 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
+## Fix GitHub Issue
+
+```bash
+curl -sS -X POST "${BASE}/v1/issues/42/fix" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "owner": "torvalds",
+  "repo": "linux",
+  "issueNumber": 42,
+  "githubToken": "ghp_...",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "tags": {
+    "mode": "ARCHITECT"
+  }
+}
+JSON
+```
+
+**Response (201 Created):**
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "queued",
+  "issue": {
+    "number": 42,
+    "title": "Fix broken feature",
+    "url": "https://github.com/torvalds/linux/issues/42"
+  },
+  "worktreeBranch": "fix/42-fix-broken-feature",
+  "prUrl": null
+}
+```
+
+**Important Notes:**
+- The `githubToken` must have `repo` and `pull_request` scopes to create pull requests
+- The endpoint creates a Git worktree automatically with a branch name derived from the issue title
+- The executor runs asynchronously in ARCHITECT mode to generate fixes
+- Upon successful completion, a pull request is automatically created against the repository's default branch
+- The response includes the pull request URL (`prUrl`) once the PR is created; initially it will be `null`
+
+**Example with GitHub Personal Access Token:**
+```bash
+# First, create a Personal Access Token (PAT) at https://github.com/settings/tokens
+# Scopes required: repo, pull_request
+
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+curl -sS -X POST "${BASE}/v1/issues/42/fix" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "owner": "my-org",
+  "repo": "my-project",
+  "issueNumber": 42,
+  "githubToken": "${GITHUB_TOKEN}",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5"
+}
+JSON
+```
+
 ## Troubleshooting
 
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
+- For the issue fix endpoint, invalid GitHub tokens return `HTTP 400` with a validation error (`Invalid GitHub token: authentication failed`).
+- Issue numbers must be positive integers; invalid issue numbers in the path return `HTTP 400`.
+- If another job is currently executing, attempting to create an issue fix returns `HTTP 409 Conflict`.

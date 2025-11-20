@@ -73,6 +73,13 @@ Once running, the executor exposes the following endpoints:
 - **`GET /v1/jobs/{jobId}/diff`** - Get git diff of job changes
   - Returns: Plain text diff
 
+### Issue Management (Authenticated)
+
+- **`POST /v1/issues/{issue_number}/fix`** - Create and propose a fix for a GitHub issue
+  - Body: `IssueFixRequest` JSON with repository info, GitHub credentials, and execution parameters
+  - Returns: `IssueFixResponse` JSON with job tracking info and initial pull request details
+  - **Note:** This endpoint creates a Git worktree, runs the executor in ARCHITECT mode, and automatically creates a pull request upon successful completion
+
 ### Authentication
 
 Authenticated endpoints require the `Authorization` header:
