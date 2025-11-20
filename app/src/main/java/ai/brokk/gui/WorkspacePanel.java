@@ -413,7 +413,7 @@ public class WorkspacePanel extends JPanel {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
-                        case VIEW_FILE, SHOW_CONTENTS -> panel.chrome.openFragmentPreview(fragment);
+                        case VIEW_FILE, SHOW_CONTENTS -> panel.showFragmentPreview(fragment);
                         default ->
                             throw new UnsupportedOperationException(
                                     "Fragment action not implemented: " + WorkspaceAction.this);
@@ -895,7 +895,7 @@ public class WorkspacePanel extends JPanel {
                     if (row >= 0) {
                         var fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
                         if (fragment != null) {
-                            chrome.openFragmentPreview(fragment);
+                            showFragmentPreview(fragment);
                         }
                     }
                 }
