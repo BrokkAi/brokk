@@ -1174,6 +1174,8 @@ public class Context {
                 if (refreshed != f) {
                     anyReplaced = true;
                     replacementMap.put(f, refreshed);
+                } else {
+                    newFragments.add(f);
                 }
             }
         }
