@@ -61,7 +61,7 @@ public class BuildDetailsPathNormalizationTest {
                 "./build/",
                 "subdir\\vendor",
                 "/nbdist",
-                absUnder.toString() // absolute within project
+                absUnder.toString() // absolute under project, becomes relative
                 ));
 
         var project = new MainProject(root);

@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -286,7 +287,7 @@ public final class MainProject extends AbstractProject {
 
                 // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
                 Map<String, String> envIn = details.environmentVariables();
-                Map<String, String> canonicalEnv = new HashMap<>(envIn.size());
+                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
 
                 for (Map.Entry<String, String> e : envIn.entrySet()) {
                     String k = e.getKey();
@@ -334,7 +335,7 @@ public final class MainProject extends AbstractProject {
 
         // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
         Map<String, String> envIn = details.environmentVariables();
-        Map<String, String> canonicalEnv = new HashMap<>(envIn.size());
+        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
         for (Map.Entry<String, String> e : envIn.entrySet()) {
             String k = e.getKey();
             String v = e.getValue();
