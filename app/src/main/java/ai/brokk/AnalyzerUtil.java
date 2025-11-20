@@ -133,8 +133,8 @@ public class AnalyzerUtil {
      */
     public static Set<String> getMethodSources(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
                 .filter(CodeUnit::isFunction)
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).map(scp -> scp.getMethodSources(cu, includeComments)))
                 .orElse(Collections.emptySet());
@@ -146,8 +146,8 @@ public class AnalyzerUtil {
      */
     public static Optional<String> getMethodSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
         return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
                 .filter(CodeUnit::isFunction)
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(cu, includeComments)));
     }
@@ -157,8 +157,8 @@ public class AnalyzerUtil {
      */
     public static Optional<String> getClassSource(IAnalyzer analyzer, String fqcn, boolean includeComments) {
         return analyzer.getDefinitions(fqcn).stream()
-                .findFirst()
                 .filter(CodeUnit::isClass)
+                .findFirst()
                 .flatMap(cu ->
                         analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(cu, includeComments)));
     }
@@ -168,8 +168,8 @@ public class AnalyzerUtil {
      */
     public static Map<String, List<CallSite>> getCallgraphTo(IAnalyzer analyzer, String methodName, int depth) {
         return analyzer.getDefinitions(methodName).stream()
-                .findFirst()
                 .filter(CodeUnit::isFunction)
+                .findFirst()
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphTo(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
@@ -179,8 +179,8 @@ public class AnalyzerUtil {
      */
     public static Map<String, List<CallSite>> getCallgraphFrom(IAnalyzer analyzer, String methodName, int depth) {
         return analyzer.getDefinitions(methodName).stream()
-                .findFirst()
                 .filter(CodeUnit::isFunction)
+                .findFirst()
                 .flatMap(cu -> analyzer.as(CallGraphProvider.class).map(cgp -> cgp.getCallgraphFrom(cu, depth)))
                 .orElse(Collections.emptyMap());
     }
@@ -190,8 +190,8 @@ public class AnalyzerUtil {
      */
     public static List<CodeUnit> getMembersInClass(IAnalyzer analyzer, String fqClass) {
         return analyzer.getDefinitions(fqClass).stream()
-                .findFirst()
                 .filter(CodeUnit::isClass)
+                .findFirst()
                 .map(analyzer::getMembersInClass)
                 .orElse(List.of());
     }
