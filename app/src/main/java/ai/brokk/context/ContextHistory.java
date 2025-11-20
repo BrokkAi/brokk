@@ -189,48 +189,42 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Refresh the affected fragments using the existing helper.
-        // Note: This call may drop unaffected fragments depending on implementation.
-        var refreshedLive = base.copyAndRefresh(changed); // Blocking
-        if (refreshedLive.equals(base)) {
-            return null;
+        // Determine target files to compare against:
+        // - If 'changed' is empty (e.g., compatibility path), treat all files referenced by the context as candidates.
+        Set<ProjectFile> targetFiles;
+        if (changed.isEmpty()) {
+            targetFiles =
+                    base.allFragments().flatMap(f -> f.files().join().stream()).collect(Collectors.toSet());
+            if (targetFiles.isEmpty()) {
+                return null;
+            }
+        } else {
+            targetFiles = changed;
         }
 
-        // Determine which existing fragments are affected by the changed files.
-        List<ContextFragment> toReplace = base.allFragments()
+        // Identify only the affected path fragments (by referenced ProjectFiles).
+        List<ContextFragment.PathFragment> toReplace = base.allFragments()
                 .filter(f -> f instanceof ContextFragment.PathFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
                 .filter(f -> {
                     var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
+                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(targetFiles::contains))
                             .orElse(false);
                 })
                 .toList();
 
-        // Build replacement fragments from refreshedLive (matched by source).
+        if (toReplace.isEmpty()) {
+            return null; // nothing to refresh
+        }
+
+        // Refresh only the affected fragments; do NOT precompute text(), to keep snapshots cleared pre-serialization.
         List<ContextFragment.PathFragment> replacements = toReplace.stream()
-                .map(oldFrag -> refreshedLive
-                        .allFragments()
-                        .filter(f -> f instanceof ContextFragment.PathFragment)
-                        .filter(f -> f.hasSameSource(oldFrag))
-                        .map(f -> (ContextFragment.PathFragment) f)
-                        .findFirst()
-                        .orElse(null))
-                .filter(Objects::nonNull)
+                .map(ContextFragment.PathFragment::refreshCopy)
+                .map(ContextFragment.PathFragment.class::cast)
                 .toList();
 
         // Merge: keep all unaffected fragments, but swap in the refreshed ones.
-        Context merged = base;
-        if (!toReplace.isEmpty()) {
-            merged = merged.removeFragments(toReplace);
-        }
-        if (!replacements.isEmpty()) {
-            merged = merged.addPathFragments(replacements);
-        }
-
-        // Fallback: if merge didn't change anything (e.g., no replacements resolved), use refreshed baseline.
-        if (merged.equals(base)) {
-            merged = refreshedLive;
-        }
+        Context merged = base.removeFragments(toReplace).addPathFragments(replacements);
 
         // Maintain "Load external changes (n)" semantics.
         var previousAction = base.getAction();

@@ -176,7 +176,8 @@ public class ContextSerializationTest {
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description().join()))
+                .filter(f ->
+                        !f.isText() && "Pasted Red Image".equals(f.description().join()))
                 .findFirst();
         assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted Red Image fragment not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
@@ -297,7 +298,9 @@ public class ContextSerializationTest {
         } else {
             assertNotNull(expected.log());
             assertNotNull(actual.log());
-            assertEquals(expected.log().description().join(), actual.log().description().join());
+            assertEquals(
+                    expected.log().description().join(),
+                    actual.log().description().join());
             assertEquals(
                     expected.log().messages().size(), actual.log().messages().size());
             for (int i = 0; i < expected.log().messages().size(); i++) {
@@ -365,13 +368,15 @@ public class ContextSerializationTest {
         // Find the image fragments in each context
         var fragment1 = loadedCtx1
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description().join()))
+                .filter(f -> !f.isText()
+                        && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
 
         var fragment2 = loadedCtx2
                 .virtualFragments()
-                .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description().join()))
+                .filter(f -> !f.isText()
+                        && "Shared Blue Image".equals(f.description().join()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
 
@@ -635,7 +640,9 @@ public class ContextSerializationTest {
                 loadedStringFrag1,
                 loadedStringFrag2,
                 "StringFragments with the same content-hash ID should be the same instance after deserialization.");
-        assertEquals("unique string fragment content for interning test", loadedStringFrag1.text().join());
+        assertEquals(
+                "unique string fragment content for interning test",
+                loadedStringFrag1.text().join());
 
         /* ---------- shared TaskFragment via TaskEntry ---------- */
         var taskMessages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
@@ -991,7 +998,8 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
         assertEquals("Pasted text content", loadedFragment.text().join());
-        assertEquals("Paste of Pasted text summary", loadedFragment.description().join());
+        assertEquals(
+                "Paste of Pasted text summary", loadedFragment.description().join());
     }
 
     @Test
@@ -1022,7 +1030,9 @@ public class ContextSerializationTest {
                 .filter(f -> f.getType() == ContextFragment.FragmentType.STACKTRACE)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("stacktrace of NullPointerException", loadedFragment.description().join());
+        assertEquals(
+                "stacktrace of NullPointerException",
+                loadedFragment.description().join());
         assertTrue(loadedFragment.text().join().contains("Full stacktrace original text"));
         assertTrue(loadedFragment.text().join().contains("ErrorSource.java:10"));
         assertEquals(1, loadedFragment.sources().join().size());
@@ -1098,17 +1108,19 @@ public class ContextSerializationTest {
         assertTrue(
                 deduplicatedFragments.stream()
                         .anyMatch(f -> "uniqueText1".equals(f.description().join())
-                                && "Content for uniqueText1 (first)".equals(f.text().join())),
+                                && "Content for uniqueText1 (first)"
+                                        .equals(f.text().join())),
                 "Expected first instance of 'uniqueText1' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
                         .anyMatch(f -> "duplicateText".equals(f.description().join())
-                                && "Content for duplicateText (first)".equals(f.text().join())),
+                                && "Content for duplicateText (first)"
+                                        .equals(f.text().join())),
                 "Expected first instance of 'duplicateText' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f ->
-                                "uniqueText2".equals(f.description().join()) && "Content for uniqueText2".equals(f.text().join())),
+                        .anyMatch(f -> "uniqueText2".equals(f.description().join())
+                                && "Content for uniqueText2".equals(f.text().join())),
                 "Expected 'uniqueText2' to be present.");
     }
 
@@ -1493,5 +1505,159 @@ public class ContextSerializationTest {
                 zos.closeEntry();
             }
         }
+    }
+
+    @Test
+    void testRoundTripPathFragmentsWithSnapshots() throws Exception {
+        // ProjectPathFragment
+        var projectFile = new ProjectFile(tempDir, "src/SnapshotTest.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        String projectFileContent = "public class SnapshotTest {}";
+        Files.writeString(projectFile.absPath(), projectFileContent);
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        ppf.text().join(); // Force snapshot creation
+        assertNotNull(ppf.getSnapshotTextOrNull());
+        assertEquals(projectFileContent, ppf.getSnapshotTextOrNull());
+
+        // ExternalPathFragment
+        Path externalFilePath = tempDir.resolve("external_snapshot.txt");
+        String externalFileContent = "External snapshot content";
+        Files.writeString(externalFilePath, externalFileContent);
+        var externalFile = new ExternalFile(externalFilePath);
+        var epf = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
+        epf.text().join(); // Force snapshot creation
+        assertNotNull(epf.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, epf.getSnapshotTextOrNull());
+
+        var context = new Context(mockContextManager, "Test Snapshots").addPathFragments(List.of(ppf, epf));
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_snapshots_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedPpf = (ContextFragment.ProjectPathFragment) loadedCtx
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        var loadedEpf = (ContextFragment.ExternalPathFragment) loadedCtx
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(projectFileContent, loadedPpf.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, loadedEpf.getSnapshotTextOrNull());
+
+        // Also check via text() to ensure it uses the snapshot
+        assertEquals(projectFileContent, loadedPpf.text().join());
+        assertEquals(externalFileContent, loadedEpf.text().join());
+    }
+
+    @Test
+    void testRefreshCopyOnlyAffectsTargetFragmentAndSurvivesSerialization() throws Exception {
+        // Setup: Two path fragments with snapshots
+        var projectFile = new ProjectFile(tempDir, "src/RefreshTest.java");
+        String projectFileContent = "public class RefreshTest {}";
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), projectFileContent);
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        ppf.text().join(); // Create snapshot
+
+        Path externalFilePath = tempDir.resolve("external_no_refresh.txt");
+        String externalFileContent = "This should not be refreshed";
+        Files.writeString(externalFilePath, externalFileContent);
+        var externalFile = new ExternalFile(externalFilePath);
+        var epf = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
+        epf.text().join(); // Create snapshot
+
+        var initialContext = new Context(mockContextManager, "Initial State").addPathFragments(List.of(ppf, epf));
+        var history = new ContextHistory(initialContext);
+
+        // Act: trigger a refresh on the ProjectPathFragment
+        String updatedProjectFileContent = "public class RefreshTest { /* changed */ }";
+        Files.writeString(projectFile.absPath(), updatedProjectFileContent);
+        // This will call refreshCopy on the fragment for `projectFile`
+        history.processExternalFileChangesIfNeeded(Set.of(projectFile));
+
+        // Assert pre-serialization state
+        assertEquals(2, history.getHistory().size());
+        var contextBeforeRefresh = history.getHistory().get(0);
+        var contextAfterRefresh = history.liveContext();
+
+        var ppfBefore = (ContextFragment.ProjectPathFragment) contextBeforeRefresh
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow();
+        var epfBefore = (ContextFragment.ExternalPathFragment) contextBeforeRefresh
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        var ppfAfter = (ContextFragment.ProjectPathFragment) contextAfterRefresh
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow();
+        var epfAfter = (ContextFragment.ExternalPathFragment) contextAfterRefresh
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        // Before refresh: both have snapshots
+        assertEquals(projectFileContent, ppfBefore.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, epfBefore.getSnapshotTextOrNull());
+
+        // After refresh: ppf's snapshot is gone (will be re-read), epf's is intact
+        assertNull(ppfAfter.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, epfAfter.getSnapshotTextOrNull());
+
+        // Now serialize and deserialize
+        Path zipFile = tempDir.resolve("refresh_test_history.zip");
+        HistoryIo.writeZip(history, zipFile); // This will populate snapshots for serialization
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        // Assert post-serialization state
+        assertEquals(2, loadedHistory.getHistory().size());
+        var loadedContextBefore = loadedHistory.getHistory().get(0);
+        var loadedContextAfter = loadedHistory.liveContext();
+
+        var loadedPpfBefore = (ContextFragment.ProjectPathFragment) loadedContextBefore
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow();
+        var loadedEpfBefore = (ContextFragment.ExternalPathFragment) loadedContextBefore
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        var loadedPpfAfter = (ContextFragment.ProjectPathFragment) loadedContextAfter
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow();
+        var loadedEpfAfter = (ContextFragment.ExternalPathFragment) loadedContextAfter
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
+                .findFirst()
+                .orElseThrow();
+
+        // Before refresh state:
+        assertEquals(projectFileContent, loadedPpfBefore.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, loadedEpfBefore.getSnapshotTextOrNull());
+
+        // After refresh state:
+        // When serializing, the text of ppfAfter was computed, so it has a snapshot now.
+        assertEquals(updatedProjectFileContent, loadedPpfAfter.getSnapshotTextOrNull());
+        assertEquals(externalFileContent, loadedEpfAfter.getSnapshotTextOrNull());
     }
 }

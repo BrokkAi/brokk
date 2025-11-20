@@ -27,6 +27,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -269,6 +270,31 @@ public interface ContextFragment {
     }
 
     /**
+     * Retrieves the frozen contents, if any. Returns <code>null</code> if none is persisted.
+     */
+    byte @Nullable [] getFrozenContentBytes();
+
+    /**
+     * Retrieves the frozen contents, if any as a UTF-8 string. Returns <code>null</code> if none is persisted.
+     */
+    default @Nullable String getSnapshotTextOrNull() {
+        var bytes = getFrozenContentBytes();
+        if (bytes != null) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
+    /**
+     * Sets the persisted immutable snapshot content for this fragment.
+     * Implementations should treat this as write-once and ignore subsequent calls when already set.
+     * Default implementation is a no-op.
+     */
+    default void setFrozenContentBytes(byte[] bytes) {
+        // no-op by default
+    }
+
+    /**
      * Return a string that can be provided to the appropriate WorkspaceTools method to recreate this fragment. Returns
      * an empty string for fragments that cannot be re-added without serializing their entire contents.
      */
@@ -481,7 +507,7 @@ public interface ContextFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
-        private volatile @Nullable String snapshotText;
+        private transient @Nullable String frozenContent;
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
@@ -504,7 +530,7 @@ public interface ContextFragment {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
-            this.snapshotText = snapshotText;
+            this.frozenContent = snapshotText;
             this.primeComputations();
         }
 
@@ -601,14 +627,15 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            // Clear snapshot on refresh so subsequent text() calls recompute from live content
-            return ProjectPathFragment.withId(file, id, contextManager);
+            // Generate a new dynamic fragment to avoid sharing snapshot across contexts after refresh.
+            // This allows pre- and post-refresh contexts to persist distinct snapshots for the same file.
+            return new ProjectPathFragment(file, contextManager);
         }
 
         @Override
         public ComputedValue<String> text() {
-            if (snapshotText != null) {
-                return ComputedValue.completed("ppf-text-" + id(), snapshotText);
+            if (frozenContent != null) {
+                return ComputedValue.completed("ppf-text-" + id(), frozenContent);
             }
             return lazyInitCv(
                     textCv,
@@ -617,9 +644,9 @@ public interface ContextFragment {
                             "ppf-text-" + id(),
                             () -> {
                                 String s = file.read().orElse("");
-                                // capture snapshot so serialization can persist stable content
-                                if (!s.isBlank()) {
-                                    snapshotText = s;
+                                // capture snapshot bytes so serialization can persist stable content
+                                if (this.frozenContent == null) {
+                                    this.frozenContent = s;
                                 }
                                 return s;
                             },
@@ -647,10 +674,10 @@ public interface ContextFragment {
                             "ppf-format-" + id(),
                             () ->
                                     """
-                                    <file path="%s" fragmentid="%s">
-                                    %s
-                                    </file>
-                                    """
+                                            <file path="%s" fragmentid="%s">
+                                            %s
+                                            </file>
+                                            """
                                             .formatted(
                                                     file().toString(),
                                                     id(),
@@ -669,8 +696,20 @@ public interface ContextFragment {
             return pa.equals(pb);
         }
 
-        public @Nullable String getSnapshotTextOrNull() {
-            return snapshotText;
+        @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            if (this.frozenContent == null) {
+                this.frozenContent = new String(bytes, StandardCharsets.UTF_8);
+            }
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var content = this.frozenContent;
+            if (content == null) {
+                return null;
+            }
+            return content.getBytes(StandardCharsets.UTF_8);
         }
     }
 
@@ -746,6 +785,16 @@ public interface ContextFragment {
         }
 
         @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            // GitFileFragment content is immutable; ignore setter
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return content.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) {
                 return false;
@@ -771,6 +820,7 @@ public interface ContextFragment {
         private final ExternalFile file;
         private final String id;
         private final IContextManager contextManager;
+        private transient @Nullable String frozenContent;
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
         private transient @Nullable ComputedValue<String> syntaxCv;
@@ -780,13 +830,20 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
-        private ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) {
+        public ExternalPathFragment(ExternalFile file, IContextManager contextManager, @Nullable String snapshotText) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+        }
+
+        private ExternalPathFragment(
+                ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
+            this.frozenContent = snapshotText;
+
             this.primeComputations();
         }
 
@@ -812,13 +869,18 @@ public interface ContextFragment {
 
         public static ExternalPathFragment withId(
                 ExternalFile file, String existingId, IContextManager contextManager) {
+            return withId(file, existingId, contextManager, null);
+        }
+
+        public static ExternalPathFragment withId(
+                ExternalFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             try {
                 int numericId = Integer.parseInt(existingId);
                 setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ExternalPathFragment(file, existingId, contextManager);
+            return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
         @Override
@@ -846,7 +908,8 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            return ExternalPathFragment.withId(file, id, contextManager);
+            // Generate a new dynamic fragment to avoid sharing snapshot across contexts after refresh.
+            return new ExternalPathFragment(file, contextManager);
         }
 
         @Override
@@ -855,7 +918,16 @@ public interface ContextFragment {
                     textCv,
                     () -> textCv,
                     () -> new ComputedValue<>(
-                            "epf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
+                            "epf-text-" + id(),
+                            () -> {
+                                String s = file.read().orElse("");
+                                // capture snapshot bytes so serialization can persist stable content
+                                if (this.frozenContent == null) {
+                                    this.frozenContent = s;
+                                }
+                                return s;
+                            },
+                            getFragmentExecutor()),
                     v -> textCv = v);
         }
 
@@ -909,6 +981,22 @@ public interface ContextFragment {
             var pb = op.file().absPath().normalize();
             return pa.equals(pb);
         }
+
+        @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            if (this.frozenContent == null) {
+                this.frozenContent = new String(bytes, StandardCharsets.UTF_8);
+            }
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var content = this.frozenContent;
+            if (content == null) {
+                return null;
+            }
+            return content.getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     /**
@@ -923,6 +1011,7 @@ public interface ContextFragment {
         private transient @Nullable ComputedValue<String> syntaxCv;
         private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private transient @Nullable ComputedValue<byte[]> imageBytesCv;
+        private transient byte @Nullable [] frozenContent;
         private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
         private transient @Nullable ComputedValue<String> formatCv;
 
@@ -1074,6 +1163,24 @@ public interface ContextFragment {
         }
 
         @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            var currImageBytesCv = this.imageBytesCv;
+            if (currImageBytesCv == null || currImageBytesCv.tryGet().isEmpty()) {
+                if (currImageBytesCv != null) {
+                    currImageBytesCv.future().cancel(true);
+                }
+                this.imageBytesCv = ComputedValue.completed("iff-image-" + id(), bytes);
+            }
+            // also persist to the snapshot field for symmetry with getFrozenContentBytes()
+            this.frozenContent = bytes;
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return frozenContent;
+        }
+
+        @Override
         public ComputedValue<String> syntaxStyle() {
             return lazyInitCv(
                     syntaxCv,
@@ -1091,7 +1198,11 @@ public interface ContextFragment {
                             "iff-image-" + id(),
                             () -> {
                                 try {
-                                    return ImageUtil.imageToBytes(readImage());
+                                    byte[] data = ImageUtil.imageToBytes(readImage());
+                                    if (this.frozenContent == null) {
+                                        this.frozenContent = data;
+                                    }
+                                    return data;
                                 } catch (IOException e) {
                                     throw new UncheckedIOException(e);
                                 }
@@ -1426,6 +1537,11 @@ public interface ContextFragment {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return text.getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     // FIXME SearchFragment does not preserve the tool calls output that the user sees during
@@ -1648,12 +1764,18 @@ public interface ContextFragment {
             // Stable, hashed identity; copy can safely return this
             return this;
         }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return text.getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     class AnonymousImageFragment extends PasteFragment implements ImageFragment { // Non-dynamic, content-hashed
         private final Image image;
         private @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<byte[]> imageBytesCv;
+        private transient byte @Nullable [] frozenContent;
 
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
@@ -1715,13 +1837,38 @@ public interface ContextFragment {
             return lazyInitCv(
                     imageBytesCv,
                     () -> imageBytesCv,
-                    () -> new ComputedValue<>("aif-image-" + id(), () -> imageToBytes(image), getFragmentExecutor()),
+                    () -> new ComputedValue<>(
+                            "aif-image-" + id(),
+                            () -> {
+                                byte[] data = imageToBytes(image);
+                                if (this.frozenContent == null) {
+                                    this.frozenContent = data;
+                                }
+                                return data;
+                            },
+                            getFragmentExecutor()),
                     v -> imageBytesCv = v);
         }
 
         @Override
         public String contentHash() {
             return id();
+        }
+
+        @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            var currImageBytesCv = this.imageBytesCv;
+            if (currImageBytesCv == null || currImageBytesCv.tryGet().isEmpty()) {
+                if (currImageBytesCv != null) {
+                    currImageBytesCv.future().cancel(true);
+                }
+                this.imageBytesCv = ComputedValue.completed("aif-image-" + id(), bytes);
+            }
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return frozenContent;
         }
 
         @Override
@@ -1823,10 +1970,13 @@ public interface ContextFragment {
             return FragmentType.STACKTRACE;
         }
 
+        private String internalText() {
+            return original + "\n\nStacktrace methods in this project:\n\n" + code;
+        }
+
         @Override
         public ComputedValue<String> text() {
-            return ComputedValue.completed(
-                    "stf-text-" + id(), original + "\n\nStacktrace methods in this project:\n\n" + code);
+            return ComputedValue.completed("stf-text-" + id(), internalText());
         }
 
         @Override
@@ -1871,6 +2021,11 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            return internalText().getBytes(StandardCharsets.UTF_8);
         }
     }
 
@@ -2070,8 +2225,20 @@ public interface ContextFragment {
             return includeTestFiles;
         }
 
-        public @Nullable String getSnapshotTextOrNull() {
-            return snapshotText;
+        @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            if (this.snapshotText == null) {
+                this.snapshotText = new String(bytes, StandardCharsets.UTF_8);
+            }
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var content = this.snapshotText;
+            if (content == null) {
+                return null;
+            }
+            return content.getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -2289,8 +2456,20 @@ public interface ContextFragment {
             return fullyQualifiedName;
         }
 
-        public @Nullable String getSnapshotTextOrNull() {
-            return snapshotText;
+        @Override
+        public void setFrozenContentBytes(byte[] bytes) {
+            if (this.snapshotText == null) {
+                this.snapshotText = new String(bytes, StandardCharsets.UTF_8);
+            }
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var content = this.snapshotText;
+            if (content == null) {
+                return null;
+            }
+            return content.getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -2435,6 +2614,18 @@ public interface ContextFragment {
 
         public boolean isCalleeGraph() {
             return isCalleeGraph;
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            if (textCv == null) {
+                return null;
+            }
+            var text = textCv.renderNowOrNull();
+            if (text == null) {
+                return null;
+            }
+            return text.getBytes(StandardCharsets.UTF_8);
         }
 
         @Override
@@ -2593,6 +2784,18 @@ public interface ContextFragment {
         @Override
         public ContextFragment refreshCopy() {
             return new SkeletonFragment(id(), getContextManager(), getTargetIdentifiers(), getSummaryType());
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            if (textCv == null) {
+                return null;
+            }
+            var text = textCv.renderNowOrNull();
+            if (text == null) {
+                return null;
+            }
+            return text.getBytes(StandardCharsets.UTF_8);
         }
     }
 
@@ -2780,6 +2983,18 @@ public interface ContextFragment {
         public boolean isEligibleForAutoContext() {
             return false;
         }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            if (textCv == null) {
+                return null;
+            }
+            var text = textCv.renderNowOrNull();
+            if (text == null) {
+                return null;
+            }
+            return text.getBytes(StandardCharsets.UTF_8);
+        }
     }
 
     interface OutputFragment {
@@ -2885,6 +3100,16 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var textCv = this.text();
+            var text = textCv.renderNowOrNull();
+            if (text == null) {
+                return null;
+            }
+            return text.getBytes(StandardCharsets.UTF_8);
         }
     }
 
@@ -3019,6 +3244,16 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             // Stable, hashed identity; copy can safely return this
             return this;
+        }
+
+        @Override
+        public byte @Nullable [] getFrozenContentBytes() {
+            var textCv = this.text();
+            var text = textCv.renderNowOrNull();
+            if (text == null) {
+                return null;
+            }
+            return text.getBytes(StandardCharsets.UTF_8);
         }
     }
 }
