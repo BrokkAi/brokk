@@ -71,7 +71,7 @@ public class SplitButton extends JComponent {
 
         actionButton = new MaterialButton(text);
         Insets originalInsets = actionButton.getInsets();
-        
+
         arrowButton = new MaterialButton();
         // Apply initial fixed width on the arrow button before icon is set
         applyArrowButtonFixedWidth();
@@ -89,7 +89,7 @@ public class SplitButton extends JComponent {
         int top = (originalInsets != null) ? originalInsets.top : 0;
         int bottom = (originalInsets != null) ? originalInsets.bottom : 0;
         actionButton.setBorder(new EmptyBorder(top + 2, 2, bottom + 2, 0));
-        
+
         applyCompactStyling(arrowButton);
 
         // Alignments for compact look
