@@ -893,11 +893,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int tokensForFragment(ContextFragment f) {
         try {
-            return tokenCache.computeIfAbsent(f.id(), id -> {
+            return tokenCache.compute(f.id(), (id, cachedTokenCount) -> {
+                if (cachedTokenCount != null && cachedTokenCount > 0) {
+                    return cachedTokenCount;
+                }
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        String text = f.text().renderNowOr("(Loading)");
-                        return Messages.getApproximateTokens(text);
+                        String text = f.text().renderNowOr("");
+                        if (text.isBlank()) {
+                            // Not ready yet, will be replaced next time we perform a look-up
+                            return 0;
+                        } else {
+                            return Messages.getApproximateTokens(text);
+                        }
                     } catch (Exception e) {
                         logger.trace("Failed to compute token count for fragment", e);
                         return 0;
