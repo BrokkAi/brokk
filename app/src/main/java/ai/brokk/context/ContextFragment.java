@@ -517,21 +517,27 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments (no snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
         }
 
         // Primary constructor for new dynamic fragments (with optional snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, true);
         }
 
         private ProjectPathFragment(
-                ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+                ProjectFile file,
+                String id,
+                IContextManager contextManager,
+                @Nullable String snapshotText,
+                boolean eagerPrime) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
             this.frozenContent = snapshotText;
-            this.primeComputations();
+            if (eagerPrime) {
+                this.primeComputations();
+            }
         }
 
         @Override
@@ -566,7 +572,7 @@ public interface ContextFragment {
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
+            return new ProjectPathFragment(file, existingId, contextManager, snapshotText, true);
         }
 
         @Override
@@ -627,9 +633,9 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            // Generate a new dynamic fragment to avoid sharing snapshot across contexts after refresh.
-            // This allows pre- and post-refresh contexts to persist distinct snapshots for the same file.
-            return new ProjectPathFragment(file, contextManager);
+            // Generate a new dynamic fragment with no eager priming to avoid populating snapshot during refresh.
+            return new ProjectPathFragment(
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
         }
 
         @Override
@@ -830,21 +836,27 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
         }
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, true);
         }
 
         private ExternalPathFragment(
-                ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+                ExternalFile file,
+                String id,
+                IContextManager contextManager,
+                @Nullable String snapshotText,
+                boolean eagerPrime) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
             this.frozenContent = snapshotText;
 
-            this.primeComputations();
+            if (eagerPrime) {
+                this.primeComputations();
+            }
         }
 
         @Override
@@ -880,7 +892,7 @@ public interface ContextFragment {
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
+            return new ExternalPathFragment(file, existingId, contextManager, snapshotText, true);
         }
 
         @Override
@@ -908,12 +920,17 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            // Generate a new dynamic fragment to avoid sharing snapshot across contexts after refresh.
-            return new ExternalPathFragment(file, contextManager);
+            // Generate a new dynamic fragment with no eager priming to avoid populating snapshot during refresh.
+            return new ExternalPathFragment(
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
         }
 
         @Override
         public ComputedValue<String> text() {
+            var snapshotText = getSnapshotTextOrNull();
+            if (snapshotText != null) {
+                return ComputedValue.completed("epf-text-" + id(), snapshotText);
+            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
