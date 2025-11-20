@@ -1496,6 +1496,29 @@ public class Chrome
             }
         });
 
+        // Workspace actions
+        // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
+        KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+        bindKey(rootPane, attachContextKeyStroke, "attachContext");
+        rootPane.getActionMap().put("attachContext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+            }
+        });
+
+        // Ctrl+I => attach files and summarize
+        KeyStroke attachFilesAndSummarizeKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachFilesAndSummarize", KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+        bindKey(rootPane, attachFilesAndSummarizeKeyStroke, "attachFilesAndSummarize");
+        rootPane.getActionMap().put("attachFilesAndSummarize", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog(true));
+            }
+        });
+
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomIn",

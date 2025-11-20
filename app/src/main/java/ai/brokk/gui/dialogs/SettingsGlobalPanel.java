@@ -670,6 +670,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
 
+        // Workspace actions
+        adder.add("workspace.attachContext", "Add Content to Workspace");
+        adder.add("workspace.attachFilesAndSummarize", "Attach Files + Summarize");
+
         // Add global reset button
         var resetAllBtn = new JButton("Reset All to Defaults");
         resetAllBtn.setToolTipText("Reset all keybindings to their default values");
@@ -802,7 +806,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -843,6 +849,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
             case "view.resetZoom" -> "Reset Zoom";
+            case "workspace.attachContext" -> "Add Content to Workspace";
+            case "workspace.attachFilesAndSummarize" -> "Attach Files + Summarize";
             default -> id;
         };
     }
@@ -873,7 +881,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -3863,6 +3873,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // General navigation
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+
+            // Workspace actions
+            case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
+            case "workspace.attachFilesAndSummarize" ->
+                KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
 
             default ->
                 KeyStroke.getKeyStroke(
