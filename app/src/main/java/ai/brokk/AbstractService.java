@@ -676,7 +676,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     return model;
                 }
             } catch (Exception e) {
-                logger.debug("Failed to get project-configured scan model, falling back to dynamic selection: {}", e.getMessage());
+                logger.debug(
+                        "Failed to get project-configured scan model, falling back to dynamic selection: {}",
+                        e.getMessage());
             }
         }
 

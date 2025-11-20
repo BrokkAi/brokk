@@ -1639,14 +1639,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(scanModelLabel, gbc);
 
         var scanHolder = new JPanel(new BorderLayout(0, 0));
-        scanModelCombo.setModel(new DefaultComboBoxModel<>(
-                new String[] {
-                    Service.GPT_5_MINI,
-                    Service.GPT_5_NANO,
-                    Service.SONNET_4_5,
-                    Service.HAIKU_4_5,
-                    Service.GEMINI_2_5_FLASH
-                }));
+        scanModelCombo.setModel(new DefaultComboBoxModel<>(new String[] {
+            Service.GPT_5_MINI, Service.GPT_5_NANO, Service.SONNET_4_5, Service.HAIKU_4_5, Service.GEMINI_2_5_FLASH
+        }));
         scanHolder.add(scanModelCombo, BorderLayout.CENTER);
         var scanHelp = new MaterialButton();
         scanHelp.setIcon(Icons.HELP);
