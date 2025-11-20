@@ -2028,4 +2028,48 @@ public class GitRepoTest {
                 repo.resolveToCommit(annotatedTagObjSha).getName(),
                 "Raw annotated-tag object SHA should peel to the commit");
     }
+
+    @Test
+    void testListFilesChangedBetweenBranches_SameBranch() throws Exception {
+        // Create a branch
+        repo.getGit().branchCreate().setName("test-branch").call();
+
+        // Comparing a branch to itself should return empty list without throwing
+        var result = repo.listFilesChangedBetweenBranches("test-branch", "test-branch");
+
+        assertNotNull(result, "Result should not be null");
+        assertTrue(result.isEmpty(), "Comparing branch to itself should return empty list");
+    }
+
+    @Test
+    void testListFilesChangedBetweenBranches_WithChanges() throws Exception {
+        // Create initial commit on master
+        createCommit("file1.txt", "content1", "Initial commit");
+        String masterCommit = repo.getCurrentCommitId();
+
+        // Create a feature branch and make changes
+        repo.getGit().branchCreate().setName("feature").call();
+        repo.getGit().checkout().setName("feature").call();
+        createCommit("file2.txt", "content2", "Feature commit");
+
+        // List changes between branches
+        var result = repo.listFilesChangedBetweenBranches("feature", "master");
+
+        assertNotNull(result, "Result should not be null");
+        assertEquals(1, result.size(), "Should have one changed file");
+        assertEquals("file2.txt", result.getFirst().file().getFileName().toString());
+        assertEquals(IGitRepo.ModificationType.NEW, result.getFirst().status());
+
+        // Verify result is sorted (important for consistent UI presentation)
+        createCommit("aaa.txt", "aaa", "Another commit");
+        createCommit("zzz.txt", "zzz", "Yet another commit");
+
+        result = repo.listFilesChangedBetweenBranches("feature", "master");
+        assertEquals(3, result.size());
+
+        // Files should be sorted alphabetically
+        assertEquals("aaa.txt", result.get(0).file().getFileName().toString());
+        assertEquals("file2.txt", result.get(1).file().getFileName().toString());
+        assertEquals("zzz.txt", result.get(2).file().getFileName().toString());
+    }
 }

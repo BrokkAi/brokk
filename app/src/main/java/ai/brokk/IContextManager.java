@@ -69,15 +69,6 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Returns the frozen counterpart of liveContext.
-     *
-     * @return the frozen counterpart of liveContext
-     */
-    default Context topContext() {
-        throw new UnsupportedOperationException();
-    }
-
     /** Listener interface for context change events. */
     interface ContextListener {
         /**
@@ -140,7 +131,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default void appendTasksToTaskList(List<String> tasks) {
+    default Context appendTasksToTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 

@@ -41,6 +41,10 @@ public final class TestContextManager implements IContextManager {
         this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer());
     }
 
+    public TestContextManager(Path projectRoot, IConsoleIO consoleIO, IAnalyzer analyzer) {
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), analyzer);
+    }
+
     public TestContextManager(
             TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
         this.project = project;
@@ -51,7 +55,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
-        this.liveContext = new Context(this, "Test context");
+        this.liveContext = new Context(this, "Test context").addPathFragments(toPathFragments(editableFiles));
 
         this.analyzerWrapper = new IAnalyzerWrapper() {
             @Override
@@ -139,11 +143,6 @@ public final class TestContextManager implements IContextManager {
                     "liveContext requires IConsoleIO to be provided in TestContextManager constructor");
         }
         return liveContext;
-    }
-
-    @Override
-    public Context topContext() {
-        return liveContext().freeze();
     }
 
     @Override

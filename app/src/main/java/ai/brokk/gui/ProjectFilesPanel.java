@@ -372,6 +372,19 @@ public class ProjectFilesPanel extends JPanel {
         refreshProjectFiles();
     }
 
+    // Public getters for focus traversal policy
+    public JTextField getSearchField() {
+        return searchField;
+    }
+
+    public MaterialButton getRefreshButton() {
+        return refreshButton;
+    }
+
+    public ProjectTree getProjectTree() {
+        return projectTree;
+    }
+
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
         private final IProject project;
 

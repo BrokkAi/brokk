@@ -1,4 +1,0 @@
-package (default package);
-
-struct BMVert {
-}

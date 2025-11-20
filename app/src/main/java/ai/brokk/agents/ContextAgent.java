@@ -6,12 +6,14 @@ import static java.lang.Math.min;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitDistance;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.AdaptiveExecutor;
@@ -175,7 +177,8 @@ public class ContextAgent {
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
-        var workspaceRepresentation = CodePrompts.instance.getWorkspaceContentsMessages(context);
+        var workspaceRepresentation =
+                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -201,11 +204,30 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            candidates = context.getMostRelevantFiles(Context.MAX_AUTO_CONTEXT_FILES).stream()
+            int maxNeighbors = 100;
+            var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
+            if (envMaxNeighbors != null) {
+                try {
+                    maxNeighbors = Integer.parseInt(envMaxNeighbors);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid BRK_MAX_NEIGHBORS value '{}', using default", envMaxNeighbors);
+                }
+            }
+            candidates = context.getMostRelevantFiles(maxNeighbors).stream()
                     .filter(f -> !existingFiles.contains(f))
                     .sorted()
                     .toList();
-            logger.debug("Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+            if (candidates.size() >= 10) {
+                logger.debug(
+                        "Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+            } else {
+                logger.debug(
+                        "Non-empty workspace but few/no Git-based candidates found; escalating to full project scan");
+                candidates = cm.getProject().getAllFiles().stream()
+                        .filter(f -> !existingFiles.contains(f))
+                        .sorted()
+                        .toList();
+            }
         }
 
         Set<ProjectFile> analyzedFileSet = candidates.stream()

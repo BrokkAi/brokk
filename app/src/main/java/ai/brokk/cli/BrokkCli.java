@@ -59,10 +59,11 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private Path projectPath;
 
-    @CommandLine.Option(
-            names = {"--edit", "--read"},
-            description = "Add a file to the workspace for editing. Can be repeated.")
+    @CommandLine.Option(names = "--edit", description = "Add a file to the workspace for editing. Can be repeated.")
     private List<String> editFiles = new ArrayList<>();
+
+    @CommandLine.Option(names = "--read", description = "Add a file to the workspace as read-only. Can be repeated.")
+    private List<String> readFiles = new ArrayList<>();
 
     @CommandLine.Option(
             names = "--add-class",
@@ -393,11 +394,13 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");
+        var resolvedReadFiles = resolveFiles(readFiles, "read-only file");
         var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
         var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
 
         // If any resolution failed, the helper methods will have printed an error.
         if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
+                || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
                 || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
                 || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
             return 1;
@@ -409,8 +412,14 @@ public final class BrokkCli implements Callable<Integer> {
         if (!resolvedEditFiles.isEmpty())
             cm.addFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
 
-        // Build context
+        // Add read-only files
         var context = cm.liveContext();
+        for (var readFile : resolvedReadFiles) {
+            var pf = cm.toFile(readFile);
+            var fragment = new ContextFragment.ProjectPathFragment(pf, cm);
+            context = context.addPathFragments(List.of(fragment));
+            context = context.setReadonly(fragment, true);
+        }
 
         if (!resolvedClasses.isEmpty()) context = Context.withAddedClasses(context, resolvedClasses, analyzer);
         if (!resolvedSummaryClasses.isEmpty())
@@ -457,7 +466,7 @@ public final class BrokkCli implements Callable<Integer> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
-                    ContextFragment.describe(cm.topContext().allFragments()));
+                    ContextFragment.describe(cm.liveContext().allFragments()));
 
             String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
                     .filter(s -> s != null && !s.isBlank())
@@ -493,7 +502,7 @@ public final class BrokkCli implements Callable<Integer> {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                ContextFragment.describe(cm.topContext().allFragments()));
+                ContextFragment.describe(cm.liveContext().allFragments()));
 
         TaskResult result;
         // Decide scope action/input
@@ -617,7 +626,7 @@ public final class BrokkCli implements Callable<Integer> {
 
                             Issue: """
                                     + requireNonNull(lutzLitePrompt);
-                    var task = new TaskList.TaskItem(taskText, false);
+                    var task = new TaskList.TaskItem("", taskText, false);
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
                     var taskResult = cm.executeTask(task, planModel, codeModel, true, true);

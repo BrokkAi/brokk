@@ -703,7 +703,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .map(f -> {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
-                                return new ContextHistory.DeletedFile(ppf.file(), ppf.text(), true);
+                                ProjectFile pf = (ProjectFile) ppf.file();
+                                return new ContextHistory.DeletedFile(pf, ppf.text(), true);
                             } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
@@ -735,9 +736,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 // 8. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
                     var contextHistory = contextManager.getContextHistory();
-                    var frozenContext = contextHistory.topContext();
+                    var currentContext = contextHistory.liveContext();
                     var info = new ContextHistory.ContextHistoryEntryInfo(deletedFilesInfo);
-                    contextHistory.addEntryInfo(frozenContext.id(), info);
+                    contextHistory.addEntryInfo(currentContext.id(), info);
                     contextManager
                             .getProject()
                             .getSessionManager()
@@ -779,8 +780,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         assert !SwingUtilities.isEventDispatchThread();
 
         // Take a snapshot before mutating the working tree so the user can undo the stash
-        var frozen = contextManager.liveContext().freezeAndCleanup();
-        contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+        var liveContext = contextManager.liveContext();
+        contextManager.getContextHistory().pushContext(liveContext);
 
         RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {
@@ -1127,6 +1128,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         // Perform complete UI tree update
         SwingUtilities.invokeLater(() -> {
             SwingUtilities.updateComponentTreeUI(this);
+            // updateComponentTreeUI resets component UI delegates, so reapply the primary styling afterward to persist
+            // the visual state
+            SwingUtil.applyPrimaryButtonStyle(commitButton);
             revalidate();
             repaint();
         });

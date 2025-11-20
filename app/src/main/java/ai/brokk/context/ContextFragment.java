@@ -22,8 +22,7 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.util.FragmentUtils;
-import ai.brokk.util.Messages;
+import ai.brokk.util.*;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.io.IOException;
@@ -31,16 +30,21 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams Instead, it throws
@@ -126,6 +130,66 @@ public interface ContextFragment {
     // Static counter for dynamic fragments
     AtomicInteger nextId = new AtomicInteger(1);
 
+    // Dedicated executor for ContextFragment async computations (separate from ContextManager backgroundTasks)
+    Logger logger = LogManager.getLogger(ContextFragment.class);
+
+    @VisibleForTesting
+    static LoggingExecutorService getFragmentExecutor() {
+        return FRAGMENT_EXECUTOR;
+    }
+
+    /**
+     * Forcefully shuts down the dedicated ContextFragment executor. Safe to call multiple times.
+     * Intended for application shutdown to ensure no lingering threads keep the JVM alive.
+     */
+    public static void shutdownFragmentExecutor() {
+        try {
+            FRAGMENT_EXECUTOR.shutdownNow();
+        } catch (Throwable t) {
+            logger.warn("Error shutting down fragment executor", t);
+        }
+    }
+
+    // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
+    // We once saw macOS CI with 2 vCPUs blow up during static init with
+    // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
+    // we pick a safe parallelism and set core == max. With an unbounded queue, core==max
+    // is the correct configuration to avoid IllegalArgumentException and unexpected scaling.
+    // Additionally: use daemon threads and allow core thread timeout so the JVM can exit cleanly without explicit
+    // shutdown.
+    LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
+
+    private static LoggingExecutorService createFragmentExecutor() {
+        // Build a daemon thread factory with helpful names
+        ThreadFactory baseFactory = Executors.defaultThreadFactory();
+        ThreadFactory daemonFactory = r -> {
+            var t = baseFactory.newThread(r);
+            t.setDaemon(true);
+            t.setName("brokk-cf-" + t.threadId());
+            return t;
+        };
+
+        var tpe = new ThreadPoolExecutor(
+                computeNThreads(), // core
+                computeNThreads(), // max
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(),
+                daemonFactory);
+        // Allow core threads to time out so the pool can shrink to zero when idle
+        tpe.allowCoreThreadTimeOut(true);
+
+        return new LoggingExecutorService(
+                tpe, th -> logger.error("Uncaught exception in ContextFragment executor", th));
+    }
+
+    private static int computeNThreads() {
+        int cpus = Runtime.getRuntime().availableProcessors();
+        // Use at least 2 threads to avoid starvation on tiny runners; no cap required since
+        // tasks are short-lived and the queue is unbounded.
+        return Math.max(2, cpus);
+    }
+
     /**
      * Gets the current max integer fragment ID used for generating new dynamic fragment IDs. Note: This refers to the
      * numeric part of dynamic IDs.
@@ -172,9 +236,6 @@ public interface ContextFragment {
                 .formatted(description(), id());
     }
 
-    /** Indicates if the fragment's content can change based on project/file state. */
-    boolean isDynamic();
-
     default boolean isText() {
         return true;
     }
@@ -193,9 +254,6 @@ public interface ContextFragment {
 
     /**
      * Code sources found in this fragment.
-     *
-     * <p>ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer and one of our goals
-     * for freeze() is to not require Analyzer.
      */
     Set<CodeUnit> sources();
 
@@ -207,9 +265,11 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
-    default ContextFragment unfreeze(IContextManager cm) throws IOException {
-        return this;
-    }
+    /**
+     * Return a new instance of this fragment with a fresh ID, or if the fragment is not dynamically updateable,
+     * return the original instance.
+     */
+    ContextFragment copy();
 
     default List<TaskEntry> entries() {
         return List.of();
@@ -243,6 +303,168 @@ public interface ContextFragment {
         return cm.getAnalyzerUninterrupted();
     }
 
+    /**
+     * Compares whether two fragments originate from the same "source" (file/symbol/session),
+     * ignoring view parameters and content differences when that makes sense.
+     */
+    boolean hasSameSource(ContextFragment other);
+
+    /**
+     * Non-breaking dynamic accessors for fragments that may compute values asynchronously.
+     * Default adapters should provide completed values based on current state so legacy
+     * call sites keep working without changes.
+     */
+    interface ComputedFragment extends ContextFragment {
+
+        /**
+         * Helper for thread-safe, lazy initialization of ComputedValue fields.
+         * - Does not trigger computation during construction.
+         * - Uses double-checked locking to avoid duplicate work.
+         * - Caches the instance via setter on first initialization.
+         *
+         * Note: We pass a currentSupplier to re-read the latest field value inside the synchronized block.
+         */
+        default <T> ComputedValue<T> lazyInitCv(
+                @Nullable ComputedValue<T> current,
+                Supplier<@Nullable ComputedValue<T>> currentSupplier,
+                Supplier<ComputedValue<T>> factory,
+                Consumer<ComputedValue<T>> setter) {
+            var local = current;
+            if (local == null) {
+                synchronized (this) {
+                    local = currentSupplier.get();
+                    if (local == null) {
+                        local = factory.get();
+                        setter.accept(local);
+                    }
+                }
+            }
+            return local;
+        }
+
+        /**
+         * Non-blocking accessor mirroring text().
+         * Lazily produces a ComputedValue that computes text() on demand.
+         */
+        default ComputedValue<String> computedText() {
+            return new ComputedValue<>("cf-text-" + id(), this::text, ContextFragment.getFragmentExecutor());
+        }
+
+        /**
+         * Non-blocking accessor mirroring description().
+         * Lazily produces a ComputedValue that computes description() on demand.
+         */
+        default ComputedValue<String> computedDescription() {
+            return new ComputedValue<>(
+                    "cf-description-" + id(), this::description, ContextFragment.getFragmentExecutor());
+        }
+
+        /**
+         * Non-blocking accessor mirroring syntaxStyle().
+         * Lazily produces a ComputedValue that computes syntaxStyle() on demand.
+         */
+        default ComputedValue<String> computedSyntaxStyle() {
+            return new ComputedValue<>(
+                    "cf-syntax-style-" + id(), this::syntaxStyle, ContextFragment.getFragmentExecutor());
+        }
+
+        /**
+         * Non-blocking accessor mirroring files().
+         * Lazily produces a ComputedValue that computes files() on demand.
+         */
+        default ComputedValue<Set<ProjectFile>> computedFiles() {
+            return new ComputedValue<>("cf-files-" + id(), this::files, ContextFragment.getFragmentExecutor());
+        }
+
+        /**
+         * Optionally provide computed image payload; default is null for non-image fragments.
+         */
+        default @Nullable ComputedValue<byte[]> computedImageBytes() {
+            return null;
+        }
+
+        /**
+         * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
+         * Implementations that track external state may override to trigger recomputation.
+         */
+        ContextFragment refreshCopy();
+    }
+
+    /**
+     * Marker for fragments whose identity is dynamic (numeric, session-local).
+     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
+     */
+    interface DynamicIdentity {}
+
+    /**
+     * Marker interface for fragments that provide image content.
+     * Implementations must provide a stable content hash for equality checks.
+     */
+    interface ImageFragment extends ContextFragment {
+        @Override
+        Image image() throws UncheckedIOException;
+
+        /**
+         * A stable, cached hash of the binary image content and relevant metadata.
+         */
+        String contentHash();
+    }
+
+    /**
+     * Base class for dynamic virtual fragments. Uses numeric String IDs and supports async computation via
+     * ComputedValue exposed by ComputedFragment.
+     */
+    abstract class ComputedVirtualFragment extends VirtualFragment implements ComputedFragment, DynamicIdentity {
+        private @Nullable ComputedValue<String> textCv;
+        private @Nullable ComputedValue<String> descCv;
+        private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+
+        protected ComputedVirtualFragment(IContextManager contextManager) {
+            super(contextManager);
+        }
+
+        protected ComputedVirtualFragment(String existingId, IContextManager contextManager) {
+            super(existingId, contextManager);
+        }
+
+        @Override
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>("cvf-text-" + id(), this::text, getFragmentExecutor()),
+                    v -> textCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>("cvf-desc-" + id(), this::description, getFragmentExecutor()),
+                    v -> descCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("cvf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>("cvf-files-" + id(), this::files, getFragmentExecutor()),
+                    v -> filesCv = v);
+        }
+    }
+
     static Set<ProjectFile> parseProjectFiles(String text, IProject project) {
         var exactMatches = project.getAllFiles().stream()
                 .parallel()
@@ -272,6 +494,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         default String text() throws UncheckedIOException {
             return file().read().orElse("");
         }
@@ -292,8 +515,13 @@ public interface ContextFragment {
         }
 
         @Override
-        default boolean isDynamic() {
-            return true; // File content can change
+        default boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
         }
 
         static String formatSummary(BrokkFile file) {
@@ -301,10 +529,34 @@ public interface ContextFragment {
         }
     }
 
-    record ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) implements PathFragment {
+    final class ProjectPathFragment implements PathFragment, ComputedFragment {
+        private final ProjectFile file;
+        private final String id;
+        private final IContextManager contextManager;
+        private transient @Nullable ComputedValue<String> textCv;
+        private transient @Nullable ComputedValue<String> descCv;
+        private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+
         // Primary constructor for new dynamic fragments
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) {
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public ProjectFile file() {
+            return file;
         }
 
         @Override
@@ -351,6 +603,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
             return analyzer.getDeclarations(file);
@@ -367,15 +620,59 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ProjectPathFragment that)) return false;
-            return file.equals(that.file());
+        public ContextFragment refreshCopy() {
+            return ProjectPathFragment.withId(file, id, contextManager);
         }
 
         @Override
-        public int hashCode() {
-            return Objects.hash(file);
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>("ppf-text-" + id(), this::text, getFragmentExecutor()),
+                    v -> textCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>("ppf-desc-" + id(), this::description, getFragmentExecutor()),
+                    v -> descCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("ppf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>("ppf-files-" + id(), this::files, getFragmentExecutor()),
+                    v -> filesCv = v);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ProjectPathFragment(file, contextManager);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
         }
     }
 
@@ -450,32 +747,55 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false; // Content is fixed to a revision
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof GitFileFragment that)) return false;
-            return file.equals(that.file()) && revision.equals(that.revision());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(file, revision);
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof GitFileFragment that)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = that.file().absPath().normalize();
+            return pa.equals(pb) && this.revision().equals(that.revision());
         }
 
         @Override
         public String toString() {
             return "GitFileFragment('%s' @%s)".formatted(file, id);
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
-    record ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) implements PathFragment {
+    final class ExternalPathFragment implements PathFragment, ComputedFragment {
+        private final ExternalFile file;
+        private final String id;
+        private final IContextManager contextManager;
+        private transient @Nullable ComputedValue<String> textCv;
+        private transient @Nullable ComputedValue<String> descCv;
+        private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+
         // Primary constructor for new dynamic fragments
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        private ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) {
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public BrokkFile file() {
+            return file;
         }
 
         @Override
@@ -492,9 +812,7 @@ public interface ContextFragment {
                 ExternalFile file, String existingId, IContextManager contextManager) {
             try {
                 int numericId = Integer.parseInt(existingId);
-                if (numericId >= ContextFragment.nextId.get()) {
-                    ContextFragment.nextId.set(numericId + 1);
-                }
+                setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
@@ -517,28 +835,93 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ExternalPathFragment that)) return false;
-            return file.equals(that.file());
+        public ContextFragment refreshCopy() {
+            return ExternalPathFragment.withId(file, id, contextManager);
         }
 
         @Override
-        public int hashCode() {
-            return Objects.hash(file);
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>("epf-text-" + id(), this::text, getFragmentExecutor()),
+                    v -> textCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedDescription() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>("epf-desc-" + id(), this::description, getFragmentExecutor()),
+                    v -> descCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("epf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>("epf-files-" + id(), this::files, getFragmentExecutor()),
+                    v -> filesCv = v);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ExternalPathFragment(file, contextManager);
         }
     }
 
     /** Represents an image file, either from the project or external. This is dynamic. */
-    record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
+    final class ImageFileFragment implements PathFragment, ImageFragment, ComputedFragment {
+        private final BrokkFile file;
+        private final String id;
+        private final IContextManager contextManager;
+        private transient @Nullable ComputedValue<String> textCv;
+        private transient @Nullable ComputedValue<String> descCv;
+        private transient @Nullable ComputedValue<String> syntaxCv;
+        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        private transient @Nullable ComputedValue<byte[]> imageBytesCv;
+
         // Primary constructor for new dynamic fragments
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
-        // Record canonical constructor
-        public ImageFileFragment {
+        private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+            this.file = file;
+            this.id = id;
+            this.contextManager = contextManager;
+        }
+
+        @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
+        public BrokkFile file() {
+            return file;
         }
 
         @Override
@@ -555,9 +938,7 @@ public interface ContextFragment {
             assert !file.isText() : "ImageFileFragment should only be used for non-text files";
             try {
                 int numericId = Integer.parseInt(existingId);
-                if (numericId >= ContextFragment.nextId.get()) {
-                    ContextFragment.nextId.set(numericId + 1);
-                }
+                setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
@@ -589,6 +970,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Image image() throws UncheckedIOException {
             try {
                 var imageFile = file.absPath().toFile();
@@ -614,6 +996,11 @@ public interface ContextFragment {
         }
 
         @Override
+        public String contentHash() {
+            return id;
+        }
+
+        @Override
         public Set<CodeUnit> sources() {
             return Set.of();
         }
@@ -635,25 +1022,82 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true; // Image file on disk could change
+        public ContextFragment refreshCopy() {
+            return ImageFileFragment.withId(file, id, contextManager);
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ImageFileFragment that)) return false;
-            return file.equals(that.file());
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>("iff-text-" + id(), this::text, getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
-        public int hashCode() {
-            return Objects.hash(file);
+        public ComputedValue<String> computedDescription() {
+            return lazyInitCv(
+                    descCv,
+                    () -> descCv,
+                    () -> new ComputedValue<>("iff-desc-" + id(), this::description, getFragmentExecutor()),
+                    v -> descCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("iff-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            return lazyInitCv(
+                    filesCv,
+                    () -> filesCv,
+                    () -> new ComputedValue<>("iff-files-" + id(), this::files, getFragmentExecutor()),
+                    v -> filesCv = v);
+        }
+
+        @Override
+        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+            return lazyInitCv(
+                    imageBytesCv,
+                    () -> imageBytesCv,
+                    () -> new ComputedValue<>(
+                            "iff-image-" + id(),
+                            () -> {
+                                try {
+                                    return ImageUtil.imageToBytes(image());
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            },
+                            getFragmentExecutor()),
+                    v -> imageBytesCv = v);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (!(other instanceof PathFragment op)) {
+                return false;
+            }
+            var pa = this.file().absPath().normalize();
+            var pb = op.file().absPath().normalize();
+            return pa.equals(pb);
         }
 
         @Override
         public String toString() {
             return "ImageFileFragment('%s')".formatted(file);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            return new ImageFileFragment(file, contextManager);
         }
     }
 
@@ -698,7 +1142,9 @@ public interface ContextFragment {
                 int numericId = Integer.parseInt(existingId);
                 ContextFragment.setMinimumId(numericId + 1);
             } catch (NumberFormatException e) {
-                if (isDynamic()) {
+                // Allow non-numeric IDs for non-dynamic fragments (content-hashed).
+                // Enforce numeric IDs only for dynamic-identity fragments.
+                if (this instanceof DynamicIdentity) {
                     throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
                 }
             }
@@ -726,6 +1172,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return parseProjectFiles(text(), contextManager.getProject());
         }
@@ -738,18 +1185,43 @@ public interface ContextFragment {
         @Override
         public abstract String text();
 
-        // Override equals and hashCode for proper comparison, especially for EMPTY
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof VirtualFragment that)) return false;
-            return Objects.equals(id(), that.id()); // Use String.equals
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+
+            if (this.getClass() != other.getClass()) {
+                return false;
+            }
+
+            var thisIsDynamic = this instanceof DynamicIdentity;
+            var otherIsDynamic = other instanceof DynamicIdentity;
+
+            // Non-dynamic (content-hashed) fragments: stable identity via ID
+            if (!thisIsDynamic && !otherIsDynamic) {
+                return this.id().equals(other.id());
+            }
+
+            // Dynamic fragments: use repr() for semantic equivalence
+            if (thisIsDynamic && otherIsDynamic) {
+                var ra = this.repr();
+                var rb = other.repr();
+                // Empty repr means fragment doesn't support semantic deduplication; fall back to identity
+                if (ra.isEmpty() || rb.isEmpty()) {
+                    return this.id().equals(other.id());
+                }
+                return ra.equals(rb);
+            }
+
+            // Images: compare stable content identity
+            if (this instanceof ImageFragment ai && other instanceof ImageFragment bi) {
+                return ai.contentHash().equals(bi.contentHash());
+            }
+
+            return false;
         }
 
-        @Override
-        public int hashCode() {
-            return Objects.hash(id()); // Use String's hashCode
-        }
+        // Use identity-based equals (default Object behavior)
+        // Explicit content-equality checks will use hasSameSource() or dedicated methods
     }
 
     record StringFragmentType(String description, String syntaxStyle) {}
@@ -759,6 +1231,29 @@ public interface ContextFragment {
     StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
     StringFragmentType DISCARDED_CONTEXT =
             new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+
+    /**
+     * Maps a description string to its corresponding StringFragmentType if it matches one of the
+     * hardcoded StringFragmentTypes (BUILD_RESULTS, SEARCH_NOTES, DISCARDED_CONTEXT).
+     *
+     * @param description the description to match
+     * @return the matching StringFragmentType, or null if no match found
+     */
+    static @Nullable StringFragmentType getStringFragmentType(String description) {
+        if (description.isBlank()) {
+            return null;
+        }
+        if (BUILD_RESULTS.description().equals(description)) {
+            return BUILD_RESULTS;
+        }
+        if (SEARCH_NOTES.description().equals(description)) {
+            return SEARCH_NOTES;
+        }
+        if (DISCARDED_CONTEXT.description().equals(description)) {
+            return DISCARDED_CONTEXT;
+        }
+        return null;
+    }
 
     class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         private final String text;
@@ -800,11 +1295,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public String description() {
             return description;
         }
@@ -814,10 +1304,97 @@ public interface ContextFragment {
             return syntaxStyle;
         }
 
+        /**
+         * Returns the SpecialTextType for this fragment if the description matches a registered special type.
+         */
+        public Optional<SpecialTextType> specialType() {
+            return SpecialTextType.fromDescription(description);
+        }
+
+        /**
+         * Returns the syntax style to use when rendering the preview. Delegates to SpecialTextType when present;
+         * falls back to this fragment's internal syntaxStyle() otherwise.
+         */
+        public String previewSyntaxStyle() {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return syntaxStyle();
+            }
+            return st.get().previewSyntaxStyle();
+        }
+
+        /**
+         * Returns a UI-friendly preview of the text using the SpecialTextType's previewRenderer when available.
+         * Falls back to the raw text for non-special fragments.
+         */
+        public String previewText() {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            return st.get().previewRenderer().apply(text());
+        }
+
+        /**
+         * Returns text according to the viewing policy. If the SpecialTextType denies viewing
+         * content for the provided policy, a generic placeholder is returned. Otherwise the raw
+         * text is returned. For non-special fragments, returns raw text.
+         */
+        public String textForAgent(ViewingPolicy viewPolicy) {
+            var st = specialType();
+            if (st.isEmpty()) {
+                return text();
+            }
+            if (!st.get().canViewContent().test(viewPolicy)) {
+                return "[%s content hidden for %s]"
+                        .formatted(description, viewPolicy.taskType().name());
+            }
+            return text();
+        }
+
+        /**
+         * Returns whether this fragment is droppable according to its SpecialTextType policy.
+         * Non-special fragments default to droppable.
+         */
+        public boolean droppable() {
+            return specialType().map(SpecialTextType::droppable).orElse(true);
+        }
+
         @Override
         public String toString() {
             return "StringFragment('%s')".formatted(description);
         }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof StringFragment that)) {
+                return false;
+            }
+
+            // Special case: if both descriptions match the same StringFragmentTypes entry,
+            // they have the same source regardless of text or syntax style.
+            // This allows hardcoded system fragments (like BUILD_RESULTS, SEARCH_NOTES, etc.)
+            // to be recognized as equivalent even if their content differs.
+            StringFragmentType thisType = getStringFragmentType(this.description);
+            StringFragmentType thatType = getStringFragmentType(that.description);
+
+            if (thisType != null && thatType != null) {
+                // Both descriptions map to StringFragmentTypes entries
+                return Objects.equals(thisType, thatType);
+            }
+
+            // Default behavior: compare text and syntax style for non-system fragments
+            return description.equals(that.description) && syntaxStyle.equals(that.syntaxStyle);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     // FIXME SearchFragment does not preserve the tool calls output that the user sees during
@@ -865,36 +1442,70 @@ public interface ContextFragment {
             // SearchFragment sources are pre-computed
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment via TaskFragment)
     }
 
-    abstract class PasteFragment extends ContextFragment.VirtualFragment {
+    abstract class PasteFragment extends ContextFragment.VirtualFragment implements ComputedFragment {
         protected transient Future<String> descriptionFuture;
+        private @Nullable ComputedValue<String> descriptionCv;
+        private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<Set<ProjectFile>> filesFuture;
 
         // PasteFragments are non-dynamic (content-hashed)
         // The hash will be based on the initial text/image data, not the future description.
+        // Lazily initializes computed values on first access to avoid any background work during construction.
         public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
             super(id, contextManager);
             this.descriptionFuture = descriptionFuture;
         }
 
         @Override
-        public boolean isDynamic() {
-            // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the
-            // corner case
-            // of the Future timing out in rare error scenarios
-            return false;
+        @Blocking
+        public String description() {
+            return computedDescription().future().join();
         }
 
         @Override
-        public String description() {
-            if (descriptionFuture.isDone()) {
-                try {
-                    return "Paste of " + descriptionFuture.get();
-                } catch (Exception e) {
-                    return "(Error summarizing paste)";
-                }
-            }
-            return "(Summarizing. This does not block LLM requests)";
+        public ComputedValue<String> computedDescription() {
+            return lazyInitCv(
+                    descriptionCv,
+                    () -> descriptionCv,
+                    () -> new ComputedValue<>(
+                            "paste-desc-" + id(),
+                            () -> {
+                                try {
+                                    return "Paste of " + descriptionFuture.get();
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                }
+                            },
+                            getFragmentExecutor()),
+                    v -> descriptionCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("paste-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> computedFiles() {
+            return lazyInitCv(
+                    filesFuture,
+                    () -> filesFuture,
+                    () -> new ComputedValue<>("paste-files-" + id(), this::files, getFragmentExecutor()),
+                    v -> filesFuture = v);
         }
 
         @Override
@@ -905,11 +1516,22 @@ public interface ContextFragment {
         public Future<String> getDescriptionFuture() {
             return descriptionFuture;
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            // Paste fragments are static; we don't need to recompute or clone.
+            // Keeping the same instance preserves the content-hash id and ComputedValues.
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final String text;
         protected transient Future<String> syntaxStyleFuture;
+        private @Nullable ComputedValue<String> syntaxCv;
+        private @Nullable ComputedValue<String> textCv;
 
         public PasteTextFragment(
                 IContextManager contextManager,
@@ -969,6 +1591,21 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<String> computedSyntaxStyle() {
+            return lazyInitCv(
+                    syntaxCv,
+                    () -> syntaxCv,
+                    () -> new ComputedValue<>("ptf-syntax-" + id(), this::syntaxStyle, getFragmentExecutor()),
+                    v -> syntaxCv = v);
+        }
+
+        @Override
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv, () -> textCv, () -> ComputedValue.completed("ptf-text-" + id(), text), v -> textCv = v);
+        }
+
+        @Override
         public String text() {
             return text;
         }
@@ -981,18 +1618,33 @@ public interface ContextFragment {
         public String shortDescription() {
             return "pasted text";
         }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            if (this == other) return true;
+            if (!(other instanceof PasteTextFragment that)) {
+                return false;
+            }
+            return text.equals(that.text);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
     }
 
-    class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
+    class AnonymousImageFragment extends PasteFragment implements ImageFragment { // Non-dynamic, content-hashed
         private final Image image;
+        private @Nullable ComputedValue<String> textCv;
+        private transient @Nullable ComputedValue<byte[]> imageBytesCv;
 
         // Helper to get image bytes, might throw UncheckedIOException
         @Nullable
         private static byte[] imageToBytes(@Nullable Image image) {
             try {
-                // Assuming FrozenFragment.imageToBytes will be made public
-                // TODO: [Migration4] FrozenFragments are to be phased out in migration v4
-                return FrozenFragment.imageToBytes(image);
+                return ImageUtil.imageToBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -1039,11 +1691,32 @@ public interface ContextFragment {
         }
 
         @Override
+        public ComputedValue<String> computedText() {
+            return lazyInitCv(
+                    textCv, () -> textCv, () -> ComputedValue.completed("aif-text-" + id(), text()), v -> textCv = v);
+        }
+
+        @Override
+        public @Nullable ComputedValue<byte[]> computedImageBytes() {
+            return lazyInitCv(
+                    imageBytesCv,
+                    () -> imageBytesCv,
+                    () -> new ComputedValue<>("aif-image-" + id(), this::imageBytes, getFragmentExecutor()),
+                    v -> imageBytesCv = v);
+        }
+
+        @Override
         public Image image() {
             return image;
         }
 
+        @Override
+        public String contentHash() {
+            return id();
+        }
+
         @Nullable
+        @Blocking
         public byte[] imageBytes() {
             return imageToBytes(image);
         }
@@ -1083,6 +1756,12 @@ public interface ContextFragment {
         @Override
         public String shortDescription() {
             return "pasted image";
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
         }
     }
 
@@ -1136,11 +1815,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public Set<CodeUnit> sources() {
             return sources; // Return pre-computed sources
         }
@@ -1176,9 +1850,17 @@ public interface ContextFragment {
         public String getCode() {
             return code;
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
+    class UsageFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
         private final boolean includeTestFiles;
 
@@ -1212,6 +1894,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
@@ -1243,12 +1926,11 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
+        @Blocking
         public Set<CodeUnit> sources() {
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.warn("Calling blocking UsageFragments.sources on EDT thread!");
+            }
             var analyzer = getAnalyzer();
             if (analyzer.isEmpty()) {
                 return Collections.emptySet();
@@ -1265,6 +1947,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             final var allSources = sources().stream().map(CodeUnit::source);
             if (!includeTestFiles) {
@@ -1278,7 +1961,7 @@ public interface ContextFragment {
 
         @Override
         public String repr() {
-            return "SymbolUsages('%s')".formatted(targetIdentifier);
+            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
         }
 
         @Override
@@ -1301,23 +1984,47 @@ public interface ContextFragment {
         public boolean includeTestFiles() {
             return includeTestFiles;
         }
+
+        @Override
+        public ContextFragment copy() {
+            var repl = new UsageFragment(getContextManager(), targetIdentifier, includeTestFiles); // fresh dynamic ID
+            return repl;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new UsageFragment(id(), getContextManager(), targetIdentifier, includeTestFiles);
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     /** Dynamic fragment that wraps a single CodeUnit and renders the full source */
-    class CodeFragment extends VirtualFragment { // Dynamic, uses nextId
-        private final CodeUnit unit;
+    class CodeFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
+        private final String fullyQualifiedName;
+        private @Nullable ComputedValue<CodeUnit> unitCv;
+        private @Nullable CodeUnit preResolvedUnit;
 
+        public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
+            super(contextManager);
+            assert !fullyQualifiedName.isBlank();
+            this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        public CodeFragment(String existingId, IContextManager contextManager, String fullyQualifiedName) {
+            super(existingId, contextManager);
+            assert !fullyQualifiedName.isBlank();
+            this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        /**
+         * A convenience constructor for if we already have our code unit, to avoid unnecessary re-computation.
+         */
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
             super(contextManager);
             validateCodeUnit(unit);
-            this.unit = unit;
-        }
-
-        // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
-        public CodeFragment(String existingId, IContextManager contextManager, CodeUnit unit) {
-            super(existingId, contextManager);
-            validateCodeUnit(unit);
-            this.unit = unit;
+            this.fullyQualifiedName = unit.fqName();
+            this.preResolvedUnit = unit;
         }
 
         private static void validateCodeUnit(CodeUnit unit) {
@@ -1331,23 +2038,53 @@ public interface ContextFragment {
             return FragmentType.CODE;
         }
 
+        private ComputedValue<CodeUnit> getComputedUnit() {
+            return lazyInitCv(
+                    unitCv,
+                    () -> unitCv,
+                    () -> {
+                        var pr = preResolvedUnit;
+                        if (pr != null) {
+                            return ComputedValue.completed("cf-unit-" + id(), pr);
+                        }
+                        return new ComputedValue<>(
+                                "cf-unit-" + id(),
+                                () -> {
+                                    var analyzer = getAnalyzer();
+                                    return analyzer.getDefinition(fullyQualifiedName)
+                                            .orElseThrow(() -> new IllegalArgumentException(
+                                                    "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
+                                },
+                                getFragmentExecutor());
+                    },
+                    v -> unitCv = v);
+        }
+
         @Override
+        @Blocking
         public String description() {
-            return "Source for " + unit.fqName();
+            return getComputedUnit()
+                    .future()
+                    .thenApply(CodeUnit::shortName)
+                    .thenApply(shortName -> "Source for " + shortName)
+                    .join();
         }
 
         @Override
+        @Blocking
         public String shortDescription() {
-            return unit.shortName();
+            return getComputedUnit().future().thenApply(CodeUnit::shortName).join();
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
+            var unit = getComputedUnit().future().join(); // block on future
 
             var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
             if (maybeSourceCodeProvider.isEmpty()) {
-                return "Code Intelligence cannot extract source for: " + unit.fqName();
+                return "Code Intelligence cannot extract source for: " + fullyQualifiedName;
             }
             var scp = maybeSourceCodeProvider.get();
 
@@ -1356,51 +2093,64 @@ public interface ContextFragment {
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
-                return "No source found for method: " + unit.fqName();
+                return "No source found for method: " + fullyQualifiedName;
             } else {
                 var code = scp.getClassSource(unit, true).orElse("");
                 if (!code.isEmpty()) {
                     return new AnalyzerUtil.CodeWithSource(code, unit).text();
                 }
-                return "No source found for class: " + unit.fqName();
+                return "No source found for class: " + fullyQualifiedName;
             }
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
+        @Blocking
         public Set<CodeUnit> sources() {
+            var unit = getComputedUnit().future().join();
             return Set.of(unit);
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
 
         @Override
         public String repr() {
-            if (unit.isFunction()) {
-                return "Methods(['%s'])".formatted(unit.fqName());
-            } else {
-                return "Classes(['%s'])".formatted(unit.fqName());
-            }
+            return "Method(['%s'])".formatted(fullyQualifiedName);
         }
 
         @Override
+        @Blocking
         public String syntaxStyle() {
+            var unit = getComputedUnit().future().join();
             return unit.source().getSyntaxStyle();
         }
 
-        public CodeUnit getCodeUnit() {
-            return unit;
+        public String getFullyQualifiedName() {
+            return fullyQualifiedName;
         }
+
+        @Override
+        public CodeFragment copy() {
+            var repl = new CodeFragment(getContextManager(), fullyQualifiedName); // fresh dynamic ID
+            return repl;
+        }
+
+        public ComputedValue<CodeUnit> computedUnit() {
+            return getComputedUnit();
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new CodeFragment(id(), getContextManager(), fullyQualifiedName);
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    class CallGraphFragment extends VirtualFragment { // Dynamic, uses nextId
+    class CallGraphFragment extends ComputedVirtualFragment { // Dynamic, uses nextId
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
@@ -1435,6 +2185,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             var analyzer = getAnalyzer();
             var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
@@ -1464,11 +2215,7 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
+        @Blocking
         public Set<CodeUnit> sources() {
             // FIXME this is broken, needs to include the actual call sites as well
             IAnalyzer analyzer = getAnalyzer();
@@ -1476,15 +2223,15 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
         }
 
         @Override
         public String repr() {
-            return isCalleeGraph
-                    ? "CallGraphOut('%s', %d)".formatted(methodName, depth)
-                    : "CallGraphIn('%s', %d)".formatted(methodName, depth);
+            String direction = isCalleeGraph ? "OUT" : "IN";
+            return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, direction);
         }
 
         @Override
@@ -1509,6 +2256,19 @@ public interface ContextFragment {
         public boolean isCalleeGraph() {
             return isCalleeGraph;
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new CallGraphFragment(id(), getContextManager(), methodName, depth, isCalleeGraph);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new CallGraphFragment(getContextManager(), methodName, depth, isCalleeGraph);
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     enum SummaryType {
@@ -1516,7 +2276,7 @@ public interface ContextFragment {
         FILE_SKELETONS // Summaries for all top-level declarations in a file
     }
 
-    class SkeletonFragment extends VirtualFragment { // Dynamic composite wrapper around SummaryFragments
+    class SkeletonFragment extends ComputedVirtualFragment { // Dynamic composite wrapper around SummaryFragments
         private final List<SummaryFragment> summaries;
 
         public SkeletonFragment(
@@ -1546,21 +2306,19 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             return SummaryFragment.combinedText(summaries);
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
+        @Blocking
         public Set<CodeUnit> sources() {
             return summaries.stream().flatMap(s -> s.sources().stream()).collect(Collectors.toSet());
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return summaries.stream().flatMap(s -> s.files().stream()).collect(Collectors.toSet());
         }
@@ -1624,9 +2382,22 @@ public interface ContextFragment {
         public String toString() {
             return "SkeletonFragment('%s')".formatted(description());
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new SkeletonFragment(id(), getContextManager(), getTargetIdentifiers(), getSummaryType());
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SkeletonFragment(getContextManager(), getTargetIdentifiers(), getSummaryType());
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    class SummaryFragment extends VirtualFragment { // Dynamic, single-target, uses nextId
+    class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
 
@@ -1673,6 +2444,7 @@ public interface ContextFragment {
         }
 
         @Override
+        @Blocking
         public String text() {
             Map<CodeUnit, String> skeletons = fetchSkeletons();
             if (skeletons.isEmpty()) {
@@ -1682,16 +2454,13 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return true;
-        }
-
-        @Override
+        @Blocking
         public Set<CodeUnit> sources() {
             return fetchSkeletons().keySet();
         }
 
         @Override
+        @Blocking
         public Set<ProjectFile> files() {
             return switch (summaryType) {
                 case CODEUNIT_SKELETON ->
@@ -1734,6 +2503,19 @@ public interface ContextFragment {
         public String toString() {
             return "SummaryFragment('%s')".formatted(description());
         }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new SummaryFragment(id(), getContextManager(), targetIdentifier, summaryType);
+        }
+
+        @Override
+        public ContextFragment copy() {
+            // Dynamic identity; return a new instance with a fresh ID
+            return new SummaryFragment(getContextManager(), targetIdentifier, summaryType);
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
 
         public static String combinedText(Collection<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
@@ -1824,13 +2606,8 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public String text() {
-            // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
+            // FIXME the right thing to do here is probably to throw UncheckedIOException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
             return TaskEntry.formatMessages(history.stream()
                     .flatMap(e -> e.isCompressed()
@@ -1846,7 +2623,7 @@ public interface ContextFragment {
 
         @Override
         public String description() {
-            return "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : "");
+            return "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : "");
         }
 
         @Override
@@ -1868,6 +2645,14 @@ public interface ContextFragment {
         public String syntaxStyle() {
             return SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 
     /** represents a single session's Task History */
@@ -1968,11 +2753,6 @@ public interface ContextFragment {
         }
 
         @Override
-        public boolean isDynamic() {
-            return false;
-        }
-
-        @Override
         public String description() {
             return description;
         }
@@ -1997,5 +2777,13 @@ public interface ContextFragment {
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
         }
+
+        @Override
+        public ContextFragment copy() {
+            // Stable, hashed identity; copy can safely return this
+            return this;
+        }
+
+        // Use identity-based equals (inherited from VirtualFragment)
     }
 }

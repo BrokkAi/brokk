@@ -453,6 +453,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
@@ -516,6 +517,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
+
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
@@ -543,6 +545,7 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
+
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
@@ -566,12 +569,14 @@ public class AttachContextDialog extends JDialog {
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
             var methodFqn = any.get().fqName();
             var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
+            // No direct CM API to publish this VirtualFragment immediately; selection will be applied by the caller.
             selection = new Result(Set.of(frag), true);
             dispose();
             return;
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
+
         var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();

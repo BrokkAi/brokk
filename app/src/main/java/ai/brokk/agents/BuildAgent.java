@@ -398,7 +398,9 @@ public class BuildAgent {
         // Check project setting for test scope
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
-            String cmd = details.testAllCommand();
+            String cmd = System.getenv("BRK_TESTALL_CMD") != null
+                    ? System.getenv("BRK_TESTALL_CMD")
+                    : details.testAllCommand();
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
@@ -438,9 +440,9 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /** Backwards-compatible shim using CM.topContext(). Prefer the Context-based overload. */
+    /** Backwards-compatible shim using CM.liveContext(). Prefer the Context-based overload. */
     public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
-        return determineVerificationCommand(cm.topContext());
+        return determineVerificationCommand(cm.liveContext());
     }
 
     /**
@@ -466,7 +468,9 @@ public class BuildAgent {
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
 
-        String testSomeTemplate = details.testSomeCommand();
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
+                ? System.getenv("BRK_TESTSOME_CMD")
+                : details.testSomeCommand();
 
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
@@ -664,6 +668,10 @@ public class BuildAgent {
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
         if (command.isEmpty()) {
             return command;
+        }
+        // Allow override via environment variable
+        if (System.getenv("BRK_TESTALL_CMD") != null) {
+            command = System.getenv("BRK_TESTALL_CMD");
         }
         String pythonVersion = getPythonVersionForProject(projectRoot);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);

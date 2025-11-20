@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 
@@ -14,11 +15,12 @@ public class FragmentColorUtils {
         EDIT,
         SUMMARY,
         HISTORY,
+        TASK_LIST,
         OTHER
     }
 
     /**
-     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, or OTHER.
+     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, or OTHER.
      */
     public static FragmentKind classify(ContextFragment fragment) {
         if (fragment.getType().isEditable()) {
@@ -30,6 +32,10 @@ public class FragmentColorUtils {
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
             return FragmentKind.HISTORY;
         }
+        if (fragment instanceof ContextFragment.StringFragment sf
+                && SpecialTextType.TASK_LIST.description().equals(sf.description())) {
+            return FragmentKind.TASK_LIST;
+        }
         return FragmentKind.OTHER;
     }
 
@@ -38,10 +44,11 @@ public class FragmentColorUtils {
      */
     public static Color getBackgroundColor(FragmentKind kind, boolean isDarkTheme) {
         return switch (kind) {
-            case EDIT -> ThemeColors.getColor(isDarkTheme, "chip_edit_bg");
-            case SUMMARY -> ThemeColors.getColor(isDarkTheme, "chip_summary_bg");
-            case HISTORY -> ThemeColors.getColor(isDarkTheme, "chip_history_bg");
-            case OTHER -> ThemeColors.getColor(isDarkTheme, "chip_other_bg");
+            case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BACKGROUND);
+            case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BACKGROUND);
+            case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BACKGROUND);
+            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_BACKGROUND);
+            case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_BACKGROUND);
         };
     }
 
@@ -50,10 +57,11 @@ public class FragmentColorUtils {
      */
     public static Color getForegroundColor(FragmentKind kind, boolean isDarkTheme) {
         return switch (kind) {
-            case EDIT -> ThemeColors.getColor(isDarkTheme, "chip_edit_fg");
-            case SUMMARY -> ThemeColors.getColor(isDarkTheme, "chip_summary_fg");
-            case HISTORY -> ThemeColors.getColor(isDarkTheme, "chip_history_fg");
-            case OTHER -> ThemeColors.getColor(isDarkTheme, "chip_other_fg");
+            case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_FOREGROUND);
+            case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_FOREGROUND);
+            case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_FOREGROUND);
+            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_FOREGROUND);
+            case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_FOREGROUND);
         };
     }
 
@@ -62,10 +70,11 @@ public class FragmentColorUtils {
      */
     public static Color getBorderColor(FragmentKind kind, boolean isDarkTheme) {
         return switch (kind) {
-            case EDIT -> ThemeColors.getColor(isDarkTheme, "chip_edit_border");
-            case SUMMARY -> ThemeColors.getColor(isDarkTheme, "chip_summary_border");
-            case HISTORY -> ThemeColors.getColor(isDarkTheme, "chip_history_border");
-            case OTHER -> ThemeColors.getColor(isDarkTheme, "chip_other_border");
+            case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BORDER);
+            case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BORDER);
+            case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BORDER);
+            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_BORDER);
+            case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_BORDER);
         };
     }
 

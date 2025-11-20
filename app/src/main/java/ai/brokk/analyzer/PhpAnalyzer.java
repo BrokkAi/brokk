@@ -53,14 +53,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private ThreadLocal<TSQuery> createPhpNamespaceQuery() {
         // Initialize the ThreadLocal for the PHP namespace query.
         // getTSLanguage() is safe to call here.
-        return ThreadLocal.withInitial(() -> {
-            try {
-                return new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
-            } catch (Exception e) { // TSQuery constructor can throw various exceptions
-                log.error("Failed to compile phpNamespaceQuery for PhpAnalyzer ThreadLocal", e);
-                throw e; // Re-throw to indicate critical setup error for this thread's query
-            }
-        });
+        return ThreadLocal.withInitial(
+                () -> new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)"));
     }
 
     public PhpAnalyzer(IProject project) {

@@ -10,6 +10,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +52,7 @@ public class HistoryV4Migrator {
 
     private static Map<String, byte[]> readOtherFiles(Path zip) throws IOException {
         var otherFiles = new HashMap<String, byte[]>();
-        try (var zf = new java.util.zip.ZipFile(zip.toFile())) {
+        try (var zf = new ZipFile(zip.toFile())) {
             var entries = zf.entries();
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();

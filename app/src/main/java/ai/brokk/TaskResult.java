@@ -21,10 +21,6 @@ public record TaskResult(
         StopDetails stopDetails,
         @Nullable TaskMeta meta) {
 
-    public TaskResult {
-        assert !context.containsFrozenFragments();
-    }
-
     public TaskResult(
             IContextManager contextManager,
             String actionDescription,
@@ -118,7 +114,8 @@ public record TaskResult(
         SEARCH,
         CONTEXT,
         MERGE,
-        BLITZFORGE;
+        BLITZFORGE,
+        COPY;
 
         public String displayName() {
             if (this == SEARCH) {

@@ -8,7 +8,6 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.FrozenFragment;
 import ai.brokk.gui.components.MaterialButton;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.*;
@@ -437,9 +436,7 @@ public final class ContextExplorer extends JFrame {
                     if (fragment.isText()) {
                         textContent = fragment.text();
                     } else {
-                        if (fragment instanceof FrozenFragment ff) {
-                            imageContent = ff.image();
-                        } else if (fragment instanceof ContextFragment.ImageFileFragment ifd) {
+                        if (fragment instanceof ContextFragment.ImageFileFragment ifd) {
                             imageContent = ifd.image();
                         } else if (fragment instanceof ContextFragment.AnonymousImageFragment aif) {
                             imageContent = aif.image();

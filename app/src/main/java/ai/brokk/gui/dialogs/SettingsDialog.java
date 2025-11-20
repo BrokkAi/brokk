@@ -39,7 +39,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         super(owner, "Settings", true);
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(620, 600);
+        setSize(1100, 600);
         setLocationRelativeTo(owner);
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
@@ -51,22 +51,24 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         SwingUtil.applyPrimaryButtonStyle(okButton);
 
-        // Global Settings Panel
+        // Create panels immediately (without data) to get proper layout/size
+        // Panels will be disabled until data loads
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
         tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
 
-        // Project Settings Panel
-        // Pass dialog buttons to project panel for enabling/disabling during build agent run
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
-
-        updateProjectPanelEnablement(); // Initial enablement
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
         buttonPanel.add(applyButton);
+
+        // Disable buttons while loading
+        okButton.setEnabled(false);
+        cancelButton.setEnabled(false);
+        applyButton.setEnabled(false);
 
         okButton.addActionListener(e -> {
             if (applySettings()) {
@@ -81,13 +83,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             // No restart needed if cancelled
         });
         applyButton.addActionListener(e -> {
-            if (applySettings()) {
-                // Reload settings in panels to reflect saved state
-                globalSettingsPanel.loadSettings();
-                chrome.getProject();
-                projectSettingsPanel.loadSettings();
-                handleProxyRestartIfNeeded(); // Handle restart if proxy changed on Apply
-            }
+            applySettings();
         });
 
         getRootPane()
@@ -112,18 +108,69 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(tabbedPane, BorderLayout.CENTER);
         getContentPane().add(buttonPanel, BorderLayout.SOUTH);
+
+        // Load settings in background and populate UI when done
+        loadSettingsInBackground();
+    }
+
+    /**
+     * Loads all settings in background thread and populates UI on EDT when complete.
+     * This prevents EDT blocking from file I/O and network operations.
+     * Panels are already created and disabled; this method just populates them with data.
+     * Package-private to allow access from settings panels for refreshing after changes.
+     */
+    void loadSettingsInBackground() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var worker = new SwingWorker<SettingsData, Void>() {
+            @Override
+            protected SettingsData doInBackground() {
+                // All I/O happens here in background thread
+                return SettingsData.load(chrome.getProject());
+            }
+
+            @Override
+            protected void done() {
+                // Guard: if the dialog has been disposed or is no longer showing, skip all UI updates
+                if (!isDisplayable() || !isShowing()) {
+                    return;
+                }
+
+                try {
+                    var data = get();
+                    populateUIFromData(data);
+                } catch (Exception e) {
+                    logger.error("Failed to load settings", e);
+                    chrome.toolError("Failed to load settings: " + e.getMessage(), "Settings Error");
+                    dispose();
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Populates UI panels with loaded settings data. Must be called on EDT.
+     * Panels are already created; this method populates them and enables buttons.
+     */
+    private void populateUIFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Populate panels with data (this also enables them)
+        globalSettingsPanel.populateFromData(data);
+        projectSettingsPanel.populateFromData(data);
+
+        // Enable buttons now that data is loaded
+        okButton.setEnabled(true);
+        cancelButton.setEnabled(true);
+        applyButton.setEnabled(true);
+
+        revalidate();
+        repaint();
     }
 
     public Chrome getChrome() {
         return chrome;
-    }
-
-    private void updateProjectPanelEnablement() {
-        projectSettingsPanel.setEnabled(true);
-        int projectTabIndex = tabbedPane.indexOfComponent(projectSettingsPanel);
-        if (projectTabIndex != -1) {
-            tabbedPane.setEnabledAt(projectTabIndex, true);
-        }
     }
 
     private boolean applySettings() {
@@ -163,13 +210,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         projectSettingsPanel.refreshDataRetentionPanel();
         // After data retention policy is refreshed, the model list (which depends on policy)
         // in the global panel might need to be updated as well.
-        globalSettingsPanel.loadSettings(); // Reload to reflect new policy and available models
+        loadSettingsInBackground(); // Reload to reflect new policy and available models
     }
 
     // Called by SettingsProjectPanel's DataRetentionPanel when policy is applied
     // to refresh the Models tab in the Global panel.
     public void refreshGlobalModelsPanelPostPolicyChange() {
-        globalSettingsPanel.loadSettings();
+        loadSettingsInBackground();
     }
 
     @Override

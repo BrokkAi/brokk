@@ -1153,7 +1153,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             }
 
             // Build resulting Context by adding any changed files that are not already editable in the top context
-            var top = contextManager.topContext();
+            var top = contextManager.liveContext();
             var resultingCtx = top.addPathFragments(contextManager.toPathFragments(changedFiles));
 
             var result = TaskResult.humanResult(

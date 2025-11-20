@@ -14,8 +14,7 @@ import org.jetbrains.annotations.Nullable;
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
-    // TODO make this a Set
-    List<String> getExtensions();
+    Set<String> getExtensions();
 
     String name(); // Human-friendly
 
@@ -150,11 +149,11 @@ public interface Language {
         }
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return languages.stream()
                     .flatMap(l -> l.getExtensions().stream())
-                    .distinct()
-                    .toList();
+                    .map(ext -> ext.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
         }
 
         @Override
@@ -176,12 +175,8 @@ public interface Language {
         public IAnalyzer createAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.createAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error creating analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.createAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
@@ -190,12 +185,8 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.loadAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error loading analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.loadAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
@@ -213,6 +204,10 @@ public interface Language {
         @Override
         public boolean isAnalyzed(IProject project, Path path) {
             return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
+        }
+
+        public Set<Language> getLanguages() {
+            return Set.copyOf(languages);
         }
 
         @Override

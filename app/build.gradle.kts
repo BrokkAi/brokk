@@ -26,7 +26,8 @@ application {
     applicationDefaultJvmArgs = listOf(
         // enable feature flags; JavaExec baseline supplies other args
         "-Dbrokk.servicetiers=true",
-        "-Dbrokk.architectshell=true"
+        "-Dbrokk.architectshell=true",
+        "-Dwatch.service.polling=true"
     )
 }
 
@@ -136,6 +137,7 @@ dependencies {
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
     "errorprone"(libs.dataflow.errorprone)
+    "errorprone"(project(":errorprone-checks"))
     compileOnly(libs.checker.qual)
 }
 
@@ -163,13 +165,77 @@ tasks.register("frontendPatch") {
     inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
     outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
 
+    // New: also declare micromark-util-subtokenize index.js as an input/output for patching
+    inputs.file("${project.rootDir}/frontend-mop/node_modules/micromark-util-subtokenize/index.js").optional(true)
+    outputs.file("${project.rootDir}/frontend-mop/node_modules/micromark-util-subtokenize/index.js").optional(true)
+    // Also track package.json to assert the resolved version
+    inputs.file("${project.rootDir}/frontend-mop/node_modules/micromark-util-subtokenize/package.json").optional(true)
+
     doLast {
+        // Patch svelte-exmarkdown package.json paths
         val packageJsonFile = file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json")
         if (packageJsonFile.exists()) {
             var content = packageJsonFile.readText()
             content = content.replace("\"./dist/contexts.d.ts\"", "\"./dist/contexts.svelte.d.ts\"")
             content = content.replace("\"./dist/contexts.js\"", "\"./dist/contexts.svelte.js\"")
             packageJsonFile.writeText(content)
+        }
+
+        // Patch micromark-util-subtokenize to avoid identity jumps that cause infinite loop
+        val micromarkIndex = file("${project.rootDir}/frontend-mop/node_modules/micromark-util-subtokenize/index.js")
+        if (micromarkIndex.exists()) {
+            var content = micromarkIndex.readText()
+
+            // 1) Guard while(index in jumps) against identity mapping
+            content = content.replace(
+                Regex("""while\s*\(\s*index\s+in\s+jumps\s*\)\s*\{\s*index\s*=\s*jumps\s*\[\s*index\s*]\s*;\s*}"""),
+                """
+                while (index in jumps) {
+                  const next = jumps[index];
+                  if (next === index) { index++; break; }
+                  index = next;
+                }
+                """.trimIndent()
+            )
+
+            // 2) Prevent creating identity jumps when slice.length === 1 in subcontent()
+            content = content.replace(
+                Regex("""jumps\.push\(\s*\[\s*start\s*,\s*start\s*\+\s*slice\.length\s*-\s*1\s*]\s*\)\s*;"""),
+                """
+                const end = start + slice.length - 1;
+                if (end > start) jumps.push([start, end]);
+                """.trimIndent()
+            )
+
+            micromarkIndex.writeText(content)
+        }
+
+        // ----- Verification: fail fast if patch not applied or wrong version -----
+        val micromarkPkg = file("${project.rootDir}/frontend-mop/node_modules/micromark-util-subtokenize/package.json")
+        if (!micromarkPkg.exists()) {
+            throw GradleException("micromark-util-subtokenize/package.json not found; pnpm install might not have completed.")
+        }
+        val versionText = micromarkPkg.readText()
+        val version = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(versionText)?.groupValues?.get(1) ?: "UNKNOWN"
+        if (version != "2.1.0") {
+            throw GradleException("micromark-util-subtokenize resolved to $version, expected 2.1.0. Check package.json overrides/pnpm overrides.")
+        }
+
+        if (!micromarkIndex.exists()) {
+            throw GradleException("micromark-util-subtokenize/index.js not found; cannot verify patch.")
+        }
+        val patched = micromarkIndex.readText()
+        val hasLoopGuard = patched.contains("if (next === index) { index++; break; }")
+        val hasIdentityGuard = patched.contains("const end = start + slice.length - 1;") &&
+                               patched.contains("if (end > start) jumps.push([start, end]);")
+
+        if (!hasLoopGuard || !hasIdentityGuard) {
+            throw GradleException(
+                "micromark-util-subtokenize patch incomplete:\n" +
+                "- loopGuard present: $hasLoopGuard\n" +
+                "- identityGuard present: $hasIdentityGuard\n" +
+                "Aborting build to prevent worker infinite loop. Please re-run pnpmInstall and try again."
+            )
         }
     }
 }
@@ -312,6 +378,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         // Always enable NullAway in this task
         error("NullAway")
         enable("RedundantNullCheck")
+
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "ai.brokk")

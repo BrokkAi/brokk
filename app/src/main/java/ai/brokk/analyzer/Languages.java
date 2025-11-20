@@ -8,15 +8,16 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 public class Languages {
     public static final Language C_SHARP = new Language() {
-        private final List<String> extensions = List.of("cs");
+        private final Set<String> extensions = Set.of("cs");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -44,18 +45,13 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language JAVA = new JavaLanguage();
     public static final Language JAVASCRIPT = new Language() {
-        private final List<String> extensions = List.of("js", "mjs", "cjs", "jsx");
+        private final Set<String> extensions = Set.of("js", "mjs", "cjs", "jsx");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -114,10 +110,10 @@ public class Languages {
     };
     public static final Language PYTHON = new PythonLanguage();
     public static final Language C_CPP = new Language() {
-        private final List<String> extensions = List.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
+        private final Set<String> extensions = Set.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -145,17 +141,12 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language GO = new Language() {
-        private final List<String> extensions = List.of("go");
+        private final Set<String> extensions = Set.of("go");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -183,18 +174,12 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        // TODO
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return List.of();
-        }
     };
     public static final Language CPP_TREESITTER = new Language() {
-        private final List<String> extensions = List.of("c", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
+        private final Set<String> extensions = Set.of("c", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -222,18 +207,13 @@ public class Languages {
         public IAnalyzer loadAnalyzer(IProject project) {
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language RUST = new RustLanguage();
     public static final Language NONE = new Language() {
-        private final List<String> extensions = Collections.emptyList();
+        private final Set<String> extensions = Collections.emptySet();
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -263,10 +243,10 @@ public class Languages {
         }
     };
     public static final Language PHP = new Language() {
-        private final List<String> extensions = List.of("php", "phtml", "php3", "php4", "php5", "phps");
+        private final Set<String> extensions = Set.of("php", "phtml", "php3", "php4", "php5", "phps");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -295,12 +275,6 @@ public class Languages {
             return createAnalyzer(project);
         }
 
-        // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return List.of();
-        }
-
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
@@ -318,10 +292,10 @@ public class Languages {
         }
     };
     public static final Language SQL = new Language() {
-        private final List<String> extensions = List.of("sql");
+        private final Set<String> extensions = Set.of("sql");
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 
@@ -352,18 +326,13 @@ public class Languages {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
         }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
-        }
     };
     public static final Language TYPESCRIPT = new Language() {
-        private final List<String> extensions =
-                List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
+        private final Set<String> extensions =
+                Set.of("ts", "tsx"); // Including tsx for now, can be split later if needed
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return extensions;
         }
 

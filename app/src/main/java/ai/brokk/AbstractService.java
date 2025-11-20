@@ -47,13 +47,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
     public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
+    public static final String GPT_5_NANO = "gpt-5-nano";
     public static final String GPT_5_MINI = "gpt-5-mini";
+    public static final String SONNET_4_5 = "claude-sonnet-4-5";
+    public static final String HAIKU_4_5 = "claude-haiku-4-5";
+    public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
+    public static final String CEREBRAS_GPT_OSS_120B = "cerebras/gpt-oss-120b";
 
     // these models are defined for low-latency use cases that don't require high intelligence
     private static final Set<String> SYSTEM_ONLY_MODELS = Set.of("gemini-2.0-flash-lite", "gpt-4.1-nano");
 
     protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
+    protected final IProject project;
 
     // display name -> location
     protected Map<String, String> modelLocations = Map.of(UNAVAILABLE, "not_a_model");
@@ -68,6 +74,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public AbstractService(IProject project) {
         // Intentionally minimal: no network calls here
+        this.project = project;
     }
 
     public abstract float getUserBalance() throws IOException;
@@ -660,6 +667,20 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getScanModel() {
+        // First attempt: use project-configured scan model if available
+        try {
+            var cfg = project.getMainProject().getScanModelConfig();
+            var model = getModel(cfg);
+            if (model != null) {
+                return model;
+            }
+        } catch (Exception e) {
+            logger.debug(
+                    "Failed to get project-configured scan model, falling back to dynamic selection: {}",
+                    e.getMessage());
+        }
+
+        // Fallback: dynamic selection preferring GEMINI_2_5_FLASH if available, else GPT_5_MINI
         var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
         var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {

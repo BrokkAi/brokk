@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
@@ -153,8 +154,8 @@ public class ArchitectAgent {
                     ? "CodeAgent finished! Details are in the Workspace messages."
                     : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild
-                    && !context.freeze().getDiff(initialContext.freeze()).isEmpty();
+            codeAgentJustSucceeded =
+                    !deferBuild && !context.getChangedFiles(initialContext).isEmpty();
             return resultString;
         }
 
@@ -199,7 +200,7 @@ public class ArchitectAgent {
             logger.debug(resultMsg);
             io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             // Synchronize local context with latest global state after undo
-            context = cm.topContext();
+            context = cm.liveContext();
             return resultMsg;
         } else {
             var resultMsg = "Nothing to undo (concurrency bug?)";
@@ -321,7 +322,8 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
+            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
+                    context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings

@@ -3,6 +3,7 @@ package ai.brokk.util;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
@@ -52,6 +53,15 @@ public class Json {
             return MAPPER.readValue(json, type);
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize JSON to " + type.getSimpleName(), e);
+        }
+    }
+
+    /** Deserializes JSON string to an object for a parameterized target type. */
+    public static <T> T fromJson(String json, TypeReference<T> typeRef) {
+        try {
+            return MAPPER.readValue(json, typeRef);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize JSON to " + String.valueOf(typeRef.getType()), e);
         }
     }
 

@@ -33,6 +33,8 @@ public class GuiTheme {
     public static final String THEME_DARK = "dark";
     public static final String THEME_LIGHT = "light";
     public static final String THEME_HIGH_CONTRAST = "high-contrast";
+    // Independent Dark+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
+    public static final String THEME_DARK_PLUS = "dark-plus";
 
     private final JFrame frame;
 
@@ -76,6 +78,7 @@ public class GuiTheme {
                     case THEME_LIGHT -> "/themes/BrokkLight.theme.json";
                     case THEME_DARK -> "/themes/BrokkDark.theme.json";
                     case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
+                    case THEME_DARK_PLUS -> "/themes/BrokkDarkPlus.theme.json";
                     default -> {
                         logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
                         yield "/themes/BrokkDark.theme.json";
@@ -325,12 +328,13 @@ public class GuiTheme {
     /**
      * Get the human-readable display name for the current theme.
      *
-     * @return "Brokk Light", "Brokk Dark", or "High Contrast"
+     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", or "High Contrast"
      */
     public String getCurrentThemeName() {
         return switch (getCurrentTheme()) {
             case THEME_LIGHT -> "Brokk Light";
             case THEME_DARK -> "Brokk Dark";
+            case THEME_DARK_PLUS -> "Brokk Dark+";
             case THEME_HIGH_CONTRAST -> "High Contrast";
             default -> "Unknown Theme";
         };
@@ -346,14 +350,16 @@ public class GuiTheme {
     }
 
     /**
-     * Checks if dark color scheme is currently active. This includes both the dark theme and high-contrast theme, as
-     * both use dark backgrounds. Use this when you need to select dark vs light color palettes.
+     * Checks if dark color scheme is currently active. This includes the dark theme, dark+ theme, and high-contrast
+     * theme, as all use dark backgrounds. Use this when you need to select dark vs light color palettes.
      *
-     * @return true if dark theme or high contrast theme is active
+     * @return true if dark theme, dark+ theme, or high contrast theme is active
      */
     public boolean isDarkTheme() {
         String theme = MainProject.getTheme();
-        return THEME_DARK.equalsIgnoreCase(theme) || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
+        return THEME_DARK.equalsIgnoreCase(theme)
+                || THEME_DARK_PLUS.equalsIgnoreCase(theme)
+                || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
     }
 
     /**

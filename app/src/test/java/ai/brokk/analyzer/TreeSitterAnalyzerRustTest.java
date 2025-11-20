@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -188,7 +189,7 @@ public class TreeSitterAnalyzerRustTest {
     void testGetSkeletonHeader_Rust() {
         Optional<String> pointHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Point");
         assertTrue(pointHeader.isPresent(), "Skeleton header for Point should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub struct Point {
                 impl Point {
@@ -202,28 +203,26 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                pointHeader.get().trim()); // fixme: These seem to be the siblings not children
+                pointHeader.get()); // fixme: These seem to be the siblings not children
 
         Optional<String> drawableHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Drawable");
         assertTrue(drawableHeader.isPresent(), "Skeleton header for Drawable should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub trait Drawable {
                   [...]
                 }
                 """
                         .strip(),
-                drawableHeader.get().trim());
+                drawableHeader.get());
 
         Optional<String> originHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "_module_.ORIGIN");
         assertTrue(originHeader.isPresent(), "Skeleton header for _module_.ORIGIN should be found.");
-        assertEquals(
-                "pub const ORIGIN: Point = Point { x: 0, y: 0 };",
-                originHeader.get().trim());
+        assertCodeEquals("pub const ORIGIN: Point = Point { x: 0, y: 0 };", originHeader.get());
 
         Optional<String> colorHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Color");
         assertTrue(colorHeader.isPresent(), "Skeleton header for Color enum should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub enum Color {
                   Red
@@ -234,11 +233,11 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                colorHeader.get().trim());
+                colorHeader.get());
 
         Optional<String> shapeHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "Shape");
         assertTrue(shapeHeader.isPresent(), "Skeleton header for Shape trait should be found.");
-        assertEquals(
+        assertCodeEquals(
                 """
                 pub trait Shape {
                   const ID: u32;
@@ -246,7 +245,7 @@ public class TreeSitterAnalyzerRustTest {
                 }
                 """
                         .strip(),
-                shapeHeader.get().trim());
+                shapeHeader.get());
 
         Optional<String> nonExistentHeader = AnalyzerUtil.getSkeletonHeader(rsAnalyzer, "NonExistent");
         assertFalse(nonExistentHeader.isPresent(), "Skeleton header for NonExistent should be empty.");
@@ -433,7 +432,7 @@ public class TreeSitterAnalyzerRustTest {
 
     @Test
     void testSearchDefinitions_Rust() {
-        List<CodeUnit> pointResults = rsAnalyzer.searchDefinitions("Point");
+        var pointResults = rsAnalyzer.searchDefinitions("Point");
         Set<String> pointFqNames = pointResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         // Expected: Point (struct), Point.x, Point.y (fields), Point.new, Point.translate, Point.draw (methods)
         // Point.ID, Point.area (from impl Shape for Point)
@@ -460,16 +459,16 @@ public class TreeSitterAnalyzerRustTest {
                 "Should find at least 2 symbols containing 'draw' (case-insensitive). Found: " + drawFqNames.size()
                         + " - " + drawFqNames);
 
-        List<CodeUnit> originResults = rsAnalyzer.searchDefinitions("ORIGIN");
+        var originResults = rsAnalyzer.searchDefinitions("ORIGIN");
         assertTrue(originResults.stream().anyMatch(cu -> "_module_.ORIGIN".equals(cu.fqName())));
         assertEquals(1, originResults.size());
 
         // Search for enum variant
-        List<CodeUnit> redResults = rsAnalyzer.searchDefinitions("Red");
+        var redResults = rsAnalyzer.searchDefinitions("Red");
         assertTrue(redResults.stream().anyMatch(cu -> "Color.Red".equals(cu.fqName())));
 
         // Search for associated const
-        List<CodeUnit> idResults = rsAnalyzer.searchDefinitions("ID"); // Will find Shape.ID, Point.ID, Circle.ID
+        var idResults = rsAnalyzer.searchDefinitions("ID"); // Will find Shape.ID, Point.ID, Circle.ID
         Set<String> idFqNames = idResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(idFqNames.contains("Shape.ID"));
         assertTrue(idFqNames.contains("Point.ID"));
@@ -477,7 +476,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(3, idFqNames.size());
 
         // Search for constructor-like patterns (Rust uses 'new' convention)
-        List<CodeUnit> newResults = rsAnalyzer.searchDefinitions("new");
+        var newResults = rsAnalyzer.searchDefinitions("new");
         Set<String> newFqNames = newResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         // Note: Rust doesn't have special constructor syntax like Java's <init>,
         // but 'new' is a common constructor pattern

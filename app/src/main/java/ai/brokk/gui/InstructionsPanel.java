@@ -54,6 +54,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +66,10 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
@@ -84,12 +87,12 @@ import org.jetbrains.annotations.Nullable;
  */
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
-
+    private static final String POWER_RANKING_TITLE = "Brokk Power Ranking";
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
 
-    private static final String PLACEHOLDER_TEXT =
+    private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
             Switching modes:
             - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
@@ -105,6 +108,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             """
                     .stripIndent();
 
+    private static final String PLACEHOLDER_TEXT_EZ =
+            """
+            Brokk action modes:
+            - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+              It is a great way to kick off work with strong context and a clear plan.
+            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+
+            Type your prompt here. (Shift+Enter for a new line)
+            """
+                    .stripIndent();
+
+    private static final ImageIcon BROKK_ICON_16 = loadBrokkIcon();
+
+    private static ImageIcon loadBrokkIcon() {
+        var iconUrl = InstructionsPanel.class.getResource("/brokk-icon.png");
+        if (iconUrl != null) {
+            var baseIcon = new ImageIcon(iconUrl);
+            var scaledImage = baseIcon.getImage().getScaledInstance(16, 16, Image.SCALE_SMOOTH);
+            return new ImageIcon(scaledImage);
+        }
+        // fall back to blank
+        return new ImageIcon();
+    }
+
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
@@ -117,6 +145,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final ModeBadge modeBadge;
     private final ContextManager contextManager;
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
+    private JLabel brokkRankingLabel;
     private final JPanel centerPanel;
     private ContextAreaContainer contextAreaContainer;
     private @Nullable JComponent inputLayeredPane;
@@ -276,10 +305,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
-        // Set up custom focus traversal policy for tab navigation
-        setFocusTraversalPolicy(new InstructionsPanelFocusTraversalPolicy());
-        setFocusCycleRoot(true);
-        setFocusTraversalPolicyProvider(true);
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -294,13 +319,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
+        // Add explicit focus border to make focus visible on the mic button
+        micButton.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                // Use a brighter, thicker focus border for visibility
+                var focusColor = new Color(0x3DA9FF);
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                if (original == null) {
+                    micButton.putClientProperty("originalBorder", micButton.getBorder());
+                }
+                var focusBorder = BorderFactory.createLineBorder(focusColor, 4, true);
+                var inner = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(BorderFactory.createCompoundBorder(focusBorder, inner));
+                micButton.repaint();
+            }
 
-        // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-        KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(),
-                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
-                "attachContext",
-                () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
+            @Override
+            public void focusLost(FocusEvent e) {
+                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                micButton.setBorder(original);
+                micButton.repaint();
+            }
+        });
 
         // Load stored action with cascading fallback: project → global → default
         storedAction = loadActionMode();
@@ -309,7 +350,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.secondaryActionButtonBg = UIManager.getColor("Button.background");
 
         // Create split action button with dropdown
-        actionButton = new ActionSplitButton(() -> isActionRunning(), ACTION_SEARCH); // Default to Search
+        actionButton = new ActionSplitButton(this::isActionRunning, ACTION_SEARCH); // Default to Search
 
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
@@ -327,6 +368,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.modeBadge = new ModeBadge();
         modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         modeBadge.setFocusable(false);
+
+        // Initialize Brokk Power Ranking indicator
+        this.brokkRankingLabel = new JLabel(POWER_RANKING_TITLE + ": Unknown");
+        this.brokkRankingLabel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
+        this.brokkRankingLabel.setFocusable(false);
+        this.brokkRankingLabel.setOpaque(false);
+        this.brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        this.brokkRankingLabel.setIcon(BROKK_ICON_16);
 
         // Initialize mode indicator
         refreshModeIndicator();
@@ -348,7 +397,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
-        modelSelector.getComponent().setFocusable(true);
+        var modelComp = modelSelector.getComponent();
+        modelComp.setFocusable(true);
+        // Pressing space on the model selector should open up the options.
+        if (modelComp instanceof AbstractButton modelButton) {
+            modelComp.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "press");
+            modelComp.getActionMap().put("press", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    modelButton.doClick();
+                }
+            });
+        }
 
         // Initialize TokenUsageBar (left of Attach button)
         tokenUsageBar = new TokenUsageBar(chrome);
@@ -407,6 +467,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize mode indicator
         refreshModeIndicator();
+
+        // Apply initial Advanced Mode state to ensure ModelSelector visibility is correct
+        applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
 
         // Subscribe to service reload events to update button states
         contextManager.addServiceReloadListener(() -> SwingUtilities.invokeLater(this::updateButtonStates));
@@ -539,6 +602,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private JTextArea buildCommandInputField() {
         var area = new JTextArea(3, 40);
+        // Identify this field so global focus traversal can selectively skip it
+        area.setName("instructionsArea");
         // The BorderUtils will now handle the border, including focus behavior and padding.
         BorderUtils.addFocusBorder(area, area);
         area.setLineWrap(true);
@@ -546,8 +611,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
+        area.setText(getCurrentPlaceholder()); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
+
+        // Add focus listener to restore placeholder when focus is lost with empty text
+        area.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                // Restore placeholder state if text is empty
+                SwingUtilities.invokeLater(() -> deactivateCommandInput());
+            }
+        });
 
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
@@ -608,6 +682,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Respect user preference: insert indentation when enabled, otherwise traverse focus
                 if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     applyIndentation(area, true);
                 } else {
@@ -622,6 +697,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartShiftTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                // Respect user preference: unindent when enabled, otherwise traverse focus backward
                 if (GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     applyIndentation(area, false);
                 } else {
@@ -646,6 +722,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ensure focusable for keyboard accessibility
         micButton.setFocusable(true);
         wandButton.setFocusable(true);
+        historyDropdown.setFocusable(true);
 
         // Build a left cluster to measure width for proper center alignment of the badge
         var leftCluster = new JPanel();
@@ -661,15 +738,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.add(leftCluster);
 
         // Centered mode badge with symmetric spacing:
-        // glue (flex) + modeBadge + glue (flex) + right filler matching left cluster width
+        // glue (flex) + modeBadge + glue (flex) + rightCluster
         topBarPanel.add(Box.createHorizontalGlue());
         modeBadge.setAlignmentY(Component.CENTER_ALIGNMENT);
         topBarPanel.add(modeBadge);
         topBarPanel.add(Box.createHorizontalGlue());
 
-        // Right filler to balance left cluster width for true centering
-        int leftWidth = leftCluster.getPreferredSize().width;
-        topBarPanel.add(Box.createRigidArea(new Dimension(leftWidth, 0)));
+        // Right cluster with Brokk Power Ranking indicator
+        var rightCluster = new JPanel();
+        rightCluster.setOpaque(false);
+        rightCluster.setLayout(new BoxLayout(rightCluster, BoxLayout.X_AXIS));
+        brokkRankingLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+        rightCluster.add(brokkRankingLabel);
+        topBarPanel.add(rightCluster);
 
         return topBarPanel;
     }
@@ -779,10 +860,39 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
-        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
         attachButton.setFocusable(false);
         attachButton.setOpaque(false);
         attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+
+        // Set dynamic tooltip based on configured keybindings
+        SwingUtilities.invokeLater(() -> {
+            try {
+                KeyStroke ksAttach = GlobalUiSettings.getKeybinding(
+                        "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+                KeyStroke ksSumm = GlobalUiSettings.getKeybinding(
+                        "workspace.attachFilesAndSummarize",
+                        KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+                String attachStr = KeyboardShortcutUtil.formatKeyStroke(ksAttach);
+                String summStr = KeyboardShortcutUtil.formatKeyStroke(ksSumm);
+
+                StringBuilder tip = new StringBuilder();
+                tip.append("<html>");
+                tip.append("Add content to workspace");
+                if (!attachStr.isBlank()) {
+                    tip.append(" (").append(attachStr).append(")");
+                }
+                tip.append("<br/>");
+                tip.append("Attach Files + Summarize");
+                if (!summStr.isBlank()) {
+                    tip.append(" (").append(summStr).append(")");
+                }
+                tip.append("</html>");
+                attachButton.setToolTipText(tip.toString());
+            } catch (Exception ex) {
+                logger.debug("Failed to set dynamic tooltip for attach button (summarize)", ex);
+                attachButton.setToolTipText("Add content to workspace");
+            }
+        });
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
@@ -974,11 +1084,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 })
                 .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
                     try {
-                        if (stat == null) {
-                            tokenUsageBar.setVisible(false);
-                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
-                            return;
-                        }
                         // make metadata available to TokenUsageBar for tooltip/warning rendering
                         tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
                         // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
@@ -998,6 +1103,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         contextAreaContainer.setToolTipText(sharedTooltip);
                         modelSelector.getComponent().setToolTipText(sharedTooltip);
                         tokenUsageBar.setVisible(true);
+
+                        // Update Brokk Power Ranking indicator
+                        if (stat.successRate == -1) {
+                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
+                        } else {
+                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
+                        }
+                        brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
+                        brokkRankingLabel.setVisible(true);
                     } catch (Exception ex) {
                         logger.debug("Failed to update token usage bar", ex);
                         tokenUsageBar.setVisible(false);
@@ -1034,6 +1148,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    private static String buildBrokkRankingOnlyTooltip(int successRate) {
+        StringBuilder body = new StringBuilder();
+        body.append("<div><b>");
+        body.append(POWER_RANKING_TITLE);
+        body.append("</b></div>");
+        if (successRate == -1) {
+            body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Untested model reasoning combination.</div>");
+        } else {
+            body.append("<div style='margin-top: 4px;'>Success rate at this token count: <b>")
+                    .append(successRate)
+                    .append("%</b></div>");
+            body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
+                    .append("Based on benchmark data for model performance across token ranges.</div>");
+        }
+        return wrapTooltipHtml(body.toString(), 420);
+    }
+
     // Tooltip helpers for TokenUsageBar (HTML-wrapped, similar to chip tooltips)
     private static String buildTokenUsageTooltip(
             String modelName,
@@ -1065,8 +1198,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
-        body.append("<div><b><a href='https://brokk.ai/power-ranking' style='color: #1F6FEB; text-decoration: none;'>")
-                .append("Brokk Power Ranking</a></b></div>");
+        body.append("<div><b>");
+        body.append(POWER_RANKING_TITLE);
+        body.append("</b></div>");
         if (successRate == -1) {
             body.append("<div style='margin-top: 4px;'>Success rate: <b>Unknown</b></div>");
             body.append("<div style='margin-top: 2px; font-size: 0.9em; color: #666;'>")
@@ -1090,9 +1224,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Returns true if the given text matches the placeholder.
+    // Returns true if the given text matches any placeholder variant.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT.equals(text);
+        return PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text);
+    }
+
+    // Returns the appropriate placeholder based on current advanced mode setting.
+    private String getCurrentPlaceholder() {
+        return GlobalUiSettings.isAdvancedMode() ? PLACEHOLDER_TEXT_ADVANCED : PLACEHOLDER_TEXT_EZ;
     }
 
     public void refreshBranchUi(String branchName) {
@@ -1239,7 +1378,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
         return contextManager
-                .topContext()
+                .liveContext()
                 .allFragments()
                 .anyMatch(f -> !f.isText() && !f.getType().isOutput());
     }
@@ -1279,17 +1418,51 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
-     * fails or vision is required but unsupported.
+     * Returns a diagnostic message about the service state for logging purposes.
+     * Useful for distinguishing configuration errors (bad key, invalid proxy) from transient network issues.
      */
-    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel, boolean requireVision) {
+    private String getServiceDiagnosticsMessage() {
+        try {
+            var models = contextManager.getService();
+            // If we have an UnavailableStreamingModel, the service failed to initialize
+            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+                return "Service contains unavailable model stub (initialization may have failed)";
+            }
+            return "Service appears initialized; check network connectivity and API key validity";
+        } catch (RuntimeException e) {
+            return "Exception accessing service state: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
+    }
+
+    /**
+     * Centralized model selection from the dropdown with fallback and vision check. Returns null if selection
+     * fails or if the context contains images but the selected model does not support vision.
+     */
+    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel) {
         var cm = chrome.getContextManager();
         var models = cm.getService();
+
+        // Pre-check: is the LLM service online?
+        if (!models.isOnline()) {
+            logger.warn(
+                    "LLM service offline for action '{}': service online=false, contextHasImages={}",
+                    actionLabel,
+                    contextHasImages());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+            chrome.toolError("LLM service is offline; please check your connection or key.");
+            return null;
+        }
 
         Service.ModelConfig config;
         try {
             config = modelSelector.getModel();
         } catch (IllegalStateException e) {
+            logger.warn(
+                    "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
+                    actionLabel,
+                    e.getMessage(),
+                    contextHasImages(),
+                    models.isOnline());
             chrome.toolError("Please finish configuring your custom model or select a favorite first.");
             return null;
         }
@@ -1298,10 +1471,33 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            selectedModel = castNonNull(models.getModel(Service.GPT_5_MINI));
+            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            if (fallbackModel != null) {
+                selectedModel = fallbackModel;
+            }
         }
 
-        if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
+        // If fallback also failed, show error and return null
+        if (selectedModel == null) {
+            logger.warn(
+                    "No available model for action '{}': selected config name='{}', reasoning='{}', contextHasImages={}, service online={}",
+                    actionLabel,
+                    config.name(),
+                    config.reasoning(),
+                    contextHasImages(),
+                    models.isOnline());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+            chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
+            return null;
+        }
+
+        boolean hasImages = contextHasImages();
+        if (hasImages && !models.supportsVision(selectedModel)) {
+            logger.debug(
+                    "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
+                    actionLabel,
+                    models.nameOf(selectedModel),
+                    models.isOnline());
             showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
             return null;
         }
@@ -1373,7 +1569,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question, model);
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,
@@ -1426,16 +1622,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-
-        if (contextHasImages() && !models.supportsVision(modelToUse)) {
-            showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
-            return;
-        }
-
         // If Workspace is empty, ask the user how to proceed
-        if (chrome.getContextManager().topContext().isEmpty()) {
+        if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
                     "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
             Object[] options = {"Code", "Search", "Cancel"};
@@ -1470,8 +1658,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
+        final var modelToUse = selectDropdownModelOrShowError("Ask");
         if (modelToUse == null) {
+            updateButtonStates();
             return;
         }
         prepareAndRunAskCommand(modelToUse, input);
@@ -1505,9 +1694,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query) {
-        final var modelToUse = selectDropdownModelOrShowError("Search", true);
+        final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
-            throw new IllegalStateException("LLM not found, usually this indicates a network error");
+            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+            updateButtonStates();
+            return;
         }
 
         autoClearCompletedTasks();
@@ -1697,8 +1888,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.debug("Context updated: {} fragments", fragments.size());
         // Update chips from the selected context and toggle read-only
         workspaceItemsChipPanel.setFragmentsForContext(newCtx);
-        boolean readOnly =
-                !java.util.Objects.equals(newCtx, chrome.getContextManager().topContext());
+        boolean readOnly = !Objects.equals(newCtx, chrome.getContextManager().liveContext());
         workspaceItemsChipPanel.setReadOnly(readOnly);
         // Feed per-fragment data to the token bar from the selected context and toggle read-only
         tokenUsageBar.setFragmentsForContext(newCtx);
@@ -1764,7 +1954,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             // Go action
             switch (storedAction) {
-                case ACTION_CODE -> prepareAndRunCodeCommand(getSelectedModel());
+                case ACTION_CODE -> {
+                    var model = selectDropdownModelOrShowError("Code");
+                    if (model != null) {
+                        prepareAndRunCodeCommand(model);
+                    } else {
+                        updateButtonStates();
+                    }
+                }
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
                 default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
@@ -1780,57 +1977,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Let the badge compute its own theme-aware colors based on the active mode
         modeBadge.setActiveMode(mode);
 
-        // Build and set a dynamic tooltip that includes the mode description and the toggle shortcut
-        try {
-            var toggleKs = GlobalUiSettings.getKeybinding(
-                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-            var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-            if (toggleStr.isBlank()) {
-                toggleStr = "(unbound)";
-            }
-
-            String title;
-            String desc;
-            switch (mode) {
-                case ACTION_CODE -> {
-                    title = "Code Mode";
-                    desc =
-                            "Code: Applies changes directly to the files currently in your Workspace context based on your instructions.";
-                }
-                case ACTION_ASK -> {
-                    title = "Ask Mode";
-                    desc =
-                            "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
-                }
-                case ACTION_SEARCH -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-                default -> {
-                    title = "Lutz Mode";
-                    desc =
-                            "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
-                }
-            }
-
-            String body =
-                    "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
-                            .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
-            String html = wrapTooltipHtml(body, 320);
-            modeBadge.setToolTipText(html);
-        } catch (Exception ex) {
-            // Defensive: ensure tooltip failures don't affect the UI
-            modeBadge.setToolTipText(null);
-        }
-
-        // Use the badge's accent for the input pane stripe
-        Color accent = modeBadge.getAccent();
-
+        // Apply accent stripe only in Advanced Mode
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
-            var stripe = new javax.swing.border.MatteBorder(0, 4, 0, 0, accent);
-            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(stripe, inner));
+            Border outerBorder;
+            if (GlobalUiSettings.isAdvancedMode()) {
+                Color accent = modeBadge.getAccent();
+                outerBorder = new MatteBorder(0, 4, 0, 0, accent);
+            } else {
+                outerBorder = BorderFactory.createEmptyBorder(0, 4, 0, 0);
+            }
+            inputLayeredPane.setBorder(BorderFactory.createCompoundBorder(outerBorder, inner));
             inputLayeredPane.revalidate();
             inputLayeredPane.repaint();
         }
@@ -1868,6 +2025,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             clearCommandInput();
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
+    }
+
+    /**
+     * Deactivates the command input, restoring the placeholder state if the text area is empty.
+     * This is called when focus is lost and no text has been entered.
+     */
+    private void deactivateCommandInput() {
+        String currentText = instructionsArea.getText();
+        // Only restore placeholder if text is empty or whitespace-only
+        if (currentText == null || currentText.trim().isEmpty()) {
+            instructionsArea.setText(getCurrentPlaceholder());
+            instructionsArea.setEnabled(false);
+            commandInputOverlay.showOverlay();
+        }
+        // If user typed something, leave it as-is (don't restore placeholder)
     }
 
     public VoiceInputButton getVoiceInputButton() {
@@ -2030,6 +2202,75 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modelSelector.addSelectionListener(listener);
     }
 
+    // Public getters for focus traversal policy
+    public VoiceInputButton getMicButton() {
+        return micButton;
+    }
+
+    public WandButton getWandButton() {
+        return wandButton;
+    }
+
+    public SplitButton getHistoryDropdown() {
+        return historyDropdown;
+    }
+
+    public ActionSplitButton getActionButton() {
+        return actionButton;
+    }
+
+    /**
+     * Programmatically select a planner model configuration and update the UI accordingly.
+     * Used by Settings dialog to synchronize model selection.
+     *
+     * @param cfg the model configuration to select
+     * @return true if the configuration was found and selected, false otherwise
+     */
+    public boolean selectPlannerModelConfig(Service.ModelConfig cfg) {
+        boolean success = modelSelector.selectConfig(cfg);
+        if (success) {
+            updateTokenCostIndicator();
+        }
+        return success;
+    }
+
+    /**
+     * Applies Advanced Mode UI visibility to the Instructions panel.
+     * When in EZ mode (advanced=false), hides the mode badge and disables the mode dropdown.
+     * Also switches placeholder text if currently showing a placeholder (never overwrites user text).
+     * Safe to call from any thread.
+     */
+    public void applyAdvancedModeForInstructions(boolean advanced) {
+        SwingUtilities.invokeLater(() -> {
+            modeBadge.setVisible(advanced);
+            actionButton.setDropdownEnabled(advanced);
+
+            // When switching TO EZ mode, reset to Lutz mode (the default for simplified UX)
+            if (!advanced) {
+                actionButton.setSelectedMode(ACTION_SEARCH);
+            }
+
+            // Switch placeholder only if currently showing a placeholder
+            String currentText = instructionsArea.getText();
+            if (isPlaceholderText(currentText)) {
+                instructionsArea.setText(getCurrentPlaceholder());
+            }
+
+            // Toggle ModelSelector visibility based on Advanced Mode
+            modelSelector.getComponent().setVisible(advanced);
+            if (selectorStripPanel != null) {
+                selectorStripPanel.revalidate();
+                selectorStripPanel.repaint();
+            }
+            if (bottomToolbarPanel != null) {
+                bottomToolbarPanel.revalidate();
+                bottomToolbarPanel.repaint();
+            }
+
+            refreshModeIndicator();
+        });
+    }
+
     /**
      * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
      * The main button area executes the selected action, while the dropdown arrow shows mode options.
@@ -2050,6 +2291,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
                 "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+        private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
             super();
@@ -2078,11 +2320,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 this.dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
             });
 
+            getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("SPACE"), "showMenu");
+            getActionMap().put("showMenu", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    showDropdownMenu();
+                }
+            });
+
             // Change cursor when hovering the dropdown area on the right
-            addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            addMouseMotionListener(new MouseMotionAdapter() {
                 @Override
                 public void mouseMoved(MouseEvent e) {
-                    boolean inDropdown = e.getX() >= getWidth() - DROPDOWN_WIDTH;
+                    boolean inDropdown = dropdownEnabled && e.getX() >= getWidth() - DROPDOWN_WIDTH;
                     setCursor(inDropdown ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
                 }
             });
@@ -2107,6 +2357,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        public void setDropdownEnabled(boolean enabled) {
+            this.dropdownEnabled = enabled;
+            repaint();
+        }
+
         public void updateTooltip() {
             setToolTipText(buildTooltipHtml());
         }
@@ -2120,19 +2375,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         default -> MODE_TOOLTIP_LUTZ;
                     };
 
-            String toggleLine = "";
-            try {
-                var toggleKs = GlobalUiSettings.getKeybinding(
-                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr == null || toggleStr.isBlank()) {
-                    toggleStr = "(unbound)";
-                }
-                toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
-            } catch (Exception ignore) {
-                // Defensive: leave toggleLine empty if anything goes wrong
-            }
-
             String submitLine = "";
             try {
                 var submitKs = GlobalUiSettings.getKeybinding(
@@ -2144,6 +2386,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 submitLine = "<div>" + baseTooltip + "<b>" + htmlEscape(submitStr) + "</b></div>";
             } catch (Exception ignore) {
                 // Defensive: leave submitLine empty if anything goes wrong
+            }
+
+            String toggleLine = "";
+            if (dropdownEnabled) {
+                try {
+                    var toggleKs = GlobalUiSettings.getKeybinding(
+                            "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                    var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                    if (toggleStr == null || toggleStr.isBlank()) {
+                        toggleStr = "(unbound)";
+                    }
+                    toggleLine = "<div>Toggle mode: <b>" + htmlEscape(toggleStr) + "</b></div>";
+                } catch (Exception ignore) {
+                    // Defensive: leave toggleLine empty if anything goes wrong
+                }
             }
 
             return "<html><body style='width: 350px;'>" + modeTooltip
@@ -2201,7 +2458,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int x = e.getX();
             int y = e.getY();
             boolean inDropdown = x >= getWidth() - DROPDOWN_WIDTH && x <= getWidth() && y >= 0 && y <= getHeight();
-            if (inDropdown && isEnabled()) {
+            if (inDropdown && isEnabled() && dropdownEnabled) {
                 // Swallow events in dropdown area and show menu on press
                 if (e.getID() == MouseEvent.MOUSE_PRESSED) {
                     showDropdownMenu();
@@ -2263,8 +2520,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
 
-                // Draw divider line if not in stop mode
-                if (!inStopMode) {
+                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
+                if (!inStopMode && dropdownEnabled) {
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
                     g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
@@ -2304,7 +2561,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 int arc = 12;
                 Color borderColor;
                 if (isFocusOwner()) {
-                    borderColor = new Color(0x1F6FEB);
+                    borderColor = Color.WHITE;
                 } else {
                     borderColor = UIManager.getColor("Component.borderColor");
                     if (borderColor == null) borderColor = Color.GRAY;
@@ -2425,74 +2682,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Custom focus traversal policy for InstructionsPanel.
-     * Tab order: instructionsArea → micButton → modelSelector → actionButton → historyDropdown → next.
-     */
-    private class InstructionsPanelFocusTraversalPolicy extends FocusTraversalPolicy {
-        @Override
-        public Component getComponentAfter(Container aContainer, Component aComponent) {
-            if (aComponent == instructionsArea) {
-                return micButton;
-            } else if (aComponent == micButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == modelSelector.getComponent()) {
-                return actionButton;
-            } else if (aComponent == actionButton) {
-                return findHistoryDropdown();
-            } else if (aComponent == findHistoryDropdown()) {
-                return getNextFocusableComponent();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getComponentBefore(Container aContainer, Component aComponent) {
-            if (aComponent == micButton) {
-                return instructionsArea;
-            } else if (aComponent == modelSelector.getComponent()) {
-                return micButton;
-            } else if (aComponent == actionButton) {
-                return modelSelector.getComponent();
-            } else if (aComponent == findHistoryDropdown()) {
-                return actionButton;
-            } else if (aComponent == getNextFocusableComponent()) {
-                return findHistoryDropdown();
-            }
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getFirstComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        @Override
-        public Component getLastComponent(Container aContainer) {
-            return findHistoryDropdown();
-        }
-
-        @Override
-        public Component getDefaultComponent(Container aContainer) {
-            return instructionsArea;
-        }
-
-        private Component findHistoryDropdown() {
-            return historyDropdown;
-        }
-
-        private Component getNextFocusableComponent() {
-            Container parent = InstructionsPanel.this.getParent();
-            while (parent != null && !(parent instanceof Window)) {
-                parent = parent.getParent();
-            }
-            if (parent != null) {
-                return parent.getFocusTraversalPolicy().getComponentAfter(parent, InstructionsPanel.this);
-            }
-            return instructionsArea;
-        }
-    }
-
-    /**
      * Small square badge that displays the current mode.
      * Uses ThemeColors for background/foreground and accent for the border.
      * Non-focusable, compact, centered text.
@@ -2550,16 +2739,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }
 
-                var toggleKs = GlobalUiSettings.getKeybinding(
-                        "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-                var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
-                if (toggleStr.isBlank()) {
-                    toggleStr = "(unbound)";
+                String toggleLine = "";
+                if (isVisible()) {
+                    try {
+                        var toggleKs = GlobalUiSettings.getKeybinding(
+                                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+                        var toggleStr = KeyboardShortcutUtil.formatKeyStroke(toggleKs);
+                        if (toggleStr == null || toggleStr.isBlank()) {
+                            toggleStr = "(unbound)";
+                        }
+                        toggleLine = "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: "
+                                + htmlEscape(toggleStr) + "</div>";
+                    } catch (Exception ignore) {
+                        // Defensive: leave toggleLine empty if anything goes wrong
+                    }
                 }
 
-                String body =
-                        "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div><hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: %s</div>"
-                                .formatted(htmlEscape(title), htmlEscape(desc), htmlEscape(toggleStr));
+                String body = "<div><b>%s</b></div><div style='margin-top: 4px;'>%s</div>%s"
+                        .formatted(htmlEscape(title), htmlEscape(desc), toggleLine);
                 return wrapTooltipHtml(body, 320);
             } catch (Exception e) {
                 return super.getToolTipText(event);
@@ -2689,7 +2886,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered));
+            cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
             chrome.refreshTaskListUI(false);
         }
     }

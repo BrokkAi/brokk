@@ -15,23 +15,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 import java.util.regex.Pattern;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public class PythonLanguage implements Language {
     public static final Pattern PY_SITE_PKGS = Pattern.compile("^python\\d+\\.\\d+$");
-    private final List<String> extensions = List.of("py");
+    private final Set<String> extensions = Set.of("py");
 
     PythonLanguage() {}
 
     @Override
-    public List<String> getExtensions() {
+    public Set<String> getExtensions() {
         return extensions;
     }
 
@@ -227,7 +223,7 @@ public class PythonLanguage implements Language {
                                     + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (Exception ex) {
+            } catch (IOException ex) {
                 logger.error(
                         "Error copying Python package {} from {} to {}",
                         pkg.displayName(),

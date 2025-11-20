@@ -2314,9 +2314,11 @@ public class GitRepo implements Closeable, IGitRepo {
                 mergeBaseId);
 
         // Reuse listFilesChangedBetweenCommits which already handles rename detection properly
-        var result = listFilesChangedBetweenCommits(sourceHeadId.getName(), mergeBaseId.getName());
+        var files = listFilesChangedBetweenCommits(sourceHeadId.getName(), mergeBaseId.getName());
 
-        // Sort for consistent UI presentation
+        // Sort for consistent UI presentation (create mutable copy since listFilesChangedBetweenCommits may return
+        // immutable list)
+        var result = new ArrayList<>(files);
         result.sort(Comparator.comparing(mf -> mf.file().toString()));
         logger.debug("Found {} files changed between {} and {}: {}", result.size(), sourceBranch, targetBranch, result);
         return result;

@@ -8,9 +8,16 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.HistoryIo;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.exc.InvalidTypeIdException;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -84,7 +91,7 @@ public final class V3_HistoryIo {
             while ((entry = zis.getNextEntry()) != null) {
                 switch (entry.getName()) {
                     case V3_FRAGMENTS_FILENAME -> {
-                        byte[] fragmentJsonBytes = zis.readAllBytes();
+                        byte[] fragmentJsonBytes = remapPolymorphicTypeIds(zis.readAllBytes());
                         // Try parsing as-is; if type-id points at classes that exist on classpath but are not subtypes
                         // of our V3 DTOs (e.g., ai.brokk.context.FragmentDtos$*), remap type ids and retry.
                         try {
@@ -147,6 +154,7 @@ public final class V3_HistoryIo {
 
         var contentReader = new V3_HistoryIo.ContentReader(contentBytesMap);
         contentReader.setContentMetadata(contentMetadata);
+        contentReader.setImageBytes(imageBytesMap);
 
         if (rawGitStateDtos != null) {
             for (var e : rawGitStateDtos.entrySet()) {
@@ -176,7 +184,6 @@ public final class V3_HistoryIo {
                                 virtualDtosById,
                                 taskDtosById,
                                 mgr,
-                                imageBytesMap,
                                 fragmentCache,
                                 contentReader);
                     } catch (Exception e) {
@@ -204,10 +211,57 @@ public final class V3_HistoryIo {
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
     }
 
+    // Remap legacy polymorphic type ids ("type" and "@class") from older namespaces to our V3 DTO namespace.
+    private static byte[] remapPolymorphicTypeIds(byte[] jsonBytes) throws IOException {
+        JsonNode root = objectMapper.readTree(jsonBytes);
+        remapNodeInPlace(root);
+        return objectMapper.writeValueAsBytes(root);
+    }
+
+    private static void remapNodeInPlace(JsonNode node) {
+        if (node instanceof ObjectNode on) {
+            var fields = on.fields();
+            var toUpdate = new ArrayList<Map.Entry<String, String>>();
+            while (fields.hasNext()) {
+                var e = fields.next();
+                var key = e.getKey();
+                var value = e.getValue();
+                if ((key.equals("type") || key.equals("@class")) && value.isTextual()) {
+                    String remapped = remapClassName(value.asText());
+                    if (!remapped.equals(value.asText())) {
+                        toUpdate.add(Map.entry(key, remapped));
+                    }
+                } else {
+                    remapNodeInPlace(value);
+                }
+            }
+            // Apply updates after iteration to avoid concurrent modifications
+            for (var e : toUpdate) {
+                on.put(e.getKey(), e.getValue());
+            }
+        } else if (node instanceof ArrayNode an) {
+            for (int i = 0, size = an.size(); i < size; i++) {
+                remapNodeInPlace(an.get(i));
+            }
+        }
+    }
+
+    private static String remapClassName(String fqcn) {
+        String[] legacyPrefixes = {"io.github.jbellis.brokk.context.FragmentDtos", "ai.brokk.context.FragmentDtos"};
+        String targetPrefix = "ai.brokk.util.migrationv4.V3_FragmentDtos";
+        for (String legacy : legacyPrefixes) {
+            if (fqcn.startsWith(legacy)) {
+                return targetPrefix + fqcn.substring(legacy.length());
+            }
+        }
+        return fqcn;
+    }
+
     public static class ContentReader {
         private final Map<String, byte[]> contentBytes;
         private Map<String, ContentDtos.ContentMetadataDto> contentMetadata = Map.of();
         private final Map<String, String> contentCache = new HashMap<>();
+        private Map<String, byte[]> imageBytes = Map.of();
 
         public ContentReader(Map<String, byte[]> contentBytes) {
             this.contentBytes = contentBytes;
@@ -215,6 +269,14 @@ public final class V3_HistoryIo {
 
         public void setContentMetadata(Map<String, ContentDtos.ContentMetadataDto> contentMetadata) {
             this.contentMetadata = contentMetadata;
+        }
+
+        public void setImageBytes(Map<String, byte[]> imageBytes) {
+            this.imageBytes = imageBytes;
+        }
+
+        public byte @Nullable [] readImageBytes(String fragmentId) {
+            return imageBytes.get(fragmentId);
         }
 
         public String readContent(String contentId) {

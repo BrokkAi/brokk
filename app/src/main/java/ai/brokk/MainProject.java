@@ -10,6 +10,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.util.AtomicWrites;
+import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger =
@@ -94,8 +96,12 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GPT_5_MINI)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
+            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
+            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
+            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
+            "Scan", new ModelTypeInfo("scanConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -115,9 +121,10 @@ public final class MainProject extends AbstractProject {
     private static volatile Boolean isDataShareAllowedCache = null;
 
     @Nullable
-    private static Properties globalPropertiesCache = null; // protected by synchronized
+    @VisibleForTesting
+    static Properties globalPropertiesCache = null; // protected by synchronized
 
-    private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
+    private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
     private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
@@ -186,59 +193,7 @@ public final class MainProject extends AbstractProject {
             projectProps.clear();
         }
 
-        // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
-        boolean needsProjectSave = false;
-        boolean migratedArchitectSettings = false;
-
-        if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
-            if (!workspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
-                    || !workspaceProps
-                            .getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY)
-                            .equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
-                workspaceProps.setProperty(
-                        ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
-                migratedArchitectSettings = true;
-            }
-            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
-            needsProjectSave = true;
-        }
-
-        // Migrate Live Dependencies from projectProps to workspace properties
-        boolean migratedLiveDeps = false;
-        if (projectProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-            if (!workspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-                workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
-                migratedLiveDeps = true;
-            }
-            projectProps.remove(LIVE_DEPENDENCIES_KEY);
-            needsProjectSave = true;
-        }
-
-        if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspace properties
-            saveWorkspaceProperties();
-            if (migratedArchitectSettings) {
-                logger.info(
-                        "Migrated Architect options from project.properties to workspace.properties for {}",
-                        root.getFileName());
-            }
-            if (migratedLiveDeps) {
-                logger.info(
-                        "Migrated Live Dependencies from project.properties to workspace.properties for {}",
-                        root.getFileName());
-            }
-        }
-        if (needsProjectSave) { // Keys were removed from projectProps
-            saveProjectProperties();
-            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in
-                // workspace)
-                logger.info(
-                        "Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}",
-                        root.getFileName());
-            }
-        }
-
-        // Load build details AFTER projectProps might have been modified by migration (though build details keys are
-        // not affected here)
+        // Load build details
         var bd = loadBuildDetailsInternal(); // Uses projectProps
         if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             this.detailsFuture.complete(bd);
@@ -432,6 +387,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public ModelConfig getQuickModelConfig() {
+        return getModelConfigInternal("Quick");
+    }
+
+    @Override
+    public void setQuickModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quick", config);
+    }
+
+    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -449,6 +414,30 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
         setModelConfigInternal("Architect", config);
+    }
+
+    public ModelConfig getQuickEditModelConfig() {
+        return getModelConfigInternal("QuickEdit");
+    }
+
+    public void setQuickEditModelConfig(ModelConfig config) {
+        setModelConfigInternal("QuickEdit", config);
+    }
+
+    public ModelConfig getQuickestModelConfig() {
+        return getModelConfigInternal("Quickest");
+    }
+
+    public void setQuickestModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quickest", config);
+    }
+
+    public ModelConfig getScanModelConfig() {
+        return getModelConfigInternal("Scan");
+    }
+
+    public void setScanModelConfig(ModelConfig config) {
+        setModelConfigInternal("Scan", config);
     }
 
     @Override
@@ -1341,6 +1330,7 @@ public final class MainProject extends AbstractProject {
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1461,6 +1451,34 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static int getHistoryCompressionConcurrency() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        int def = 2;
+        if (value == null || value.isBlank()) {
+            return def;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1) parsed = 1;
+            if (parsed > 8) parsed = 8;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public static void setHistoryCompressionConcurrency(int value) {
+        int clamped = Math.max(1, Math.min(8, value));
+        var props = loadGlobalProperties();
+        if (clamped == 2) {
+            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        } else {
+            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
+        }
+        saveGlobalProperties(props);
+    }
+
     // JVM memory settings (global)
     private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
     private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
@@ -1497,6 +1515,107 @@ public final class MainProject extends AbstractProject {
                 "Saved JVM memory settings: mode={}, mb={}",
                 settings.automatic() ? "auto" : "manual",
                 settings.automatic() ? "n/a" : settings.manualMb());
+    }
+
+    // Grouped settings records for atomic batch saving
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+        public void applyTo(Properties props) {
+            if (brokkApiKey.isBlank()) {
+                props.remove("brokkApiKey");
+            } else {
+                props.setProperty("brokkApiKey", brokkApiKey.trim());
+            }
+            props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
+            if (forceToolEmulation) {
+                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
+            } else {
+                props.remove(FORCE_TOOL_EMULATION_KEY);
+            }
+        }
+    }
+
+    public record AppearanceSettings(String theme, boolean wordWrap, String uiScale, float terminalFontSize) {
+        public void applyTo(Properties props) {
+            props.setProperty("theme", theme);
+            props.setProperty("wordWrap", String.valueOf(wordWrap));
+            props.setProperty(UI_SCALE_KEY, uiScale);
+            if (terminalFontSize == 11.0f) {
+                props.remove(TERMINAL_FONT_SIZE_KEY);
+            } else {
+                props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(terminalFontSize));
+            }
+        }
+    }
+
+    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
+        public void applyTo(Properties props) {
+            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
+            int clamped = Math.max(0, Math.min(100, thresholdPercent));
+            if (clamped == 80) {
+                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+            } else {
+                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
+            }
+        }
+    }
+
+    public record StartupSettings(StartupOpenMode openMode) {
+        public void applyTo(Properties props) {
+            props.setProperty(STARTUP_OPEN_MODE_KEY, openMode.name());
+        }
+    }
+
+    public record GeneralSettings(JvmMemorySettings jvmMemory) {
+        public void applyTo(Properties props) {
+            if (jvmMemory.automatic()) {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "auto");
+                props.remove(JVM_MEMORY_MB_KEY);
+            } else {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "manual");
+                props.setProperty(JVM_MEMORY_MB_KEY, Integer.toString(jvmMemory.manualMb()));
+            }
+        }
+    }
+
+    public record ModelSettings(List<Service.FavoriteModel> favoriteModels, McpConfig mcpConfig) {
+        public void applyTo(Properties props) {
+            try {
+                String json = objectMapper.writeValueAsString(favoriteModels);
+                props.setProperty("favoriteModelsJson", json);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing favorite models to JSON", e);
+            }
+            try {
+                String mcpJson = objectMapper.writeValueAsString(mcpConfig);
+                props.setProperty("mcpConfigJson", mcpJson);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing MCP config to JSON", e);
+            }
+        }
+    }
+
+    public static void saveAllGlobalSettings(
+            ServiceSettings service,
+            AppearanceSettings appearance,
+            CompressionSettings compression,
+            StartupSettings startup,
+            GeneralSettings general,
+            ModelSettings models) {
+        var props = loadGlobalProperties();
+        service.applyTo(props);
+        appearance.applyTo(props);
+        compression.applyTo(props);
+        startup.applyTo(props);
+        general.applyTo(props);
+        models.applyTo(props);
+        saveGlobalProperties(props);
+
+        // Clear cache if brokk key changed
+        if (!service.brokkApiKey().equals(getBrokkKey())) {
+            isDataShareAllowedCache = null;
+        }
+
+        logger.debug("Saved all global settings atomically");
     }
 
     public static String getBrokkKey() {
@@ -1586,12 +1705,10 @@ public final class MainProject extends AbstractProject {
 
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
+            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel(
-                    "Sonnet 4.5", new ModelConfig("claude-sonnet-4-5", Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel(
-                    "Haiku 4.5", new ModelConfig("claude-haiku-4-5", Service.ReasoningLevel.DEFAULT)));
+            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
