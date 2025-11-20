@@ -1642,10 +1642,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Blocking
     private void processExternalFileChangesIfNeeded() {
-        var allReferenced = liveContext()
-                .allFragments()
-                .flatMap(f -> f.files().join().stream())
-                .collect(Collectors.toSet());
+        // Avoid indefinite blocking on fragment computations. Time-bound each files() retrieval.
+        var fragments = liveContext().allFragments().toList();
+        Set<ProjectFile> allReferenced = new HashSet<>();
+        for (var f : fragments) {
+            try {
+                var files = f.files().await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                allReferenced.addAll(files);
+            } catch (TimeoutException te) {
+                logger.warn("Timed out waiting for files() of fragment {}", f.id());
+            }
+        }
         processExternalFileChangesIfNeeded(allReferenced);
     }
 

@@ -173,13 +173,21 @@ public interface ContextFragment {
             return t;
         };
 
+        // Use SynchronousQueue for direct hand-off to minimize queuing latency, but ensure
+        // saturation does not cause REJECT and leave dependent ComputedValues unscheduled.
+        // CallerRunsPolicy executes the task inline on the submitting thread which prevents
+        // deadlocks when a compute() blocks awaiting another ComputedValue on the same pool.
+        int maxThreads = Math.max(4, Runtime.getRuntime().availableProcessors() * 3);
         var tpe = new ThreadPoolExecutor(
                 0,
-                Runtime.getRuntime().availableProcessors() * 3,
+                maxThreads,
                 60L,
                 TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
-                daemonFactory);
+                daemonFactory,
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        tpe.allowCoreThreadTimeOut(true);
+
         return new LoggingExecutorService(
                 tpe, th -> logger.error("Uncaught exception in ContextFragment executor", th));
     }
@@ -1638,9 +1646,14 @@ public interface ContextFragment {
                             "paste-desc-" + id(),
                             () -> {
                                 try {
-                                    return "Paste of " + descriptionFuture.get();
-                                } catch (Exception e) {
-                                    throw new RuntimeException(e);
+                                    String desc = descriptionFuture.get(
+                                            Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                    return "Paste of " + desc;
+                                } catch (TimeoutException | ExecutionException te) {
+                                    return "Paste of pasted content";
+                                } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                    return "Paste of pasted content";
                                 }
                             },
                             getFragmentExecutor()),
