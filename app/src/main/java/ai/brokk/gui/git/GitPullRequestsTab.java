@@ -22,7 +22,6 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;

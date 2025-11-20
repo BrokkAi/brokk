@@ -20,7 +20,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.*;

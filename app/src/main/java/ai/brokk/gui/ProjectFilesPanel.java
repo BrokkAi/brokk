@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import java.awt.*;

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModificationType;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import java.io.IOException;

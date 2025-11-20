@@ -18,7 +18,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.CreateBranchDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import com.google.common.base.Splitter;

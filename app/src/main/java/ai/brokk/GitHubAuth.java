@@ -3,7 +3,6 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.git.GitRepo;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;

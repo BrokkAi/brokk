@@ -5,7 +5,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.TableUtils;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
