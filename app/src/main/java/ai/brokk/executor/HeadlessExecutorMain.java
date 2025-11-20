@@ -1041,7 +1041,7 @@ public final class HeadlessExecutorMain {
     /**
      * Validate the issue fix request and return any validation errors.
      */
-    private java.util.List<String> validateIssueFixRequest(IssueFixRequest request, int issueNumber) {
+    java.util.List<String> validateIssueFixRequest(IssueFixRequest request, int issueNumber) {
         var errors = new java.util.ArrayList<String>();
 
         if (request.owner() == null || request.owner().isBlank()) {
@@ -1109,13 +1109,16 @@ public final class HeadlessExecutorMain {
      * Create a sanitized branch name from issue title and number.
      * Format: fix/{issue_number}-{sanitized-title}
      */
-    private String createIssueBranchName(int issueNumber, String issueTitle) {
+    String createIssueBranchName(int issueNumber, String issueTitle) {
         // Sanitize title: lowercase, replace spaces/special chars with hyphens, max 50 chars
         var sanitized = issueTitle
                 .toLowerCase()
                 .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("^-+|-+$", "")
-                .substring(0, Math.min(50, issueTitle.length()));
+                .replaceAll("^-+|-+$", "");
+        // Truncate after sanitization to ensure we don't exceed bounds
+        if (sanitized.length() > 50) {
+            sanitized = sanitized.substring(0, 50);
+        }
         return "fix/" + issueNumber + "-" + sanitized;
     }
 
