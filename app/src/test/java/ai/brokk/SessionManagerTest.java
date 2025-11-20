@@ -214,17 +214,24 @@ public class SessionManagerTest {
         assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         assertEquals(
-                expected.description().join(), actual.description().join(), "Fragment description mismatch for ID " + expected.id());
+                expected.description().join(),
+                actual.description().join(),
+                "Fragment description mismatch for ID " + expected.id());
         assertEquals(
                 expected.shortDescription().join(),
                 actual.shortDescription().join(),
                 "Fragment shortDescription mismatch for ID " + expected.id());
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         assertEquals(
-                expected.syntaxStyle().join(), actual.syntaxStyle().join(), "Fragment syntaxStyle mismatch for ID " + expected.id());
+                expected.syntaxStyle().join(),
+                actual.syntaxStyle().join(),
+                "Fragment syntaxStyle mismatch for ID " + expected.id());
 
         if (expected.isText()) {
-            assertEquals(expected.text().join(), actual.text().join(), "Fragment text content mismatch for ID " + expected.id());
+            assertEquals(
+                    expected.text().join(),
+                    actual.text().join(),
+                    "Fragment text content mismatch for ID " + expected.id());
         } else {
             // Compare image content via the common API
             assertArrayEquals(
