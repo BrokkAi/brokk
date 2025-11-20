@@ -54,8 +54,9 @@ public class JavaTypeAnalyzer {
 
         // If name is fully qualified (contains dot), try it directly
         if (name.contains(".")) {
-            Optional<CodeUnit> found =
-                    getDefinitions.apply(name).stream().filter(CodeUnit::isClass).findFirst();
+            Optional<CodeUnit> found = getDefinitions.apply(name).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
             if (found.isPresent()) {
                 return Stream.of(found.get());
             }
