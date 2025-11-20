@@ -1465,11 +1465,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return setTaskList(newData, "Task list cleared", false);
+            return setTaskList(context, newData, "Task list cleared", false);
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return setTaskList(newData, "Task list replaced", true);
+        return setTaskList(context, newData, "Task list replaced", true);
     }
 
     @Blocking
@@ -1484,23 +1484,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
         existing.addAll(newItems);
         var newData = new TaskList.TaskListData(List.copyOf(existing));
-        return setTaskList(newData, "Task list updated", true);
+        return setTaskList(context, newData, "Task list updated", true);
     }
 
     /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data, String action, boolean triggerAutoPlay) {
+    public Context setTaskList(TaskList.TaskListData data, String action) {
+        // Track the change in history by pushing a new context with the Task List fragment
+        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        // Centralized UI refresh after persistence
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(false, Set.of()));
+        }
+
+        return updated;
+    }
+
+    public Context setTaskList(Context context, TaskList.TaskListData data, String action, boolean triggerAutoPlay) {
         // Capture pre-existing incomplete tasks (for potential EZ-mode guard)
-        var preExistingIncompleteTasks = liveContext().getTaskListDataOrEmpty().tasks().stream()
+        var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
                 .filter(t -> !t.done())
                 .map(TaskList.TaskItem::text)
                 .collect(Collectors.toSet());
 
-        // Track the change in history by pushing a new context with the Task List fragment
-        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
-
+        var updated = context.withTaskList(data, action);
         // Centralized UI refresh after persistence
         if (io instanceof Chrome chrome) {
             SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(triggerAutoPlay, preExistingIncompleteTasks));
@@ -1632,7 +1641,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (idx >= 0) {
             existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             var newData = new TaskList.TaskListData(List.copyOf(existing));
-            setTaskList(newData, "Task list marked task done", false);
+            setTaskList(newData, "Task list marked task done");
         }
     }
 

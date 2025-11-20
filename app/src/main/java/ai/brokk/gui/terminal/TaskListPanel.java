@@ -1036,7 +1036,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         var data = new TaskList.TaskListData(List.copyOf(dtos));
         try {
-            chrome.getContextManager().setTaskList(data, action, false);
+            chrome.getContextManager().setTaskList(data, action);
         } catch (Exception e) {
             logger.error("Error saving task list", e);
             SwingUtilities.invokeLater(() -> {
