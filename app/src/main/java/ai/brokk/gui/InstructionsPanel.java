@@ -882,24 +882,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Set dynamic tooltip based on configured keybinding
-        SwingUtilities.invokeLater(() -> {
-            try {
-                KeyStroke ks = GlobalUiSettings.getKeybinding(
-                        "workspace.attachContext",
-                        KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
-                String chord = KeyboardShortcutUtil.formatKeyStroke(ks);
-                if (chord == null || chord.isBlank()) {
-                    attachButton.setToolTipText("Add content to workspace");
-                } else {
-                    attachButton.setToolTipText("Add content to workspace (" + chord + ")");
-                }
-            } catch (Exception ex) {
-                logger.debug("Failed to set dynamic tooltip for attach button", ex);
-                attachButton.setToolTipText("Add content to workspace");
-            }
-        });
-
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
         bottomLinePanel.setBorder(BorderFactory.createEmptyBorder(2, 5, 0, 0));
