@@ -428,7 +428,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 rawNames,
                 cu.packageName(),
                 resolvedImports,
-                name -> getDefinitions(name).stream().findFirst(),
+                this::getDefinitions,
                 (s) -> searchDefinitions(s, false));
     }
 

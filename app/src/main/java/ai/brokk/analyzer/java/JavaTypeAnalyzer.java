@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
 import java.util.List;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -21,12 +22,12 @@ public class JavaTypeAnalyzer {
             List<String> rawSupertypeNames,
             String currentPackage,
             Set<CodeUnit> resolvedImports,
-            Function<String, Optional<CodeUnit>> getDefinition,
+            Function<String, SequencedSet<CodeUnit>> getDefinitions,
             Function<String, Set<CodeUnit>> searchDefinitions) {
 
         return rawSupertypeNames.stream()
                 .flatMap(rawName ->
-                        resolveSupertype(rawName, currentPackage, resolvedImports, getDefinition, searchDefinitions))
+                        resolveSupertype(rawName, currentPackage, resolvedImports, getDefinitions, searchDefinitions))
                 .toList();
     }
 
@@ -36,7 +37,7 @@ public class JavaTypeAnalyzer {
      * @param rawName the raw supertype name from cached data (may include generic type arguments)
      * @param currentPackage the package of the class being analyzed
      * @param resolvedImports the set of CodeUnits resolved from import statements
-     * @param getDefinition function to perform an exact-match search for a CodeUnit
+     * @param getDefinitions function to perform an exact-match search for CodeUnits
      * @param searchDefinitions function to search for CodeUnits globally by pattern
      * @return a stream containing the resolved CodeUnit, or empty if not found
      */
@@ -44,7 +45,7 @@ public class JavaTypeAnalyzer {
             String rawName,
             String currentPackage,
             Set<CodeUnit> resolvedImports,
-            Function<String, Optional<CodeUnit>> getDefinition,
+            Function<String, SequencedSet<CodeUnit>> getDefinitions,
             Function<String, Set<CodeUnit>> searchDefinitions) {
         String name = JavaAnalyzer.stripGenericTypeArguments(rawName).trim();
         if (name.isEmpty()) {
@@ -54,7 +55,7 @@ public class JavaTypeAnalyzer {
         // If name is fully qualified (contains dot), try it directly
         if (name.contains(".")) {
             Optional<CodeUnit> found =
-                    getDefinition.apply(name).stream().filter(CodeUnit::isClass).findFirst();
+                    getDefinitions.apply(name).stream().filter(CodeUnit::isClass).findFirst();
             if (found.isPresent()) {
                 return Stream.of(found.get());
             }
@@ -74,7 +75,7 @@ public class JavaTypeAnalyzer {
         // Try same package as current class
         if (!currentPackage.isBlank()) {
             String samePackageCandidate = currentPackage + "." + simple;
-            Optional<CodeUnit> foundInPackage = getDefinition.apply(samePackageCandidate).stream()
+            Optional<CodeUnit> foundInPackage = getDefinitions.apply(samePackageCandidate).stream()
                     .filter(CodeUnit::isClass)
                     .findFirst();
             if (foundInPackage.isPresent()) {
