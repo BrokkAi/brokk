@@ -953,35 +953,44 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         try {
             var cm = chrome.getContextManager();
             var selected = cm.selectedContext();
-            TaskList.TaskListData data = (selected != null)
-                    ? selected.getTaskListDataOrEmpty()
-                    : cm.liveContext().getTaskListDataOrEmpty();
+            cm.submitBackgroundTask("Loading task list data", () -> {
+                TaskList.TaskListData data = (selected != null)
+                        ? selected.getTaskListDataOrEmpty()
+                        : cm.liveContext().getTaskListDataOrEmpty();
 
-            // Only populate if still the same sessionId
-            if (!sid.equals(this.sessionIdAtLoad)) {
-                return;
-            }
-            model.clear();
-            for (var dto : data.tasks()) {
-                if (!dto.text().isBlank()) {
-                    // dto is already the domain type used by the model
-                    model.addElement(dto);
+                // Only populate if still the same sessionId
+                if (!sid.equals(this.sessionIdAtLoad)) {
+                    return;
                 }
-            }
-            clearExpansionOnStructureChange();
-            updateButtonStates();
+
+                SwingUtilities.invokeLater(() -> {
+                    model.clear();
+                    for (var dto : data.tasks()) {
+                        if (!dto.text().isBlank()) {
+                            // dto is already the domain type used by the model
+                            model.addElement(dto);
+                        }
+                    }
+                    clearExpansionOnStructureChange();
+                    updateButtonStates();
+                });
+            });
         } finally {
             isLoadingTasks = false;
             // Update the last-seen fragment ID after successful load (respecting selected context)
             var cm = chrome.getContextManager();
-            Context sel = cm.selectedContext();
-            Context baseCtx = (sel != null) ? sel : cm.liveContext();
-            lastTaskListFragmentId =
-                    baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
+            cm.submitBackgroundTask("Updating last-seen fragment", () -> {
+                Context sel = cm.selectedContext();
+                Context baseCtx = (sel != null) ? sel : cm.liveContext();
+                lastTaskListFragmentId =
+                        baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
-            clearExpansionOnStructureChange();
-            // Ensure the Tasks tab badge reflects the freshly loaded model.
-            updateTasksTabBadge();
+                SwingUtilities.invokeLater(() -> {
+                    clearExpansionOnStructureChange();
+                    // Ensure the Tasks tab badge reflects the freshly loaded model.
+                    updateTasksTabBadge();
+                });
+            });
         }
     }
 
