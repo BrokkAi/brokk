@@ -561,6 +561,35 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testGetDefinitionUsesSignatureForOverloads() {
+        var duplicatesFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("simple_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("simple_overloads.h not found"));
+
+        var declarations = analyzer.getDeclarations(duplicatesFile);
+        var overloads = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("overloadedFunction"))
+                .collect(Collectors.toList());
+
+        assertEquals(3, overloads.size(), "Precondition: expected 3 overloadedFunction declarations");
+
+        var intDef = analyzer.getDefinition("overloadedFunction(int)");
+        assertTrue(intDef.isPresent(), "Should resolve overloadedFunction(int)");
+        assertEquals("overloadedFunction", intDef.get().fqName());
+        assertEquals("(int)", intDef.get().signature());
+
+        var doubleDef = analyzer.getDefinition("overloadedFunction(double)");
+        assertTrue(doubleDef.isPresent(), "Should resolve overloadedFunction(double)");
+        assertEquals("(double)", doubleDef.get().signature());
+
+        var twoIntsDef = analyzer.getDefinition("overloadedFunction(int,int)");
+        assertTrue(twoIntsDef.isPresent(), "Should resolve overloadedFunction(int,int)");
+        assertEquals("(int,int)", twoIntsDef.get().signature());
+    }
+
+    @Test
     public void testAnonymousStructHandling() {
         // Test that anonymous structs/classes don't generate warnings
         var advancedFile = testProject.getAllFiles().stream()

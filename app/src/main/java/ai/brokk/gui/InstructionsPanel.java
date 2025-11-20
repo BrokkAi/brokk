@@ -343,13 +343,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Keyboard shortcut: Cmd/Ctrl+Shift+I opens the Attach Context dialog
-        KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(),
-                KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I),
-                "attachContext",
-                () -> SwingUtilities.invokeLater(() -> chrome.getContextPanel().attachContextViaDialog()));
-
         // Load stored action with cascading fallback: project → global → default
         storedAction = loadActionMode();
 
@@ -867,10 +860,39 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Bottom line: TokenUsageBar (fills) + Attach button on the right
         var attachButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
-        attachButton.setToolTipText("Add content to workspace (Ctrl/Cmd+Shift+I)");
         attachButton.setFocusable(false);
         attachButton.setOpaque(false);
         attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+
+        // Set dynamic tooltip based on configured keybindings
+        SwingUtilities.invokeLater(() -> {
+            try {
+                KeyStroke ksAttach = GlobalUiSettings.getKeybinding(
+                        "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+                KeyStroke ksSumm = GlobalUiSettings.getKeybinding(
+                        "workspace.attachFilesAndSummarize",
+                        KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+                String attachStr = KeyboardShortcutUtil.formatKeyStroke(ksAttach);
+                String summStr = KeyboardShortcutUtil.formatKeyStroke(ksSumm);
+
+                StringBuilder tip = new StringBuilder();
+                tip.append("<html>");
+                tip.append("Add content to workspace");
+                if (!attachStr.isBlank()) {
+                    tip.append(" (").append(attachStr).append(")");
+                }
+                tip.append("<br/>");
+                tip.append("Attach Files + Summarize");
+                if (!summStr.isBlank()) {
+                    tip.append(" (").append(summStr).append(")");
+                }
+                tip.append("</html>");
+                attachButton.setToolTipText(tip.toString());
+            } catch (Exception ex) {
+                logger.debug("Failed to set dynamic tooltip for attach button (summarize)", ex);
+                attachButton.setToolTipText("Add content to workspace");
+            }
+        });
 
         var bottomLinePanel = new JPanel(new BorderLayout(H_GAP, 0));
         bottomLinePanel.setOpaque(false);
@@ -1547,7 +1569,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question, model);
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,

@@ -61,7 +61,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Favorite Models"; // Used for targeting this tab
+    public static final String MODELS_TAB_TITLE = "Models"; // Used for targeting this tab
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -77,6 +77,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox verticalActivityLayoutCheckbox = new JCheckBox("Beta: Vertical Activity Layout");
@@ -86,6 +87,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<String> primaryModelCombo = new JComboBox<>();
+    private JComboBox<String> quickModelCombo = new JComboBox<>();
+    private JComboBox<String> quickEditModelCombo = new JComboBox<>();
+    private JComboBox<String> quickestModelCombo = new JComboBox<>();
+    private JComboBox<String> scanModelCombo = new JComboBox<>();
+    private JLabel quickEditModelLabel = new JLabel("Quick Edit Model:");
+    private JLabel scanModelLabel = new JLabel("Scan Model:");
+    private JPanel quickEditModelHolder = new JPanel(new BorderLayout(0, 0));
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -97,6 +105,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // Compression settings
     private JCheckBox autoCompressCheckbox = new JCheckBox("Auto-compress conversation history");
     private JSpinner autoCompressThresholdSpinner = new JSpinner();
+    private JSpinner compressionConcurrencySpinner = new JSpinner();
 
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
@@ -136,27 +145,300 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
+    /**
+     * Constructor for creating panel without data (will be populated later).
+     * Panel starts in disabled state until data is loaded.
+     */
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
-        loadSettings();
 
-        // Ensure a wider default size once the dialog is shown to avoid conflicting with pack()
-        parentDialog.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowOpened(WindowEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    Dimension current = parentDialog.getSize();
-                    int targetWidth = Math.max(1100, current.width);
-                    parentDialog.setSize(targetWidth, current.height);
-                });
-            }
-        });
+        // Disable panel until data is loaded
+        setEnabled(false);
 
         // Register for settings change notifications
         MainProject.addSettingsChangeListener(this);
+    }
+
+    /**
+     * Populates UI fields from pre-loaded settings data. No I/O operations.
+     * Must be called on EDT. Enables the panel after populating.
+     */
+    public void populateFromData(SettingsData data) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Enable panel now that we have data
+        setEnabled(true);
+
+        populateGeneralTab(data);
+        populateServiceTab(data);
+        populateAppearanceTab();
+        populateStartupTab();
+        populateNotificationsTab();
+        populateCompressionTab();
+        populateQuickModelsTab(data);
+        populateGitHubTab();
+        populateMcpServersTab();
+    }
+
+    /**
+     * Override to recursively enable/disable all child components.
+     * JPanel's default setEnabled only affects the panel itself.
+     */
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        setEnabledRecursive(this, enabled);
+    }
+
+    private void setEnabledRecursive(Container container, boolean enabled) {
+        for (Component comp : container.getComponents()) {
+            comp.setEnabled(enabled);
+            if (comp instanceof Container c) {
+                setEnabledRecursive(c, enabled);
+            }
+        }
+    }
+
+    private void populateGeneralTab(SettingsData data) {
+        // JVM Memory
+        try {
+            var mem = data.jvmMemorySettings();
+            if (mem.automatic()) {
+                memoryAutoRadio.setSelected(true);
+                memorySpinner.setEnabled(false);
+            } else {
+                memoryManualRadio.setSelected(true);
+                memorySpinner.setEnabled(true);
+                try {
+                    int v = mem.manualMb();
+                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+                    int min = ((Number) model.getMinimum()).intValue();
+                    int max = ((Number) model.getMaximum()).intValue();
+                    if (v < min) v = min;
+                    if (v > max) v = max;
+                    int step = model.getStepSize().intValue();
+                    if (step > 0) {
+                        int rem = v % step;
+                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
+                    }
+                    memorySpinner.setValue(v);
+                } catch (Exception ignore) {
+                    // leave spinner as-is
+                }
+            }
+        } catch (Exception ignore) {
+            // Use defaults if there is any problem reading settings
+        }
+
+        // Advanced Mode
+        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+    }
+
+    private void populateServiceTab(SettingsData data) {
+        brokkKeyField.setText(data.brokkApiKey());
+        balanceField.setText(data.accountBalance()); // Pre-loaded from background
+        updateSignupLabelVisibility();
+
+        if (brokkProxyRadio != null && localhostProxyRadio != null) {
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                brokkProxyRadio.setSelected(true);
+            } else {
+                localhostProxyRadio.setSelected(true);
+            }
+        }
+
+        if (forceToolEmulationCheckbox != null) {
+            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
+        }
+    }
+
+    private void populateAppearanceTab() {
+        // Theme
+        String currentTheme = MainProject.getTheme();
+        switch (currentTheme) {
+            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
+            case GuiTheme.THEME_DARK_PLUS -> darkPlusThemeRadio.setSelected(true);
+            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
+            default -> lightThemeRadio.setSelected(true);
+        }
+
+        // Code Block Layout
+        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
+        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
+
+        // UI Scale (if present; hidden on macOS)
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            String pref = MainProject.getUiScalePref();
+            if ("auto".equalsIgnoreCase(pref)) {
+                uiScaleAutoRadio.setSelected(true);
+                uiScaleCombo.setSelectedItem("1.0");
+                uiScaleCombo.setEnabled(false);
+            } else {
+                uiScaleCustomRadio.setSelected(true);
+                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
+                String selected = pref;
+                boolean found = false;
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (pref.equals(model.getElementAt(i))) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try {
+                        double v = Double.parseDouble(pref);
+                        int nearest = (int) Math.round(v);
+                        if (nearest < 1) nearest = 1;
+                        if (nearest > 5) nearest = 5;
+                        selected = nearest + ".0";
+                    } catch (NumberFormatException ignore) {
+                        selected = "1.0";
+                    }
+                }
+                uiScaleCombo.setSelectedItem(selected);
+                uiScaleCombo.setEnabled(true);
+            }
+        }
+
+        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
+
+        // Diff View preference
+        boolean unified = GlobalUiSettings.isDiffUnifiedView();
+        diffUnifiedRadio.setSelected(unified);
+        diffSideBySideRadio.setSelected(!unified);
+    }
+
+    private void populateStartupTab() {
+        var startupMode = MainProject.getStartupOpenMode();
+        if (startupMode == MainProject.StartupOpenMode.ALL) {
+            startupOpenAllRadio.setSelected(true);
+        } else {
+            startupOpenLastRadio.setSelected(true);
+        }
+
+        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
+        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+    }
+
+    private void populateNotificationsTab() {
+        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
+        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
+        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
+        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
+        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
+    }
+
+    private void populateCompressionTab() {
+        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
+        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
+        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
+    }
+
+    private void populateQuickModelsTab(SettingsData data) {
+        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var loadedFavorites = data.favoriteModels();
+        quickModelsTableModel.setFavorites(loadedFavorites);
+
+        // Populate preferred code model combo with favorite aliases
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current code config
+        String selectedAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentCodeConfig.name())
+                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
+                    && favorite.config().tier() == currentCodeConfig.tier()) {
+                selectedAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedAlias != null) {
+            preferredCodeModelCombo.setSelectedItem(selectedAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
+
+        // Populate planner model combo with favorite aliases
+        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
+        primaryModelCombo.removeAllItems();
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite.alias());
+        }
+
+        // Select the favorite that matches the current planner config
+        String selectedPlannerAlias = null;
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            if (favorite.config().name().equals(currentPlannerConfig.name())
+                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
+                    && favorite.config().tier() == currentPlannerConfig.tier()) {
+                selectedPlannerAlias = favorite.alias();
+                break;
+            }
+        }
+        if (selectedPlannerAlias != null) {
+            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
+        } else if (!loadedFavorites.isEmpty()) {
+            primaryModelCombo.setSelectedIndex(0);
+        }
+
+        // Populate and select Scan Model from a fixed list
+        var currentScanConfig = chrome.getProject().getMainProject().getScanModelConfig();
+        String scanName = currentScanConfig.name();
+        @SuppressWarnings("unchecked")
+        var scanComboModel = (DefaultComboBoxModel<String>) scanModelCombo.getModel();
+        boolean found = false;
+        for (int i = 0; i < scanComboModel.getSize(); i++) {
+            if (scanComboModel.getElementAt(i).equals(scanName)) {
+                scanModelCombo.setSelectedIndex(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found && scanComboModel.getSize() > 0) {
+            scanModelCombo.setSelectedIndex(0);
+        }
+
+        // Add listener to sync planner combo when model changes in InstructionsPanel
+        if (!plannerModelSyncListenerRegistered) {
+            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
+                try {
+                    // Use the current favorites from the table model to avoid capturing stale state
+                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
+                        if (favorite.config().name().equals(cfg.name())
+                                && favorite.config().reasoning() == cfg.reasoning()
+                                && favorite.config().tier() == cfg.tier()) {
+                            String alias = favorite.alias();
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
+                            break;
+                        }
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
+                }
+            });
+            plannerModelSyncListenerRegistered = true;
+        }
+    }
+
+    private void populateGitHubTab() {
+        if (gitHubSettingsPanel != null) {
+            gitHubSettingsPanel.loadSettings();
+        }
+    }
+
+    private void populateMcpServersTab() {
+        mcpServersListModel.clear();
+        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
+        for (McpServer server : mcpConfig.servers()) {
+            mcpServersListModel.addElement(server);
+        }
     }
 
     private void initComponents() {
@@ -174,9 +456,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var appearancePanel = createAppearancePanel();
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
-        // Quick Models Tab
-        var quickModelsPanel = createQuickModelsPanel();
-        globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, quickModelsPanel, "Define model aliases (shortcuts)");
+        // Models Tab
+        var modelsPanel = createQuickModelsPanel();
+        globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
@@ -212,6 +494,56 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         globalSubTabbedPane.addTab("Compression", null, compressionPanel, "Conversation history compression");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
+    }
+
+    /**
+     * Asynchronously saves a keybinding to persistent storage and provides optional UI feedback.
+     *
+     * @param id                 the keybinding id (e.g., "instructions.submit").
+     * @param stroke             the KeyStroke to persist.
+     * @param refreshKeybindings whether to call chrome.refreshKeybindings() on success.
+     * @param onSuccessMessage   optional Runnable to execute on success (e.g., to show a dialog).
+     * @param dialogParent       the component to use as parent for JOptionPane dialogs.
+     * @param failureContext     short string describing what failed (e.g., "save keybinding", "clear keybinding").
+     */
+    private void saveKeybindingAsync(
+            String id,
+            KeyStroke stroke,
+            boolean refreshKeybindings,
+            @Nullable Runnable onSuccessMessage,
+            Component dialogParent,
+            String failureContext) {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                GlobalUiSettings.saveKeybinding(id, stroke);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get(); // Check if background save succeeded
+                    if (refreshKeybindings) {
+                        try {
+                            chrome.refreshKeybindings();
+                        } catch (Exception ex) {
+                            logger.debug("refreshKeybindings failed (non-fatal)", ex);
+                        }
+                    }
+                    if (onSuccessMessage != null) {
+                        onSuccessMessage.run();
+                    }
+                } catch (Exception ex) {
+                    logger.error("Failed to {}", failureContext, ex);
+                    JOptionPane.showMessageDialog(
+                            dialogParent,
+                            "Failed to " + failureContext + ": " + ex.getMessage(),
+                            "Save Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     private JPanel createKeybindingsPanel() {
@@ -288,20 +620,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                         }
                     }
 
-                    GlobalUiSettings.saveKeybinding(id, captured);
+                    // Update field and save keybinding in background
                     field.setText(formatKeyStroke(captured));
-                    // Immediately refresh global keybindings so changes take effect
-                    try {
-                        chrome.refreshKeybindings();
-                    } catch (Exception ex) {
-                        logger.debug("refreshKeybindings failed (non-fatal)", ex);
-                    }
-                    JOptionPane.showMessageDialog(panel, "Saved and applied.");
+                    Runnable onSuccess = () -> JOptionPane.showMessageDialog(panel, "Saved and applied.");
+                    saveKeybindingAsync(id, captured, true, onSuccess, panel, "save keybinding");
                 });
 
                 clearBtn.addActionListener(ev -> {
-                    GlobalUiSettings.saveKeybinding(id, def);
                     field.setText(formatKeyStroke(def));
+                    saveKeybindingAsync(id, def, false, null, panel, "clear keybinding");
                 });
             }
         }
@@ -344,6 +671,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // General navigation
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
+
+        // Workspace actions
+        adder.add("workspace.attachContext", "Add Content to Workspace");
+        adder.add("workspace.attachFilesAndSummarize", "Attach Files + Summarize");
 
         // Add global reset button
         var resetAllBtn = new JButton("Reset All to Defaults");
@@ -477,7 +808,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -518,6 +851,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.zoomInAlt" -> "Zoom In (Alt)";
             case "view.zoomOut" -> "Zoom Out";
             case "view.resetZoom" -> "Reset Zoom";
+            case "workspace.attachContext" -> "Add Content to Workspace";
+            case "workspace.attachFilesAndSummarize" -> "Attach Files + Summarize";
             default -> id;
         };
     }
@@ -548,7 +883,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "view.zoomIn",
             "view.zoomInAlt",
             "view.zoomOut",
-            "view.resetZoom"
+            "view.resetZoom",
+            "workspace.attachContext",
+            "workspace.attachFilesAndSummarize"
         };
 
         for (String id : allKeybindingIds) {
@@ -818,14 +1155,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         lightThemeRadio = new JRadioButton("Light");
         darkThemeRadio = new JRadioButton("Dark");
+        darkPlusThemeRadio = new JRadioButton("Dark+");
         highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
         themeGroup.add(darkThemeRadio);
+        themeGroup.add(darkPlusThemeRadio);
         themeGroup.add(highContrastThemeRadio);
 
         lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
         darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
+        darkPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK_PLUS);
         highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
 
         gbc.gridx = 1;
@@ -836,6 +1176,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(darkPlusThemeRadio, gbc);
 
         gbc.gridy = row++;
         appearancePanel.add(highContrastThemeRadio, gbc);
@@ -1029,9 +1372,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private JPanel createQuickModelsPanel() {
-        var panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
         var service = chrome.getContextManager().getService();
         var availableModelNames =
                 service.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
@@ -1115,10 +1455,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             int rowCount = quickModelsTableModel.getRowCount();
             if (rowCount <= 1) {
                 JOptionPane.showMessageDialog(
-                        panel,
-                        "At least one favorite model is required.",
-                        "Cannot Remove",
-                        JOptionPane.WARNING_MESSAGE);
+                        this, "At least one favorite model is required.", "Cannot Remove", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             int viewRow = quickModelsTable.getSelectedRow();
@@ -1133,7 +1470,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         defaultsButton.addActionListener(e -> {
             int result = JOptionPane.showConfirmDialog(
-                    panel,
+                    this,
                     "This will replace all your current favorite models with the default set.\n\nAre you sure you want to restore defaults?",
                     "Restore Default Favorite Models",
                     JOptionPane.YES_NO_OPTION,
@@ -1158,7 +1495,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
 
             JOptionPane.showMessageDialog(
-                    panel,
+                    this,
                     "Favorite models restored to defaults.",
                     "Defaults Restored",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -1177,7 +1514,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
-        // Create top panel with preferred Lutz code model and primary model selectors
+        // Create top panel with model role selectors
         var topPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 10, 0);
@@ -1189,12 +1526,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(new JLabel("Lutz Code Model:"), gbc);
 
         preferredCodeModelCombo = new JComboBox<>();
-        // Will be populated with favorite model aliases in loadSettings()
-        // Create code model holder with BorderLayout to embed the help icon
         var codeComboHolder = new JPanel(new BorderLayout(0, 0));
         codeComboHolder.add(preferredCodeModelCombo, BorderLayout.CENTER);
-
-        // Add help icon for Lutz Code Model directly in the holder
         var codeHelpButton = new MaterialButton();
         codeHelpButton.setIcon(Icons.HELP);
         codeHelpButton.setToolTipText("This model is used by Lutz mode to implement tasks.");
@@ -1210,7 +1543,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.insets = new Insets(0, 10, 10, 10);
         topPanel.add(codeComboHolder, gbc);
 
-        // Add Primary Model (Planner Model) selector
         gbc.gridx = 2;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
@@ -1218,11 +1550,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         topPanel.add(new JLabel("Primary Model:"), gbc);
 
         primaryModelCombo = new JComboBox<>();
-        // Create primary model holder with BorderLayout to embed the help icon
         var primaryComboHolder = new JPanel(new BorderLayout(0, 0));
         primaryComboHolder.add(primaryModelCombo, BorderLayout.CENTER);
-
-        // Add help icon for Primary Model directly in the holder
         var primaryHelpButton = new MaterialButton();
         primaryHelpButton.setIcon(Icons.HELP);
         primaryHelpButton.setToolTipText(
@@ -1234,15 +1563,216 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         primaryComboHolder.add(primaryHelpButton, BorderLayout.EAST);
 
         gbc.gridx = 3;
-        gbc.weightx = 0.5;
+        gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 10, 10, 0);
+        gbc.insets = new Insets(0, 10, 10, 10);
         topPanel.add(primaryComboHolder, gbc);
 
-        panel.add(topPanel, BorderLayout.NORTH);
-        panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
-        panel.add(buttonPanel, BorderLayout.SOUTH);
-        return panel;
+        gbc.gridx = 4;
+        gbc.gridy = 0;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(new JLabel("Quick Model:"), gbc);
+
+        quickModelCombo = new JComboBox<>();
+        quickModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {Service.GEMINI_2_0_FLASH, Service.GPT_5_NANO, Service.HAIKU_4_5}));
+        var quickComboHolder = new JPanel(new BorderLayout(0, 0));
+        quickComboHolder.add(quickModelCombo, BorderLayout.CENTER);
+        var quickHelpButton = new MaterialButton();
+        quickHelpButton.setIcon(Icons.HELP);
+        quickHelpButton.setToolTipText(
+                "This model is used for quick operations like summarization and lightweight analysis.");
+        quickHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        quickHelpButton.setContentAreaFilled(false);
+        quickHelpButton.setFocusPainted(false);
+        quickHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        quickComboHolder.add(quickHelpButton, BorderLayout.EAST);
+
+        gbc.gridx = 5;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(quickComboHolder, gbc);
+
+        // Row 2: Quick Edit Model and Quickest Model
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(quickEditModelLabel, gbc);
+
+        quickEditModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {Service.CEREBRAS_GPT_OSS_120B, Service.GPT_5_NANO, Service.HAIKU_4_5}));
+        quickEditModelHolder.add(quickEditModelCombo, BorderLayout.CENTER);
+        var qeHelp = new MaterialButton();
+        qeHelp.setIcon(Icons.HELP);
+        qeHelp.setToolTipText("Paid-only: fast edit model when you have balance.");
+        qeHelp.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        qeHelp.setContentAreaFilled(false);
+        qeHelp.setFocusPainted(false);
+        qeHelp.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        quickEditModelHolder.add(qeHelp, BorderLayout.EAST);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(quickEditModelHolder, gbc);
+
+        gbc.gridx = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(new JLabel("Quickest Model:"), gbc);
+
+        var quickestHolder = new JPanel(new BorderLayout(0, 0));
+        quickestModelCombo.setModel(new DefaultComboBoxModel<>(
+                new String[] {Service.GEMINI_2_0_FLASH_LITE, Service.GPT_5_NANO, Service.HAIKU_4_5}));
+        quickestHolder.add(quickestModelCombo, BorderLayout.CENTER);
+        var qkHelp = new MaterialButton();
+        qkHelp.setIcon(Icons.HELP);
+        qkHelp.setToolTipText("Ultra-fast, temp=0 model for quick operations.");
+        qkHelp.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        qkHelp.setContentAreaFilled(false);
+        qkHelp.setFocusPainted(false);
+        qkHelp.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        quickestHolder.add(qkHelp, BorderLayout.EAST);
+
+        gbc.gridx = 3;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(quickestHolder, gbc);
+
+        // Row 3: Scan Model
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(0, 10, 10, 0);
+        topPanel.add(scanModelLabel, gbc);
+
+        var scanHolder = new JPanel(new BorderLayout(0, 0));
+        scanModelCombo.setModel(new DefaultComboBoxModel<>(new String[] {
+            Service.GPT_5_MINI, Service.GPT_5_NANO, Service.SONNET_4_5, Service.HAIKU_4_5, Service.GEMINI_2_5_FLASH
+        }));
+        scanHolder.add(scanModelCombo, BorderLayout.CENTER);
+        var scanHelp = new MaterialButton();
+        scanHelp.setIcon(Icons.HELP);
+        scanHelp.setToolTipText("Model used for scanning and analyzing code for Search operations.");
+        scanHelp.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        scanHelp.setContentAreaFilled(false);
+        scanHelp.setFocusPainted(false);
+        scanHelp.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        scanHolder.add(scanHelp, BorderLayout.EAST);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 10, 10, 10);
+        topPanel.add(scanHolder, gbc);
+
+        // Create Favorites panel (table + buttons)
+        var favoritesPanel = new JPanel(new BorderLayout(5, 5));
+        favoritesPanel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
+        favoritesPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        // Create Model Roles panel (selectors)
+        var rolesPanel = new JPanel(new BorderLayout(5, 5));
+        rolesPanel.add(topPanel, BorderLayout.NORTH);
+        rolesPanel.add(Box.createVerticalGlue(), BorderLayout.CENTER);
+
+        // Add Defaults button for Model Roles
+        var rolesButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var defaultsRolesButton = new MaterialButton("Defaults");
+        defaultsRolesButton.setToolTipText(
+                "Restore default model role selections (Code/Primary/Quick/Quick Edit/Quickest).");
+        rolesButtons.add(defaultsRolesButton);
+        rolesPanel.add(rolesButtons, BorderLayout.SOUTH);
+
+        // Wire up the Defaults button action
+        defaultsRolesButton.addActionListener(e -> {
+            int result = JOptionPane.showConfirmDialog(
+                    SettingsGlobalPanel.this,
+                    "This will restore default model role selections.\nYou will lose your old settings. Continue?",
+                    "Restore Default Model Roles",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (result != JOptionPane.YES_OPTION) {
+                return;
+            }
+
+            java.util.List<Service.FavoriteModel> favs = quickModelsTableModel.getFavorites();
+            java.util.function.BiConsumer<JComboBox<String>, String> selectAliasForModel = (combo, modelName) -> {
+                String alias = null;
+                for (Service.FavoriteModel f : favs) {
+                    if (modelName.equals(f.config().name())) {
+                        alias = f.alias();
+                        break;
+                    }
+                }
+                if (alias != null) {
+                    combo.setSelectedItem(alias);
+                } else if (combo.getItemCount() > 0) {
+                    combo.setSelectedIndex(0);
+                }
+            };
+
+            // Reset Code (Lutz) and Primary (Architect) from favorites
+            selectAliasForModel.accept(preferredCodeModelCombo, Service.HAIKU_4_5);
+            selectAliasForModel.accept(primaryModelCombo, Service.GPT_5);
+
+            // Reset Quick (fixed list)
+            for (int i = 0; i < quickModelCombo.getItemCount(); i++) {
+                if (Service.GEMINI_2_0_FLASH.equals(quickModelCombo.getItemAt(i))) {
+                    quickModelCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+
+            // Reset Quick Edit (paid-only, fixed list)
+            if (quickEditModelLabel.isVisible() && quickEditModelHolder.isVisible()) {
+                for (int i = 0; i < quickEditModelCombo.getItemCount(); i++) {
+                    if ("cerebras/gpt-oss-120b".equals(quickEditModelCombo.getItemAt(i))) {
+                        quickEditModelCombo.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+
+            // Reset Quickest (fixed list)
+            for (int i = 0; i < quickestModelCombo.getItemCount(); i++) {
+                if ("gemini-2.0-flash-lite".equals(quickestModelCombo.getItemAt(i))) {
+                    quickestModelCombo.setSelectedIndex(i);
+                    break;
+                }
+            }
+
+            // Reset Scan Model to default (guaranteed to be in fixed list)
+            scanModelCombo.setSelectedItem(Service.GEMINI_2_5_FLASH);
+
+            JOptionPane.showMessageDialog(
+                    SettingsGlobalPanel.this,
+                    "Model role selections restored to defaults. Click Apply to save.",
+                    "Defaults Restored",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+
+        // Create nested tabbed pane for Favorites and Model Roles
+        var modelsTabbed = new JTabbedPane(JTabbedPane.TOP);
+        modelsTabbed.addTab("Favorites", null, favoritesPanel, "Manage favorite model aliases");
+        modelsTabbed.addTab("Model Roles", null, rolesPanel, "Assign models for specific roles");
+
+        // Create container panel to return
+        var container = new JPanel(new BorderLayout(5, 5));
+        container.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        container.add(modelsTabbed, BorderLayout.CENTER);
+
+        return container;
     }
 
     private void refreshBalanceDisplay() {
@@ -1365,6 +1895,26 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         autoCompressCheckbox.addActionListener(
                 e -> autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
 
+        // Max concurrent compression threads
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Max concurrent compression threads:"), gbc);
+
+        var concurrencyModel = new SpinnerNumberModel(2, 1, 8, 1);
+        compressionConcurrencySpinner.setModel(concurrencyModel);
+        compressionConcurrencySpinner.setEditor(new JSpinner.NumberEditor(compressionConcurrencySpinner, "#0"));
+
+        var concurrencyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        concurrencyPanel.add(compressionConcurrencySpinner);
+
+        gbc.gridx = 1;
+        gbc.gridy = row - 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(concurrencyPanel, gbc);
+
         // filler
         gbc.gridx = 0;
         gbc.gridy = row;
@@ -1376,377 +1926,34 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return panel;
     }
 
-    public void loadSettings() {
-        // General Tab - JVM Memory
-        try {
-            var mem = MainProject.getJvmMemorySettings();
-            if (mem.automatic()) {
-                memoryAutoRadio.setSelected(true);
-                memorySpinner.setEnabled(false);
-            } else {
-                memoryManualRadio.setSelected(true);
-                memorySpinner.setEnabled(true);
-                try {
-                    int v = mem.manualMb();
-                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
-                    int min = ((Number) model.getMinimum()).intValue();
-                    int max = ((Number) model.getMaximum()).intValue();
-                    if (v < min) v = min;
-                    if (v > max) v = max;
-                    int step = model.getStepSize().intValue();
-                    if (step > 0) {
-                        int rem = v % step;
-                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
-                    }
-                    memorySpinner.setValue(v);
-                } catch (Exception ignore) {
-                    // leave spinner as-is
-                }
-            }
-        } catch (Exception ignore) {
-            // Use defaults if there is any problem reading settings
-        }
-
-        // Advanced Mode (General tab)
-        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
-
-        // Service Tab
-        brokkKeyField.setText(MainProject.getBrokkKey());
-        refreshBalanceDisplay();
-        updateSignupLabelVisibility();
-        if (brokkProxyRadio != null
-                && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
-                brokkProxyRadio.setSelected(true);
-            } else {
-                localhostProxyRadio.setSelected(true);
-            }
-        }
-
-        if (forceToolEmulationCheckbox != null) {
-            forceToolEmulationCheckbox.setSelected(MainProject.getForceToolEmulation());
-        }
-        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
-        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
-        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
-        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
-        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
-
-        // Compression Tab
-        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
-        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
-        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
-
-        // Appearance Tab
-        String currentTheme = MainProject.getTheme();
-        switch (currentTheme) {
-            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
-            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
-            default -> lightThemeRadio.setSelected(true);
-        }
-
-        // Code Block Layout
-        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
-        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
-
-        // UI Scale (if present; hidden on macOS)
-        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-            String pref = MainProject.getUiScalePref();
-            if ("auto".equalsIgnoreCase(pref)) {
-                uiScaleAutoRadio.setSelected(true);
-                uiScaleCombo.setSelectedItem("1.0");
-                uiScaleCombo.setEnabled(false);
-            } else {
-                uiScaleCustomRadio.setSelected(true);
-                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
-                String selected = pref;
-                boolean found = false;
-                for (int i = 0; i < model.getSize(); i++) {
-                    if (pref.equals(model.getElementAt(i))) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    try {
-                        double v = Double.parseDouble(pref);
-                        int nearest = (int) Math.round(v);
-                        if (nearest < 1) nearest = 1;
-                        if (nearest > 5) nearest = 5;
-                        selected = nearest + ".0";
-                    } catch (NumberFormatException ignore) {
-                        selected = "1.0";
-                    }
-                }
-                uiScaleCombo.setSelectedItem(selected);
-                uiScaleCombo.setEnabled(true);
-            }
-        }
-
-        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
-
-        // Diff View preference
-        boolean unified = GlobalUiSettings.isDiffUnifiedView();
-        diffUnifiedRadio.setSelected(unified);
-        diffSideBySideRadio.setSelected(!unified);
-
-        // Startup behavior
-        var startupMode = MainProject.getStartupOpenMode();
-        if (startupMode == MainProject.StartupOpenMode.ALL) {
-            startupOpenAllRadio.setSelected(true);
-        } else {
-            startupOpenLastRadio.setSelected(true);
-        }
-        // Persist per-project main window position (default true)
-        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
-
-        // Instructions panel behavior
-        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
-
-        // Quick Models Tab
-        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
-        var loadedFavorites = MainProject.loadFavoriteModels();
-        if (loadedFavorites.isEmpty()) {
-            var defaultAlias = "default";
-            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
-            loadedFavorites = new ArrayList<>();
-            loadedFavorites.add(defaultFavorite);
-            try {
-                MainProject.saveFavoriteModels(loadedFavorites);
-            } catch (Exception ignore) {
-                // best-effort; will be saved on Apply as well
-            }
-        }
-        quickModelsTableModel.setFavorites(loadedFavorites);
-
-        // Populate preferred code model combo with favorite aliases
-        preferredCodeModelCombo.removeAllItems();
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            preferredCodeModelCombo.addItem(favorite.alias());
-        }
-
-        // Select the favorite that matches the current code config
-        String selectedCodeAlias = null;
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            if (favorite.config().name().equals(currentCodeConfig.name())
-                    && favorite.config().reasoning() == currentCodeConfig.reasoning()
-                    && favorite.config().tier() == currentCodeConfig.tier()) {
-                selectedCodeAlias = favorite.alias();
-                break;
-            }
-        }
-        if (selectedCodeAlias != null) {
-            preferredCodeModelCombo.setSelectedItem(selectedCodeAlias);
-        } else if (!loadedFavorites.isEmpty()) {
-            preferredCodeModelCombo.setSelectedIndex(0);
-        }
-
-        // Populate planner model combo with favorite aliases
-        primaryModelCombo.removeAllItems();
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            primaryModelCombo.addItem(favorite.alias());
-        }
-
-        // Select the favorite that matches the current planner config
-        String selectedPlannerAlias = null;
-        for (Service.FavoriteModel favorite : loadedFavorites) {
-            if (favorite.config().name().equals(currentPlannerConfig.name())
-                    && favorite.config().reasoning() == currentPlannerConfig.reasoning()
-                    && favorite.config().tier() == currentPlannerConfig.tier()) {
-                selectedPlannerAlias = favorite.alias();
-                break;
-            }
-        }
-        if (selectedPlannerAlias != null) {
-            primaryModelCombo.setSelectedItem(selectedPlannerAlias);
-        } else if (!loadedFavorites.isEmpty()) {
-            primaryModelCombo.setSelectedIndex(0);
-        }
-
-        // Add listener to sync planner combo when model changes in InstructionsPanel
-        if (!plannerModelSyncListenerRegistered) {
-            chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
-                try {
-                    // Use the current favorites from the table model to avoid capturing stale state
-                    for (Service.FavoriteModel favorite : quickModelsTableModel.getFavorites()) {
-                        if (favorite.config().name().equals(cfg.name())
-                                && favorite.config().reasoning() == cfg.reasoning()
-                                && favorite.config().tier() == cfg.tier()) {
-                            String alias = favorite.alias();
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(alias));
-                            break;
-                        }
-                    }
-                } catch (Exception ex) {
-                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
-                }
-            });
-            plannerModelSyncListenerRegistered = true;
-        }
-
-        // GitHub Tab
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
-
-        // MCP Servers Tab
-        mcpServersListModel.clear();
-        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
-        for (McpServer server : mcpConfig.servers()) {
-            mcpServersListModel.addElement(server);
-        }
-    }
-
     public boolean applySettings() {
-        // Service Tab
+        // === PHASE 1: Validation ===
+
+        // Validate API key
         String currentBrokkKeyInSettings = MainProject.getBrokkKey();
         String newBrokkKeyFromField = brokkKeyField.getText().trim();
         boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
-        if (keyStateChangedInUI) {
-            if (!newBrokkKeyFromField.isEmpty()) {
-                try {
-                    Service.validateKey(newBrokkKeyFromField);
-                    MainProject.setBrokkKey(newBrokkKeyFromField);
-                    refreshBalanceDisplay();
-                    updateSignupLabelVisibility();
-                    parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
-                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
-                } catch (IllegalArgumentException ex) {
-                    JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
-                    return false;
-                } catch (IOException ex) { // Network error, but allow saving
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
-                            "Network Error",
-                            JOptionPane.WARNING_MESSAGE);
-                    MainProject.setBrokkKey(newBrokkKeyFromField);
-                    refreshBalanceDisplay();
-                    updateSignupLabelVisibility();
-                    parentDialog.triggerDataRetentionPolicyRefresh();
-                    chrome.getContextManager().reloadService(); // Reinitialize service with new auth/balance
-                }
-            } else { // newBrokkKeyFromField is empty
-                MainProject.setBrokkKey(newBrokkKeyFromField);
-                refreshBalanceDisplay();
-                updateSignupLabelVisibility();
-                parentDialog.triggerDataRetentionPolicyRefresh();
-                chrome.getContextManager().reloadService(); // Reinitialize service with cleared key
-            }
-        }
-
-        if (brokkProxyRadio != null && localhostProxyRadio != null) { // Not STAGING
-            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected()
-                    ? MainProject.LlmProxySetting.BROKK
-                    : MainProject.LlmProxySetting.LOCALHOST;
-            if (proxySetting != MainProject.getProxySetting()) {
-                MainProject.setLlmProxySetting(proxySetting);
-                logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
-                // Consider notifying user about restart if changed. Dialog does this.
-            }
-        }
-
-        if (forceToolEmulationCheckbox != null) {
-            MainProject.setForceToolEmulation(forceToolEmulationCheckbox.isSelected());
-            logger.debug("Applied Force Tool Emulation: {}", forceToolEmulationCheckbox.isSelected());
-        }
-
-        // Save notification preferences
-        GlobalUiSettings.saveShowCostNotifications(showCostNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(showFreeInternalLLMCheckbox.isSelected());
-        GlobalUiSettings.saveShowErrorNotifications(showErrorNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowConfirmNotifications(showConfirmNotificationsCheckbox.isSelected());
-        GlobalUiSettings.saveShowInfoNotifications(showInfoNotificationsCheckbox.isSelected());
-
-        // Compression Tab
-        MainProject.setHistoryAutoCompress(autoCompressCheckbox.isSelected());
-        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
-        MainProject.setHistoryAutoCompressThresholdPercent(thresholdPercent);
-
-        // General Tab - Advanced Mode
-        // Only apply if the setting actually changed to avoid unnecessary UI refreshes
-        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
-        boolean newAdvancedMode = advancedModeCheckbox.isSelected();
-        if (previousAdvancedMode != newAdvancedMode) {
-            GlobalUiSettings.saveAdvancedMode(newAdvancedMode);
+        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
             try {
-                // Chrome.applyAdvancedModeVisibility() handles instructions panel updates and keybinding refresh
-                // to avoid duplication and ensure consistent behavior
-                chrome.applyAdvancedModeVisibility();
-            } catch (Exception ex) {
-                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+                Service.validateKey(newBrokkKeyFromField);
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                return false;
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
+                        "Network Error",
+                        JOptionPane.WARNING_MESSAGE);
             }
         }
 
-        // General Tab - JVM Memory
-        try {
-            boolean automatic = memoryAutoRadio.isSelected();
-            int mb = ((Number) memorySpinner.getValue()).intValue();
-            var jvmSettings = new MainProject.JvmMemorySettings(automatic, mb);
-            MainProject.setJvmMemorySettings(jvmSettings);
-            JDeploySettingsUtil.updateJvmMemorySettings(jvmSettings);
-            logger.debug(
-                    "Applied JVM memory settings: mode={}, mb={}",
-                    automatic ? "auto" : "manual",
-                    automatic ? "n/a" : mb);
-        } catch (Exception e) {
-            logger.warn("Failed to persist JVM memory settings", e);
-        }
-
-        // Appearance Tab
-        // Get theme from the selected radio button's client property
-        String newTheme = GuiTheme.THEME_LIGHT; // default
-        if (lightThemeRadio.isSelected()) {
-            newTheme = (String) lightThemeRadio.getClientProperty("theme");
-        } else if (darkThemeRadio.isSelected()) {
-            newTheme = (String) darkThemeRadio.getClientProperty("theme");
-        } else if (highContrastThemeRadio.isSelected()) {
-            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
-        }
-
-        boolean newWrapMode = wordWrapCheckbox.isSelected();
-        boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
-
-        // Check if either theme or wrap mode changed
-        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
-        boolean wrapChanged = newWrapMode != currentWrapMode;
-
-        if (themeChanged || wrapChanged) {
-            // Save wrap mode setting globally
-            if (wrapChanged) {
-                MainProject.setCodeBlockWrapMode(newWrapMode);
-                logger.debug("Applied Code Block Wrap Mode: {}", newWrapMode);
-            }
-
-            // Apply theme and wrap mode changes via unified Chrome method
-            if (themeChanged || wrapChanged) {
-                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-                logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
-            }
-        }
-
-        boolean previousVerticalLayout = GlobalUiSettings.isVerticalActivityLayout();
-        boolean newVerticalLayout = verticalActivityLayoutCheckbox.isSelected();
-        if (previousVerticalLayout != newVerticalLayout) {
-            GlobalUiSettings.saveVerticalActivityLayout(newVerticalLayout);
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Restart required: Changing Vertical Activity Layout will take effect after restarting Brokk.",
-                    "Restart Required",
-                    JOptionPane.INFORMATION_MESSAGE);
-        }
-
-        // UI Scale preference (if present; hidden on macOS)
+        // Validate UI Scale
+        String uiScale;
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-            String before = MainProject.getUiScalePref();
             if (uiScaleAutoRadio.isSelected()) {
-                if (!"auto".equalsIgnoreCase(before)) {
-                    MainProject.setUiScalePrefAuto();
-                    parentDialog.markRestartNeededForUiScale();
-                    logger.debug("Applied UI scale preference: auto");
-                }
+                uiScale = "auto";
             } else {
                 String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
                 var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
@@ -1758,67 +1965,194 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                             JOptionPane.ERROR_MESSAGE);
                     return false;
                 }
-                if (!txt.equals(before)) {
-                    double v = Double.parseDouble(txt);
-                    MainProject.setUiScalePrefCustom(v);
-                    parentDialog.markRestartNeededForUiScale();
-                    logger.debug("Applied UI scale preference: {}", v);
-                }
+                uiScale = txt;
             }
+        } else {
+            uiScale = MainProject.getUiScalePref();
         }
 
-        // Terminal font size
-        float newTerminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
-        if (newTerminalFontSize != MainProject.getTerminalFontSize()) {
-            MainProject.setTerminalFontSize(newTerminalFontSize);
-            chrome.updateTerminalFontSize();
-            logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
+        // GitHub Tab validation
+        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+            return false;
         }
 
-        // Diff View preference
-        boolean useUnified = diffUnifiedRadio.isSelected();
-        GlobalUiSettings.saveDiffUnifiedView(useUnified);
-        logger.debug("Applied Diff View: {}", useUnified ? "Unified" : "Side-by-Side");
+        // === PHASE 2: Gather all values from UI ===
 
-        // TODO: Immediate application to existing diff panels
-        // Currently, newly opened diff panels will use the selected style immediately
-        // (BrokkDiffPanel reads GlobalUiSettings.isDiffUnifiedView() on initialization).
-        // Existing open diff panels can be toggled via their toolbar "Unified View" button.
-        // In the future, if a central registry of open diff panels becomes available
-        // (e.g., via Chrome or ContextManager), we can enumerate and call
-        // switchViewMode(useUnified) on each BrokkDiffPanel for immediate effect.
+        // Service settings - preserve current if radio buttons are null (STAGING mode)
+        MainProject.LlmProxySetting proxySetting;
+        if (brokkProxyRadio == null) {
+            proxySetting = MainProject.getProxySetting(); // Keep current (e.g., STAGING)
+        } else {
+            proxySetting = brokkProxyRadio.isSelected()
+                    ? MainProject.LlmProxySetting.BROKK
+                    : MainProject.LlmProxySetting.LOCALHOST;
+        }
+        var forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-        // Startup behavior
-        var currentStartupMode = MainProject.getStartupOpenMode();
-        var selectedStartupMode =
+        // Appearance settings
+        String newTheme = GuiTheme.THEME_LIGHT;
+        if (lightThemeRadio.isSelected()) {
+            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (darkThemeRadio.isSelected()) {
+            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (darkPlusThemeRadio.isSelected()) {
+            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
+        } else if (highContrastThemeRadio.isSelected()) {
+            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+        }
+        boolean newWrapMode = wordWrapCheckbox.isSelected();
+        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+
+        // Compression settings
+        boolean autoCompress = autoCompressCheckbox.isSelected();
+        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
+
+        // Startup settings
+        var startupMode =
                 startupOpenAllRadio.isSelected() ? MainProject.StartupOpenMode.ALL : MainProject.StartupOpenMode.LAST;
-        if (selectedStartupMode != currentStartupMode) {
-            MainProject.setStartupOpenMode(selectedStartupMode);
-            logger.debug("Applied Startup Open Mode: {}", selectedStartupMode);
-        }
-        // Save preference for per-project main window bounds persistence
-        GlobalUiSettings.savePersistPerProjectBounds(persistPerProjectWindowCheckbox.isSelected());
 
-        // Instructions panel behavior
-        GlobalUiSettings.saveInstructionsTabInsertIndentation(instructionsTabInsertIndentationCheckbox.isSelected());
+        // General settings
+        boolean jvmAutomatic = memoryAutoRadio.isSelected();
+        int jvmMb = ((Number) memorySpinner.getValue()).intValue();
 
-        // Quick Models Tab
+        // Model settings
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        var toSaveFavorites = quickModelsTableModel.getFavorites();
-        if (toSaveFavorites.isEmpty()) {
-            var defaultAlias = "default";
+        var favoriteModels = quickModelsTableModel.getFavorites();
+        if (favoriteModels.isEmpty()) {
             var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
-            var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
-            toSaveFavorites = new ArrayList<>();
-            toSaveFavorites.add(defaultFavorite);
-            quickModelsTableModel.setFavorites(toSaveFavorites);
+            favoriteModels = List.of(new Service.FavoriteModel("default", currentCodeConfig));
+            quickModelsTableModel.setFavorites(favoriteModels);
         }
-        MainProject.saveFavoriteModels(toSaveFavorites);
-        // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
-        // Preferred Code Model
+        var mcpServers = new ArrayList<McpServer>();
+        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+            mcpServers.add(mcpServersListModel.getElementAt(i));
+        }
+        var mcpConfig = new McpConfig(mcpServers);
+
+        // UI preferences
+        boolean advancedMode = advancedModeCheckbox.isSelected();
+        boolean verticalLayout = verticalActivityLayoutCheckbox.isSelected();
+        boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
+        boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
+        boolean diffUnified = diffUnifiedRadio.isSelected();
+
+        // Capture "before" values for change detection (must be done before saving)
+        String previousTheme = MainProject.getTheme();
+        boolean previousWrapMode = MainProject.getCodeBlockWrapMode();
+        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
+        boolean previousVerticalLayout = GlobalUiSettings.isVerticalActivityLayout();
+        String previousUiScale = MainProject.getUiScalePref();
+
+        // === PHASE 3: Create grouped settings records ===
+
+        var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
+        var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
+        var compressionSettings = new MainProject.CompressionSettings(autoCompress, thresholdPercent);
+        var startupSettings = new MainProject.StartupSettings(startupMode);
+        var generalSettings = new MainProject.GeneralSettings(new MainProject.JvmMemorySettings(jvmAutomatic, jvmMb));
+        var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
+
+        var notificationSettings = new GlobalUiSettings.NotificationSettings(
+                showCostNotificationsCheckbox.isSelected(),
+                showFreeInternalLLMCheckbox.isSelected(),
+                showErrorNotificationsCheckbox.isSelected(),
+                showConfirmNotificationsCheckbox.isSelected(),
+                showInfoNotificationsCheckbox.isSelected());
+        var uiPreferences = new GlobalUiSettings.UiPreferences(
+                advancedMode, verticalLayout, persistPerProject, instructionsIndent, diffUnified);
+
+        // === PHASE 4: Atomic save (2 writes total) ===
+
+        MainProject.saveAllGlobalSettings(
+                serviceSettings,
+                appearanceSettings,
+                compressionSettings,
+                startupSettings,
+                generalSettings,
+                modelSettings);
+        GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+
+        // === PHASE 5: Side effects after successful save ===
+
+        // Determine what changed for side effects (using previously captured values)
+        boolean themeChanged = !newTheme.equals(previousTheme);
+        boolean wrapChanged = newWrapMode != previousWrapMode;
+        boolean advancedModeChanged = advancedMode != previousAdvancedMode;
+        boolean verticalLayoutChanged = verticalLayout != previousVerticalLayout;
+        boolean uiScaleChanged = !uiScale.equals(previousUiScale);
+
+        // API key side effects
+        if (keyStateChangedInUI) {
+            refreshBalanceDisplay();
+            updateSignupLabelVisibility();
+            parentDialog.triggerDataRetentionPolicyRefresh();
+            chrome.getContextManager().reloadService();
+        }
+
+        // Theme and wrap mode side effects
+        if (themeChanged || wrapChanged) {
+            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+        }
+
+        // Advanced mode side effects
+        if (advancedModeChanged) {
+            try {
+                chrome.applyAdvancedModeVisibility();
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+            }
+        }
+
+        // Vertical layout side effects
+        if (verticalLayoutChanged) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Restart required: Changing Vertical Activity Layout will take effect after restarting Brokk.",
+                    "Restart Required",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        // UI scale side effects
+        if (uiScaleChanged) {
+            parentDialog.markRestartNeededForUiScale();
+        }
+
+        // JVM memory side effects
+        JDeploySettingsUtil.updateJvmMemorySettings(generalSettings.jvmMemory());
+
+        // Terminal font size side effects
+        chrome.updateTerminalFontSize();
+
+        // Quick Model (project-specific)
+        var selectedQuickModel = (String) quickModelCombo.getSelectedItem();
+        if (selectedQuickModel != null && !selectedQuickModel.isEmpty()) {
+            chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(selectedQuickModel));
+        }
+
+        // Quick Edit Model (only if visible/paid)
+        if (quickEditModelLabel.isVisible() && quickEditModelHolder.isVisible()) {
+            var selQE = (String) quickEditModelCombo.getSelectedItem();
+            if (selQE != null && !selQE.isEmpty()) {
+                chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(selQE));
+            }
+        }
+
+        // Quickest Model (project-specific)
+        var selQK = (String) quickestModelCombo.getSelectedItem();
+        if (selQK != null && !selQK.isEmpty()) {
+            chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(selQK));
+        }
+
+        // Scan Model (global)
+        var selScan = (String) scanModelCombo.getSelectedItem();
+        if (selScan != null && !selScan.isEmpty()) {
+            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(selScan));
+        }
+
+        // Preferred Code Model (project-specific)
         var selectedCodeAlias = (String) preferredCodeModelCombo.getSelectedItem();
         if (selectedCodeAlias != null && !selectedCodeAlias.isEmpty()) {
             try {
@@ -1829,7 +2163,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        // Planner Model
+        // Planner Model (project-specific)
         var selectedPlannerAlias = (String) primaryModelCombo.getSelectedItem();
         if (selectedPlannerAlias != null && !selectedPlannerAlias.isEmpty()) {
             try {
@@ -1843,19 +2177,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             }
         }
 
-        // GitHub Tab - managed via Connect/Disconnect flow
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
-            return false;
-        }
-
-        // MCP Servers Tab
-        var servers = new ArrayList<McpServer>();
-        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-            servers.add(mcpServersListModel.getElementAt(i));
-        }
-        var newMcpConfig = new McpConfig(servers);
-        chrome.getProject().getMainProject().setMcpConfig(newMcpConfig);
-
+        logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
     }
 
@@ -3561,6 +3883,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // General navigation
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+
+            // Workspace actions
+            case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
+            case "workspace.attachFilesAndSummarize" ->
+                KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
 
             default ->
                 KeyStroke.getKeyStroke(

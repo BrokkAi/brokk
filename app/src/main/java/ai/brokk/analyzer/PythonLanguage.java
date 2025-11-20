@@ -223,7 +223,7 @@ public class PythonLanguage implements Language {
                                     + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (Exception ex) {
+            } catch (IOException ex) {
                 logger.error(
                         "Error copying Python package {} from {} to {}",
                         pkg.displayName(),

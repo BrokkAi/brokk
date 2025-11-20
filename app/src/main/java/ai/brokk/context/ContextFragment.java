@@ -9,7 +9,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;
 import ai.brokk.analyzer.CallSite;
@@ -1337,17 +1336,18 @@ public interface ContextFragment {
         }
 
         /**
-         * Returns text according to the viewing agent's task type policy. If the SpecialTextType denies viewing
-         * content for the provided task type, a generic placeholder is returned. Otherwise the raw text is returned.
-         * For non-special fragments, returns raw text.
+         * Returns text according to the viewing policy. If the SpecialTextType denies viewing
+         * content for the provided policy, a generic placeholder is returned. Otherwise the raw
+         * text is returned. For non-special fragments, returns raw text.
          */
-        public String textForAgent(TaskResult.Type taskType) {
+        public String textForAgent(ViewingPolicy viewPolicy) {
             var st = specialType();
             if (st.isEmpty()) {
                 return text();
             }
-            if (!st.get().canViewContent().test(taskType)) {
-                return "[%s content hidden for %s]".formatted(description, taskType.name());
+            if (!st.get().canViewContent().test(viewPolicy)) {
+                return "[%s content hidden for %s]"
+                        .formatted(description, viewPolicy.taskType().name());
             }
             return text();
         }
@@ -2623,7 +2623,7 @@ public interface ContextFragment {
 
         @Override
         public String description() {
-            return "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : "");
+            return "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : "");
         }
 
         @Override

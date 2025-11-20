@@ -2712,23 +2712,45 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
-            // TODO: Get off common FJP
-            List<TaskEntry> compressedTaskEntries = taskHistoryToCompress.parallelStream()
-                    .map(this::compressHistory)
-                    .collect(Collectors.toCollection(() -> new ArrayList<>(taskHistoryToCompress.size())));
+            // Use bounded-concurrency executor to avoid overwhelming the LLM provider
+            int concurrency = MainProject.getHistoryCompressionConcurrency();
+            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
+            List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
+            try {
+                // Submit all compression tasks
+                for (TaskEntry entry : taskHistoryToCompress) {
+                    futures.add(exec.submit(() -> compressHistory(entry)));
+                }
 
-            boolean changed = IntStream.range(0, taskHistoryToCompress.size())
-                    .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+                // Collect results in order, with fallback to original on failure
+                List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                for (int i = 0; i < futures.size(); i++) {
+                    try {
+                        compressedTaskEntries.add(futures.get(i).get());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    } catch (ExecutionException ee) {
+                        logger.warn("History compression task failed", ee);
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    }
+                }
 
-            if (!changed) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
-                return;
+                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                        .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+
+                if (!changed) {
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
+                    return;
+                }
+
+                // pushContext will update liveContext with the compressed history
+                // and add a frozen version to contextHistory.
+                pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+            } finally {
+                exec.shutdownNow();
             }
-
-            // pushContext will update liveContext with the compressed history
-            // and add a frozen version to contextHistory.
-            pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }

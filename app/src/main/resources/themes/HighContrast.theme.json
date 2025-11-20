@@ -786,6 +786,9 @@
       "chip_other_bg": "#0066FF",
       "chip_other_fg": "#FFFFFF",
       "chip_other_border": "#00FFFF",
+      "chip_tasklist_bg": "#004D66",
+      "chip_tasklist_fg": "#00EAFF",
+      "chip_tasklist_border": "#00FFFF",
 
       "action_button_bg_default": "#3333FF",
       "action_button_bg_stop": "#FF3633",

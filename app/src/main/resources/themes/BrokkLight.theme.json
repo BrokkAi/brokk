@@ -97,6 +97,9 @@
       "chip_other_bg": "#D4E9F8",
       "chip_other_fg": "#004A99",
       "chip_other_border": "#0078D4",
+      "chip_tasklist_bg": "#D6F2F2",
+      "chip_tasklist_fg": "#0D4752",
+      "chip_tasklist_border": "#79D0D6",
 
       "windowBorder": {
         "enabled": false,

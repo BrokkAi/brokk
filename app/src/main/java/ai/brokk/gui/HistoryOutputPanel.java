@@ -17,6 +17,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -70,6 +71,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
+import javax.swing.JDialog;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -2371,11 +2373,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 .formatted(captureText));
 
                 // Register tool providers
+                var ws = new WorkspaceTools(contextManager.liveContext());
                 var tr = contextManager
                         .getToolRegistry()
                         .builder()
                         .register(this)
-                        .register(new WorkspaceTools(contextManager))
+                        .register(ws)
                         .build();
 
                 var toolSpecs = new ArrayList<ToolSpecification>();
@@ -2402,6 +2405,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ter = tr.executeTool(req);
                         if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                             chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
+                        } else {
+                            this.contextManager.pushContext(ctx ->
+                                    ws.getContext().withAction(CompletableFuture.completedFuture("Task List created")));
                         }
                     }
                 }
@@ -3192,7 +3198,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
-        // Build header with baseline label and Create PR button
+        // Build header with baseline label and buttons
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
 
@@ -3204,6 +3210,52 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
         headerPanel.add(baselineLabel, BorderLayout.WEST);
 
+        // Create right-aligned button panel for all action buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setOpaque(false);
+
+        // Determine if there are uncommitted working tree changes
+        boolean hasUncommittedChanges = false;
+        try {
+            var repoOpt = repo();
+            if (repoOpt.isPresent()) {
+                hasUncommittedChanges = !repoOpt.get().getModifiedFiles().isEmpty();
+            }
+        } catch (Exception e) {
+            logger.debug("Unable to determine uncommitted changes state", e);
+            hasUncommittedChanges = false; // default safe behavior
+        }
+
+        // Add "Changes to Commit" primary button when uncommitted changes exist
+        if (hasUncommittedChanges) {
+            var changesToCommitButton = new MaterialButton("Changes to Commit");
+            SwingUtil.applyPrimaryButtonStyle(changesToCommitButton);
+            changesToCommitButton.setToolTipText("Review and commit pending changes");
+            changesToCommitButton.addActionListener(e -> {
+                SwingUtilities.invokeLater(() -> {
+                    var content = new GitCommitTab(chrome, contextManager);
+                    content.updateCommitPanel();
+
+                    var dialog = new JDialog(chrome.getFrame(), "Changes", true);
+                    dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                    dialog.getContentPane().add(content);
+
+                    Dimension prefSize = content.getPreferredSize();
+                    int width = Math.max(prefSize.width, 800);
+                    int height = Math.max(prefSize.height, 600);
+                    dialog.setSize(width, height);
+
+                    dialog.setLocationRelativeTo(chrome.getFrame());
+                    Chrome.applyIcon(dialog);
+
+                    content.applyTheme(chrome.getTheme());
+
+                    dialog.setVisible(true);
+                });
+            });
+            buttonPanel.add(changesToCommitButton);
+        }
+
         // Create PR button on the right (conditionally visible)
         boolean showCreatePR = false;
         if (lastBaselineMode != null) {
@@ -3213,16 +3265,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (showCreatePR) {
             var createPRButton = new MaterialButton("Create PR");
             createPRButton.setToolTipText("Create a Pull Request for these changes");
+            createPRButton.setEnabled(!hasUncommittedChanges);
             createPRButton.addActionListener(e -> {
                 SwingUtilities.invokeLater(() -> {
                     CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
                 });
             });
-            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-            buttonPanel.setOpaque(false);
             buttonPanel.add(createPRButton);
-            headerPanel.add(buttonPanel, BorderLayout.EAST);
         }
+
+        // Always add button panel to header for consistent UI
+        headerPanel.add(buttonPanel, BorderLayout.EAST);
 
         var topContainer = new JPanel(new BorderLayout(0, 6));
         topContainer.setOpaque(false);

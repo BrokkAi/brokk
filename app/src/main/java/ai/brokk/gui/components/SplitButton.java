@@ -18,6 +18,7 @@ import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -69,6 +70,8 @@ public class SplitButton extends JComponent {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         actionButton = new MaterialButton(text);
+        Insets originalInsets = actionButton.getInsets();
+
         arrowButton = new MaterialButton();
         // Apply initial fixed width on the arrow button before icon is set
         applyArrowButtonFixedWidth();
@@ -82,6 +85,11 @@ public class SplitButton extends JComponent {
         });
 
         applyCompactStyling(actionButton);
+        // Restore top and bottom padding with 2px left padding to prevent text clipping
+        int top = (originalInsets != null) ? originalInsets.top : 0;
+        int bottom = (originalInsets != null) ? originalInsets.bottom : 0;
+        actionButton.setBorder(new EmptyBorder(top + 2, 2, bottom + 2, 0));
+
         applyCompactStyling(arrowButton);
 
         // Alignments for compact look

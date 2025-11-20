@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -179,7 +180,9 @@ public class CodeAgent {
         try {
             contextManager
                     .getAnalyzerWrapper()
-                    .updateFiles(contextManager.getFilesInContext())
+                    .updateFiles(context.fileFragments()
+                            .flatMap(cf -> cf.files().stream())
+                            .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -198,13 +201,15 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
+                var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles());
+                        es.changedFiles(),
+                        viewingPolicy);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -632,12 +637,13 @@ public class CodeAgent {
         return new Step.Continue(nextCs, es);
     }
 
-    private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply)
+    private EditBlock.EditResult applyBlocksAndHandleErrors(
+            Context ctx, List<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
         EditBlock.EditResult editResult;
         try {
-            editResult = EditBlock.apply(contextManager, io, blocksToApply);
+            editResult = EditBlock.apply(ctx, io, blocksToApply);
         } catch (IOException e) {
             var eMessage = requireNonNull(e.getMessage());
             // io.toolError is handled by caller if this exception propagates
@@ -754,7 +760,7 @@ public class CodeAgent {
         ConversationState csForStep = cs; // Will be updated
 
         try {
-            editResult = applyBlocksAndHandleErrors(es.pendingBlocks());
+            editResult = applyBlocksAndHandleErrors(context, es.pendingBlocks());
 
             int attemptedBlockCount = es.pendingBlocks().size();
             var failedBlocks = editResult.failedBlocks();

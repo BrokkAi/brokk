@@ -308,13 +308,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         if (LAMBDA_EXPRESSION.equals(decl.getType())) {
             var enclosingMethod = findEnclosingJavaMethodOrClassName(decl, src).orElse("lambda");
             int line = decl.getStartPoint().getRow();
-            int col = 0;
-            try {
-                // Some bindings may not expose column; defensively handle absence
-                col = decl.getStartPoint().getColumn();
-            } catch (Throwable ignored) {
-                // default to 0
-            }
+            int col = decl.getStartPoint().getColumn();
             String synthesized = enclosingMethod + "$anon$" + line + ":" + col;
             return Optional.of(synthesized);
         }
@@ -537,66 +531,58 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             CodeUnit cu, TSNode classNode, String signature, String src) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
         // Previously only the first match was considered, which dropped additional interfaces.
-        try {
-            var query = getThreadLocalQuery();
+        var query = getThreadLocalQuery();
 
-            // Ascend to the root node for matching
-            TSNode root = classNode;
-            while (root.getParent() != null && !root.getParent().isNull()) {
-                root = root.getParent();
-            }
-
-            var cursor = new TSQueryCursor();
-            cursor.exec(query, root);
-
-            TSQueryMatch match = new TSQueryMatch();
-            List<TSNode> aggregateSuperNodes = new ArrayList<>();
-
-            final int targetStart = classNode.getStartByte();
-            final int targetEnd = classNode.getEndByte();
-
-            while (cursor.nextMatch(match)) {
-                TSNode declNode = null;
-                List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(cap.getIndex());
-                    TSNode n = cap.getNode();
-                    if (n == null || n.isNull()) continue;
-
-                    if ("type.decl".equals(capName)) {
-                        declNode = n;
-                    } else if ("type.super".equals(capName)) {
-                        superCapturesThisMatch.add(n);
-                    }
-                }
-
-                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                    // Accumulate all type.super nodes for this declaration; do not break after first match.
-                    aggregateSuperNodes.addAll(superCapturesThisMatch);
-                }
-            }
-
-            // Sort once to preserve source order: superclass first, then interfaces in declaration order
-            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-            for (TSNode s : aggregateSuperNodes) {
-                String text = textSlice(s, src).strip();
-                if (!text.isEmpty()) {
-                    supers.add(text);
-                }
-            }
-
-            // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
-            LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
-            return List.copyOf(unique);
-        } catch (Throwable t) {
-            log.debug(
-                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {} via query: {}",
-                    cu.fqName(),
-                    t.toString());
-            return List.of();
+        // Ascend to the root node for matching
+        TSNode root = classNode;
+        while (root.getParent() != null && !root.getParent().isNull()) {
+            root = root.getParent();
         }
+
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, root);
+
+        TSQueryMatch match = new TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+
+        final int targetStart = classNode.getStartByte();
+        final int targetEnd = classNode.getEndByte();
+
+        while (cursor.nextMatch(match)) {
+            TSNode declNode = null;
+            List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+            for (TSQueryCapture cap : match.getCaptures()) {
+                String capName = query.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+
+                if ("type.decl".equals(capName)) {
+                    declNode = n;
+                } else if ("type.super".equals(capName)) {
+                    superCapturesThisMatch.add(n);
+                }
+            }
+
+            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                // Accumulate all type.super nodes for this declaration; do not break after first match.
+                aggregateSuperNodes.addAll(superCapturesThisMatch);
+            }
+        }
+
+        // Sort once to preserve source order: superclass first, then interfaces in declaration order
+        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+        for (TSNode s : aggregateSuperNodes) {
+            String text = textSlice(s, src).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+
+        // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
+        LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+        return List.copyOf(unique);
     }
 }
