@@ -600,11 +600,12 @@ public class Context {
         }
 
         result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
-        
+
         // Add virtual fragments, excluding the Task List to avoid duplication
         result.addAll(fragments.stream()
                 .filter(f -> f.getType().isVirtual())
-                .filter(f -> taskListFragment.isEmpty() || !f.id().equals(taskListFragment.get().id()))
+                .filter(f -> taskListFragment.isEmpty()
+                        || !f.id().equals(taskListFragment.get().id()))
                 .toList());
 
         return result;

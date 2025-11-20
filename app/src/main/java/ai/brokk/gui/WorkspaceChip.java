@@ -29,7 +29,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -374,7 +373,8 @@ public class WorkspaceChip extends JPanel {
                 }
                 var hoveredIds = parentPanel.getHoveredFragmentIds();
                 if (!hoveredIds.isEmpty() && !fragments.isEmpty()) {
-                    boolean isHovered = fragments.stream().map(ContextFragment::id).anyMatch(hoveredIds::contains);
+                    boolean isHovered =
+                            fragments.stream().map(ContextFragment::id).anyMatch(hoveredIds::contains);
                     boolean isDimmed = !isHovered;
                     if (isDimmed) {
                         alpha = Math.min(alpha, 0.5f);

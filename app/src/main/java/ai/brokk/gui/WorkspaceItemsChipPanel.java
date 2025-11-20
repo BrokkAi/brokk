@@ -159,9 +159,8 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = readOnly ? Set.of() : targets;
-        this.hoveredFragmentIds = Set.copyOf(this.hoveredFragments.stream()
-                .map(ContextFragment::id)
-                .collect(java.util.stream.Collectors.toSet()));
+        this.hoveredFragmentIds = Set.copyOf(
+                this.hoveredFragments.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
         for (var component : getComponents()) {
             if (component instanceof JComponent jc) {
                 jc.repaint();

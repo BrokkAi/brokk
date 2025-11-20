@@ -2405,8 +2405,8 @@ public class Chrome
             placeholderStyle = ef.getSyntaxStyle();
         }
 
-        var placeholder = new PreviewTextPanel(
-                contextManager, placeholderFile, "Loading...", placeholderStyle, themeManager, pf);
+        var placeholder =
+                new PreviewTextPanel(contextManager, placeholderFile, "Loading...", placeholderStyle, themeManager, pf);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {

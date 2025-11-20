@@ -16,7 +16,6 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
@@ -68,7 +67,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile List<ContextFragment> fragments = List.of();
     private volatile List<Segment> segments = List.of();
     private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
-    private volatile Set<ContextFragment> hoveredFragments = Set.of();
     private volatile Set<String> hoveredFragmentIds = Set.of();
     private volatile boolean readOnly = false;
 
@@ -251,10 +249,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
-        this.hoveredFragments = targets;
-        this.hoveredFragmentIds = Set.copyOf(targets.stream()
-                .map(ContextFragment::id)
-                .collect(java.util.stream.Collectors.toSet()));
+        this.hoveredFragmentIds =
+                Set.copyOf(targets.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
         repaint();
     }
 
