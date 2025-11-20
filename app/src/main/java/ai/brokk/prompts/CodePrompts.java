@@ -7,9 +7,11 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
@@ -26,6 +28,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
@@ -199,7 +202,8 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles)
+            Set<ProjectFile> changedFiles,
+            ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
@@ -208,9 +212,9 @@ public abstract class CodePrompts {
         messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx, true));
+            messages.addAll(getWorkspaceContentsMessages(ctx, true, viewingPolicy));
         } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
         }
         messages.addAll(prologue);
 
@@ -260,12 +264,23 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input, StreamingChatModel model)
-            throws InterruptedException {
+    /**
+     * Collects chat messages for an "ask" request, using the ASK viewing policy.
+     * <p>
+     * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
+     * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
+     *
+     * @param cm    The context manager for the current project/session.
+     * @param input The user's question or request.
+     * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
+     * @throws InterruptedException if interrupted while collecting messages.
+     */
+    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
+        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -594,11 +609,19 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
      * @return A collection of ChatMessages (empty if no content).
      */
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx, boolean combineSummaries) {
-        var allContents = new ArrayList<Content>();
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
+    }
 
+    /**
+     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
+     */
+    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         // --- Partition Read-Only Fragments ---
         var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
@@ -613,61 +636,32 @@ public abstract class CodePrompts {
                         .toList()
                 : readOnlyFragments;
 
-        // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
-        var readOnlyTextFragments = new StringBuilder();
-        var readOnlyImageFragments = new ArrayList<ImageContent>();
+        // --- Format non-summary fragments using the policy ---
+        var rendered = formatWithPolicy(otherFragments, vp);
+        var combinedText = new StringBuilder(rendered.text);
 
-        // Process non-summary fragments
-        otherFragments.forEach(fragment -> {
-            if (fragment.isText()) {
-                // Handle text-based fragments
-                String formatted = fragment.format(); // No analyzer
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                // Handle image fragments - explicitly check for known image fragment types
-                try {
-                    // Convert AWT Image to LangChain4j ImageContent
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    readOnlyImageFragments.add(ImageContent.from(l4jImage));
-                    // Add a placeholder in the text part for reference
-                    readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    // Add a placeholder indicating the error, do not call removeBadFragment from here
-                    readOnlyTextFragments.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
-                }
-            } else {
-                // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
-                // Just add their formatted representation as text
-                String formatted = fragment.format(); // No analyzer
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            }
-        });
-
-        // Process and aggregate SummaryFragments
+        // --- Append summary fragments if present ---
         if (!summaryFragments.isEmpty()) {
-            var combinedText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
                     <api_summaries fragmentid="api_summaries">
                     %s
                     </api_summaries>
                     """
-                            .formatted(combinedText);
-            readOnlyTextFragments.append(combinedBlock).append("\n\n");
+                            .formatted(summaryText);
+            if (!rendered.text.isEmpty()) {
+                combinedText.append("\n\n");
+            }
+            combinedText.append(combinedBlock).append("\n\n");
         }
 
-        if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
+        // --- Return early if nothing to show ---
+        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
 
-        // Add the combined text content for read-only items if any exists
+        // --- Compose final workspace_readonly message ---
         String readOnlyText =
                 """
                               <workspace_readonly>
@@ -677,13 +671,12 @@ public abstract class CodePrompts {
                               %s
                               </workspace_readonly>
                               """
-                        .formatted(readOnlyTextFragments.toString().trim());
+                        .formatted(combinedText.toString().trim());
 
-        // text and image content must be distinct
+        var allContents = new ArrayList<Content>();
         allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(readOnlyImageFragments);
+        allContents.addAll(rendered.images);
 
-        // Create the main UserMessage
         var readOnlyUserMessage = UserMessage.from(allContents);
         return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
     }
@@ -730,18 +723,27 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; uses default if null.
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
      *     empty if no content.
      */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, boolean combineSummaries) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries);
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
     }
 
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
-        return getWorkspaceContentsMessages(ctx, false);
+    /**
+     * Convenience overload for getWorkspaceContentsMessages with a viewing policy.
+     *
+     * @param ctx The context to process.
+     * @param vp The viewing policy to apply for content visibility.
+     * @return A collection containing workspace messages with applied viewing policy.
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
+        return getWorkspaceContentsMessages(ctx, false, vp);
     }
 
     /**
@@ -760,16 +762,28 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Renders fragments in the given order without reordering or splitting.
-     * Builds combined text from all fragment formats and collects images separately.
+     * Formats fragments according to a viewing policy, rendering text and collecting images.
+     * Applies ViewingPolicy to StringFragments when provided (vp != null).
      */
-    private RenderedContent renderFragments(List<ContextFragment> fragments) {
+    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
         for (var fragment : fragments) {
             if (fragment.isText()) {
-                String formatted = fragment.format();
+                String formatted;
+                if (vp != null && fragment instanceof ContextFragment.StringFragment sf) {
+                    var visibleText = sf.textForAgent(vp);
+                    formatted =
+                            """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                                    .formatted(sf.description(), sf.id(), visibleText);
+                } else {
+                    formatted = fragment.format();
+                }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
@@ -857,21 +871,17 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Returns messages containing the current workspace context in insertion order (the order fragments were added).
-     * Does not split by read-only/editable or reorder by modification time.
-     * Suitable for agents (e.g., SearchAgent) that need a flat, chronological view of the workspace.
-     *
-     * @param ctx The context to process.
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment,
-     *     or empty if no content.
+     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
+     * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
+     * - Preserves insertion order and multimodal content.
      */
-    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx) {
+    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
         var allFragments = ctx.allFragments().toList();
         if (allFragments.isEmpty()) {
             return List.of();
         }
 
-        var rendered = renderFragments(allFragments);
+        var rendered = formatWithPolicy(allFragments, vp);
         if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }

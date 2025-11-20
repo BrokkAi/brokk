@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -200,7 +201,12 @@ public class SearchAgent {
 
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context));
+            // Determine viewing policy based on search objective
+            boolean isLutz = objective == Objective.LUTZ;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            // Build workspace messages in insertion order with viewing policy applied
+            var workspaceMessages =
+                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -442,7 +448,7 @@ public class SearchAgent {
             messages.add(new SystemMessage(mcpToolPrompt));
         }
 
-        // Current Workspace contents
+        // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related identifiers from nearby files
@@ -779,8 +785,9 @@ public class SearchAgent {
                 """);
         messages.add(sys);
 
-        // Current Workspace contents
-        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
+        // Current Workspace contents (use default viewing policy)
+        messages.addAll(
+                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Goal and project context
         messages.add(new UserMessage(
