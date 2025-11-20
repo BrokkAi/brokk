@@ -350,14 +350,15 @@ public class GuiTheme {
     }
 
     /**
-     * Checks if dark color scheme is currently active. This includes the dark theme, dark+ theme, and high-contrast 
+     * Checks if dark color scheme is currently active. This includes the dark theme, dark+ theme, and high-contrast
      * theme, as all use dark backgrounds. Use this when you need to select dark vs light color palettes.
      *
      * @return true if dark theme, dark+ theme, or high contrast theme is active
      */
     public boolean isDarkTheme() {
         String theme = MainProject.getTheme();
-        return THEME_DARK.equalsIgnoreCase(theme) || THEME_DARK_PLUS.equalsIgnoreCase(theme) 
+        return THEME_DARK.equalsIgnoreCase(theme)
+                || THEME_DARK_PLUS.equalsIgnoreCase(theme)
                 || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
     }
 
