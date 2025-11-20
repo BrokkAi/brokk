@@ -303,15 +303,8 @@ public class WorkspaceChip extends JPanel {
         if (fragment == null) {
             return;
         }
-        // Ensure a single preview window that starts with "Loading..." and updates in-place.
-        try {
-            var panel = chrome.getContextPanel();
-            panel.showFragmentPreview(fragment);
-        } catch (Exception ex) {
-            logger.error("Failed to open preview via WorkspacePanel; falling back to Chrome", ex);
-            // Fallback (should not normally be needed)
-            chrome.openFragmentPreview(fragment);
-        }
+        // Open unified preview via Chrome for consistent behavior across all entry points
+        chrome.openFragmentPreview(fragment);
     }
 
     protected void onCloseClick() {
