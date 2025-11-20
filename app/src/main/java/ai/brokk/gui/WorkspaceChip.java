@@ -581,7 +581,7 @@ public class WorkspaceChip extends JPanel {
     }
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
-        contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
+        contextManager.submitBackgroundTask("Updating text and tooltip for " + fragment, () -> {
             String description = "<Error obtaining description>";
             String shortDescription = "<Error obtaining description>";
             try {
@@ -843,7 +843,7 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d = fragment.text().renderNowOr("");
+        String d = fragment.description().renderNowOr("");
 
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
                 .replace("\r\n", "\n")
@@ -1006,7 +1006,7 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
-            contextManager.submitBackgroundTask("Updating text and tooltip", () -> {
+            contextManager.submitBackgroundTask("Updating text and tooltip for " + fragment, () -> {
                 String text = buildSummaryLabel();
                 String toolTip = buildAggregateSummaryTooltip();
                 SwingUtilities.invokeLater(() -> {
@@ -1046,7 +1046,7 @@ public class WorkspaceChip extends JPanel {
             int totalTokens = 0;
             try {
                 for (var summary : summaryFragments) {
-                    String text = summary.text().renderNowOr("");
+                    String text = summary.text().join();
                     totalLoc += text.split("\\r?\\n", -1).length;
                     totalTokens += Messages.getApproximateTokens(text);
                 }
