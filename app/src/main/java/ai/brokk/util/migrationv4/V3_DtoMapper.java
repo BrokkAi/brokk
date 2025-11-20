@@ -201,7 +201,10 @@ public class V3_DtoMapper {
                     if (absPath == null)
                         throw new IllegalArgumentException("Missing metadata 'absPath' for ExternalPathFragment");
                     var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
-                    return new ContextFragment.ExternalPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.ExternalPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
                         "ai.brokk.context.ContextFragment$ImageFileFragment" -> {

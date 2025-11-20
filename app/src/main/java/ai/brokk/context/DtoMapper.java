@@ -242,8 +242,9 @@ public class DtoMapper {
             }
             case ExternalFileDto efd -> {
                 ContextFragment.setMinimumId(parseNumericId(efd.id()));
+                String snapshot = efd.snapshotText() != null ? reader.readContent(efd.snapshotText()) : null;
                 yield ContextFragment.ExternalPathFragment.withId(
-                        new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                        new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr, snapshot);
             }
             case ImageFileDto ifd -> {
                 ContextFragment.setMinimumId(parseNumericId(ifd.id()));
@@ -411,9 +412,10 @@ public class DtoMapper {
             case ContextFragment.ProjectPathFragment pf -> {
                 ProjectFile file = pf.file();
                 String snapshotId = null;
-                if (pf.getSnapshotTextOrNull() != null) {
+                String snapshot = pf.getSnapshotTextOrNull();
+                if (snapshot != null && !snapshot.isBlank()) {
                     String fileKey = file.getRoot() + ":" + file.getRelPath();
-                    snapshotId = writer.writeContent(pf.getSnapshotTextOrNull(), fileKey);
+                    snapshotId = writer.writeContent(snapshot, fileKey);
                 }
                 yield new ProjectFileDto(
                         pf.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
@@ -428,7 +430,13 @@ public class DtoMapper {
             }
             case ContextFragment.ExternalPathFragment ef -> {
                 ExternalFile extFile = (ExternalFile) ef.file();
-                yield new ExternalFileDto(ef.id(), extFile.absPath().toString());
+                String snapshotId = null;
+                String snapshot = ef.getSnapshotTextOrNull();
+                if (snapshot != null && !snapshot.isBlank()) {
+                    String fileKey = extFile.absPath().toString();
+                    snapshotId = writer.writeContent(snapshot, fileKey);
+                }
+                yield new ExternalFileDto(ef.id(), extFile.absPath().toString(), snapshotId);
             }
             case ContextFragment.ImageFileFragment imf -> {
                 BrokkFile file = imf.file();
@@ -654,10 +662,6 @@ public class DtoMapper {
                 || "BUILD_LOG".equals(ffd.originalType());
     }
 
-    /**
-     * Build the original live fragment represented by a FrozenFragmentDto.
-     * This replaces returning a FrozenFragment to phase out frozen wrappers.
-     */
     private static ContextFragment fromFrozenDtoToLiveFragment(
             FrozenFragmentDto ffd, IContextManager mgr, ContentReader reader) {
         var original = ffd.originalClassName();
@@ -670,7 +674,10 @@ public class DtoMapper {
                     if (relPath == null)
                         throw new IllegalArgumentException("Missing metadata 'relPath' for ProjectPathFragment");
                     var file = mgr.toFile(relPath);
-                    return new ContextFragment.ProjectPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.ProjectPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -678,7 +685,10 @@ public class DtoMapper {
                     if (absPath == null)
                         throw new IllegalArgumentException("Missing metadata 'absPath' for ExternalPathFragment");
                     var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
-                    return new ContextFragment.ExternalPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.ExternalPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
                         "ai.brokk.context.ContextFragment$ImageFileFragment" -> {
@@ -743,7 +753,10 @@ public class DtoMapper {
                     if (targetIdentifier == null) {
                         throw new IllegalArgumentException("Missing 'targetIdentifier' for UsageFragment");
                     }
-                    return new ContextFragment.UsageFragment(mgr, targetIdentifier);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
@@ -764,7 +777,10 @@ public class DtoMapper {
                     if (fqName == null) {
                         throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
-                    return new ContextFragment.CodeFragment(mgr, fqName);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragment.CodeFragment(mgr, fqName, snapshot);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }

@@ -70,11 +70,16 @@ public class FragmentDtos {
 
     /** DTO for ExternalFile - contains absolute path as string. */
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
+    public record ExternalFileDto(String id, String absPath, @Nullable String snapshotText)
+            implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
             if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
+        }
+
+        public ExternalFileDto(String id, String absPath) {
+            this(id, absPath, null);
         }
     }
 
