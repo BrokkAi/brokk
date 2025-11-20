@@ -1024,8 +1024,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
                                 try {
-                                    var text = frag.text().join();
-                                    fullText.append(text).append("\n");
+                                    frag.text().tryGet().ifPresent(text -> fullText.append(text)
+                                            .append("\n"));
                                 } catch (Exception e) {
                                     logger.error("Unable to obtain fragment text for token cost estimation task.", e);
                                 }

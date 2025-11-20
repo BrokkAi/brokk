@@ -3058,6 +3058,7 @@ public interface ContextFragment {
      */
     class HistoryFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<TaskEntry> history; // Content is fixed once created
+        private transient @Nullable ComputedValue<String> textCv;
 
         public HistoryFragment(IContextManager contextManager, List<TaskEntry> history) {
             super(
@@ -3095,14 +3096,18 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            return new ComputedValue<>(
-                    "hf-text-" + id(),
-                    () -> TaskEntry.formatMessages(history.stream()
-                            .flatMap(e -> e.isCompressed()
-                                    ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                    : castNonNull(e.log()).messages().stream())
-                            .toList()),
-                    getFragmentExecutor());
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "hf-text-" + id(),
+                            () -> TaskEntry.formatMessages(history.stream()
+                                    .flatMap(e -> e.isCompressed()
+                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                            : castNonNull(e.log()).messages().stream())
+                                    .toList()),
+                            getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
@@ -3163,6 +3168,7 @@ public interface ContextFragment {
      */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<ChatMessage> messages; // Content is fixed once created
+        private transient @Nullable ComputedValue<String> textCv;
 
         @SuppressWarnings({"unused", "UnusedVariable"})
         private final EditBlockParser parser;
@@ -3262,8 +3268,12 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            return new ComputedValue<>(
-                    "tf-text-" + id(), () -> TaskEntry.formatMessages(messages), getFragmentExecutor());
+            return lazyInitCv(
+                    textCv,
+                    () -> textCv,
+                    () -> new ComputedValue<>(
+                            "tf-text-" + id(), () -> TaskEntry.formatMessages(messages), getFragmentExecutor()),
+                    v -> textCv = v);
         }
 
         @Override
