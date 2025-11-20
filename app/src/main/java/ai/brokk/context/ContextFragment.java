@@ -368,20 +368,24 @@ public interface ContextFragment {
      * Safe to call multiple times; ComputedValue ensures single evaluation.
      */
     default void primeComputations() {
-        shortDescription().start();
-        description().start();
-        text().start();
-        syntaxStyle().start();
-        sources().start();
-        files().start();
-        format().start();
-        var ib = imageBytes();
-        if (ib != null) {
-            ib.start();
-        }
-        // Prime additional surfaces for specific fragment types
-        if (this instanceof ContextFragment.CodeFragment cf) {
-            cf.computedUnit().start();
+        var envVar = System.getenv("BRK_EAGER_FRAGMENTS");
+        var eagerFragmentsEnabled = envVar != null && (envVar.isBlank() || Boolean.parseBoolean(envVar));
+        if (eagerFragmentsEnabled) {
+            shortDescription().start();
+            description().start();
+            text().start();
+            syntaxStyle().start();
+            sources().start();
+            files().start();
+            format().start();
+            var ib = imageBytes();
+            if (ib != null) {
+                ib.start();
+            }
+            // Prime additional surfaces for specific fragment types
+            if (this instanceof ContextFragment.CodeFragment cf) {
+                cf.computedUnit().start();
+            }
         }
     }
 
