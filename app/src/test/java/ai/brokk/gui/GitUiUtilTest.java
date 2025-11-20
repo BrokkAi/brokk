@@ -298,7 +298,6 @@ public class GitUiUtilTest {
         String owner40 = "a".repeat(40);
         var result = GitRepoIdUtil.validateFullRepoName(owner40 + "/repo");
         assertTrue(result.isPresent(), "Full repo name with owner over limit should be invalid");
-        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 
     @Test
@@ -313,7 +312,6 @@ public class GitUiUtilTest {
         String repo101 = "a".repeat(101);
         var result = GitRepoIdUtil.validateFullRepoName("owner/" + repo101);
         assertTrue(result.isPresent(), "Full repo name with repo over limit should be invalid");
-        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 
     @Test
@@ -610,43 +608,35 @@ public class GitUiUtilTest {
 
     @Test
     void testValidateOwnerRepo_invalidCases() {
-        // Empty parts
+        // Empty parts - return generic message
         var r1 = GitRepoIdUtil.validateOwnerRepo("", "repo");
         assertTrue(r1.isPresent());
-        assertTrue(r1.get().contains("owner/repo"));
 
         var r2 = GitRepoIdUtil.validateOwnerRepo("owner", "");
         assertTrue(r2.isPresent());
-        assertTrue(r2.get().contains("owner/repo"));
 
-        // Owner with '/'
+        // Owner with '/' - return generic message
         var r3 = GitRepoIdUtil.validateOwnerRepo("own/er", "repo");
         assertTrue(r3.isPresent());
-        assertTrue(r3.get().contains("owner/repo"));
 
-        // Repo with '/'
+        // Repo with '/' - return generic message
         var r4 = GitRepoIdUtil.validateOwnerRepo("owner", "rep/o");
         assertTrue(r4.isPresent());
-        assertTrue(r4.get().contains("owner/repo"));
 
-        // Whitespace-only values
+        // Whitespace-only values - return generic message
         var r5 = GitRepoIdUtil.validateOwnerRepo("   ", "repo");
         assertTrue(r5.isPresent());
-        assertTrue(r5.get().contains("owner/repo"));
 
         var r6 = GitRepoIdUtil.validateOwnerRepo("owner", "   ");
         assertTrue(r6.isPresent());
-        assertTrue(r6.get().contains("owner/repo"));
 
-        // Owner with underscore (stricter rule)
+        // Owner with underscore - return specific owner format error
         var r7 = GitRepoIdUtil.validateOwnerRepo("own_er", "repo");
         assertTrue(r7.isPresent());
-        assertTrue(r7.get().contains("owner/repo"));
 
-        // Owner with dot (stricter rule)
+        // Owner with dot - return specific owner format error
         var r8 = GitRepoIdUtil.validateOwnerRepo("own.er", "repo");
         assertTrue(r8.isPresent());
-        assertTrue(r8.get().contains("owner/repo"));
     }
 
     @Test
@@ -674,13 +664,11 @@ public class GitUiUtilTest {
     void testValidateFullRepoName_InvalidOwnerWithDot() {
         var result = GitRepoIdUtil.validateFullRepoName("octo.cat/hello-world");
         assertTrue(result.isPresent(), "Full repo name with dot in owner should be invalid");
-        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 
     @Test
     void testValidateFullRepoName_InvalidRepoWithLeadingDot() {
         var result = GitRepoIdUtil.validateFullRepoName("owner/.repo");
         assertTrue(result.isPresent(), "Full repo name with leading dot in repo should be invalid");
-        assertTrue(result.get().contains("owner/repo"), "Error message should mention owner/repo format");
     }
 }

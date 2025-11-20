@@ -126,18 +126,15 @@ public interface GitRepoIdUtil {
             return Optional.of(INVALID_REPO_FORMAT_MSG);
         }
 
-        // Validate owner: length 1-39, alphanumeric and hyphens only
-        if (trimmedOwner.length() > 39
-                || !GITHUB_OWNER_PATTERN.matcher(trimmedOwner).matches()) {
-            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        // Delegate to specific validators for detailed error messages
+        var ownerError = validateOwnerFormat(trimmedOwner);
+        if (ownerError.isPresent()) {
+            return ownerError;
         }
 
-        // Validate repo: length 1-100, alphanumeric/underscore/dot/hyphen, no leading/trailing dot
-        if (trimmedRepo.length() > 100
-                || trimmedRepo.equals(".")
-                || trimmedRepo.equals("..")
-                || !GITHUB_REPO_PATTERN.matcher(trimmedRepo).matches()) {
-            return Optional.of(INVALID_REPO_FORMAT_MSG);
+        var repoError = validateRepoFormat(trimmedRepo);
+        if (repoError.isPresent()) {
+            return repoError;
         }
 
         return Optional.empty();
