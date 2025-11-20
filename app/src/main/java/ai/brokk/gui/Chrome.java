@@ -2198,13 +2198,8 @@ public class Chrome
      * <p><b>Unified Entry Point:</b> This is the single entry point for all fragment preview operations
      * across the application. All preview requests—whether from WorkspacePanel chips, TokenUsageBar segments,
      * or other UI components—must route through this method to ensure consistent behavior, titles, and content.
-     * See {@link WorkspacePanel#showFragmentPreview(ContextFragment)} and TESTING.md for verification details.
      */
     public void openFragmentPreview(ContextFragment fragment) {
-        // Lightweight sanity check: ensure fragment is valid
-        assert fragment != null : "openFragmentPreview called with null fragment";
-        assert fragment.id() != null && !fragment.id().isBlank() : "Fragment has invalid/empty ID: " + fragment;
-
         try {
             var latestCtx = contextManager.getContextHistory().liveContext();
             boolean isCurrentContext = latestCtx.allFragments().anyMatch(f -> f.id().equals(fragment.id()));

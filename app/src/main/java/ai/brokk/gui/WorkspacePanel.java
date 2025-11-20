@@ -355,7 +355,7 @@ public class WorkspacePanel extends JPanel {
                         case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
                         case VIEW_FILE -> {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
-                            panel.showFragmentPreview(fragment);
+                            panel.chrome.openFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
                         default ->
@@ -413,7 +413,7 @@ public class WorkspacePanel extends JPanel {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
-                        case VIEW_FILE, SHOW_CONTENTS -> panel.showFragmentPreview(fragment);
+                        case VIEW_FILE, SHOW_CONTENTS -> panel.chrome.openFragmentPreview(fragment);
                         default ->
                             throw new UnsupportedOperationException(
                                     "Fragment action not implemented: " + WorkspaceAction.this);
@@ -895,7 +895,7 @@ public class WorkspacePanel extends JPanel {
                     if (row >= 0) {
                         var fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
                         if (fragment != null) {
-                            showFragmentPreview(fragment);
+                            chrome.openFragmentPreview(fragment);
                         }
                     }
                 }
@@ -1555,37 +1555,6 @@ public class WorkspacePanel extends JPanel {
         textArea.setToolTipText(tooltip);
         textArea.setBorder(null);
         return textArea;
-    }
-
-    /**
-     * Shows a preview of the fragment contents.
-     * 
-     * <p><b>Unified Preview Behavior:</b> This method delegates to {@link Chrome#openFragmentPreview(ContextFragment)}
-     * to ensure all fragment previews—from chips, table rows, action menus, and other UI entry points—
-     * route through a single code path. This guarantees consistent:
-     * <ul>
-     *   <li>Preview window titles (resolved with computed descriptions when available)</li>
-     *   <li>Content rendering (markdown, syntax-highlighted code, images)</li>
-     *   <li>Window reuse (same key → same window updated with new content)</li>
-     *   <li>Placeholder/async loading behavior</li>
-     * </ul>
-     *
-     * <p><b>Integration Verification:</b> To verify consistency across entry points, see TESTING.md
-     * for manual QA steps. Key scenarios to test:
-     * <ul>
-     *   <li>Click chip in workspace → preview opens</li>
-     *   <li>Double-click table row in workspace → same preview opens (window reused)</li>
-     *   <li>Click action menu "Show Contents" → same preview opens (window reused)</li>
-     *   <li>Click TokenUsageBar segment → equivalent single-fragment chip shows same preview</li>
-     *   <li>Verify titles, content, and window reuse behavior match across all entry points</li>
-     * </ul>
-     * 
-     * @deprecated This method now delegates to {@link Chrome#openFragmentPreview(ContextFragment)} for unified
-     *             behavior across all preview entry points. Use that method directly for new code.
-     */
-    @Deprecated(since = "2025.01", forRemoval = false)
-    void showFragmentPreview(ContextFragment fragment) {
-        chrome.openFragmentPreview(fragment);
     }
 
     // ------------------------------------------------------------------
