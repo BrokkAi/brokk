@@ -1998,16 +1998,17 @@ public class Chrome
      * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
      */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
+        // Prefer stable file-based keys when a ProjectFile is present on the preview component
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
-            // For file previews with an actual file, use file-based key
-            if (title.startsWith("Preview: ")) {
-                return "file:" + title.substring(9); // Remove "Preview: " prefix
-            } else {
-                return "file:" + title;
+            return "file:" + textPanel.getFile().toString();
+        }
+        if (contentComponent instanceof PreviewImagePanel imagePanel) {
+            var bf = imagePanel.getFile();
+            if (bf instanceof ProjectFile pf) {
+                return "file:" + pf.toString();
             }
         }
-        // For fragment previews (no file) or other content types, use title-based key
-        // This ensures placeholder and final content generate the same key for window reuse
+        // Fallback: title-based key for non-file content
         return "preview:" + title;
     }
 
@@ -2397,8 +2398,20 @@ public class Chrome
     private void previewPathFragment(
             ContextFragment.PathFragment pf, String initialTitle, @Nullable String computedDescNow) {
         var brokkFile = pf.file();
+
+        // Use the same ProjectFile for the placeholder panel to ensure the same reuse key
+        ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p) ? p : null;
+
+        // Use the best-available syntax style even for the placeholder (helps early highlight)
+        String placeholderStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+        if (brokkFile instanceof ProjectFile p) {
+            placeholderStyle = p.getSyntaxStyle();
+        } else if (brokkFile instanceof ExternalFile ef) {
+            placeholderStyle = ef.getSyntaxStyle();
+        }
+
         var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, pf);
+                contextManager, placeholderFile, "Loading...", placeholderStyle, themeManager, pf);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {
