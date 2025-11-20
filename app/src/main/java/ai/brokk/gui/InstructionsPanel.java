@@ -878,12 +878,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 StringBuilder tip = new StringBuilder();
                 tip.append("<html>");
                 tip.append("Add content to workspace");
-                if (attachStr != null && !attachStr.isBlank()) {
+                if (!attachStr.isBlank()) {
                     tip.append(" (").append(attachStr).append(")");
                 }
                 tip.append("<br/>");
                 tip.append("Attach Files + Summarize");
-                if (summStr != null && !summStr.isBlank()) {
+                if (!summStr.isBlank()) {
                     tip.append(" (").append(summStr).append(")");
                 }
                 tip.append("</html>");
