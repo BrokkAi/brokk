@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -11,6 +12,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.Chrome;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -435,20 +437,29 @@ public class WorkspaceTools {
             return "No tasks provided.";
         }
 
-        var cm = context.getContextManager();
-        var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-
-        // Replace the entire task list via ContextManager
-        context = ((ContextManager) cm).createOrReplaceTaskList(context, tasks);
+        // Build task items by stripping whitespace and filtering empty strings
+        var cleanedTexts = tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        var items = cleanedTexts.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false))
+                .toList();
+        var newData = new TaskList.TaskListData(List.copyOf(items));
+        
+        // Replace the entire task list by updating context
+        context = context.withTaskList(newData, "Task list replaced");
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
-        io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+
+        // Emit output only if io is available
+        var io = ioOrNull();
+        if (io != null) {
+            io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+            io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+            if (io instanceof Chrome chrome) {
+                SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+            }
         }
 
         return formattedTaskList;
@@ -467,20 +478,33 @@ public class WorkspaceTools {
             return "No tasks provided.";
         }
 
-        var cm = context.getContextManager();
-        var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-
-        // Append tasks to the existing task list via ContextManager
-        context = ((ContextManager) cm).appendTasksToTaskList(context, tasks);
+        // Build new task items by stripping whitespace and filtering empty strings
+        var cleanedTexts = tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        var newItems = cleanedTexts.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false))
+                .toList();
+        
+        // Append to existing tasks
+        var existing = new java.util.ArrayList<>(context.getTaskListDataOrEmpty().tasks());
+        existing.addAll(newItems);
+        var newData = new TaskList.TaskListData(List.copyOf(existing));
+        
+        // Update context with merged task list
+        context = context.withTaskList(newData, "Task list updated");
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
-        io.llmOutput("I am appending the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+
+        // Emit output only if io is available
+        var io = ioOrNull();
+        if (io != null) {
+            io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+            io.llmOutput("I am appending the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
+            if (io instanceof Chrome chrome) {
+                SwingUtilities.invokeLater(chrome::refreshTaskListUI);
+            }
         }
 
         return formattedTaskList;
@@ -518,6 +542,22 @@ public class WorkspaceTools {
 
     private IAnalyzer getAnalyzer() {
         return context.getContextManager().getAnalyzerUninterrupted();
+    }
+
+    /**
+     * Helper to safely obtain IConsoleIO when available.
+     * Returns null if context manager is null or getIo() throws UnsupportedOperationException.
+     */
+    private IConsoleIO ioOrNull() {
+        var cm = context.getContextManager();
+        if (cm == null) {
+            return null;
+        }
+        try {
+            return cm.getIo();
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
     }
 
     // Helper: determine if a fragment can be dropped per SpecialTextType policy.
