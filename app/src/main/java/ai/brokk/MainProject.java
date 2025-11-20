@@ -101,7 +101,8 @@ public final class MainProject extends AbstractProject {
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
             "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
             "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
-            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")));
+            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
+            "Scan", new ModelTypeInfo("scanConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -430,6 +431,14 @@ public final class MainProject extends AbstractProject {
 
     public void setQuickestModelConfig(ModelConfig config) {
         setModelConfigInternal("Quickest", config);
+    }
+
+    public ModelConfig getScanModelConfig() {
+        return getModelConfigInternal("Scan");
+    }
+
+    public void setScanModelConfig(ModelConfig config) {
+        setModelConfigInternal("Scan", config);
     }
 
     @Override
