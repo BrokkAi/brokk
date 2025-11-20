@@ -216,8 +216,8 @@
           on:keydown={onSummaryKeydown}
         >
           <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
-          <span class="tag">History:</span>
-          <div class="content-preview"> {historyTaskCount} entries</div>
+          <span class="tag">Conversation</span>
+          <div class="content-preview"> ({historyTaskCount} threads)</div>
         </header>
       {/if}
     {/if}
