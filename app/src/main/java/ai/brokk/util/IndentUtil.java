@@ -36,7 +36,7 @@ public final class IndentUtil {
 
     /**
      * Computes the scaling factor used to normalize replacement indentation relative to the target structure.
-     * If either step is not strictly positive, returns 1.0 (no scaling).
+     * If either step is not strictly positive (zero or negative), returns 1.0 (no scaling).
      */
     public static double computeIndentScale(int targetIndentStep, int replaceIndentStep) {
         if (targetIndentStep > 0 && replaceIndentStep > 0) {
@@ -53,5 +53,20 @@ public final class IndentUtil {
         int targetIndentStep = findFirstIndentStep(targetLines, baseTargetIndent);
         int replaceIndentStep = findFirstIndentStep(replaceLines, baseReplaceIndent);
         return computeIndentScale(targetIndentStep, replaceIndentStep);
+    }
+
+    /**
+     * Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()).
+     */
+    public static int countLeadingBlankLines(String[] lines) {
+        int c = 0;
+        for (String ln : lines) {
+            if (ln.trim().isEmpty()) {
+                c++;
+            } else {
+                break;
+            }
+        }
+        return c;
     }
 }

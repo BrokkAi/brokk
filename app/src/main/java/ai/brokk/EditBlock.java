@@ -468,15 +468,8 @@ public class EditBlock {
 
     /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
     static int countLeadingBlankLines(String[] lines) {
-        int c = 0;
-        for (String ln : lines) {
-            if (ln.trim().isEmpty()) {
-                c++;
-            } else {
-                break;
-            }
-        }
-        return c;
+        // Delegate to shared utility to ensure consistent behavior.
+        return IndentUtil.countLeadingBlankLines(lines);
     }
 
     /**

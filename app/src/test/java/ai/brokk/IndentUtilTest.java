@@ -42,4 +42,41 @@ class IndentUtilTest {
         String[] target3 = {"sig() {"};
         assertEquals(1.0, IndentUtil.computeIndentScale(target3, replace, baseTargetIndent, baseReplaceIndent), 1e-9);
     }
+
+    @Test
+    void testCountLeadingWhitespace() {
+        assertEquals(0, IndentUtil.countLeadingWhitespace("noindent"));
+        assertEquals(4, IndentUtil.countLeadingWhitespace("    four"));
+        assertEquals(2, IndentUtil.countLeadingWhitespace("  two "));
+        assertEquals(1, IndentUtil.countLeadingWhitespace("\tbody")); // tab counts as whitespace
+        assertEquals(0, IndentUtil.countLeadingWhitespace(""));
+    }
+
+    @Test
+    void testFindFirstIndentStep() {
+        String[] lines1 = {"sig() {", "", "    body;"};
+        int base = IndentUtil.countLeadingWhitespace(lines1[0]);
+        assertEquals(4, IndentUtil.findFirstIndentStep(lines1, base));
+
+        String[] lines2 = {"sig() {", "  ", "\tbody;"};
+        base = IndentUtil.countLeadingWhitespace(lines2[0]);
+        // tab is one whitespace char
+        assertEquals(1, IndentUtil.findFirstIndentStep(lines2, base));
+
+        String[] lines3 = {"sig() {"};
+        base = IndentUtil.countLeadingWhitespace(lines3[0]);
+        assertEquals(-1, IndentUtil.findFirstIndentStep(lines3, base));
+    }
+
+    @Test
+    void testCountLeadingBlankLines() {
+        String[] lines1 = {"", "  ", "x"};
+        assertEquals(2, IndentUtil.countLeadingBlankLines(lines1));
+
+        String[] lines2 = {"x", "", ""};
+        assertEquals(0, IndentUtil.countLeadingBlankLines(lines2));
+
+        String[] lines3 = {};
+        assertEquals(0, IndentUtil.countLeadingBlankLines(lines3));
+    }
 }
