@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -2425,12 +2426,26 @@ public interface ContextFragment {
 
         private Map<CodeUnit, String> fetchSkeletons() {
             IAnalyzer analyzer = getAnalyzer();
-            Map<CodeUnit, String> skeletonsMap = new HashMap<>();
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
             analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
                         analyzer.getDefinition(targetIdentifier).ifPresent(cu -> {
+                            // Always try to include the primary target's skeleton
                             skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+
+                            // If the target is a class, include its direct ancestors (superclass and interfaces)
+                            if (cu.isClass()) {
+                                // Avoid duplicates and cycles; store seen FQNs
+                                var seen = new HashSet<String>();
+                                seen.add(cu.fqName());
+                                analyzer.getDirectAncestors(cu).stream()
+                                        .filter(Objects::nonNull)
+                                        .filter(anc -> seen.add(anc.fqName()))
+                                        .forEach(anc -> skeletonProvider
+                                                .getSkeleton(anc)
+                                                .ifPresent(s -> skeletonsMap.put(anc, s)));
+                            }
                         });
                     }
                     case FILE_SKELETONS -> {
@@ -2450,7 +2465,86 @@ public interface ContextFragment {
             if (skeletons.isEmpty()) {
                 return "No summary found for: " + targetIdentifier;
             }
+
+            if (summaryType == SummaryType.CODEUNIT_SKELETON) {
+                var analyzer = getAnalyzer();
+                var maybeCu = analyzer.getDefinition(targetIdentifier);
+                if (maybeCu.isPresent()) {
+                    var cu = maybeCu.get();
+                    if (cu.isClass()) {
+                        return formatClassSummaryWithDirectAncestors(cu, skeletons);
+                    }
+                }
+            }
+
+            // Fallback: existing combined output for non-class or file summaries
             return combinedText(List.of(this));
+        }
+
+        /**
+         * Formats the primary class skeleton and its direct ancestors into a single, deterministic output.
+         * - Partitions provided skeletons into primary and ancestors (by FQN equality with cu)
+         * - Groups by package, preserving insertion order and sorting package headers for stability
+         * - Emits a clearly delineated "Direct ancestors" section listing resolved ancestor FQNs in order
+         */
+        private String formatClassSummaryWithDirectAncestors(CodeUnit cu, Map<CodeUnit, String> skeletons) {
+            // Partition fetched skeletons into primary and ancestors
+            Map<CodeUnit, String> primary = new LinkedHashMap<>();
+            Map<CodeUnit, String> ancestors = new LinkedHashMap<>();
+            skeletons.forEach((k, v) -> {
+                if (k.fqName().equals(cu.fqName())) {
+                    primary.put(k, v);
+                } else {
+                    ancestors.put(k, v);
+                }
+            });
+
+            // Group by package with deterministic ordering
+            Function<CodeUnit, String> toPkg = u -> u.packageName().isEmpty() ? "(default package)" : u.packageName();
+
+            Map<String, List<String>> primaryByPkg = primary.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> toPkg.apply(e.getKey()),
+                            LinkedHashMap::new,
+                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+
+            Map<String, List<String>> ancestorsByPkg = ancestors.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> toPkg.apply(e.getKey()),
+                            LinkedHashMap::new,
+                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+
+            var sb = new StringBuilder();
+
+            // Emit primary class skeleton(s)
+            primaryByPkg.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(pkgEntry -> {
+                sb.append("package ").append(pkgEntry.getKey()).append(";\n\n");
+                sb.append(String.join("\n\n", pkgEntry.getValue())).append("\n\n");
+            });
+
+            // Emit direct ancestors section if any
+            if (!ancestorsByPkg.isEmpty()) {
+                var ancestorNames = getAnalyzer().getDirectAncestors(cu).stream()
+                        .map(CodeUnit::fqName)
+                        .distinct()
+                        .toList();
+
+                sb.append("// Direct ancestors of ")
+                        .append(cu.shortName())
+                        .append(": ")
+                        .append(String.join(", ", ancestorNames))
+                        .append("\n\n");
+
+                ancestorsByPkg.entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .forEach(pkgEntry -> {
+                            sb.append("package ").append(pkgEntry.getKey()).append(";\n\n");
+                            sb.append(String.join("\n\n", pkgEntry.getValue())).append("\n\n");
+                        });
+            }
+
+            String out = sb.toString().trim();
+            return out.isEmpty() ? "No summary found for: " + targetIdentifier : out;
         }
 
         @Override

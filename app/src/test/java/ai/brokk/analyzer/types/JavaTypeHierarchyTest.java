@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -36,6 +39,15 @@ public class JavaTypeHierarchyTest {
             List<String> transitive =
                     analyzer.getAncestors(x).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("BaseClass"), transitive, "XExtendsY should have BaseClass as its only ancestor");
+
+            // Summary fragment should include a clearly delineated direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag =
+                    new ContextFragment.SummaryFragment(cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertTrue(
+                    txt.contains("// Direct ancestors of XExtendsY: BaseClass"),
+                    "Summary must include a direct ancestors section listing BaseClass");
         }
     }
 
@@ -62,6 +74,15 @@ public class JavaTypeHierarchyTest {
             List<String> transitive =
                     analyzer.getAncestors(impl).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("ServiceInterface"), transitive, "No transitive ancestors beyond the interface");
+
+            // Summary fragment should include a clearly delineated direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(
+                    cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertTrue(
+                    txt.contains("// Direct ancestors of ServiceImpl: ServiceInterface"),
+                    "Summary must include a direct ancestors section listing ServiceInterface");
         }
     }
 
@@ -96,6 +117,15 @@ public class JavaTypeHierarchyTest {
                     List.of("BaseClass", "ServiceInterface", "Interface"),
                     transitive,
                     "Transitive ancestors should maintain discovery order");
+
+            // Summary fragment should include direct ancestors, preserving order
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(
+                    cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertTrue(
+                    txt.contains("// Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface"),
+                    "Summary must list direct ancestors in order [BaseClass, ServiceInterface, Interface]");
         }
     }
 
@@ -114,6 +144,14 @@ public class JavaTypeHierarchyTest {
 
             assertTrue(analyzer.getDirectAncestors(plain).isEmpty(), "Plain should have no direct ancestors");
             assertTrue(analyzer.getAncestors(plain).isEmpty(), "Plain should have no transitive ancestors");
+
+            // Summary fragment should NOT include a direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertTrue(
+                    !txt.contains("// Direct ancestors of Plain:"),
+                    "Summary for a class with no ancestors should not include a direct ancestors section");
         }
     }
 
