@@ -270,15 +270,45 @@ public final class MainProject extends AbstractProject {
     }
 
     private BuildAgent.BuildDetails loadBuildDetailsInternal() { // Renamed to avoid conflict with IProject
-        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
-        if (json != null && !json.isEmpty()) {
-            try {
-                return objectMapper.readValue(json, BuildAgent.BuildDetails.class);
-            } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
-            }
-        }
-        return BuildAgent.BuildDetails.EMPTY;
+    String json = projectProps.getProperty(BUILD_DETAILS_KEY);
+    if (json != null && !json.isEmpty()) {
+    try {
+    var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+    
+    // Canonicalize excluded directories relative to the master root for config
+    var canonicalExcludes =
+    PathNormalizer.canonicalizeAllForProject(details.excludedDirectories(), getMasterRootPathForConfig());
+    
+    // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+    Map<String, String> envIn = details.environmentVariables();
+    Map<String, String> canonicalEnv = new HashMap<>(envIn == null ? 0 : envIn.size());
+    if (envIn != null) {
+    for (Map.Entry<String, String> e : envIn.entrySet()) {
+    String k = e.getKey();
+    String v = e.getValue();
+    if (v == null) {
+    continue;
+    }
+    if ("JAVA_HOME".equalsIgnoreCase(k)) {
+    canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+    } else {
+    canonicalEnv.put(k, v);
+    }
+    }
+    }
+    
+    // Return a re-wrapped BuildDetails with canonicalized content
+    return new BuildAgent.BuildDetails(
+    details.buildLintCommand(),
+    details.testAllCommand(),
+    details.testSomeCommand(),
+    canonicalExcludes,
+    canonicalEnv);
+    } catch (JsonProcessingException e) {
+    logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
+    }
+    }
+    return BuildAgent.BuildDetails.EMPTY;
     }
 
     @Override
