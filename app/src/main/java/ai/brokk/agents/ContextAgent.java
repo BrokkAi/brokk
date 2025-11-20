@@ -852,8 +852,7 @@ public class ContextAgent {
 
         var projectFiles = toProjectFiles(contextTool.getRecommendedFiles());
         var projectClasses = contextTool.getRecommendedClasses().stream()
-                .map(name -> analyzer.getDefinitions(name).stream().findFirst())
-                .flatMap(Optional::stream)
+                .flatMap(name -> analyzer.getDefinitions(name).stream())
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
