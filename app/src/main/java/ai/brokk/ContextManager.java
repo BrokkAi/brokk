@@ -1632,7 +1632,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (idx >= 0) {
             existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
             var newData = new TaskList.TaskListData(List.copyOf(existing));
-            setTaskList(newData, "Task list marked task done");
+            setTaskList(newData, "Task list marked task done", false);
         }
     }
 
