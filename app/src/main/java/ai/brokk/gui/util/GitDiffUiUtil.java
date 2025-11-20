@@ -127,8 +127,7 @@ public interface GitDiffUiUtil {
      * Capture uncommitted diffs for the specified files, adding the result to the context. `selectedFiles` must not be
      * empty.
      */
-    static void captureUncommittedDiff(
-            ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
+    static void captureUncommittedDiff(ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
         assert !selectedFiles.isEmpty();
         var repo = contextManager.getProject().getRepo();
 
@@ -190,11 +189,7 @@ public interface GitDiffUiUtil {
     }
 
     /** Show the diff for a single file at a specific commit. */
-    static void showFileHistoryDiff(
-            ContextManager cm,
-            Chrome chrome,
-            String commitId,
-            ProjectFile file) {
+    static void showFileHistoryDiff(ContextManager cm, Chrome chrome, String commitId, ProjectFile file) {
         var repo = cm.getProject().getRepo();
 
         String shortCommitId = ((GitRepo) repo).shortHash(commitId);
@@ -386,12 +381,7 @@ public interface GitDiffUiUtil {
      * Compare a single file from a specific commit to the local (working directory) version. If useParent=true,
      * compares the file's parent commit to local.
      */
-    static void showDiffVsLocal(
-            ContextManager cm,
-            Chrome chrome,
-            String commitId,
-            String filePath,
-            boolean useParent) {
+    static void showDiffVsLocal(ContextManager cm, Chrome chrome, String commitId, String filePath, boolean useParent) {
         var repo = cm.getProject().getRepo();
         var file = new ProjectFile(cm.getRoot(), filePath);
 
@@ -535,8 +525,7 @@ public interface GitDiffUiUtil {
     }
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
-    static void openCommitDiffPanel(
-            ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
+    static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -814,8 +803,7 @@ public interface GitDiffUiUtil {
     }
 
     /** Open a BrokkDiffPanel showing all file changes in a PR with a specific file pre-selected. */
-    static void openPrDiffPanel(
-            ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
+    static void openPrDiffPanel(ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
         contextManager.submitBackgroundTask("Opening PR diff", () -> {

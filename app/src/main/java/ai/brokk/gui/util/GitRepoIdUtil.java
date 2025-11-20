@@ -24,21 +24,18 @@ public interface GitRepoIdUtil {
      * Pattern for valid GitHub owner names: alphanumeric and hyphens only, 1-39 characters,
      * no leading/trailing hyphen, no consecutive hyphens.
      */
-    Pattern GITHUB_OWNER_PATTERN =
-            Pattern.compile("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$");
+    Pattern GITHUB_OWNER_PATTERN = Pattern.compile("^(?!.*--)[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$");
 
     /**
      * Pattern for valid GitHub repository names: alphanumeric, hyphens, underscores, dots,
      * 1-100 characters, no leading/trailing dot.
      */
-    Pattern GITHUB_REPO_PATTERN =
-            Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_]$");
+    Pattern GITHUB_REPO_PATTERN = Pattern.compile("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_]$|^[A-Za-z0-9_]$");
 
     /**
      * Pattern for valid hostname labels: alphanumeric and hyphens, no leading/trailing hyphen.
      */
-    Pattern HOSTNAME_LABEL_PATTERN =
-            Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$");
+    Pattern HOSTNAME_LABEL_PATTERN = Pattern.compile("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$");
 
     /**
      * Holds a parsed "owner" and "repo" from a Git remote URL.

@@ -979,8 +979,8 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 (cid, fp) -> GitDiffUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
         viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction(
                 (cid, fp) -> GitDiffUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
-        viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction(
-                (cid, fp) -> GitDiffUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
+        viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) ->
+                GitDiffUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
 
         viewHistoryItem.addActionListener(
                 e -> getSelectedFilePathsFromTree().forEach(fp -> chrome.addFileHistoryTab(contextManager.toFile(fp))));

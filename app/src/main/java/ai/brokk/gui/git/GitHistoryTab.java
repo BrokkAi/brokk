@@ -217,7 +217,8 @@ public class GitHistoryTab extends JPanel {
                     var today = LocalDate.now(ZoneId.systemDefault());
 
                     for (var entry : history) {
-                        var date = GitDiffUiUtil.formatRelativeDate(entry.commit().date(), today);
+                        var date =
+                                GitDiffUiUtil.formatRelativeDate(entry.commit().date(), today);
                         fileHistoryModel.addRow(new Object[] {
                             entry.commit().message(),
                             entry.commit().author(),

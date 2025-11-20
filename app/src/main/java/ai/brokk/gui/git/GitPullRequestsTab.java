@@ -768,6 +768,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
+                    setReloadUiEnabled(true);
                 },
                 () -> {
                     List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
@@ -808,6 +809,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
+                    setReloadUiEnabled(true);
                 },
                 () -> {
                     List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
@@ -914,8 +916,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */
     private void setPrTitleRenderer(boolean rich) {
         assert SwingUtilities.isEventDispatchThread();
-        GitTabUiUtil.setTitleRenderer(
-                prTable, PR_COL_TITLE, prTitleRichRenderer, defaultStringCellRenderer, rich);
+        GitTabUiUtil.setTitleRenderer(prTable, PR_COL_TITLE, prTitleRichRenderer, defaultStringCellRenderer, rich);
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
@@ -931,7 +932,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         try {
             var repo = getRepo();
             var remoteUrl = repo.getRemoteUrl();
-            GitRepoIdUtil.OwnerRepo ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            GitRepoIdUtil.OwnerRepo ownerRepo =
+                    GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
                 // PR is from the same repository - use the actual branch name
@@ -1522,7 +1524,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
                 GitHostUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
 
-                GitDiffUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
+                GitDiffUiUtil.capturePrDiffToContext(
+                        contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
 
                 // Also edit files mentioned in the diff (excluding binary files)
                 List<GitRepo.ModifiedFile> modifiedFiles;

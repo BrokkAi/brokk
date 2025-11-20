@@ -600,6 +600,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
+                    setReloadUiEnabled(true);
                 },
                 this::cancelActiveFutures,
                 () -> chrome.recreateIssuesPanel());
@@ -648,6 +649,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
+                    setReloadUiEnabled(true);
                 },
                 this::cancelActiveFutures,
                 this::updateIssueList);
