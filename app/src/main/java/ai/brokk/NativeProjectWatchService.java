@@ -10,6 +10,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -26,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class NativeProjectWatchService implements IWatchService {
     private static final Logger logger = LogManager.getLogger(NativeProjectWatchService.class);
+    private static final long DEBOUNCE_DELAY_MS = 500;
 
     private final Path root;
 
@@ -52,6 +57,14 @@ public class NativeProjectWatchService implements IWatchService {
     @Nullable
     private volatile Thread watcherThread;
 
+    // Debouncing fields
+    private final ScheduledExecutorService debounceExecutor;
+    private final Object debounceLock = new Object();
+    private EventBatch accumulatedBatch = new EventBatch();
+
+    @Nullable
+    private ScheduledFuture<?> pendingFlush;
+
     /**
      * Create a NativeProjectWatchService with multiple listeners.
      * All registered listeners will be notified of file system events.
@@ -63,6 +76,14 @@ public class NativeProjectWatchService implements IWatchService {
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
         this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+
+        // Initialize debounce executor
+        this.debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setName("NativeWatcherDebouncer@" + Long.toHexString(t.threadId()));
+            t.setDaemon(true);
+            return t;
+        });
 
         // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
         if (globalGitignorePath != null) {
@@ -184,12 +205,10 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     private void handleEvent(DirectoryChangeEvent event) {
-        // Skip processing if paused
-        if (pauseCount > 0) {
+        // Skip processing if paused or not running
+        if (pauseCount > 0 || !running) {
             return;
         }
-
-        if (!running) return;
 
         try {
             Path changedPath = event.path();
@@ -197,32 +216,56 @@ public class NativeProjectWatchService implements IWatchService {
 
             logger.trace("File event: {} on {}", eventType, changedPath);
 
-            // Create event batch
-            var batch = new EventBatch();
+            synchronized (debounceLock) {
+                // Check if this is an untracked gitignore change
+                if (shouldInvalidateForGitignoreChange(changedPath)) {
+                    accumulatedBatch.untrackedGitignoreChanged = true;
+                }
 
-            // Check if this is an untracked gitignore change
-            if (shouldInvalidateForGitignoreChange(changedPath)) {
-                batch.untrackedGitignoreChanged = true;
-            }
+                // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
+                try {
+                    Path relativePath = root.relativize(changedPath);
+                    accumulatedBatch.files.add(new ProjectFile(root, relativePath));
+                } catch (IllegalArgumentException e) {
+                    // Path is outside root, skip it for now
+                    logger.trace("Skipping event for path outside root: {}", changedPath);
+                    return;
+                }
 
-            // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
-            try {
-                Path relativePath = root.relativize(changedPath);
-                batch.files.add(new ProjectFile(root, relativePath));
-            } catch (IllegalArgumentException e) {
-                // Path is outside root, skip it for now
-                logger.trace("Skipping event for path outside root: {}", changedPath);
-                return;
-            }
-
-            // Notify listeners
-            if (!batch.files.isEmpty()) {
-                notifyFilesChanged(batch);
+                // Cancel existing flush and schedule new one
+                if (pendingFlush != null) {
+                    pendingFlush.cancel(false);
+                }
+                pendingFlush = debounceExecutor.schedule(
+                        this::flushAccumulatedEvents, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
 
         } catch (Exception e) {
             logger.error("Error handling directory change event", e);
         }
+    }
+
+    /**
+     * Flushes the accumulated events to listeners.
+     * Called by the debounce executor after DEBOUNCE_DELAY_MS of inactivity.
+     */
+    private void flushAccumulatedEvents() {
+        EventBatch batchToNotify;
+
+        synchronized (debounceLock) {
+            // If there's nothing to notify, return early
+            if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
+                return;
+            }
+
+            // Swap out the batch and reset
+            batchToNotify = accumulatedBatch;
+            accumulatedBatch = new EventBatch();
+            pendingFlush = null;
+        }
+
+        logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
+        notifyFilesChanged(batchToNotify);
     }
 
     private void notifyFilesChanged(EventBatch batch) {
@@ -273,6 +316,17 @@ public class NativeProjectWatchService implements IWatchService {
     public synchronized void close() {
         running = false;
         pauseCount = 0;
+
+        // Shutdown debounce executor
+        debounceExecutor.shutdown();
+        try {
+            if (!debounceExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                debounceExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            debounceExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
 
         if (watcher != null) {
             try {
