@@ -1268,9 +1268,9 @@ public interface ContextFragment {
     abstract class VirtualFragment implements ContextFragment {
         protected final String id; // numeric or content hash
         protected final transient IContextManager contextManager;
-        private transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
-        private transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private transient @Nullable ComputedValue<String> formatCv;
+        protected transient @Nullable ComputedValue<Set<ProjectFile>> filesCv;
+        protected transient @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
+        protected transient @Nullable ComputedValue<String> formatCv;
 
         // Constructor for dynamic VirtualFragments that use nextId
         public VirtualFragment(IContextManager contextManager) {
@@ -2051,8 +2051,6 @@ public interface ContextFragment {
         private final boolean includeTestFiles;
         private volatile @Nullable String snapshotText;
         private @Nullable ComputedValue<String> textCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private @Nullable ComputedValue<String> syntaxCv;
         private @Nullable ComputedValue<String> descCv;
 
@@ -2277,8 +2275,6 @@ public interface ContextFragment {
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
         private @Nullable ComputedValue<String> shortCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private @Nullable ComputedValue<String> syntaxCv;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
@@ -2509,8 +2505,6 @@ public interface ContextFragment {
         private final int depth;
         private final boolean isCalleeGraph; // true for callees (OUT), false for callers (IN)
         private @Nullable ComputedValue<String> textCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(contextManager); // Assigns dynamic numeric String ID
@@ -2671,10 +2665,7 @@ public interface ContextFragment {
     class SkeletonFragment extends VirtualFragment { // Dynamic composite wrapper around SummaryFragments
         private final List<SummaryFragment> summaries;
         private @Nullable ComputedValue<String> textCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private @Nullable ComputedValue<String> descCv;
-        private @Nullable ComputedValue<String> formatCv;
 
         public SkeletonFragment(
                 IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
@@ -2836,8 +2827,6 @@ public interface ContextFragment {
         private final String targetIdentifier;
         private final SummaryType summaryType;
         private @Nullable ComputedValue<String> textCv;
-        private @Nullable ComputedValue<Set<CodeUnit>> sourcesCv;
-        private @Nullable ComputedValue<Set<ProjectFile>> filesCv;
         private @Nullable ComputedValue<String> descCv;
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
