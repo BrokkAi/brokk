@@ -79,7 +79,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitLogTab gitLogTab;
-    private final GitTabUiStateManager uiStateManager = new GitTabUiStateManager();
 
     private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
@@ -766,7 +765,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Override
     public void gitHubTokenChanged() {
-        uiStateManager.handleProviderOrTokenChange(
+        GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -806,7 +805,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     @Override
     public void issueProviderChanged() {
-        uiStateManager.handleProviderOrTokenChange(
+        GitTabUiUtil.handleProviderOrTokenChange(
                 () -> {
                     isShowingError = false;
                 },
@@ -867,7 +866,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     /** Enable or disable every widget that can trigger a new reload. Must be called on the EDT. */
     private void setReloadUiEnabled(boolean enabled) {
-        GitTabUiStateManager.setReloadControlsEnabled(
+        GitTabUiUtil.setReloadControlsEnabled(
                 enabled, refreshPrButton, statusFilter, authorFilter, labelFilter, assigneeFilter, reviewFilter);
     }
 
@@ -897,7 +896,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      */
     private void showErrorInTable(String message) {
         isShowingError = true;
-        GitTabUiStateManager.setErrorState(
+        GitTabUiUtil.setErrorState(
                 prTable,
                 prTableModel,
                 PR_COL_TITLE,
@@ -915,7 +914,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     /** Toggle PR title column renderer between rich two-line vs simple single-line. Must be called on the EDT. */
     private void setPrTitleRenderer(boolean rich) {
         assert SwingUtilities.isEventDispatchThread();
-        GitTabUiStateManager.setTitleRenderer(
+        GitTabUiUtil.setTitleRenderer(
                 prTable, PR_COL_TITLE, prTitleRichRenderer, defaultStringCellRenderer, rich);
     }
 
@@ -1000,27 +999,27 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             } catch (HttpException httpEx) {
                 logger.error(
                         "GitHub API error while fetching pull requests: HTTP {}", httpEx.getResponseCode(), httpEx);
-                String errorMessage = uiStateManager.mapExceptionToUserMessage(httpEx);
+                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(httpEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (UnknownHostException unknownHostEx) {
                 logger.error("Failed to resolve GitHub host while fetching pull requests", unknownHostEx);
-                String errorMessage = uiStateManager.mapExceptionToUserMessage(unknownHostEx);
+                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(unknownHostEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (SocketTimeoutException timeoutEx) {
                 logger.error("Request timed out while fetching pull requests", timeoutEx);
-                String errorMessage = uiStateManager.mapExceptionToUserMessage(timeoutEx);
+                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(timeoutEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (ConnectException connectEx) {
                 logger.error("Connection refused while fetching pull requests", connectEx);
-                String errorMessage = uiStateManager.mapExceptionToUserMessage(connectEx);
+                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(connectEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (IOException ioEx) {
                 logger.error("I/O error while fetching pull requests", ioEx);
-                String errorMessage = uiStateManager.mapExceptionToUserMessage(ioEx);
+                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(ioEx);
                 SwingUtilities.invokeLater(() -> showPrListError(errorMessage));
                 return null;
             } catch (Exception ex) {
