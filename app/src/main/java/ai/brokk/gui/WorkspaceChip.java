@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
@@ -467,6 +468,16 @@ public class WorkspaceChip extends JPanel {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_FOREGROUND);
                 border = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BORDER);
+            }
+        }
+
+        // Special styling for Task List: dedicated color scheme
+        ContextFragment fragment = getPrimaryFragment();
+        if (fragment instanceof ContextFragment.StringFragment sf) {
+            if (SpecialTextType.TASK_LIST.description().equals(sf.description())) {
+                bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
             }
         }
 

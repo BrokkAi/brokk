@@ -580,8 +580,11 @@ public class Context {
     }
 
     /**
-     * Returns all fragments in display order: - conversation history (if not empty) - file fragments - virtual
-     * fragments
+     * Returns all fragments in display order:
+     * 1. Conversation history (if not empty)
+     * 2. Task List (if present) — special pinned position for task management
+     * 3. File/path fragments
+     * 4. Other virtual fragments (excluding Task List to avoid duplication)
      */
     public List<ContextFragment> getAllFragmentsInDisplayOrder() {
         var result = new ArrayList<ContextFragment>();
@@ -590,8 +593,19 @@ public class Context {
             result.add(new HistoryFragment(contextManager, taskHistory));
         }
 
+        // Add Task List immediately after history if present
+        var taskListFragment = getTaskListFragment();
+        if (taskListFragment.isPresent()) {
+            result.add(taskListFragment.get());
+        }
+
         result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
-        result.addAll(fragments.stream().filter(f -> f.getType().isVirtual()).toList());
+        
+        // Add virtual fragments, excluding the Task List to avoid duplication
+        result.addAll(fragments.stream()
+                .filter(f -> f.getType().isVirtual())
+                .filter(f -> taskListFragment.isEmpty() || !f.id().equals(taskListFragment.get().id()))
+                .toList());
 
         return result;
     }

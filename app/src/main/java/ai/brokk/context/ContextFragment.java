@@ -2623,7 +2623,7 @@ public interface ContextFragment {
 
         @Override
         public String description() {
-            return "Task History (" + history.size() + " task%s)".formatted(history.size() > 1 ? "s" : "");
+            return "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : "");
         }
 
         @Override
