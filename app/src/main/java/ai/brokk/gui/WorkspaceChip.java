@@ -371,9 +371,9 @@ public class WorkspaceChip extends JPanel {
                 if (parentPanel.isReadOnlyMode()) {
                     alpha = Math.min(alpha, 0.6f);
                 }
-                Set<ContextFragment> hovered = parentPanel.getHoveredFragments();
-                if (!hovered.isEmpty() && !fragments.isEmpty()) {
-                    boolean isHovered = !Collections.disjoint(fragments, hovered);
+                var hoveredIds = parentPanel.getHoveredFragmentIds();
+                if (!hoveredIds.isEmpty() && !fragments.isEmpty()) {
+                    boolean isHovered = fragments.stream().map(ContextFragment::id).anyMatch(hoveredIds::contains);
                     boolean isDimmed = !isHovered;
                     if (isDimmed) {
                         alpha = Math.min(alpha, 0.5f);

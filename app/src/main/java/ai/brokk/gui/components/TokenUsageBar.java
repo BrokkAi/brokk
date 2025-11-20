@@ -69,6 +69,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile List<Segment> segments = List.of();
     private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
     private volatile Set<ContextFragment> hoveredFragments = Set.of();
+    private volatile Set<String> hoveredFragmentIds = Set.of();
     private volatile boolean readOnly = false;
 
     // Tooltip for unfilled part (model/max/cost)
@@ -251,6 +252,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = targets;
+        this.hoveredFragmentIds = Set.copyOf(targets.stream()
+                .map(ContextFragment::id)
+                .collect(java.util.stream.Collectors.toSet()));
         repaint();
     }
 
@@ -523,8 +527,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             for (var s : segs) {
                 if (s.widthPx <= 0) continue;
 
-                boolean isHovered = !hoveredFragments.isEmpty() && !Collections.disjoint(s.fragments, hoveredFragments);
-                boolean isDimmed = !hoveredFragments.isEmpty() && !isHovered;
+                boolean hasGlobalHover = !hoveredFragmentIds.isEmpty();
+                boolean isHovered = hasGlobalHover
+                        && s.fragments.stream().map(ContextFragment::id).anyMatch(hoveredFragmentIds::contains);
+                boolean isDimmed = hasGlobalHover && !isHovered;
                 Composite originalComposite = g2d.getComposite();
                 if (isDimmed) {
                     g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));

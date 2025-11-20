@@ -52,6 +52,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     private @Nullable WorkspaceChip.SummaryChip syntheticSummaryChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
+    private Set<String> hoveredFragmentIds = Set.of();
     private boolean readOnly = false;
 
     public WorkspaceItemsChipPanel(Chrome chrome) {
@@ -128,6 +129,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             this.readOnly = readOnly;
             if (readOnly) {
                 this.hoveredFragments = Set.of();
+                this.hoveredFragmentIds = Set.of();
             }
             for (var component : getComponents()) {
                 if (component instanceof WorkspaceChip chip) {
@@ -157,6 +159,9 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragments = readOnly ? Set.of() : targets;
+        this.hoveredFragmentIds = Set.copyOf(this.hoveredFragments.stream()
+                .map(ContextFragment::id)
+                .collect(java.util.stream.Collectors.toSet()));
         for (var component : getComponents()) {
             if (component instanceof JComponent jc) {
                 jc.repaint();
@@ -486,5 +491,9 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
     Set<ContextFragment> getHoveredFragments() {
         return hoveredFragments;
+    }
+
+    Set<String> getHoveredFragmentIds() {
+        return hoveredFragmentIds;
     }
 }
