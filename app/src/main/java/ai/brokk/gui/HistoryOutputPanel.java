@@ -2417,27 +2417,32 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 llm.setOutput(chrome);
 
                 var system = new SystemMessage(
-                        "You are generating an actionable, incremental task list based on the provided capture."
-                                + "Do not speculate beyond it. You MUST produce tasks via the tool call createOrReplaceTaskList(List<String>) or appendTaskList(List<String>). "
-                                + "Do not output free-form text.");
+                        """
+    You are generating an actionable, incremental task list based on the provided capture. Do not speculate beyond it.
+    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>).
+    Do not output free-form text.
+    """);
                 var user = new UserMessage(
                         """
-                                <capture>
-                                %s
-                                </capture>
+    <capture>
+    %s
+    </capture>
 
-                                Instructions:
-                                - Prefer using tasks that are already defined in the capture.
-                                - If no such tasks exist, use your best judgement with the following guidelines:
-                                - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-                                - Prefer tasks that keep the project buildable and testable after each step.
-                                - Avoid multi-goal items; split if needed.
-                                - Avoid external/non-code tasks.
-                                - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+    Instructions:
+    - Prefer using tasks that are already defined in the capture.
+    - If no such tasks exist, use your best judgement with the following guidelines:
+    - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+    - Prefer tasks that keep the project buildable and testable after each step.
+    - Avoid multi-goal items; split if needed.
+    - Avoid external/non-code tasks.
+    - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                                Call the tool createOrReplaceTaskList(List<String>) or appendTaskList(List<String>) with your final list. Do not include any explanation outside the tool call.
-                                """
-                                .formatted(captureText));
+    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>) with your final list. Do not include any explanation outside the tool call.
+
+    Guidance:
+    %s
+    """
+                                .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
 
                 // Register tool providers
                 var ws = new WorkspaceTools(contextManager.liveContext());

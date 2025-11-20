@@ -398,7 +398,7 @@ public class WorkspaceTools {
      * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
      * Used in @Tool parameter descriptions to keep guidance synchronized.
      */
-    private static final String TASK_LIST_GUIDANCE =
+    public static final String TASK_LIST_GUIDANCE =
             """
             Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
 
