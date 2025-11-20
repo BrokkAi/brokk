@@ -2,6 +2,7 @@ package ai.brokk.tasks;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
