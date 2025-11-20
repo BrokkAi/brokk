@@ -96,7 +96,7 @@ public final class SpecialTextType {
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
             v -> (v.taskType() == TaskResult.Type.SEARCH && v.isLutz())
                     || v.taskType() == TaskResult.Type.ASK
-                    || v.taskType() == TaskResult.Type.NONE // NONE is for include it in copy instructions
+                    || v.taskType() == TaskResult.Type.COPY // COPY used for CopyExternal prompts
             ));
 
     // --- Lookups and helpers ---

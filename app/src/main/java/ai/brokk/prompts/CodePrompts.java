@@ -609,13 +609,12 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
-     * @param vp The viewing policy to apply for content visibility; null is treated as isLutz=false.
+     * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
      * @return A collection of ChatMessages (empty if no content).
      */
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
-            Context ctx, boolean combineSummaries, @Nullable ViewingPolicy vp) {
-        var effectiveVp = vp != null ? vp : new ViewingPolicy(TaskResult.Type.NONE);
-        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, effectiveVp);
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
     }
 
     /**
@@ -623,8 +622,6 @@ public abstract class CodePrompts {
      */
     private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        var allContents = new ArrayList<Content>();
-
         // --- Partition Read-Only Fragments ---
         var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
@@ -639,75 +636,32 @@ public abstract class CodePrompts {
                         .toList()
                 : readOnlyFragments;
 
-        // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
-        var readOnlyTextFragments = new StringBuilder();
-        var readOnlyImageFragments = new ArrayList<ImageContent>();
+        // --- Format non-summary fragments using the policy ---
+        var rendered = formatWithPolicy(otherFragments, vp);
+        var combinedText = new StringBuilder(rendered.text);
 
-        // Process non-summary fragments
-        otherFragments.forEach(fragment -> {
-            if (fragment.isText()) {
-                // Handle text-based fragments
-                String formatted;
-                // Apply viewing policy for StringFragments
-                if (fragment instanceof ContextFragment.StringFragment sf) {
-                    formatted = sf.textForAgent(vp);
-                    // Rewrap in the fragment format
-                    formatted =
-                            """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
-                                    .formatted(sf.description(), sf.id(), formatted);
-                } else {
-                    formatted = fragment.format(); // No analyzer
-                }
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                // Handle image fragments - explicitly check for known image fragment types
-                try {
-                    // Convert AWT Image to LangChain4j ImageContent
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    readOnlyImageFragments.add(ImageContent.from(l4jImage));
-                    // Add a placeholder in the text part for reference
-                    readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    // Add a placeholder indicating the error, do not call removeBadFragment from here
-                    readOnlyTextFragments.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
-                }
-            } else {
-                // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
-                // Just add their formatted representation as text
-                String formatted = fragment.format(); // No analyzer
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            }
-        });
-
-        // Process and aggregate SummaryFragments
+        // --- Append summary fragments if present ---
         if (!summaryFragments.isEmpty()) {
-            var combinedText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
                     <api_summaries fragmentid="api_summaries">
                     %s
                     </api_summaries>
                     """
-                            .formatted(combinedText);
-            readOnlyTextFragments.append(combinedBlock).append("\n\n");
+                            .formatted(summaryText);
+            if (!rendered.text.isEmpty()) {
+                combinedText.append("\n\n");
+            }
+            combinedText.append(combinedBlock).append("\n\n");
         }
 
-        if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
+        // --- Return early if nothing to show ---
+        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
 
-        // Add the combined text content for read-only items if any exists
+        // --- Compose final workspace_readonly message ---
         String readOnlyText =
                 """
                               <workspace_readonly>
@@ -717,13 +671,12 @@ public abstract class CodePrompts {
                               %s
                               </workspace_readonly>
                               """
-                        .formatted(readOnlyTextFragments.toString().trim());
+                        .formatted(combinedText.toString().trim());
 
-        // text and image content must be distinct
+        var allContents = new ArrayList<Content>();
         allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(readOnlyImageFragments);
+        allContents.addAll(rendered.images);
 
-        // Create the main UserMessage
         var readOnlyUserMessage = UserMessage.from(allContents);
         return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
     }
@@ -809,11 +762,10 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Renders fragments in the given order without reordering or splitting.
-     * Builds combined text from all fragment formats and collects images separately.
+     * Formats fragments according to a viewing policy, rendering text and collecting images.
      * Applies ViewingPolicy to StringFragments when provided (vp != null).
      */
-    private RenderedContent renderFragments(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
+    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
@@ -929,7 +881,7 @@ public abstract class CodePrompts {
             return List.of();
         }
 
-        var rendered = renderFragments(allFragments, vp);
+        var rendered = formatWithPolicy(allFragments, vp);
         if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
