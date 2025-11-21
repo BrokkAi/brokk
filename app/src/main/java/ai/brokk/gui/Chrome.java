@@ -352,8 +352,8 @@ public class Chrome
         mainTabbedPane.addTab("Agent Mode", agentModePanel);
         mainTabbedPane.setToolTipTextAt(1, "Advanced agent-driven interface (future feature)");
 
-        // Add tabbed pane to frame
-        frame.add(mainTabbedPane, BorderLayout.CENTER);
+        // Add tabbed pane to frame's content pane
+        frame.getContentPane().add(mainTabbedPane, BorderLayout.CENTER);
 
         // Initialize global undo/redo actions now that instructionsPanel is available
         // contextManager is also available (passed in constructor)
