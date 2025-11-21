@@ -97,7 +97,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                 return t;
             });
 
-            // First run triggered by onAnalyzerReady, then every 5 minutes
+            // Run immediate check, then every 5 minutes
+            localScheduler.execute(this::checkLocalDependencies);
             localScheduler.scheduleAtFixedRate(
                     this::checkLocalDependencies,
                     LOCAL_CHECK_INTERVAL_MINUTES,
@@ -132,7 +133,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                 return t;
             });
 
-            // First run triggered by onAnalyzerReady, then every 30 minutes
+            // Run immediate check, then every 30 minutes
+            gitScheduler.execute(this::checkGitDependencies);
             gitScheduler.scheduleAtFixedRate(
                     this::checkGitDependencies,
                     GIT_CHECK_INTERVAL_MINUTES,

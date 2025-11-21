@@ -87,6 +87,7 @@ public final class DependenciesPanel extends JPanel {
     private @Nullable DependencyUpdateScheduler updateScheduler;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
+    private static final String UPDATING = "Updating...";
 
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
@@ -114,7 +115,7 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private static boolean isTruthyLive(Object v) {
-        return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
+        return v instanceof Boolean b ? b : (v instanceof String s && (LOADING.equals(s) || UPDATING.equals(s)));
     }
 
     private class LiveCellRenderer extends DefaultTableCellRenderer {
@@ -484,7 +485,7 @@ public final class DependenciesPanel extends JPanel {
     private boolean anyRowLoading() {
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             Object v = tableModel.getValueAt(i, 0);
-            if (LOADING.equals(v) || UNLOADING.equals(v)) {
+            if (LOADING.equals(v) || UNLOADING.equals(v) || UPDATING.equals(v)) {
                 return true;
             }
         }
@@ -875,8 +876,24 @@ public final class DependenciesPanel extends JPanel {
         // Track this update as in-progress
         updatesInProgress.add(depName);
 
+        // Show UI feedback: lock controls and display "Updating..." status
+        Object prevValue = tableModel.getValueAt(modelRow, 0);
+        setControlsLocked(true);
+        isProgrammaticChange = true;
+        tableModel.setValueAt(UPDATING, modelRow, 0);
+        isProgrammaticChange = false;
+
+        final int rowIndex = modelRow;
+        final Object prevVal = prevValue;
         future.whenComplete((changed, ex) -> SwingUtilities.invokeLater(() -> {
             updatesInProgress.remove(depName);
+
+            // Restore the previous live status and unlock controls
+            isProgrammaticChange = true;
+            tableModel.setValueAt(prevVal, rowIndex, 0);
+            isProgrammaticChange = false;
+            setControlsLocked(false);
+
             if (ex == null) {
                 // Re-count files across dependencies after an update
                 new FileCountingWorker().execute();
