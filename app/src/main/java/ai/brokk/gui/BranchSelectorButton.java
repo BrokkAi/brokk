@@ -12,7 +12,6 @@ import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
-import javax.swing.UIManager;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -21,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
@@ -225,8 +225,7 @@ public class BranchSelectorButton extends SplitButton {
                     searchField = new JTextField();
                     searchField.putClientProperty("JTextField.placeholderText", "Search branches...");
                     searchField.setBorder(BorderFactory.createCompoundBorder(
-                            BorderFactory.createEmptyBorder(4, 4, 4, 4),
-                            searchField.getBorder()));
+                            BorderFactory.createEmptyBorder(4, 4, 4, 4), searchField.getBorder()));
                     var finalSearchField = searchField;
 
                     menu.add(searchField);
@@ -234,33 +233,36 @@ public class BranchSelectorButton extends SplitButton {
                     // Custom cell renderer for highlighting matches
                     list.setCellRenderer(new DefaultListCellRenderer() {
                         @Override
-                        public java.awt.Component getListCellRendererComponent(JList<?> list, Object value,
-                                int index, boolean isSelected, boolean cellHasFocus) {
+                        public java.awt.Component getListCellRendererComponent(
+                                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                             String text = value.toString();
                             var matcher = currentMatcher[0];
                             if (matcher != null) {
                                 var fragments = matcher.getMatchingFragments(text);
                                 if (fragments != null && !fragments.isEmpty()) {
-                                    setText(highlightMatches(text, fragments, isSelected));
+                                    setText(highlightMatches(text, fragments));
                                 }
                             }
                             return this;
                         }
 
-                        private String highlightMatches(String text, java.util.List<FuzzyMatcher.TextRange> fragments, boolean isSelected) {
+                        private String highlightMatches(String text, java.util.List<FuzzyMatcher.TextRange> fragments) {
                             var sb = new StringBuilder("<html>");
                             int lastEnd = 0;
                             fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
                             boolean isDark = UIManager.getBoolean("laf.dark");
                             Color highlightColor = ThemeColors.getColor(isDark, ThemeColors.SEARCH_HIGHLIGHT);
-                            String hexColor = String.format("#%02x%02x%02x",
+                            String hexColor = String.format(
+                                    "#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
                             for (var range : fragments) {
                                 if (range.getStartOffset() > lastEnd) {
                                     sb.append(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
                                 }
-                                sb.append("<span style='background-color:").append(hexColor).append(";color:#000000;'>");
+                                sb.append("<span style='background-color:")
+                                        .append(hexColor)
+                                        .append(";color:#000000;'>");
                                 sb.append(escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())));
                                 sb.append("</span>");
                                 lastEnd = range.getEndOffset();
@@ -360,12 +362,10 @@ public class BranchSelectorButton extends SplitButton {
                         }
 
                         @Override
-                        public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
-                        }
+                        public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
 
                         @Override
-                        public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
-                        }
+                        public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
                     });
                 }
 
@@ -393,7 +393,9 @@ public class BranchSelectorButton extends SplitButton {
                                 checkoutBranch(b, menu, cm, project);
                             }
                         } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                            if (advancedMode && finalSearchFieldForList != null && !finalSearchFieldForList.getText().isEmpty()) {
+                            if (advancedMode
+                                    && finalSearchFieldForList != null
+                                    && !finalSearchFieldForList.getText().isEmpty()) {
                                 finalSearchFieldForList.setText("");
                                 finalSearchFieldForList.requestFocusInWindow();
                                 e.consume();
@@ -471,8 +473,7 @@ public class BranchSelectorButton extends SplitButton {
                 });
             } catch (Exception ex) {
                 logger.error("Error checking out branch {}", branchName, ex);
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
             } finally {
                 SwingUtilities.invokeLater(() -> menu.setVisible(false));
             }
