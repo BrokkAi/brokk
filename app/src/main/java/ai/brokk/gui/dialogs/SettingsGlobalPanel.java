@@ -89,6 +89,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<String> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
+    @Nullable
+    private JLabel otherModelsVendorLabel;
+    @Nullable
+    private JPanel otherModelsVendorHolder;
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -397,7 +401,40 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 && quickestConfig.name().equals(Service.HAIKU_4_5)) {
             detectedVendor = "Anthropic";
         }
-        otherModelsVendorCombo.setSelectedItem(detectedVendor);
+
+        // Build vendor list based on model availability
+        var availableNames = service.getAvailableModels().keySet();
+        var vendors = new ArrayList<String>();
+        vendors.add("Default");
+        if (availableNames.contains(Service.HAIKU_4_5)) {
+            vendors.add("Anthropic");
+        }
+        if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
+            vendors.add("OpenAI");
+        }
+
+        // Rebuild combo with available vendors
+        otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
+
+        // Select Default (or detected vendor if it's in the available list)
+        if (vendors.contains(detectedVendor)) {
+            otherModelsVendorCombo.setSelectedItem(detectedVendor);
+        } else {
+            otherModelsVendorCombo.setSelectedItem("Default");
+        }
+
+        // Hide vendor row if only one option remains
+        boolean hideVendorRow = vendors.size() <= 1;
+        if (otherModelsVendorLabel != null) {
+            otherModelsVendorLabel.setVisible(!hideVendorRow);
+        }
+        if (otherModelsVendorHolder != null) {
+            otherModelsVendorHolder.setVisible(!hideVendorRow);
+            if (otherModelsVendorHolder.getParent() != null) {
+                otherModelsVendorHolder.getParent().revalidate();
+                otherModelsVendorHolder.getParent().repaint();
+            }
+        }
 
         // Add listener to sync primary combo when model changes in InstructionsPanel
         if (!plannerModelSyncListenerRegistered) {
@@ -1578,13 +1615,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbcRoles.gridy = 2;
         gbcRoles.weightx = 0.0;
         gbcRoles.fill = GridBagConstraints.NONE;
-        rolesPanel.add(new JLabel("Vendor for Other Models:"), gbcRoles);
+        otherModelsVendorLabel = new JLabel("Vendor for Other Models:");
+        rolesPanel.add(otherModelsVendorLabel, gbcRoles);
 
         otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
         otherModelsVendorCombo.setToolTipText(
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
-        var vendorComboHolder = new JPanel(new BorderLayout(0, 0));
-        vendorComboHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
+        otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
+        otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
         // Build dynamic tooltip with current Default model names
         String quickName =
@@ -1611,12 +1649,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         vendorHelpButton.setContentAreaFilled(false);
         vendorHelpButton.setFocusPainted(false);
         vendorHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
-        vendorComboHolder.add(vendorHelpButton, BorderLayout.EAST);
+        otherModelsVendorHolder.add(vendorHelpButton, BorderLayout.EAST);
 
         gbcRoles.gridx = 1;
         gbcRoles.weightx = 1.0;
         gbcRoles.fill = GridBagConstraints.HORIZONTAL;
-        rolesPanel.add(vendorComboHolder, gbcRoles);
+        rolesPanel.add(otherModelsVendorHolder, gbcRoles);
 
         // Row 3: Spacer
         gbcRoles.gridx = 0;
