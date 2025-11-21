@@ -1,19 +1,18 @@
 package ai.brokk.util;
 
-import ai.brokk.gui.Chrome;
-import ai.brokk.IContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import javax.swing.SwingUtilities;
+import ai.brokk.gui.Chrome;
 import java.util.HashSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import javax.swing.SwingUtilities;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Manages periodic background checking and updating of dependencies.
@@ -105,7 +104,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                     LOCAL_CHECK_INTERVAL_MINUTES,
                     TimeUnit.MINUTES);
 
-            logger.info("Started local dependency update scheduler (interval: {} minutes)", LOCAL_CHECK_INTERVAL_MINUTES);
+            logger.info(
+                    "Started local dependency update scheduler (interval: {} minutes)", LOCAL_CHECK_INTERVAL_MINUTES);
         }
     }
 
@@ -173,7 +173,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                     // Update analyzer index for changed files
                     if (!result.changedFiles().isEmpty()) {
                         try {
-                            analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                            analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                    .get();
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             logger.error("Interrupted while updating analyzer after local dependency update", ie);
@@ -189,10 +190,9 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                     SwingUtilities.invokeLater(() -> {
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
-                                String.format("Updated %d local %s (%d files changed)",
-                                        depsUpdated,
-                                        depsUpdated == 1 ? "dependency" : "dependencies",
-                                        filesChanged));
+                                String.format(
+                                        "Updated %d local %s (%d files changed)",
+                                        depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
                     });
                 } else {
                     logger.debug("No local dependency updates found");
@@ -225,7 +225,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                     // Update analyzer index for changed files
                     if (!result.changedFiles().isEmpty()) {
                         try {
-                            analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                            analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                    .get();
                         } catch (InterruptedException ie) {
                             Thread.currentThread().interrupt();
                             logger.error("Interrupted while updating analyzer after Git dependency update", ie);
@@ -241,10 +242,9 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                     SwingUtilities.invokeLater(() -> {
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
-                                String.format("Updated %d Git %s (%d files changed)",
-                                        depsUpdated,
-                                        depsUpdated == 1 ? "dependency" : "dependencies",
-                                        filesChanged));
+                                String.format(
+                                        "Updated %d Git %s (%d files changed)",
+                                        depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
                     });
                 } else {
                     logger.debug("No Git dependency updates found");

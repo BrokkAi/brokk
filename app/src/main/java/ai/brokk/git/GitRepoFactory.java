@@ -215,4 +215,50 @@ public class GitRepoFactory {
         var pattern = Pattern.compile("^https://github\\.com/[^/]+/[^/]+$");
         return pattern.matcher(remoteUrl).matches() && !remoteUrl.endsWith(".git") ? remoteUrl + ".git" : remoteUrl;
     }
+
+    /**
+     * Gets the HEAD commit hash from a local Git repository.
+     *
+     * @param repoDir path to the repository directory
+     * @return the full commit hash, or null if it cannot be determined
+     */
+    public static @Nullable String getHeadCommit(Path repoDir) {
+        try (var git = Git.open(repoDir.toFile())) {
+            var head = git.getRepository().resolve("HEAD");
+            return head != null ? head.name() : null;
+        } catch (Exception e) {
+            logger.debug("Could not read HEAD commit from {}: {}", repoDir, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Gets the commit hash for a ref (branch or tag) from a remote repository using ls-remote.
+     * This is a network operation but much faster than a full clone.
+     *
+     * @param remoteUrl the remote repository URL
+     * @param ref the branch or tag name
+     * @return the full commit hash, or null if the ref cannot be found
+     */
+    public static @Nullable String getRemoteRefCommit(String remoteUrl, String ref) {
+        try {
+            var lsRemote =
+                    Git.lsRemoteRepository().setRemote(remoteUrl).setHeads(true).setTags(true);
+
+            var refs = lsRemote.call();
+
+            for (var remoteRef : refs) {
+                var refName = remoteRef.getName();
+                if (refName.equals("refs/heads/" + ref) || refName.equals("refs/tags/" + ref)) {
+                    return remoteRef.getObjectId().name();
+                }
+            }
+
+            logger.debug("Could not find ref {} in remote {}", ref, remoteUrl);
+            return null;
+        } catch (Exception e) {
+            logger.debug("Failed to check remote {} for ref {}: {}", remoteUrl, ref, e.getMessage());
+            return null;
+        }
+    }
 }

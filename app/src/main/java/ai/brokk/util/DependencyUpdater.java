@@ -76,7 +76,8 @@ public final class DependencyUpdater {
          * @param commitHash the commit hash that was cloned
          */
         public static DependencyMetadata forGit(String repoUrl, String ref, @Nullable String commitHash) {
-            return new DependencyMetadata(DependencySourceType.GITHUB, null, repoUrl, ref, commitHash, System.currentTimeMillis());
+            return new DependencyMetadata(
+                    DependencySourceType.GITHUB, null, repoUrl, ref, commitHash, System.currentTimeMillis());
         }
     }
 
@@ -141,7 +142,8 @@ public final class DependencyUpdater {
      * Writes metadata describing a dependency imported from a Git repository.
      * Errors are logged but do not prevent the import from succeeding.
      */
-    public static void writeGitDependencyMetadata(Path dependencyRoot, String repoUrl, String ref, @Nullable String commitHash) {
+    public static void writeGitDependencyMetadata(
+            Path dependencyRoot, String repoUrl, String ref, @Nullable String commitHash) {
         writeDependencyMetadata(dependencyRoot, DependencyMetadata.forGit(repoUrl, ref, commitHash));
     }
 
@@ -221,14 +223,12 @@ public final class DependencyUpdater {
             GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref);
 
             // Capture the cloned commit hash before removing .git
-            try (var git = org.eclipse.jgit.api.Git.open(tempDir.toFile())) {
-                var head = git.getRepository().resolve("HEAD");
-                if (head != null) {
-                    clonedCommitHash = head.name();
-                    logger.info("Cloned {} at commit {}", depName, head.abbreviate(8).name());
-                }
-            } catch (Exception e) {
-                logger.debug("Could not read commit hash from cloned repo: {}", e.getMessage());
+            clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
+            if (clonedCommitHash != null) {
+                logger.info(
+                        "Cloned {} at commit {}",
+                        depName,
+                        clonedCommitHash.substring(0, Math.min(8, clonedCommitHash.length())));
             }
 
             // Mark this clone as in-progress for cleanup purposes and register shutdown-hook tracking
@@ -508,40 +508,19 @@ public final class DependencyUpdater {
             return true; // No stored hash, needs update
         }
 
-        try {
-            // Use JGit's ls-remote to get the current HEAD of the ref
-            var lsRemote = org.eclipse.jgit.api.Git.lsRemoteRepository()
-                    .setRemote(repoUrl)
-                    .setHeads(true)
-                    .setTags(true);
-
-            var refs = lsRemote.call();
-            String remoteHash = null;
-
-            // Look for the ref in heads or tags
-            for (var remoteRef : refs) {
-                var refName = remoteRef.getName();
-                if (refName.equals("refs/heads/" + ref) || refName.equals("refs/tags/" + ref)) {
-                    remoteHash = remoteRef.getObjectId().name();
-                    break;
-                }
-            }
-
-            if (remoteHash == null) {
-                logger.debug("Could not find ref {} in remote {}, assuming update needed", ref, repoUrl);
-                return true;
-            }
-
-            boolean needsUpdate = !storedHash.equals(remoteHash);
-            if (!needsUpdate) {
-                logger.debug("Git dependency at {} is up to date (commit {})",
-                        repoUrl, storedHash.substring(0, Math.min(8, storedHash.length())));
-            }
-            return needsUpdate;
-        } catch (Exception e) {
-            logger.debug("Failed to check remote for {}: {}, assuming update needed", repoUrl, e.getMessage());
-            return true; // On error, assume update is needed
+        var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
+        if (remoteHash == null) {
+            return true; // Could not determine, assume update needed
         }
+
+        boolean needsUpdate = !storedHash.equals(remoteHash);
+        if (!needsUpdate) {
+            logger.debug(
+                    "Git dependency at {} is up to date (commit {})",
+                    repoUrl,
+                    storedHash.substring(0, Math.min(8, storedHash.length())));
+        }
+        return needsUpdate;
     }
 
     /**
@@ -550,8 +529,7 @@ public final class DependencyUpdater {
      */
     private static long getNewestFileTimestamp(Path dir) {
         try (var stream = Files.walk(dir)) {
-            return stream
-                    .filter(Files::isRegularFile)
+            return stream.filter(Files::isRegularFile)
                     .mapToLong(p -> {
                         try {
                             return Files.getLastModifiedTime(p).toMillis();
@@ -656,8 +634,10 @@ public final class DependencyUpdater {
                 if (!delta.isEmpty()) {
                     updatedDependencies++;
                     changedFiles.addAll(delta);
-                    logger.info("Updated dependency {}: {} files changed",
-                            depRoot.absPath().getFileName(), delta.size());
+                    logger.info(
+                            "Updated dependency {}: {} files changed",
+                            depRoot.absPath().getFileName(),
+                            delta.size());
                 }
             } catch (IOException e) {
                 logger.warn(

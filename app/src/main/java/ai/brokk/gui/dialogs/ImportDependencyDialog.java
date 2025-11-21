@@ -605,15 +605,7 @@ public class ImportDependencyDialog {
                     GitRepoFactory.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
 
                     // Capture commit hash before removing .git
-                    String commitHash = null;
-                    try (var git = org.eclipse.jgit.api.Git.open(targetPath.toFile())) {
-                        var head = git.getRepository().resolve("HEAD");
-                        if (head != null) {
-                            commitHash = head.name();
-                        }
-                    } catch (Exception e) {
-                        logger.debug("Could not read commit hash from cloned repo: {}", e.getMessage());
-                    }
+                    String commitHash = GitRepoFactory.getHeadCommit(targetPath);
 
                     CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
                     CloneOperationTracker.registerCloneOperation(targetPath);
