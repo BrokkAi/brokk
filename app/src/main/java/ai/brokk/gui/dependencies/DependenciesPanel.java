@@ -717,7 +717,10 @@ public final class DependenciesPanel extends JPanel {
                 requireNonNull(pf);
 
                 try (var pathStream = Files.walk(pf.absPath())) {
-                    long fileCount = pathStream.filter(Files::isRegularFile).count();
+                    long fileCount = pathStream
+                            .filter(Files::isRegularFile)
+                            .filter(p -> !p.getFileName().toString().equals(DependencyUpdater.DEPENDENCY_METADATA_FILE))
+                            .count();
                     publish(new Object[] {i, fileCount});
                 } catch (IOException e) {
                     publish(new Object[] {i, 0L});
