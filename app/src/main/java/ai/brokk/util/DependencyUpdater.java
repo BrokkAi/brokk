@@ -238,8 +238,6 @@ public final class DependencyUpdater {
             try (var ignored = GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref)) {
                 // GitRepo closed by try-with-resources
             }
-            // Flush JGit's WindowCache to release memory-mapped pack files (required for Windows)
-            new WindowCacheConfig().install();
 
             // Capture the cloned commit hash before removing .git
             clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
@@ -257,6 +255,8 @@ public final class DependencyUpdater {
                 // Remove any .git metadata from the temporary clone
                 Path gitInternalDir = tempDir.resolve(".git");
                 if (Files.exists(gitInternalDir)) {
+                    // Flush JGit's WindowCache to release memory-mapped pack files (required for Windows)
+                    new WindowCacheConfig().install();
                     FileUtil.deleteRecursively(gitInternalDir);
                 }
 
