@@ -80,7 +80,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
-    private JCheckBox verticalActivityLayoutCheckbox = new JCheckBox("Beta: Vertical Activity Layout");
+    private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
     private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
@@ -268,7 +268,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Code Block Layout
         wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
-        verticalActivityLayoutCheckbox.setSelected(GlobalUiSettings.isVerticalActivityLayout());
+        classicBrokkViewCheckbox.setSelected(!GlobalUiSettings.isVerticalActivityLayout());
 
         // UI Scale (if present; hidden on macOS)
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
@@ -1197,7 +1197,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         appearancePanel.add(wordWrapCheckbox, gbc);
 
-        // Vertical Activity Layout
+        // Vertical Activity Layout (now labeled as Classic Brokk View)
         gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
@@ -1209,7 +1209,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        appearancePanel.add(verticalActivityLayoutCheckbox, gbc);
+        appearancePanel.add(classicBrokkViewCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
 
@@ -2034,7 +2034,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // UI preferences
         boolean advancedMode = advancedModeCheckbox.isSelected();
-        boolean verticalLayout = verticalActivityLayoutCheckbox.isSelected();
+        boolean verticalLayout = !classicBrokkViewCheckbox.isSelected();
         boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
         boolean diffUnified = diffUnifiedRadio.isSelected();
@@ -2110,7 +2110,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (verticalLayoutChanged) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Restart required: Changing Vertical Activity Layout will take effect after restarting Brokk.",
+                    "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
                     "Restart Required",
                     JOptionPane.INFORMATION_MESSAGE);
         }
