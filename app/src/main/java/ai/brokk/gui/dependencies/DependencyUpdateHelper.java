@@ -7,6 +7,8 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.util.DependencyUpdater;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Locale;
@@ -89,6 +91,20 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        // Check if update is needed by comparing timestamps
+        var sourcePath = metadata.sourcePath();
+        if (sourcePath != null) {
+            var source = Path.of(sourcePath);
+            if (Files.exists(source) && Files.isDirectory(source)) {
+                long newestTimestamp = getNewestFileTimestamp(source);
+                if (newestTimestamp <= metadata.lastUpdatedMillis()) {
+                    logger.debug("Local dependency {} is already up to date (no newer files)",
+                                 dependencyRoot.getRelPath().getFileName());
+                    return CompletableFuture.completedFuture(Collections.emptySet());
+                }
+            }
+        }
+
         return runUpdate(chrome, dependencyRoot, "local path", project -> {
             try {
                 return DependencyUpdater.updateLocalPathDependencyOnDisk(project, dependencyRoot, metadata);
@@ -97,6 +113,28 @@ public final class DependencyUpdateHelper {
                         "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
             }
         });
+    }
+
+    /**
+     * Returns the newest file modification timestamp in a directory (recursive).
+     * Returns 0 if directory is empty or cannot be read.
+     */
+    private static long getNewestFileTimestamp(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            return stream.filter(Files::isRegularFile)
+                    .mapToLong(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis();
+                        } catch (IOException e) {
+                            return 0L;
+                        }
+                    })
+                    .max()
+                    .orElse(0L);
+        } catch (IOException e) {
+            logger.debug("Failed to scan directory for timestamps: {}", dir, e);
+            return 0L;
+        }
     }
 
     private static CompletableFuture<Set<ProjectFile>> runUpdate(
