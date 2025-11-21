@@ -13,6 +13,7 @@ import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.DependencyUpdater;
+import ai.brokk.util.DependencyUpdateScheduler;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -83,7 +84,7 @@ public final class DependenciesPanel extends JPanel {
     private final Set<String> updatesInProgress = new HashSet<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
-    private boolean autoUpdateAttempted = false;
+    private @Nullable DependencyUpdateScheduler updateScheduler;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
 
@@ -501,7 +502,11 @@ public final class DependenciesPanel extends JPanel {
         isInitialized = true;
 
         loadDependenciesAsync();
-        maybeAutoUpdateDependencies();
+
+        // Start the background update scheduler
+        if (updateScheduler == null) {
+            updateScheduler = new DependencyUpdateScheduler(chrome);
+        }
 
         // Ensure spacer size is set after initial layout
         SwingUtilities.invokeLater(this::updateBottomSpacer);
@@ -529,21 +534,15 @@ public final class DependenciesPanel extends JPanel {
         });
     }
 
-    private void maybeAutoUpdateDependencies() {
-        assert SwingUtilities.isEventDispatchThread();
-        if (autoUpdateAttempted) {
-            return;
+    /**
+     * Closes the panel and releases resources.
+     * Call this when the project is closing.
+     */
+    public void close() {
+        if (updateScheduler != null) {
+            updateScheduler.close();
+            updateScheduler = null;
         }
-        autoUpdateAttempted = true;
-
-        var project = chrome.getProject();
-        boolean autoLocal = project.getAutoUpdateLocalDependencies();
-        boolean autoGit = project.getAutoUpdateGitDependencies();
-        if (!autoLocal && !autoGit) {
-            return;
-        }
-
-        DependencyUpdateHelper.autoUpdateEligibleDependencies(chrome);
     }
 
     @Override

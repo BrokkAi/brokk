@@ -477,6 +477,7 @@ public final class MainProject extends AbstractProject {
             projectProps.remove(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
         }
         saveProjectProperties();
+        notifyAutoUpdateLocalDependenciesChanged();
     }
 
     @Override
@@ -493,6 +494,7 @@ public final class MainProject extends AbstractProject {
             projectProps.remove(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
         }
         saveProjectProperties();
+        notifyAutoUpdateGitDependenciesChanged();
     }
 
     public long getRunCommandTimeoutSeconds() {
@@ -918,6 +920,26 @@ public final class MainProject extends AbstractProject {
                 listener.gitHubTokenChanged();
             } catch (Exception e) {
                 logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateLocalDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateLocalDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update local dependencies change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateGitDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateGitDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
         }
     }
