@@ -233,7 +233,10 @@ public final class DependencyUpdater {
         String clonedCommitHash = null;
         try {
             // Clone latest version into the temporary directory (must be empty)
-            GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref);
+            // Close GitRepo to release file handles (required for Windows)
+            try (var ignored = GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref)) {
+                // GitRepo closed by try-with-resources
+            }
 
             // Capture the cloned commit hash before removing .git
             clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
