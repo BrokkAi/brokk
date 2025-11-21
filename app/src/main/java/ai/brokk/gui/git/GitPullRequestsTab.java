@@ -1900,7 +1900,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String remoteBranchRef;
 
                 if (repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
-                    // PR is from the same repository
+                    // PR is from the same repository - fetch the branch first
+                    logger.info("Fetching branch '{}' from remote '{}'", prBranchName, remoteName);
+                    getRepo().remote().fetchBranch(remoteName, prBranchName);
                     remoteBranchRef = remoteName + "/" + prBranchName;
                 } else {
                     // PR is from a fork

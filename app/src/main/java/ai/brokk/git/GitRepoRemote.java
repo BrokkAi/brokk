@@ -179,6 +179,23 @@ public class GitRepoRemote {
         repo.invalidateCaches(); // Invalidate caches & ref-db
     }
 
+    /**
+     * Fetches a specific branch from a remote.
+     *
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param branchName The name of the branch to fetch.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void fetchBranch(String remoteName, String branchName) throws GitAPIException {
+        var refSpec = new RefSpec(
+                "+refs/heads/" + branchName + ":refs/remotes/" + remoteName + "/" + branchName);
+        var fetchCommand = git.fetch()
+                .setRemote(remoteName)
+                .setRefSpecs(refSpec);
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        fetchCommand.call();
+    }
+
     /** Pull changes from the remote repo.getRepository() for the current branch */
     public void pull() throws GitAPIException {
         var pullCommand = git.pull().setTimeout((int) Environment.GIT_NETWORK_TIMEOUT.toSeconds());
