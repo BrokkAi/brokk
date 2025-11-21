@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#8e8e8e"><path d="M120-120v-80h80v-200q0-83 58.5-141.5T400-600h160v-80q0-17 11.5-28.5T600-720q17 0 28.5 11.5T640-680v80q83 0 141.5 58.5T840-440v200h80v80H120Zm80-80h560v-200q0-50-35-85t-85-35H400q-50 0-85 35t-35 85v200Z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="Code dependencies icon">
+  <title>Code dependencies</title>
+  <!-- connecting lines -->
+  <g fill="none" stroke="#D9D9D9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="12" y1="6" x2="12" y2="10"/>
+    <line x1="12" y1="10" x2="6"  y2="16"/>
+    <line x1="12" y1="10" x2="18" y2="16"/>
+  </g>
+  <!-- nodes -->
+  <g fill="#D9D9D9" stroke="#D9D9D9" stroke-width="0">
+    <circle cx="12" cy="6"  r="2"/>
+    <circle cx="12" cy="10" r="2"/>
+    <circle cx="6"  cy="16" r="2"/>
+    <circle cx="18" cy="16" r="2"/>
+  </g>
+</svg>
