@@ -559,6 +559,7 @@ public class DtoMapper {
     }
 
     static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
         String reasoningContentId = null;
         String contentId;
 
@@ -586,7 +587,8 @@ public class DtoMapper {
         return mgr.toFile(dto.relPath());
     }
 
-    public static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+    static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
         String content = reader.readContent(dto.contentId());
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
