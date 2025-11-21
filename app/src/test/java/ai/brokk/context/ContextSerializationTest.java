@@ -12,6 +12,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -28,6 +29,9 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -1381,6 +1385,144 @@ public class ContextSerializationTest {
         assertTrue(loadedCtx.isReadOnly(loadedCode), "Loaded CodeFragment should be read-only");
     }
 
+    // --- Integration tests for AiMessage reasoning content round-trips ---
+
+    @Test
+    void testRoundTripAiMessageWithReasoningOnly() {
+        // Serialize and deserialize an AiMessage with reasoning only
+        var originalMessage = new AiMessage("", "This is the reasoning content");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has both contentId (empty text) and reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNotNull(dto.reasoningContentId(), "reasoningContentId should be present for reasoning-only message");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("", aiMsg.text(), "Text should be empty");
+        assertEquals("This is the reasoning content", aiMsg.reasoningContent(), "Reasoning should be preserved");
+
+        // Verify Messages.isReasoningMessage detects this as a reasoning message
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true for reasoning-only message");
+    }
+
+    @Test
+    void testRoundTripAiMessageWithTextOnly() {
+        // Serialize and deserialize an AiMessage with text only
+        var originalMessage = new AiMessage("This is the text response");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has contentId but no reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNull(dto.reasoningContentId(), "reasoningContentId should be null for text-only message");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("This is the text response", aiMsg.text(), "Text should be preserved");
+        assertNull(aiMsg.reasoningContent(), "Reasoning should be null for text-only message");
+
+        // Verify Messages.isReasoningMessage returns false
+        assertFalse(Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return false for text-only message");
+    }
+
+    @Test
+    void testRoundTripAiMessageWithBothReasoningAndText() {
+        // Serialize and deserialize an AiMessage with both reasoning and text
+        var originalMessage = new AiMessage("The final answer is 42", "Let me think through this step by step...");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has both contentId and reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNotNull(dto.reasoningContentId(), "reasoningContentId should be present for message with both");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("The final answer is 42", aiMsg.text(), "Text should be preserved");
+        assertEquals(
+                "Let me think through this step by step...", aiMsg.reasoningContent(), "Reasoning should be preserved");
+
+        // Verify Messages.isReasoningMessage returns true (reasoning is present and non-blank)
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true when reasoning is present");
+    }
+
+    @Test
+    void testTaskFragmentWithAiMessageReasoningRoundTrip() throws Exception {
+        // Integration test: round-trip a TaskFragment containing AiMessages with reasoning
+        var messages = List.of(
+                UserMessage.from("What is 2 + 2?"),
+                new AiMessage("The answer is 4", "Let me think: 2 + 2 equals 4"),
+                UserMessage.from("Verify your work"),
+                new AiMessage("Verified", "2 + 2 = 4 by basic arithmetic"));
+
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Math Task");
+
+        var contentWriter = new HistoryIo.ContentWriter();
+        var taskDto = DtoMapper.toTaskFragmentDto(taskFragment, contentWriter);
+
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Rebuild the task fragment from DTO
+        var rebuiltMessages = taskDto.messages().stream()
+                .map(msgDto -> DtoMapper.fromChatMessageDto(msgDto, contentReader))
+                .toList();
+
+        // Verify original and rebuilt messages match
+        assertEquals(messages.size(), rebuiltMessages.size(), "Message count should match");
+
+        for (int i = 0; i < messages.size(); i++) {
+            var originalMsg = messages.get(i);
+            var rebuiltMsg = rebuiltMessages.get(i);
+
+            assertEquals(originalMsg.type(), rebuiltMsg.type(), "Message type at index " + i + " should match");
+            assertEquals(
+                    Messages.getRepr(originalMsg),
+                    Messages.getRepr(rebuiltMsg),
+                    "Message repr at index " + i + " should match");
+
+            // For AiMessages, verify reasoning is preserved
+            if (originalMsg instanceof AiMessage originalAi && rebuiltMsg instanceof AiMessage rebuiltAi) {
+                assertEquals(
+                        originalAi.reasoningContent(),
+                        rebuiltAi.reasoningContent(),
+                        "Reasoning content at index " + i + " should match");
+                assertEquals(
+                        Messages.isReasoningMessage(originalAi),
+                        Messages.isReasoningMessage(rebuiltAi),
+                        "isReasoningMessage result at index " + i + " should match");
+            }
+        }
+    }
+
     @Test
     void testReadOnlyBackwardCompatibilityLongerAndShorterLists() throws Exception {
         // Build a simple context with one editable and one non-editable fragment
@@ -1403,7 +1545,7 @@ public class ContextSerializationTest {
         Path longerZip = tempDir.resolve("bc_longer.zip");
         rewriteContextsInZip(original, longerZip, line -> {
             try {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = new ObjectMapper();
                 Map<String, Object> obj = mapper.readValue(line, Map.class);
                 @SuppressWarnings("unchecked")
                 List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
@@ -1444,7 +1586,7 @@ public class ContextSerializationTest {
         Path shorterZip = tempDir.resolve("bc_shorter.zip");
         rewriteContextsInZip(marked, shorterZip, line -> {
             try {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = new ObjectMapper();
                 Map<String, Object> obj = mapper.readValue(line, Map.class);
                 obj.put("readonly", new ArrayList<>()); // clear readonly list
                 return mapper.writeValueAsString(obj);
@@ -1468,9 +1610,10 @@ public class ContextSerializationTest {
     }
 
     // Helper: read readonly IDs from contexts.jsonl inside zip
+    @SuppressWarnings("unchecked")
     private Set<String> readReadonlyIdsFromZip(Path zip) throws IOException {
-        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(zip))) {
-            java.util.zip.ZipEntry entry;
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
                     String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
@@ -1479,7 +1622,8 @@ public class ContextSerializationTest {
                             .findFirst()
                             .orElse("");
                     if (firstLine.isEmpty()) return Set.of();
-                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    var mapper = new ObjectMapper();
+                    @SuppressWarnings("unchecked")
                     Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
                     @SuppressWarnings("unchecked")
                     List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
@@ -1491,11 +1635,12 @@ public class ContextSerializationTest {
     }
 
     // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
+    @SuppressWarnings("unchecked")
     private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
             throws IOException {
         Map<String, byte[]> entries = new LinkedHashMap<>();
-        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(source))) {
-            java.util.zip.ZipEntry e;
+        try (var zis = new ZipInputStream(Files.newInputStream(source))) {
+            ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
                 if (e.getName().equals("contexts.jsonl")) {
                     String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
@@ -1507,13 +1652,15 @@ public class ContextSerializationTest {
                     String newContent = String.join("\n", transformed) + "\n";
                     entries.put(e.getName(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } else {
-                    entries.put(e.getName(), zis.readAllBytes());
+                    @SuppressWarnings("null")
+                    byte[] bytes = zis.readAllBytes();
+                    entries.put(e.getName(), bytes);
                 }
             }
         }
-        try (var zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(target))) {
+        try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
             for (var en : entries.entrySet()) {
-                zos.putNextEntry(new java.util.zip.ZipEntry(en.getKey()));
+                zos.putNextEntry(new ZipEntry(en.getKey()));
                 zos.write(en.getValue());
                 zos.closeEntry();
             }
