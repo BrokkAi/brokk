@@ -2876,7 +2876,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     SwingUtilities.invokeLater(() -> {
                         hideSpinner();
-                        if (pullResult == null || pullResult.isEmpty()) {
+                        if (pullResult.isEmpty()) {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
@@ -2919,7 +2919,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     SwingUtilities.invokeLater(() -> {
                         hideSpinner();
-                        if (pushResult == null || pushResult.isEmpty()) {
+                        if (pushResult.isEmpty()) {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
