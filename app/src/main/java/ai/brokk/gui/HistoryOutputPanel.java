@@ -3113,11 +3113,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
                         }
 
-                        // Fetch push/pull state for the current branch
                         GitWorkflow.PushPullState pushPullState = null;
                         try {
-                            var workflow = new GitWorkflow(contextManager);
-                            pushPullState = workflow.evaluatePushPull(currentBranch);
+                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                            boolean canPull = hasUpstream;
+                            boolean canPush;
+                            Set<String> unpushedCommitIds = new HashSet<>();
+                            if (hasUpstream) {
+                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                                canPush = !unpushedCommitIds.isEmpty();
+                            } else {
+                                // Can push to create upstream branch
+                                canPush = true;
+                            }
+                            pushPullState = new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
                         } catch (Exception e) {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }
@@ -3275,26 +3284,23 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             buttonPanel.add(changesToCommitButton);
         }
 
-        // Add Push and Pull buttons (left of Create PR button)
+        // Add Pull button (left of Create PR button)
         var pushPullState = res.pushPullState();
-        if (pushPullState != null) {
-            // Pull button
-            if (pushPullState.canPull()) {
-                var pullButton = new MaterialButton("Pull");
-                pullButton.setToolTipText("Pull changes from upstream");
-                pullButton.setEnabled(!hasUncommittedChanges);
-                pullButton.addActionListener(e -> performPull());
-                buttonPanel.add(pullButton);
-            }
+        if (pushPullState != null && pushPullState.canPull()) {
+            var pullButton = new MaterialButton("Pull");
+            pullButton.setToolTipText("Pull changes from upstream");
+            pullButton.setEnabled(!hasUncommittedChanges);
+            pullButton.addActionListener(e -> performPull());
+            buttonPanel.add(pullButton);
+        }
 
-            // Push button
-            if (pushPullState.hasUpstream() || pushPullState.canPush()) {
-                var pushButton = new MaterialButton("Push");
-                pushButton.setToolTipText("Push commits to remote");
-                pushButton.setEnabled(!hasUncommittedChanges && (pushPullState.canPush() || pushPullState.hasUpstream()));
-                pushButton.addActionListener(e -> performPush());
-                buttonPanel.add(pushButton);
-            }
+        // Add Push button (left of Create PR button)
+        if (pushPullState != null && pushPullState.canPush()) {
+            var pushButton = new MaterialButton("Push");
+            pushButton.setToolTipText("Push commits to remote");
+            pushButton.setEnabled(!hasUncommittedChanges && pushPullState.canPush());
+            pushButton.addActionListener(e -> performPush());
+            buttonPanel.add(pushButton);
         }
 
         // Create PR button on the right (conditionally visible)
