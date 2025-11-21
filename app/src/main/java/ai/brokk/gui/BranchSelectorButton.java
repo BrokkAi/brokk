@@ -1,18 +1,26 @@
 package ai.brokk.gui;
 
+import ai.brokk.ContextManager;
+import ai.brokk.FuzzyMatcher;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,6 +88,7 @@ public class BranchSelectorButton extends SplitButton {
         var menu = new JPopupMenu();
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
+        boolean advancedMode = GlobalUiSettings.isAdvancedMode();
 
         if (project.hasGit()) {
             // Top-level actions should always appear first when a Git repo is present
@@ -127,13 +136,6 @@ public class BranchSelectorButton extends SplitButton {
                 });
             });
             menu.add(create);
-
-            JMenuItem refresh = new JMenuItem("Refresh Branches");
-            refresh.addActionListener(ev -> {
-                SwingUtilities.invokeLater(
-                        () -> chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed"));
-            });
-            menu.add(refresh);
 
             JMenuItem createPr = new JMenuItem("Create Pull Request...");
             createPr.addActionListener(ev -> {
@@ -198,6 +200,127 @@ public class BranchSelectorButton extends SplitButton {
                 list.setVisibleRowCount(-1); // let the scrollpane determine visible rows
                 list.setFocusable(true);
 
+                // In Advanced Mode, add search field and refresh button
+                JTextField searchField = null;
+                if (advancedMode) {
+                    var searchPanel = new JPanel(new BorderLayout(4, 0));
+                    searchPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+                    searchField = new JTextField();
+                    searchField.putClientProperty("JTextField.placeholderText", "Search branches...");
+                    var finalSearchField = searchField;
+
+                    var refreshButton = new JButton("↻");
+                    refreshButton.setToolTipText("Refresh branch list");
+                    refreshButton.setMargin(new Insets(2, 6, 2, 6));
+                    refreshButton.addActionListener(ev -> {
+                        menu.setVisible(false);
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
+                            var newMenu = buildBranchMenu();
+                            try {
+                                chrome.themeManager.registerPopupMenu(newMenu);
+                            } catch (Exception e) {
+                                logger.debug("Error registering popup menu", e);
+                            }
+                            newMenu.show(this, 0, getHeight());
+                        });
+                    });
+
+                    searchPanel.add(searchField, BorderLayout.CENTER);
+                    searchPanel.add(refreshButton, BorderLayout.EAST);
+                    menu.add(searchPanel);
+
+                    // Fuzzy search filtering
+                    searchField.getDocument().addDocumentListener(new DocumentListener() {
+                        @Override
+                        public void insertUpdate(DocumentEvent e) {
+                            filterBranches();
+                        }
+
+                        @Override
+                        public void removeUpdate(DocumentEvent e) {
+                            filterBranches();
+                        }
+
+                        @Override
+                        public void changedUpdate(DocumentEvent e) {
+                            filterBranches();
+                        }
+
+                        private void filterBranches() {
+                            String query = finalSearchField.getText().trim();
+                            model.clear();
+                            if (query.isEmpty()) {
+                                for (String b : localBranches) {
+                                    model.addElement(b);
+                                }
+                            } else {
+                                var matcher = new FuzzyMatcher(query);
+                                var matches = new ArrayList<String>();
+                                for (String b : localBranches) {
+                                    if (matcher.matches(b)) {
+                                        matches.add(b);
+                                    }
+                                }
+                                matches.sort(Comparator.comparingInt(matcher::score));
+                                for (String b : matches) {
+                                    model.addElement(b);
+                                }
+                            }
+                            if (!model.isEmpty()) {
+                                list.setSelectedIndex(0);
+                            }
+                        }
+                    });
+
+                    // Keyboard navigation from search field
+                    searchField.addKeyListener(new KeyAdapter() {
+                        @Override
+                        public void keyPressed(KeyEvent e) {
+                            if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                                list.requestFocusInWindow();
+                                if (list.getSelectedIndex() < 0 && !model.isEmpty()) {
+                                    list.setSelectedIndex(0);
+                                }
+                                e.consume();
+                            } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                                if (!model.isEmpty()) {
+                                    int idx = list.getSelectedIndex();
+                                    if (idx < 0) idx = 0;
+                                    String b = model.getElementAt(idx);
+                                    checkoutBranch(b, menu, cm, project);
+                                }
+                                e.consume();
+                            } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                                if (!finalSearchField.getText().isEmpty()) {
+                                    finalSearchField.setText("");
+                                    e.consume();
+                                } else {
+                                    menu.setVisible(false);
+                                }
+                            }
+                        }
+                    });
+
+                    // Auto-focus search field when menu becomes visible
+                    var finalSearchFieldForFocus = searchField;
+                    menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+                        @Override
+                        public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                            SwingUtilities.invokeLater(finalSearchFieldForFocus::requestFocusInWindow);
+                        }
+
+                        @Override
+                        public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                        }
+
+                        @Override
+                        public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                        }
+                    });
+                }
+
                 // Single-click to checkout, like JMenuItem behavior
                 list.addMouseListener(new MouseAdapter() {
                     @Override
@@ -205,34 +328,13 @@ public class BranchSelectorButton extends SplitButton {
                         int idx = list.locationToIndex(e.getPoint());
                         if (idx >= 0) {
                             String b = model.getElementAt(idx);
-                            cm.submitExclusiveAction(() -> {
-                                try {
-                                    IGitRepo r = project.getRepo();
-                                    r.checkout(b);
-                                    SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            var currentBranch = r.getCurrentBranch();
-                                            var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                            refreshBranch(displayBranch);
-                                        } catch (Exception ex) {
-                                            logger.debug("Error updating branch UI after checkout", ex);
-                                            refreshBranch(b);
-                                        }
-                                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                    });
-                                } catch (Exception ex) {
-                                    logger.error("Error checking out branch {}", b, ex);
-                                    SwingUtilities.invokeLater(
-                                            () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                                } finally {
-                                    SwingUtilities.invokeLater(() -> menu.setVisible(false));
-                                }
-                            });
+                            checkoutBranch(b, menu, cm, project);
                         }
                     }
                 });
 
                 // Enter key triggers checkout for keyboard users
+                var finalSearchFieldForList = searchField;
                 list.addKeyListener(new KeyAdapter() {
                     @Override
                     public void keyPressed(KeyEvent e) {
@@ -240,30 +342,15 @@ public class BranchSelectorButton extends SplitButton {
                             int idx = list.getSelectedIndex();
                             if (idx >= 0) {
                                 String b = model.getElementAt(idx);
-                                cm.submitExclusiveAction(() -> {
-                                    try {
-                                        IGitRepo r = project.getRepo();
-                                        r.checkout(b);
-                                        SwingUtilities.invokeLater(() -> {
-                                            try {
-                                                var currentBranch = r.getCurrentBranch();
-                                                var displayBranch = currentBranch.isBlank() ? b : currentBranch;
-                                                refreshBranch(displayBranch);
-                                            } catch (Exception ex) {
-                                                logger.debug("Error updating branch UI after checkout", ex);
-                                                refreshBranch(b);
-                                            }
-                                            chrome.showNotification(
-                                                    IConsoleIO.NotificationRole.INFO, "Checked out: " + b);
-                                        });
-                                    } catch (Exception ex) {
-                                        logger.error("Error checking out branch {}", b, ex);
-                                        SwingUtilities.invokeLater(() ->
-                                                chrome.toolError("Error checking out branch: " + ex.getMessage()));
-                                    } finally {
-                                        SwingUtilities.invokeLater(() -> menu.setVisible(false));
-                                    }
-                                });
+                                checkoutBranch(b, menu, cm, project);
+                            }
+                        } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                            if (advancedMode && finalSearchFieldForList != null && !finalSearchFieldForList.getText().isEmpty()) {
+                                finalSearchFieldForList.setText("");
+                                finalSearchFieldForList.requestFocusInWindow();
+                                e.consume();
+                            } else {
+                                menu.setVisible(false);
                             }
                         }
                     }
@@ -316,6 +403,32 @@ public class BranchSelectorButton extends SplitButton {
         }
 
         return menu;
+    }
+
+    private void checkoutBranch(String branchName, JPopupMenu menu, ContextManager cm, IProject project) {
+        cm.submitExclusiveAction(() -> {
+            try {
+                IGitRepo r = project.getRepo();
+                r.checkout(branchName);
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        var currentBranch = r.getCurrentBranch();
+                        var displayBranch = currentBranch.isBlank() ? branchName : currentBranch;
+                        refreshBranch(displayBranch);
+                    } catch (Exception ex) {
+                        logger.debug("Error updating branch UI after checkout", ex);
+                        refreshBranch(branchName);
+                    }
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Checked out: " + branchName);
+                });
+            } catch (Exception ex) {
+                logger.error("Error checking out branch {}", branchName, ex);
+                SwingUtilities.invokeLater(
+                        () -> chrome.toolError("Error checking out branch: " + ex.getMessage()));
+            } finally {
+                SwingUtilities.invokeLater(() -> menu.setVisible(false));
+            }
+        });
     }
 
     public void refreshBranch(String branchName) {
