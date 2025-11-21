@@ -81,7 +81,10 @@ class DependencyAutoUpdateCoordinatorTest {
         String remoteUrl = remoteRepoDir.toUri().toString();
         String branch = remoteGit.getRepository().getBranch();
 
-        ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch);
+        // Close GitRepo to release file handles before deleting .git (required for Windows)
+        try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
+            // GitRepo closed by try-with-resources
+        }
         Path gitDir = depDir.resolve(".git");
         if (Files.exists(gitDir)) {
             FileUtil.deleteRecursively(gitDir);
