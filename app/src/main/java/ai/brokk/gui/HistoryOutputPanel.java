@@ -1616,7 +1616,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsDialog.setLayout(new BorderLayout(8, 8));
         notificationsDialog.addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosed(WindowEvent e) {
+            public void windowClosing(WindowEvent e) {
                 notificationsDialog = null;
                 notificationsListPanel = null;
             }
