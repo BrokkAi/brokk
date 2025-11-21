@@ -216,8 +216,9 @@ public class BranchSelectorButton extends SplitButton {
                 list.setVisibleRowCount(-1); // let the scrollpane determine visible rows
                 list.setFocusable(true);
 
-                // In Advanced Mode, add search field
+                // In Advanced Mode, add search field with highlighting
                 JTextField searchField = null;
+                final FuzzyMatcher[] currentMatcher = {null};
                 if (advancedMode) {
                     searchField = new JTextField();
                     searchField.putClientProperty("JTextField.placeholderText", "Search branches...");
@@ -227,6 +228,49 @@ public class BranchSelectorButton extends SplitButton {
                     var finalSearchField = searchField;
 
                     menu.add(searchField);
+
+                    // Custom cell renderer for highlighting matches
+                    list.setCellRenderer(new DefaultListCellRenderer() {
+                        @Override
+                        public java.awt.Component getListCellRendererComponent(JList<?> list, Object value,
+                                int index, boolean isSelected, boolean cellHasFocus) {
+                            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                            String text = value.toString();
+                            var matcher = currentMatcher[0];
+                            if (matcher != null) {
+                                var fragments = matcher.getMatchingFragments(text);
+                                if (fragments != null && !fragments.isEmpty()) {
+                                    setText(highlightMatches(text, fragments, isSelected));
+                                }
+                            }
+                            return this;
+                        }
+
+                        private String highlightMatches(String text, java.util.List<FuzzyMatcher.TextRange> fragments, boolean isSelected) {
+                            var sb = new StringBuilder("<html>");
+                            int lastEnd = 0;
+                            fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
+                            for (var range : fragments) {
+                                if (range.getStartOffset() > lastEnd) {
+                                    sb.append(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
+                                }
+                                String matchColor = isSelected ? "#FFFF00" : "#FFA500";
+                                sb.append("<span style='background-color:").append(matchColor).append(";color:#000000;'>");
+                                sb.append(escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())));
+                                sb.append("</span>");
+                                lastEnd = range.getEndOffset();
+                            }
+                            if (lastEnd < text.length()) {
+                                sb.append(escapeHtml(text.substring(lastEnd)));
+                            }
+                            sb.append("</html>");
+                            return sb.toString();
+                        }
+
+                        private String escapeHtml(String s) {
+                            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+                        }
+                    });
 
                     // Fuzzy search filtering
                     searchField.getDocument().addDocumentListener(new DocumentListener() {
@@ -249,11 +293,13 @@ public class BranchSelectorButton extends SplitButton {
                             String query = finalSearchField.getText().trim();
                             model.clear();
                             if (query.isEmpty()) {
+                                currentMatcher[0] = null;
                                 for (String b : localBranches) {
                                     model.addElement(b);
                                 }
                             } else {
                                 var matcher = new FuzzyMatcher(query);
+                                currentMatcher[0] = matcher;
                                 var matches = new ArrayList<String>();
                                 for (String b : localBranches) {
                                     if (matcher.matches(b)) {

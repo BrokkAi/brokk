@@ -210,6 +210,26 @@ public class FuzzyMatcher {
     }
 
     /**
+     * Returns the matching fragments (text ranges) for highlighting purposes.
+     * Returns null if no match, empty list for empty pattern matching empty string.
+     *
+     * @param name The text to find matches in.
+     * @return List of TextRange objects indicating matched portions, or null if no match.
+     */
+    @Nullable
+    public java.util.List<TextRange> getMatchingFragments(String name) {
+        var fragments = matchingFragments(name);
+        if (fragments == null) {
+            return null;
+        }
+        var result = new java.util.ArrayList<TextRange>();
+        for (var range : fragments) {
+            result.add(range);
+        }
+        return result;
+    }
+
+    /**
      * Finds the contiguous fragments of the name that match the pattern. Returns {@code null} if the name cannot be
      * matched. Based on {@code MinusculeMatcherImpl.matchingFragments}.
      */
