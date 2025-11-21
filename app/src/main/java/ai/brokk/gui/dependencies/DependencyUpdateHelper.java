@@ -269,6 +269,128 @@ public final class DependencyUpdateHelper {
         return future;
     }
 
+    /**
+     * Performs an auto-update pass for local path dependencies only.
+     * Intended for use by the scheduler with separate local/git intervals.
+     *
+     * @param chrome current Chrome instance
+     * @return future completing with the result of the local dependency update pass
+     */
+    public static CompletableFuture<DependencyUpdater.DependencyAutoUpdateResult> autoUpdateLocalDependencies(
+            Chrome chrome) {
+        var project = chrome.getProject();
+        var cm = chrome.getContextManager();
+
+        var future = cm.submitBackgroundTask("Auto-update local dependencies", () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
+
+                if (!result.changedFiles().isEmpty()) {
+                    try {
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while updating local dependencies", ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException("Analyzer update failed after local dependency update", ee.getCause());
+                    }
+                }
+
+                return result;
+            } finally {
+                analyzer.resume();
+            }
+        });
+
+        future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error during local dependency update: {}", ex.getMessage(), ex);
+                chrome.toolError(
+                        String.format("Local dependency update failed: %s", ex.getMessage()),
+                        "Dependency Update Error");
+                return;
+            }
+
+            assert result != null;
+            if (result.updatedDependencies() > 0) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Updated %d local %s (%d files changed)",
+                                result.updatedDependencies(),
+                                result.updatedDependencies() == 1 ? "dependency" : "dependencies",
+                                result.changedFiles().size()));
+            } else {
+                logger.debug("No local dependency updates found");
+            }
+        }));
+
+        return future;
+    }
+
+    /**
+     * Performs an auto-update pass for Git dependencies only.
+     * Intended for use by the scheduler with separate local/git intervals.
+     *
+     * @param chrome current Chrome instance
+     * @return future completing with the result of the Git dependency update pass
+     */
+    public static CompletableFuture<DependencyUpdater.DependencyAutoUpdateResult> autoUpdateGitDependencies(
+            Chrome chrome) {
+        var project = chrome.getProject();
+        var cm = chrome.getContextManager();
+
+        var future = cm.submitBackgroundTask("Auto-update Git dependencies", () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);
+
+                if (!result.changedFiles().isEmpty()) {
+                    try {
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while updating Git dependencies", ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException("Analyzer update failed after Git dependency update", ee.getCause());
+                    }
+                }
+
+                return result;
+            } finally {
+                analyzer.resume();
+            }
+        });
+
+        future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error during Git dependency update: {}", ex.getMessage(), ex);
+                chrome.toolError(
+                        String.format("Git dependency update failed: %s", ex.getMessage()),
+                        "Dependency Update Error");
+                return;
+            }
+
+            assert result != null;
+            if (result.updatedDependencies() > 0) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Updated %d Git %s (%d files changed)",
+                                result.updatedDependencies(),
+                                result.updatedDependencies() == 1 ? "dependency" : "dependencies",
+                                result.changedFiles().size()));
+            } else {
+                logger.debug("No Git dependency updates found");
+            }
+        }));
+
+        return future;
+    }
+
     private static String capitalize(String label) {
         if (label.isEmpty()) {
             return label;
