@@ -127,8 +127,8 @@ public final class DependencyUpdateHelper {
                         "Failed to update " + dependencyKindLabel + " dependency '" + depName + "': " + ex.getMessage(),
                         "Dependency Update Error");
             } else {
-                Set<ProjectFile> nonNullChanged = changedFiles != null ? changedFiles : Collections.emptySet();
-                if (nonNullChanged.isEmpty()) {
+                assert changedFiles != null;
+                if (changedFiles.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             capitalize(dependencyKindLabel) + " dependency '" + depName + "' is already up to date.");
@@ -140,7 +140,7 @@ public final class DependencyUpdateHelper {
                                     + " dependency '"
                                     + depName
                                     + "' ("
-                                    + nonNullChanged.size()
+                                    + changedFiles.size()
                                     + " files changed).");
                 }
             }
@@ -213,12 +213,9 @@ public final class DependencyUpdateHelper {
                 return;
             }
 
-            AbstractProject.DependencyAutoUpdateResult nonNullResult = (result != null)
-                    ? result
-                    : new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0);
-
-            int depsUpdated = nonNullResult.updatedDependencies();
-            int filesChanged = nonNullResult.changedFiles().size();
+            assert result != null;
+            int depsUpdated = result.updatedDependencies();
+            int filesChanged = result.changedFiles().size();
 
             if (depsUpdated == 0) {
                 chrome.showNotification(
