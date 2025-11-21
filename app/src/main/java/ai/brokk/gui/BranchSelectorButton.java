@@ -137,6 +137,22 @@ public class BranchSelectorButton extends SplitButton {
             });
             menu.add(create);
 
+            JMenuItem refresh = new JMenuItem("Refresh Branches");
+            refresh.addActionListener(ev -> {
+                menu.setVisible(false);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
+                    var newMenu = buildBranchMenu();
+                    try {
+                        chrome.themeManager.registerPopupMenu(newMenu);
+                    } catch (Exception e) {
+                        logger.debug("Error registering popup menu", e);
+                    }
+                    newMenu.show(this, 0, getHeight());
+                });
+            });
+            menu.add(refresh);
+
             JMenuItem createPr = new JMenuItem("Create Pull Request...");
             createPr.addActionListener(ev -> {
                 SwingUtilities.invokeLater(() -> {
@@ -200,36 +216,17 @@ public class BranchSelectorButton extends SplitButton {
                 list.setVisibleRowCount(-1); // let the scrollpane determine visible rows
                 list.setFocusable(true);
 
-                // In Advanced Mode, add search field and refresh button
+                // In Advanced Mode, add search field
                 JTextField searchField = null;
                 if (advancedMode) {
-                    var searchPanel = new JPanel(new BorderLayout(4, 0));
-                    searchPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
                     searchField = new JTextField();
                     searchField.putClientProperty("JTextField.placeholderText", "Search branches...");
+                    searchField.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createEmptyBorder(4, 4, 4, 4),
+                            searchField.getBorder()));
                     var finalSearchField = searchField;
 
-                    var refreshButton = new JButton("↻");
-                    refreshButton.setToolTipText("Refresh branch list");
-                    refreshButton.setMargin(new Insets(2, 6, 2, 6));
-                    refreshButton.addActionListener(ev -> {
-                        menu.setVisible(false);
-                        SwingUtilities.invokeLater(() -> {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
-                            var newMenu = buildBranchMenu();
-                            try {
-                                chrome.themeManager.registerPopupMenu(newMenu);
-                            } catch (Exception e) {
-                                logger.debug("Error registering popup menu", e);
-                            }
-                            newMenu.show(this, 0, getHeight());
-                        });
-                    });
-
-                    searchPanel.add(searchField, BorderLayout.CENTER);
-                    searchPanel.add(refreshButton, BorderLayout.EAST);
-                    menu.add(searchPanel);
+                    menu.add(searchField);
 
                     // Fuzzy search filtering
                     searchField.getDocument().addDocumentListener(new DocumentListener() {
