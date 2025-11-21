@@ -134,6 +134,7 @@ public final class DependencyUpdateHelper {
                             IConsoleIO.NotificationRole.INFO,
                             capitalize(dependencyKindLabel) + " dependency '" + depName + "' is already up to date.");
                 } else {
+                    logger.info("Updated dependency {}: {} files changed", depName, changedFiles.size());
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Updated "
