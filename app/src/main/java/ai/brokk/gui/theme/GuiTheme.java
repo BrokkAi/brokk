@@ -35,8 +35,6 @@ public class GuiTheme {
     public static final String THEME_HIGH_CONTRAST = "high-contrast";
     // Independent Dark+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
     public static final String THEME_DARK_PLUS = "dark-plus";
-    // Independent Light+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
-    public static final String THEME_LIGHT_PLUS = "light-plus";
 
     private final JFrame frame;
 
@@ -81,7 +79,6 @@ public class GuiTheme {
                     case THEME_DARK -> "/themes/BrokkDark.theme.json";
                     case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
                     case THEME_DARK_PLUS -> "/themes/BrokkDarkPlus.theme.json";
-                    case THEME_LIGHT_PLUS -> "/themes/BrokkLightPlus.theme.json";
                     default -> {
                         logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
                         yield "/themes/BrokkDark.theme.json";
@@ -331,14 +328,13 @@ public class GuiTheme {
     /**
      * Get the human-readable display name for the current theme.
      *
-     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", "Brokk Light+", or "High Contrast"
+     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", or "High Contrast"
      */
     public String getCurrentThemeName() {
         return switch (getCurrentTheme()) {
             case THEME_LIGHT -> "Brokk Light";
             case THEME_DARK -> "Brokk Dark";
             case THEME_DARK_PLUS -> "Brokk Dark+";
-            case THEME_LIGHT_PLUS -> "Brokk Light+";
             case THEME_HIGH_CONTRAST -> "High Contrast";
             default -> "Unknown Theme";
         };
