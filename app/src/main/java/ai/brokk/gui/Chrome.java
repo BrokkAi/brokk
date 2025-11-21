@@ -274,6 +274,137 @@ public class Chrome
     // Combined panel used when Vertical Activity Layout is enabled (Activity above Instructions | Output on the right)
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
+    // Agent Mode UI components
+    private @Nullable InstructionsPanel agentModeInstructionsPanel = null;
+    private @Nullable MarkdownOutputPanel agentModeOutputPanel = null;
+    private @Nullable DefaultListModel<SessionManager.SessionInfo> agentModeConversationsModel = null;
+    private @Nullable JList<SessionManager.SessionInfo> agentModeConversationsList = null;
+
+    /**
+     * Builds the Agent Mode panel with a three-pane layout:
+     * - Instructions panel (top-left)
+     * - Conversations list (bottom-left)
+     * - Output window (right)
+     */
+    private JPanel buildAgentModePanel() {
+        // Create a new InstructionsPanel specifically for Agent Mode
+        agentModeInstructionsPanel = new InstructionsPanel(this);
+
+        // Create output panel for displaying agent execution results
+        agentModeOutputPanel = MarkdownOutputPool.instance().borrow();
+        agentModeOutputPanel.withContextForLookups(contextManager, this);
+        agentModeOutputPanel.updateTheme(MainProject.getTheme());
+
+        // Create conversations list model and list
+        agentModeConversationsModel = new DefaultListModel<>();
+        agentModeConversationsList = new JList<>(agentModeConversationsModel);
+        agentModeConversationsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        agentModeConversationsList.setCellRenderer(new AgentModeConversationRenderer());
+
+        // Add listener for conversation selection
+        agentModeConversationsList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting() && agentModeConversationsList.getSelectedIndex() >= 0) {
+                onAgentModeConversationSelected(agentModeConversationsList.getSelectedValue());
+            }
+        });
+
+        // Add action listener to the instructions panel's action button
+        agentModeInstructionsPanel.getActionButton().addActionListener(e -> {
+            String text = agentModeInstructionsPanel.getInstructions();
+            if (text.isBlank()) {
+                toolError("Please enter a prompt", "Empty Prompt");
+                return;
+            }
+
+            // Clear the input area
+            agentModeInstructionsPanel.clearCommandInput();
+
+            // Summarize the prompt to get a session name
+            contextManager.summarizeTaskForConversation(text).thenAccept(sessionName -> {
+                // Create a new session with the summarized name
+                contextManager.createSessionAsync(sessionName).thenRun(() -> {
+                    // Update the conversations list on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            agentModeConversationsModel.clear();
+                            var sessionManager = contextManager.getProject().getSessionManager();
+                            var sessions = sessionManager.listSessions();
+                            // Sort by most recently modified first
+                            sessions.sort((a, b) -> Long.compare(b.modified(), a.modified()));
+                            for (var session : sessions) {
+                                agentModeConversationsModel.addElement(session);
+                            }
+                            // Select the newly created session (should be at index 0)
+                            if (agentModeConversationsModel.size() > 0) {
+                                agentModeConversationsList.setSelectedIndex(0);
+                            }
+                            showNotification(NotificationRole.INFO, "Session created: " + sessionName);
+                        } catch (Exception ex) {
+                            logger.error("Failed to update conversations list", ex);
+                            toolError("Failed to load conversations: " + ex.getMessage(), "Error");
+                        }
+                    });
+                }).exceptionally(ex -> {
+                    logger.error("Failed to create session", ex);
+                    SwingUtilities.invokeLater(() -> 
+                        toolError("Failed to create session: " + ex.getMessage(), "Error")
+                    );
+                    return null;
+                });
+            }).exceptionally(ex -> {
+                logger.error("Failed to summarize prompt", ex);
+                SwingUtilities.invokeLater(() -> 
+                    toolError("Failed to summarize prompt: " + ex.getMessage(), "Error")
+                );
+                return null;
+            });
+        });
+
+        // Wrap conversations list in a scroll pane
+        var conversationsScrollPane = new JScrollPane(agentModeConversationsList);
+        conversationsScrollPane.setBorder(BorderFactory.createTitledBorder("Conversations"));
+
+        // Create left split pane: Instructions (top) | Conversations (bottom)
+        var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        leftSplitPane.setTopComponent(agentModeInstructionsPanel);
+        leftSplitPane.setBottomComponent(conversationsScrollPane);
+        leftSplitPane.setResizeWeight(0.6); // 60% to instructions, 40% to conversations
+        leftSplitPane.setDividerLocation(0.6);
+
+        // Create output scroll pane
+        var outputScrollPane = new JScrollPane(agentModeOutputPanel);
+        outputScrollPane.setBorder(BorderFactory.createTitledBorder("Output"));
+        outputScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+        // Create main horizontal split pane: Left (instructions+conversations) | Right (output)
+        var mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainSplitPane.setLeftComponent(leftSplitPane);
+        mainSplitPane.setRightComponent(outputScrollPane);
+        mainSplitPane.setResizeWeight(0.3); // 30% to left, 70% to output
+        mainSplitPane.setDividerLocation(0.3);
+
+        // Wrap in a container panel
+        var container = new JPanel(new BorderLayout());
+        container.add(mainSplitPane, BorderLayout.CENTER);
+
+        return container;
+    }
+
+    /**
+     * Handles the selection of a conversation in Agent Mode.
+     * This will load and display the conversation's output.
+     */
+    private void onAgentModeConversationSelected(SessionManager.SessionInfo sessionInfo) {
+        if (agentModeOutputPanel == null) {
+            return;
+        }
+
+        // TODO: Load the conversation data from the session/headless executor
+        // For now, show a placeholder message
+        var message = Messages.customSystem("Conversation: " + sessionInfo.name() + "\n\n(Loading conversation data...)");
+        agentModeOutputPanel.setText(List.of(message));
+    }
+
     /**
      * Default constructor sets up the UI.
      */
@@ -344,13 +475,10 @@ public class Chrome
         mainTabbedPane.addTab("IDE Mode", ideModePanel);
         mainTabbedPane.setToolTipTextAt(0, "Traditional Brokk interface with workspace, instructions, and tools");
 
-        // 3.3) Create placeholder Agent Mode tab
-        var agentModePanel = new JPanel(new BorderLayout());
-        var agentPlaceholder = new JLabel("Agent Mode — Coming Soon", SwingConstants.CENTER);
-        agentPlaceholder.setFont(new Font(Font.DIALOG, Font.PLAIN, 16));
-        agentModePanel.add(agentPlaceholder, BorderLayout.CENTER);
+        // 3.3) Create Agent Mode tab with three-pane layout
+        var agentModePanel = buildAgentModePanel();
         mainTabbedPane.addTab("Agent Mode", agentModePanel);
-        mainTabbedPane.setToolTipTextAt(1, "Advanced agent-driven interface (future feature)");
+        mainTabbedPane.setToolTipTextAt(1, "Advanced agent-driven interface");
 
         // Add tabbed pane to frame's content pane
         frame.getContentPane().add(mainTabbedPane, BorderLayout.CENTER);
@@ -4538,6 +4666,61 @@ public class Chrome
         @Override
         public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
             return getFirstComponent(focusCycleRoot);
+        }
+    }
+
+    /**
+     * Custom list cell renderer for Agent Mode conversations.
+     * Displays conversation name with timestamp and other metadata.
+     */
+    private static class AgentModeConversationRenderer extends JPanel implements ListCellRenderer<SessionManager.SessionInfo> {
+        private final JLabel nameLabel = new JLabel();
+        private final JLabel metadataLabel = new JLabel();
+
+        AgentModeConversationRenderer() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+            setOpaque(true);
+            setBorder(new EmptyBorder(4, 4, 4, 4));
+
+            nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD));
+            metadataLabel.setFont(metadataLabel.getFont().deriveFont(Font.PLAIN, 10f));
+            metadataLabel.setForeground(new Color(128, 128, 128));
+
+            add(nameLabel);
+            add(metadataLabel);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<? extends SessionManager.SessionInfo> list,
+                SessionManager.SessionInfo value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
+            if (value != null) {
+                nameLabel.setText(value.name());
+                var instant = java.time.Instant.ofEpochMilli(value.modified());
+                var localDateTime = instant.atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
+                var formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                metadataLabel.setText(localDateTime.format(formatter));
+            } else {
+                nameLabel.setText("");
+                metadataLabel.setText("");
+            }
+
+            if (isSelected) {
+                setBackground(list.getSelectionBackground());
+                setForeground(list.getSelectionForeground());
+                nameLabel.setForeground(list.getSelectionForeground());
+                metadataLabel.setForeground(list.getSelectionForeground());
+            } else {
+                setBackground(list.getBackground());
+                setForeground(list.getForeground());
+                nameLabel.setForeground(list.getForeground());
+                metadataLabel.setForeground(new Color(128, 128, 128));
+            }
+
+            return this;
         }
     }
 

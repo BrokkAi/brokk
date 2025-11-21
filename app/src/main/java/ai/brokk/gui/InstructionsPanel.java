@@ -2275,7 +2275,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Action split button with integrated dropdown for mode selection (Code/Ask/Search).
      * The main button area executes the selected action, while the dropdown arrow shows mode options.
      */
-    private static class ActionSplitButton extends MaterialButton implements ThemeAware {
+    public static class ActionSplitButton extends MaterialButton implements ThemeAware {
         private static final long serialVersionUID = 1L;
         private final Supplier<Boolean> isActionRunning;
         private @Nullable Icon originalIcon;
