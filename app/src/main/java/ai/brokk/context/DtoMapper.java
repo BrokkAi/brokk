@@ -596,9 +596,14 @@ public class DtoMapper {
                     String reasoning = reader.readContent(dto.reasoningContentId());
                     yield new AiMessage(content, reasoning);
                 }
-                // Fallback: parse legacy flattened representation
-                var parsed = parseLegacyAiRepr(content);
-                yield new AiMessage(parsed.text(), parsed.reasoning());
+                // If there are legacy markers, parse legacy flattened representation; otherwise, treat as plain text
+                boolean hasLegacyMarkers = content.contains("Reasoning:\n") || content.contains("Text:\n");
+                if (hasLegacyMarkers) {
+                    var parsed = parseLegacyAiRepr(content);
+                    yield new AiMessage(parsed.text(), parsed.reasoning());
+                } else {
+                    yield new AiMessage(content);
+                }
             }
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());

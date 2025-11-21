@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -29,6 +30,9 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -1611,7 +1615,7 @@ public class ContextSerializationTest {
         Path longerZip = tempDir.resolve("bc_longer.zip");
         rewriteContextsInZip(original, longerZip, line -> {
             try {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = new ObjectMapper();
                 Map<String, Object> obj = mapper.readValue(line, Map.class);
                 @SuppressWarnings("unchecked")
                 List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
@@ -1652,7 +1656,7 @@ public class ContextSerializationTest {
         Path shorterZip = tempDir.resolve("bc_shorter.zip");
         rewriteContextsInZip(marked, shorterZip, line -> {
             try {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = new ObjectMapper();
                 Map<String, Object> obj = mapper.readValue(line, Map.class);
                 obj.put("readonly", new ArrayList<>()); // clear readonly list
                 return mapper.writeValueAsString(obj);
@@ -1678,8 +1682,8 @@ public class ContextSerializationTest {
     // Helper: read readonly IDs from contexts.jsonl inside zip
     @SuppressWarnings("unchecked")
     private Set<String> readReadonlyIdsFromZip(Path zip) throws IOException {
-        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(zip))) {
-            java.util.zip.ZipEntry entry;
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
                     String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
@@ -1688,7 +1692,7 @@ public class ContextSerializationTest {
                             .findFirst()
                             .orElse("");
                     if (firstLine.isEmpty()) return Set.of();
-                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    var mapper = new ObjectMapper();
                     @SuppressWarnings("unchecked")
                     Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
                     @SuppressWarnings("unchecked")
@@ -1705,8 +1709,8 @@ public class ContextSerializationTest {
     private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
             throws IOException {
         Map<String, byte[]> entries = new LinkedHashMap<>();
-        try (var zis = new java.util.zip.ZipInputStream(Files.newInputStream(source))) {
-            java.util.zip.ZipEntry e;
+        try (var zis = new ZipInputStream(Files.newInputStream(source))) {
+            ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
                 if (e.getName().equals("contexts.jsonl")) {
                     String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
@@ -1724,9 +1728,9 @@ public class ContextSerializationTest {
                 }
             }
         }
-        try (var zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(target))) {
+        try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
             for (var en : entries.entrySet()) {
-                zos.putNextEntry(new java.util.zip.ZipEntry(en.getKey()));
+                zos.putNextEntry(new ZipEntry(en.getKey()));
                 zos.write(en.getValue());
                 zos.closeEntry();
             }
