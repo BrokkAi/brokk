@@ -17,6 +17,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.executor.services.HeadlessExecutorService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -108,6 +109,7 @@ public class Chrome
     // Dependencies:
     final ContextManager contextManager;
     private Context activeContext; // Track the currently displayed context
+    private final HeadlessExecutorService headlessExecutorService;
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -450,12 +452,25 @@ public class Chrome
                 // Create the worktree for the new branch
                 gitRepo.addWorktree(branchName, worktreePath);
 
-                // On success, show notification
-                SwingUtilities.invokeLater(() -> {
-                    showNotification(
-                        NotificationRole.INFO,
-                        "Worktree created at: " + worktreePath.getFileName());
-                });
+                // Start the headless executor for this worktree
+                try {
+                    var result = headlessExecutorService.start(worktreePath, sessionInfo.id());
+                    logger.info(
+                            "Started headless executor for session {} on port {}", sessionInfo.name(), result.port());
+
+                    // On success, show notification
+                    SwingUtilities.invokeLater(() -> {
+                        showNotification(
+                            NotificationRole.INFO,
+                            "Worktree created at: " + worktreePath.getFileName());
+                    });
+                } catch (IOException ex) {
+                    logger.error("Failed to start headless executor for session {}", sessionInfo.name(), ex);
+                    SwingUtilities.invokeLater(() -> {
+                        toolError("Failed to start executor: " + ex.getMessage(), "Executor Start Error");
+                    });
+                    return null;
+                }
 
                 logger.info("Created worktree for session {} at {}", sessionInfo.name(), worktreePath);
                 return null;
@@ -503,6 +518,7 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.activeContext = Context.EMPTY; // Initialize activeContext
+        this.headlessExecutorService = new HeadlessExecutorService();
 
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
