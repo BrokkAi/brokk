@@ -337,6 +337,10 @@ public class Chrome
                             // Select the newly created session (should be at index 0)
                             if (agentModeConversationsModel.size() > 0) {
                                 agentModeConversationsList.setSelectedIndex(0);
+                                var newSession = agentModeConversationsModel.getElementAt(0);
+                                
+                                // Create worktree for the new session
+                                createWorktreeForSession(newSession);
                             }
                             showNotification(NotificationRole.INFO, "Session created: " + sessionName);
                         } catch (Exception ex) {
@@ -388,6 +392,92 @@ public class Chrome
         container.add(mainSplitPane, BorderLayout.CENTER);
 
         return container;
+    }
+
+    /**
+     * Creates a git worktree and branch for a new Agent Mode session.
+     * This is done asynchronously in a background task.
+     */
+    private void createWorktreeForSession(SessionManager.SessionInfo sessionInfo) {
+        contextManager.submitBackgroundTask("Create worktree for Agent Mode session", () -> {
+            try {
+                // Check if project is a MainProject with git support
+                var project = getProject();
+                if (!(project instanceof MainProject mainProject) || !project.hasGit()) {
+                    logger.debug("Project does not support git or is not a MainProject; skipping worktree creation");
+                    return null;
+                }
+
+                var repo = project.getRepo();
+                
+                // Cast to GitRepo to access branch checking methods
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    logger.warn("Repository is not a GitRepo instance; cannot create worktree");
+                    return null;
+                }
+                
+                // Sanitize session name to create a valid branch name
+                String branchName = gitRepo.sanitizeBranchName(sessionInfo.name());
+                
+                // Check if branch already exists
+                if (gitRepo.isLocalBranch(branchName) || gitRepo.isRemoteBranch(branchName)) {
+                    SwingUtilities.invokeLater(() -> {
+                        toolError(
+                            "Branch '" + branchName + "' already exists. Cannot create worktree.",
+                            "Branch Conflict");
+                    });
+                    // Rollback: delete the session
+                    contextManager.deleteSessionAsync(sessionInfo.id()).exceptionally(ex -> {
+                        logger.warn("Failed to delete session during worktree creation rollback", ex);
+                        return null;
+                    });
+                    return null;
+                }
+
+                // Get worktree storage path and ensure it exists
+                Path worktreeStoragePath = mainProject.getWorktreeStoragePath();
+                java.nio.file.Files.createDirectories(worktreeStoragePath);
+
+                // Get the next available worktree path
+                Path worktreePath = repo.getNextWorktreePath(worktreeStoragePath);
+
+                // Get current branch as base for new branch
+                String currentBranch = gitRepo.getCurrentBranch();
+
+                // Create the new branch from current branch
+                gitRepo.createBranch(branchName, currentBranch);
+
+                // Create the worktree for the new branch
+                gitRepo.addWorktree(branchName, worktreePath);
+
+                // On success, show notification
+                SwingUtilities.invokeLater(() -> {
+                    showNotification(
+                        NotificationRole.INFO,
+                        "Worktree created at: " + worktreePath.getFileName());
+                });
+
+                logger.info("Created worktree for session {} at {}", sessionInfo.name(), worktreePath);
+                return null;
+
+            } catch (Exception ex) {
+                logger.error("Failed to create worktree for Agent Mode session", ex);
+                
+                // Rollback: delete the session and show error
+                SwingUtilities.invokeLater(() -> {
+                    toolError(
+                        "Failed to create worktree: " + ex.getMessage(),
+                        "Worktree Creation Error");
+                });
+                
+                contextManager.deleteSessionAsync(sessionInfo.id()).exceptionally(rollbackEx -> {
+                    logger.warn("Failed to delete session during worktree creation rollback", rollbackEx);
+                    return null;
+                });
+
+                return null;
+            }
+        });
     }
 
     /**
