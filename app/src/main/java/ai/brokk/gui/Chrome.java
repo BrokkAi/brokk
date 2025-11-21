@@ -117,6 +117,7 @@ public class Chrome
     private Context activeContext; // Track the currently displayed context
     private final HeadlessExecutorService headlessExecutorService;
     private final Map<UUID, AgentModeExecutorInfo> agentExecutorMap = new ConcurrentHashMap<>();
+    private final Map<UUID, String> sessionToJobId = new ConcurrentHashMap<>();
 
     /**
      * Stores information about a headless executor instance for an Agent Mode session.
@@ -470,25 +471,28 @@ public class Chrome
                     .build();
 
                 try (var response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        var errorBody = response.body() != null ? response.body().string() : "Unknown error";
-                        logger.error("Failed to submit job: {} - {}", response.code(), errorBody);
-                        SwingUtilities.invokeLater(() ->
-                            toolError("Failed to submit job: " + response.code(), "Submission Error")
-                        );
-                    } else {
-                        var responseBody = response.body() != null ? response.body().string() : "{}";
-                        var responseObj = mapper.readTree(responseBody);
-                        var jobId = responseObj.get("jobId").asText();
-                        logger.info("Job submitted successfully: {}", jobId);
-
-                        // Start polling for job events
-                        pollExecutorForJobEvents(sessionId, jobId, executorInfo);
-
-                        SwingUtilities.invokeLater(() ->
-                            showNotification(NotificationRole.INFO, "Job submitted: " + jobId)
-                        );
-                    }
+                if (!response.isSuccessful()) {
+                var errorBody = response.body() != null ? response.body().string() : "Unknown error";
+                logger.error("Failed to submit job: {} - {}", response.code(), errorBody);
+                SwingUtilities.invokeLater(() ->
+                toolError("Failed to submit job: " + response.code(), "Submission Error")
+                );
+                } else {
+                var responseBody = response.body() != null ? response.body().string() : "{}";
+                var responseObj = mapper.readTree(responseBody);
+                var jobId = responseObj.get("jobId").asText();
+                logger.info("Job submitted successfully: {}", jobId);
+                
+                // Store the session-to-job mapping for later retrieval
+                sessionToJobId.put(sessionId, jobId);
+                
+                // Start polling for job events
+                pollExecutorForJobEvents(sessionId, jobId, executorInfo);
+                
+                SwingUtilities.invokeLater(() ->
+                showNotification(NotificationRole.INFO, "Job submitted: " + jobId)
+                );
+                }
                 }
             } catch (Exception ex) {
                 logger.error("Error submitting job to executor", ex);
@@ -726,17 +730,94 @@ public class Chrome
 
     /**
      * Handles the selection of a conversation in Agent Mode.
-     * This will load and display the conversation's output.
+     * Fetches and displays the job events from the headless executor.
      */
     private void onAgentModeConversationSelected(SessionManager.SessionInfo sessionInfo) {
         if (agentModeOutputPanel == null) {
             return;
         }
 
-        // TODO: Load the conversation data from the session/headless executor
-        // For now, show a placeholder message
-        var message = Messages.customSystem("Conversation: " + sessionInfo.name() + "\n\n(Loading conversation data...)");
-        agentModeOutputPanel.setText(List.of(message));
+        var sessionId = sessionInfo.id();
+        var jobId = sessionToJobId.get(sessionId);
+        var executorInfo = agentExecutorMap.get(sessionId);
+
+        if (jobId == null || executorInfo == null) {
+            var message = Messages.customSystem(
+                "Conversation: " + sessionInfo.name() + "\n\n"
+                + "History is not available for this conversation.");
+            agentModeOutputPanel.setText(List.of(message));
+            return;
+        }
+
+        // Clear the output panel and show a loading spinner
+        agentModeOutputPanel.clear();
+        agentModeOutputPanel.showSpinner("Loading conversation...");
+
+        contextManager.submitBackgroundTask("Load executor events", () -> {
+            try {
+                var client = new OkHttpClient();
+                var mapper = new ObjectMapper();
+
+                // Fetch events from the executor's /v1/jobs/{jobId}/events endpoint
+                var request = new Request.Builder()
+                    .url("http://127.0.0.1:" + executorInfo.port() + "/v1/jobs/" + jobId + "/events?limit=1000")
+                    .addHeader("Authorization", "Bearer " + executorInfo.authToken())
+                    .get()
+                    .build();
+
+                try (var response = client.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        logger.warn("Failed to fetch events: {}", response.code());
+                        SwingUtilities.invokeLater(() -> {
+                            agentModeOutputPanel.hideSpinner();
+                            var errorMessage = Messages.customSystem(
+                                "Failed to load conversation history (HTTP " + response.code() + ")");
+                            agentModeOutputPanel.setText(List.of(errorMessage));
+                        });
+                        return null;
+                    }
+
+                    var responseBody = response.body() != null ? response.body().string() : "{}";
+                    var responseObj = mapper.readTree(responseBody);
+                    var events = responseObj.get("events");
+
+                    final List<String> messages = new ArrayList<>();
+                    if (events != null && events.isArray() && events.size() > 0) {
+                        for (var eventNode : events) {
+                            var message = eventNode.get("message").asText("");
+                            if (!message.isEmpty()) {
+                                messages.add(message);
+                            }
+                        }
+                    }
+
+                    SwingUtilities.invokeLater(() -> {
+                        agentModeOutputPanel.hideSpinner();
+                        if (messages.isEmpty()) {
+                            var message = Messages.customSystem(
+                                "Conversation: " + sessionInfo.name() + "\n\n"
+                                + "No events found for this conversation.");
+                            agentModeOutputPanel.setText(List.of(message));
+                        } else {
+                            // Display each message as AI output
+                            for (var msg : messages) {
+                                agentModeOutputPanel.append(msg, ChatMessageType.AI, true);
+                            }
+                        }
+                    });
+                }
+            } catch (Exception ex) {
+                logger.error("Error loading conversation events", ex);
+                SwingUtilities.invokeLater(() -> {
+                    agentModeOutputPanel.hideSpinner();
+                    var errorMessage = Messages.customSystem(
+                        "Error loading conversation: " + ex.getMessage());
+                    agentModeOutputPanel.setText(List.of(errorMessage));
+                });
+            }
+
+            return null;
+        });
     }
 
     /**
