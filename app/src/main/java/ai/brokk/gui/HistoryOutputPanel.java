@@ -3126,12 +3126,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Can push to create upstream branch
                                 canPush = true;
                             }
-                            pushPullState = new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
+                            pushPullState =
+                                    new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
                         } catch (Exception e) {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }
 
-                        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
+                        return new CumulativeChanges(
+                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
