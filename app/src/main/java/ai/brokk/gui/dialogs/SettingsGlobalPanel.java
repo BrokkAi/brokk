@@ -89,10 +89,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<String> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
+
     @Nullable
     private JLabel otherModelsVendorLabel;
+
     @Nullable
     private JPanel otherModelsVendorHolder;
+
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
