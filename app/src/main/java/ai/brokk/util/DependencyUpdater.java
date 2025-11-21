@@ -3,6 +3,7 @@ package ai.brokk.util;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.gui.dependencies.DependencyUpdateHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -468,84 +469,6 @@ public final class DependencyUpdater {
     }
 
     /**
-     * Checks if a local dependency needs updating by comparing timestamps.
-     * Returns true if any file in the source directory is newer than lastUpdatedMillis.
-     */
-    private static boolean localDependencyNeedsUpdate(DependencyMetadata metadata) {
-        if (metadata.type() != DependencySourceType.LOCAL_PATH || metadata.sourcePath() == null) {
-            return false;
-        }
-
-        var sourcePath = Path.of(metadata.sourcePath());
-        if (!Files.exists(sourcePath) || !Files.isDirectory(sourcePath)) {
-            return false;
-        }
-
-        long newestSourceTimestamp = getNewestFileTimestamp(sourcePath);
-        return newestSourceTimestamp > metadata.lastUpdatedMillis();
-    }
-
-    /**
-     * Checks if a Git dependency needs to be updated by comparing commit hashes.
-     * Uses git ls-remote to fetch the current HEAD of the remote ref without cloning.
-     *
-     * @return true if an update is needed (or if we can't determine), false if up to date
-     */
-    private static boolean gitDependencyNeedsUpdate(DependencyMetadata metadata) {
-        if (metadata.type() != DependencySourceType.GITHUB) {
-            return false;
-        }
-
-        var repoUrl = metadata.repoUrl();
-        var ref = metadata.ref();
-        var storedHash = metadata.commitHash();
-
-        if (repoUrl == null || ref == null) {
-            return true; // Missing metadata, needs update
-        }
-
-        if (storedHash == null) {
-            return true; // No stored hash, needs update
-        }
-
-        var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
-        if (remoteHash == null) {
-            return true; // Could not determine, assume update needed
-        }
-
-        boolean needsUpdate = !storedHash.equals(remoteHash);
-        if (!needsUpdate) {
-            logger.debug(
-                    "Git dependency at {} is up to date (commit {})",
-                    repoUrl,
-                    storedHash.substring(0, Math.min(8, storedHash.length())));
-        }
-        return needsUpdate;
-    }
-
-    /**
-     * Returns the newest file modification timestamp in a directory (recursive).
-     * Returns 0 if directory is empty or cannot be read.
-     */
-    private static long getNewestFileTimestamp(Path dir) {
-        try (var stream = Files.walk(dir)) {
-            return stream.filter(Files::isRegularFile)
-                    .mapToLong(p -> {
-                        try {
-                            return Files.getLastModifiedTime(p).toMillis();
-                        } catch (IOException e) {
-                            return 0L;
-                        }
-                    })
-                    .max()
-                    .orElse(0L);
-        } catch (IOException e) {
-            logger.debug("Failed to scan directory for timestamps: {}", dir, e);
-            return 0L;
-        }
-    }
-
-    /**
      * Performs a single auto-update pass over all imported dependencies on disk.
      *
      * <p>This method:
@@ -620,13 +543,13 @@ public final class DependencyUpdater {
                 Set<ProjectFile> delta;
                 if (isLocal) {
                     // Quick timestamp check to avoid expensive full sync
-                    if (!localDependencyNeedsUpdate(metadata)) {
+                    if (!DependencyUpdateHelper.localDependencyNeedsUpdate(metadata)) {
                         continue;
                     }
                     delta = updateLocalPathDependencyOnDisk(project, depRoot, metadata);
                 } else {
                     // Quick commit hash check to avoid expensive clone
-                    if (!gitDependencyNeedsUpdate(metadata)) {
+                    if (!DependencyUpdateHelper.gitDependencyNeedsUpdate(metadata)) {
                         continue;
                     }
                     delta = updateGitDependencyOnDisk(project, depRoot, metadata);

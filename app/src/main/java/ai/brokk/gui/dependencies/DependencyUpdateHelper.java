@@ -33,6 +33,83 @@ public final class DependencyUpdateHelper {
     }
 
     /**
+     * Checks if a Git dependency needs to be updated by comparing commit hashes.
+     * Uses git ls-remote to fetch the current HEAD of the remote ref without cloning.
+     *
+     * @return true if an update is needed (or if we can't determine), false if up to date
+     */
+    public static boolean gitDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata metadata) {
+        if (metadata.type() != DependencyUpdater.DependencySourceType.GITHUB) {
+            return false;
+        }
+
+        var repoUrl = metadata.repoUrl();
+        var ref = metadata.ref();
+        var storedHash = metadata.commitHash();
+
+        if (repoUrl == null || ref == null) {
+            return true; // Missing metadata, needs update
+        }
+
+        if (storedHash == null) {
+            return true; // No stored hash, needs update
+        }
+
+        var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
+        if (remoteHash == null) {
+            return true; // Could not determine, assume update needed
+        }
+
+        boolean needsUpdate = !storedHash.equals(remoteHash);
+        if (!needsUpdate) {
+            logger.debug("Git dependency at {} is up to date (commit {})",
+                         repoUrl,
+                         storedHash.substring(0, Math.min(8, storedHash.length())));
+        }
+        return needsUpdate;
+    }
+
+    /**
+     * Checks if a local dependency needs updating by comparing timestamps.
+     * Returns true if any file in the source directory is newer than lastUpdatedMillis.
+     */
+    public static boolean localDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata metadata) {
+        if (metadata.type() != DependencyUpdater.DependencySourceType.LOCAL_PATH || metadata.sourcePath() == null) {
+            return false;
+        }
+
+        var sourcePath = Path.of(metadata.sourcePath());
+        if (!Files.exists(sourcePath) || !Files.isDirectory(sourcePath)) {
+            return false;
+        }
+
+        long newestSourceTimestamp = getNewestFileTimestamp(sourcePath);
+        return newestSourceTimestamp > metadata.lastUpdatedMillis();
+    }
+
+    /**
+     * Returns the newest file modification timestamp in a directory (recursive).
+     * Returns 0 if directory is empty or cannot be read.
+     */
+    private static long getNewestFileTimestamp(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            return stream.filter(Files::isRegularFile)
+                    .mapToLong(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis();
+                        } catch (IOException e) {
+                            return 0L;
+                        }
+                    })
+                    .max()
+                    .orElse(0L);
+        } catch (IOException e) {
+            logger.debug("Failed to scan directory for timestamps: {}", dir, e);
+            return 0L;
+        }
+    }
+
+    /**
      * Updates a single GitHub-backed dependency and refreshes the analyzer.
      *
      * <p>This method submits a background task via the project's ContextManager. It performs the
@@ -52,19 +129,8 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
-        // Check if update is needed by comparing commit hashes
-        var storedHash = metadata.commitHash();
-        var repoUrl = metadata.repoUrl();
-        var ref = metadata.ref();
-
-        if (storedHash != null && repoUrl != null && ref != null) {
-            var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
-            if (remoteHash != null && storedHash.equals(remoteHash)) {
-                logger.debug("Git dependency {} is already up to date (commit {})",
-                             dependencyRoot.getRelPath().getFileName(),
-                             storedHash.substring(0, Math.min(8, storedHash.length())));
-                return CompletableFuture.completedFuture(Collections.emptySet());
-            }
+        if (!gitDependencyNeedsUpdate(metadata)) {
+            return CompletableFuture.completedFuture(Collections.emptySet());
         }
 
         return runUpdate(chrome, dependencyRoot, "GitHub", project -> {
@@ -91,18 +157,10 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
-        // Check if update is needed by comparing timestamps
-        var sourcePath = metadata.sourcePath();
-        if (sourcePath != null) {
-            var source = Path.of(sourcePath);
-            if (Files.exists(source) && Files.isDirectory(source)) {
-                long newestTimestamp = getNewestFileTimestamp(source);
-                if (newestTimestamp <= metadata.lastUpdatedMillis()) {
-                    logger.debug("Local dependency {} is already up to date (no newer files)",
-                                 dependencyRoot.getRelPath().getFileName());
-                    return CompletableFuture.completedFuture(Collections.emptySet());
-                }
-            }
+        if (!localDependencyNeedsUpdate(metadata)) {
+            logger.debug("Local dependency {} is already up to date (no newer files)",
+                         dependencyRoot.getRelPath().getFileName());
+            return CompletableFuture.completedFuture(Collections.emptySet());
         }
 
         return runUpdate(chrome, dependencyRoot, "local path", project -> {
@@ -113,28 +171,6 @@ public final class DependencyUpdateHelper {
                         "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
             }
         });
-    }
-
-    /**
-     * Returns the newest file modification timestamp in a directory (recursive).
-     * Returns 0 if directory is empty or cannot be read.
-     */
-    private static long getNewestFileTimestamp(Path dir) {
-        try (var stream = Files.walk(dir)) {
-            return stream.filter(Files::isRegularFile)
-                    .mapToLong(p -> {
-                        try {
-                            return Files.getLastModifiedTime(p).toMillis();
-                        } catch (IOException e) {
-                            return 0L;
-                        }
-                    })
-                    .max()
-                    .orElse(0L);
-        } catch (IOException e) {
-            logger.debug("Failed to scan directory for timestamps: {}", dir, e);
-            return 0L;
-        }
     }
 
     private static CompletableFuture<Set<ProjectFile>> runUpdate(
