@@ -19,6 +19,10 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.SCALA, state);
     }
 
+    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new ScalaAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new ScalaAnalyzer(getProject(), state);

@@ -44,6 +44,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.JAVASCRIPT, state);
     }
 
+    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new JavascriptAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new JavascriptAnalyzer(getProject(), state);

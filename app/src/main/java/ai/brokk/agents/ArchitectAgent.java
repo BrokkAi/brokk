@@ -273,7 +273,7 @@ public class ArchitectAgent {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
-        searchAgent.scanInitialContext();
+        context = searchAgent.scanInitialContext();
 
         // Run Architect proper
         var archResult = this.execute();
