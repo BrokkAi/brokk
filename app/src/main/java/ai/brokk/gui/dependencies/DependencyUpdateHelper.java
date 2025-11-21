@@ -289,12 +289,14 @@ public final class DependencyUpdateHelper {
 
                 if (!result.changedFiles().isEmpty()) {
                     try {
-                        analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                .get();
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted while updating local dependencies", ie);
                     } catch (ExecutionException ee) {
-                        throw new RuntimeException("Analyzer update failed after local dependency update", ee.getCause());
+                        throw new RuntimeException(
+                                "Analyzer update failed after local dependency update", ee.getCause());
                     }
                 }
 
@@ -350,7 +352,8 @@ public final class DependencyUpdateHelper {
 
                 if (!result.changedFiles().isEmpty()) {
                     try {
-                        analyzer.updateFiles(new HashSet<>(result.changedFiles())).get();
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                .get();
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted while updating Git dependencies", ie);
@@ -369,8 +372,7 @@ public final class DependencyUpdateHelper {
             if (ex != null) {
                 logger.error("Error during Git dependency update: {}", ex.getMessage(), ex);
                 chrome.toolError(
-                        String.format("Git dependency update failed: %s", ex.getMessage()),
-                        "Dependency Update Error");
+                        String.format("Git dependency update failed: %s", ex.getMessage()), "Dependency Update Error");
                 return;
             }
 

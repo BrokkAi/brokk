@@ -1,5 +1,7 @@
 package ai.brokk.util;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.IContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
@@ -124,10 +126,10 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                 return;
             }
 
-            assert scheduler != null;
+            var sched = requireNonNull(scheduler);
             // Run immediate check, then every 5 minutes
-            scheduler.execute(() -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome));
-            localTask = scheduler.scheduleAtFixedRate(
+            sched.execute(() -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome));
+            localTask = sched.scheduleAtFixedRate(
                     () -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome),
                     LOCAL_CHECK_INTERVAL_MINUTES,
                     LOCAL_CHECK_INTERVAL_MINUTES,
@@ -154,10 +156,10 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
                 return;
             }
 
-            assert scheduler != null;
+            var sched = requireNonNull(scheduler);
             // Run immediate check, then every 30 minutes
-            scheduler.execute(() -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome));
-            gitTask = scheduler.scheduleAtFixedRate(
+            sched.execute(() -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome));
+            gitTask = sched.scheduleAtFixedRate(
                     () -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome),
                     GIT_CHECK_INTERVAL_MINUTES,
                     GIT_CHECK_INTERVAL_MINUTES,
