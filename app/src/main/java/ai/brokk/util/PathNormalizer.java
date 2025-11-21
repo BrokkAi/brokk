@@ -145,7 +145,7 @@ public final class PathNormalizer {
         if (!s.startsWith("//")) return false;
         String remainder = s.substring(2);
         int first = remainder.indexOf('/');
-        if (first <= 0) return false;
+        if (first < 0) return false;
         int second = remainder.indexOf('/', first + 1);
         return second < 0; // exactly two segments after '//'
     }
