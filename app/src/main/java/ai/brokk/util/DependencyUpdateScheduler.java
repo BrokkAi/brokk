@@ -1,12 +1,12 @@
 package ai.brokk.util;
 
 import ai.brokk.gui.Chrome;
+import ai.brokk.IContextManager;
+import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import ai.brokk.IConsoleIO;
 
 import javax.swing.SwingUtilities;
 import java.util.HashSet;
@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  * Local dependencies are checked every 5 minutes (sequentially).
  * Git dependencies are checked every 30 minutes (in parallel).
  */
-public class DependencyUpdateScheduler implements SettingsChangeListener {
+public class DependencyUpdateScheduler implements SettingsChangeListener, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(DependencyUpdateScheduler.class);
 
     private static final long LOCAL_CHECK_INTERVAL_MINUTES = 5;
@@ -35,6 +35,7 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
     public DependencyUpdateScheduler(Chrome chrome) {
         this.chrome = chrome;
         MainProject.addSettingsChangeListener(this);
+        chrome.getContextManager().addAnalyzerCallback(this);
 
         // Check initial state and start schedulers if enabled
         var project = chrome.getProject();
@@ -43,6 +44,20 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
         }
         if (project.getAutoUpdateGitDependencies()) {
             startGitScheduler();
+        }
+    }
+
+    @Override
+    public void onAnalyzerReady() {
+        // Run initial check when analyzer is ready
+        logger.debug("Analyzer ready, running initial dependency checks");
+        synchronized (schedulerLock) {
+            if (localScheduler != null && !localScheduler.isShutdown()) {
+                localScheduler.execute(this::checkLocalDependencies);
+            }
+            if (gitScheduler != null && !gitScheduler.isShutdown()) {
+                gitScheduler.execute(this::checkGitDependencies);
+            }
         }
     }
 
@@ -83,10 +98,10 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
                 return t;
             });
 
-            // Run immediately, then every 5 minutes
+            // First run triggered by onAnalyzerReady, then every 5 minutes
             localScheduler.scheduleAtFixedRate(
                     this::checkLocalDependencies,
-                    0,
+                    LOCAL_CHECK_INTERVAL_MINUTES,
                     LOCAL_CHECK_INTERVAL_MINUTES,
                     TimeUnit.MINUTES);
 
@@ -117,10 +132,10 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
                 return t;
             });
 
-            // Run immediately, then every 30 minutes
+            // First run triggered by onAnalyzerReady, then every 30 minutes
             gitScheduler.scheduleAtFixedRate(
                     this::checkGitDependencies,
-                    0,
+                    GIT_CHECK_INTERVAL_MINUTES,
                     GIT_CHECK_INTERVAL_MINUTES,
                     TimeUnit.MINUTES);
 
@@ -144,6 +159,11 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
             var project = chrome.getProject();
             var cm = chrome.getContextManager();
             var analyzer = cm.getAnalyzerWrapper();
+
+            if (analyzer == null) {
+                logger.debug("Analyzer not initialized yet, skipping local dependency check");
+                return;
+            }
 
             analyzer.pause();
             try {
@@ -192,6 +212,11 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
             var cm = chrome.getContextManager();
             var analyzer = cm.getAnalyzerWrapper();
 
+            if (analyzer == null) {
+                logger.debug("Analyzer not initialized yet, skipping Git dependency check");
+                return;
+            }
+
             analyzer.pause();
             try {
                 var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);
@@ -238,6 +263,7 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
      */
     public void close() {
         MainProject.removeSettingsChangeListener(this);
+        chrome.getContextManager().removeAnalyzerCallback(this);
         synchronized (schedulerLock) {
             stopLocalScheduler();
             stopGitScheduler();
