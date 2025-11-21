@@ -36,9 +36,29 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use oldName for storage path to ensure stable and filesystem-safe names
+        // Persist snapshots compressed with GZIP to reduce size
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
+    }
+
+    /**
+     * Persist the analyzer state for this language, when possible.
+     * Default implementation saves TreeSitterAnalyzer snapshots to the per-language storage path.
+     * Implementations may override to customize or disable saving.
+     */
+    default void saveAnalyzer(IAnalyzer analyzer, IProject project) {
+        try {
+            if (analyzer instanceof TreeSitterAnalyzer tsa) {
+                Path file = getStoragePath(project);
+                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                logger.debug("Saved analyzer state for {} to {}", name(), file);
+            } else {
+                logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to save analyzer state for {}: {}", name(), t.toString());
+        }
     }
 
     default List<Path> getDependencyCandidates(IProject project) {

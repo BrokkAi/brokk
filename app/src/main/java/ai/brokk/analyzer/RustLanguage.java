@@ -61,7 +61,10 @@ public class RustLanguage implements Language {
 
     @Override
     public IAnalyzer loadAnalyzer(IProject project) {
-        return createAnalyzer(project);
+        var storage = getStoragePath(project);
+        return TreeSitterStateIO.load(storage)
+                .map(state -> (IAnalyzer) RustAnalyzer.fromState(project, state))
+                .orElseGet(() -> createAnalyzer(project));
     }
 
     @Override

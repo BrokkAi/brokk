@@ -812,7 +812,7 @@ public class SearchAgent {
      * Callers should invoke this before calling execute() if they want the initial context scan.
      */
     @Blocking
-    public void scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
@@ -830,7 +830,7 @@ public class SearchAgent {
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
             context = scope.append(contextAgentResult);
-            return;
+            return context;
         }
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -865,11 +865,12 @@ public class SearchAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = scope.append(contextAgentResult);
+        return context;
     }
 
     @Blocking
-    public void scanInitialContext() throws InterruptedException {
-        scanInitialContext(cm.getService().getScanModel());
+    public Context scanInitialContext() throws InterruptedException {
+        return scanInitialContext(cm.getService().getScanModel());
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
