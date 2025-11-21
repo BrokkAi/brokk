@@ -291,7 +291,11 @@ public class Chrome
         frame.setSize(800, 1200); // Taller than wide
         frame.setLayout(new BorderLayout());
 
-        // 3) Main panel (top area + bottom area)
+        // 3) Create tabbed pane to hold IDE Mode and Agent Mode
+        var mainTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+        mainTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+
+        // 3.1) Main panel (top area + bottom area) — will be the IDE Mode tab
         var mainPanel = new JPanel(new BorderLayout());
 
         var contentPanel = new JPanel(new GridBagLayout());
@@ -333,7 +337,21 @@ public class Chrome
         contentPanel.add(bottomPanel, gbc);
 
         mainPanel.add(contentPanel, BorderLayout.CENTER);
-        frame.add(mainPanel, BorderLayout.CENTER); // instructionsPanel is created here
+
+        // 3.2) Add IDE Mode tab (the main Brokk UI)
+        mainTabbedPane.addTab("IDE Mode", mainPanel);
+        mainTabbedPane.setToolTipTextAt(0, "Traditional Brokk interface with workspace, instructions, and tools");
+
+        // 3.3) Create placeholder Agent Mode tab
+        var agentModePanel = new JPanel(new BorderLayout());
+        var agentPlaceholder = new JLabel("Agent Mode — Coming Soon", SwingConstants.CENTER);
+        agentPlaceholder.setFont(new Font(Font.DIALOG, Font.PLAIN, 16));
+        agentModePanel.add(agentPlaceholder, BorderLayout.CENTER);
+        mainTabbedPane.addTab("Agent Mode", agentModePanel);
+        mainTabbedPane.setToolTipTextAt(1, "Advanced agent-driven interface (future feature)");
+
+        // Add tabbed pane to frame
+        frame.add(mainTabbedPane, BorderLayout.CENTER);
 
         // Initialize global undo/redo actions now that instructionsPanel is available
         // contextManager is also available (passed in constructor)
