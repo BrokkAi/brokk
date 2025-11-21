@@ -650,9 +650,8 @@ public class SearchAgent {
             names.add("callMcpTool");
         }
 
-        // Task list tools (exposed here for general availability; also added via globalTerminals in buildPrompt)
-        names.add("createOrReplaceTaskList");
-        names.add("appendTaskList");
+        // Task list tools are exposed only when the objective allows TASK_LIST via globalTerminals.
+        // Do not add them here to avoid exposing them for other objectives.
 
         logger.debug("Allowed tool names: {}", names);
         return names;
