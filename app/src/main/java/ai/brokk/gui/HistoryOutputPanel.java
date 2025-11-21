@@ -3250,6 +3250,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     content.applyTheme(chrome.getTheme());
 
+                    // Add window listener to refresh UI after commit dialog closes
+                    dialog.addWindowListener(new WindowAdapter() {
+                        @Override
+                        public void windowClosed(WindowEvent e) {
+                            refreshBranchDiffPanel();
+                            var commitTab = chrome.getGitCommitTab();
+                            if (commitTab != null) {
+                                commitTab.updateCommitPanel();
+                            }
+                        }
+                    });
+
                     dialog.setVisible(true);
                 });
             });
