@@ -339,7 +339,9 @@ public class Chrome
         mainPanel.add(contentPanel, BorderLayout.CENTER);
 
         // 3.2) Add IDE Mode tab (the main Brokk UI)
-        mainTabbedPane.addTab("IDE Mode", mainPanel);
+        var ideModePanel = new JPanel(new BorderLayout());
+        ideModePanel.add(mainPanel, BorderLayout.CENTER);
+        mainTabbedPane.addTab("IDE Mode", ideModePanel);
         mainTabbedPane.setToolTipTextAt(0, "Traditional Brokk interface with workspace, instructions, and tools");
 
         // 3.3) Create placeholder Agent Mode tab
