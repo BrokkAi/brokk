@@ -1268,6 +1268,17 @@ public class Context {
         }
     }
 
+    /**
+     * Kicks off asynchronous computation of all computed values in this context's fragments. This is intended to
+     * "snapshot" the state of a context before it becomes historical, without blocking. The values will be computed in
+     * the background and cached.
+     */
+    public void startSnapshotting() {
+        for (var fragment : this.allFragments().toList()) {
+            fragment.startAll();
+        }
+    }
+
     private static Set<ContextFragment> validateReadOnlyFragments(
             Set<ContextFragment> readonly, List<ContextFragment> all) {
         for (var cf : readonly) {

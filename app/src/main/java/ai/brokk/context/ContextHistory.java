@@ -167,7 +167,15 @@ public class ContextHistory {
      * Push {@code ctx}, select it, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
+        if (!history.isEmpty()) {
+            // When a new context is pushed, the current "live" context becomes historical.
+            // We kick off snapshotting its content to prevent it from changing if files on disk are modified.
+            history.peekLast().startSnapshotting();
+        }
         history.addLast(ctx);
+        // Snapshot the new live context immediately to capture its state as of now.
+        // This ensures undo/redo restores content from when the context became live, not from a later mutation.
+        ctx.startSnapshotting();
         truncateHistory();
         redo.clear();
         selected = ctx;
@@ -181,6 +189,8 @@ public class ContextHistory {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
         history.addLast(newLive);
+        // Snapshot the new live context immediately to capture its state for future undo/redo.
+        newLive.startSnapshotting();
         redo.clear();
         selected = newLive;
     }
@@ -298,6 +308,9 @@ public class ContextHistory {
         var toUndo = Math.min(steps, history.size() - 1);
         for (int i = 0; i < toUndo; i++) {
             var popped = history.removeLast();
+            // Snapshot the context before moving it to redo stack, as it was the live context
+            // and its content might not be cached yet.
+            popped.startSnapshotting();
             resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
