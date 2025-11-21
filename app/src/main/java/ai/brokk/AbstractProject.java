@@ -715,6 +715,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * @throws IllegalArgumentException if metadata is not of type GITHUB or missing required fields
      * @throws IOException if cloning or filesystem operations fail
      */
+    @org.jetbrains.annotations.Blocking
     public Set<ProjectFile> updateGitDependencyOnDisk(ProjectFile dependencyRoot, DependencyMetadata metadata)
             throws IOException {
         if (metadata.type() != DependencySourceType.GITHUB) {
@@ -842,6 +843,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @org.jetbrains.annotations.Blocking
     public Set<ProjectFile> updateLocalPathDependencyOnDisk(ProjectFile dependencyRoot, DependencyMetadata metadata)
             throws IOException {
         if (metadata.type() != DependencySourceType.LOCAL_PATH) {
@@ -1009,6 +1011,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * @param includeGit whether to auto-update GITHUB dependencies
      * @return aggregated result of the auto-update pass
      */
+    @org.jetbrains.annotations.Blocking
     public DependencyAutoUpdateResult autoUpdateDependenciesOnce(boolean includeLocal, boolean includeGit) {
         var changedFiles = new HashSet<ProjectFile>();
         int updatedDependencies = 0;
