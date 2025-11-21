@@ -453,6 +453,47 @@ public final class DependencyUpdater {
     }
 
     /**
+     * Checks if a local dependency needs updating by comparing timestamps.
+     * Returns true if any file in the source directory is newer than lastUpdatedMillis.
+     */
+    private static boolean localDependencyNeedsUpdate(DependencyMetadata metadata) {
+        if (metadata.type() != DependencySourceType.LOCAL_PATH || metadata.sourcePath() == null) {
+            return false;
+        }
+
+        var sourcePath = Path.of(metadata.sourcePath());
+        if (!Files.exists(sourcePath) || !Files.isDirectory(sourcePath)) {
+            return false;
+        }
+
+        long newestSourceTimestamp = getNewestFileTimestamp(sourcePath);
+        return newestSourceTimestamp > metadata.lastUpdatedMillis();
+    }
+
+    /**
+     * Returns the newest file modification timestamp in a directory (recursive).
+     * Returns 0 if directory is empty or cannot be read.
+     */
+    private static long getNewestFileTimestamp(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .mapToLong(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis();
+                        } catch (IOException e) {
+                            return 0L;
+                        }
+                    })
+                    .max()
+                    .orElse(0L);
+        } catch (IOException e) {
+            logger.debug("Failed to scan directory for timestamps: {}", dir, e);
+            return 0L;
+        }
+    }
+
+    /**
      * Performs a single auto-update pass over all imported dependencies on disk.
      *
      * <p>This method:
@@ -515,6 +556,11 @@ public final class DependencyUpdater {
             try {
                 Set<ProjectFile> delta;
                 if (isLocal) {
+                    // Quick timestamp check to avoid expensive full sync
+                    if (!localDependencyNeedsUpdate(metadata)) {
+                        logger.debug("Local dependency {} is up to date (timestamp check)", depRoot.absPath().getFileName());
+                        continue;
+                    }
                     delta = updateLocalPathDependencyOnDisk(project, depRoot, metadata);
                 } else {
                     delta = updateGitDependencyOnDisk(project, depRoot, metadata);
