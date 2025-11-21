@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Manages periodic background checking and updating of dependencies.
@@ -28,8 +29,8 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
     private final Chrome chrome;
     private final Object schedulerLock = new Object();
 
-    private ScheduledExecutorService localScheduler;
-    private ScheduledExecutorService gitScheduler;
+    private @Nullable ScheduledExecutorService localScheduler;
+    private @Nullable ScheduledExecutorService gitScheduler;
 
     public DependencyUpdateScheduler(Chrome chrome) {
         this.chrome = chrome;
@@ -162,11 +163,6 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
             var cm = chrome.getContextManager();
             var analyzer = cm.getAnalyzerWrapper();
 
-            if (analyzer == null) {
-                logger.debug("Analyzer not initialized yet, skipping local dependency check");
-                return;
-            }
-
             analyzer.pause();
             try {
                 var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
@@ -213,11 +209,6 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
             var project = chrome.getProject();
             var cm = chrome.getContextManager();
             var analyzer = cm.getAnalyzerWrapper();
-
-            if (analyzer == null) {
-                logger.debug("Analyzer not initialized yet, skipping Git dependency check");
-                return;
-            }
 
             analyzer.pause();
             try {

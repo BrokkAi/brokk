@@ -129,11 +129,11 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
-        if (!gitDependencyNeedsUpdate(metadata)) {
-            return CompletableFuture.completedFuture(Collections.emptySet());
-        }
-
         return runUpdate(chrome, dependencyRoot, "GitHub", project -> {
+            // Check needs-update in background to avoid blocking EDT with network call
+            if (!gitDependencyNeedsUpdate(metadata)) {
+                return Collections.emptySet();
+            }
             try {
                 return DependencyUpdater.updateGitDependencyOnDisk(project, dependencyRoot, metadata);
             } catch (IOException e) {
@@ -157,13 +157,13 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
-        if (!localDependencyNeedsUpdate(metadata)) {
-            logger.debug("Local dependency {} is already up to date (no newer files)",
-                         dependencyRoot.getRelPath().getFileName());
-            return CompletableFuture.completedFuture(Collections.emptySet());
-        }
-
         return runUpdate(chrome, dependencyRoot, "local path", project -> {
+            // Check needs-update in background to avoid blocking EDT with file system scan
+            if (!localDependencyNeedsUpdate(metadata)) {
+                logger.debug("Local dependency {} is already up to date (no newer files)",
+                             dependencyRoot.getRelPath().getFileName());
+                return Collections.emptySet();
+            }
             try {
                 return DependencyUpdater.updateLocalPathDependencyOnDisk(project, dependencyRoot, metadata);
             } catch (IOException e) {

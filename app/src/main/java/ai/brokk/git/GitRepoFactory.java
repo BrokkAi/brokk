@@ -250,7 +250,8 @@ public class GitRepoFactory {
             for (var remoteRef : refs) {
                 var refName = remoteRef.getName();
                 if (refName.equals("refs/heads/" + ref) || refName.equals("refs/tags/" + ref)) {
-                    return remoteRef.getObjectId().name();
+                    var objectId = remoteRef.getObjectId();
+                    return objectId != null ? objectId.name() : null;
                 }
             }
 
