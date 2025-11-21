@@ -91,6 +91,8 @@ public class SplitButton extends JComponent {
         actionButton.setBorder(new EmptyBorder(top + 2, 2, bottom + 2, 0));
 
         applyCompactStyling(arrowButton);
+        // Match vertical padding with action button for consistent height
+        arrowButton.setBorder(new EmptyBorder(top + 2, 0, bottom + 2, 0));
 
         // Alignments for compact look
         actionButton.setHorizontalAlignment(SwingConstants.LEFT);
