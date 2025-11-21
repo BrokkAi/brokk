@@ -224,11 +224,7 @@ public class FuzzyMatcher {
         if (fragments == null) {
             return null;
         }
-        var result = new ArrayList<TextRange>();
-        for (var range : fragments) {
-            result.add(range);
-        }
-        return result;
+        return new ArrayList<>(fragments);
     }
 
     /**
