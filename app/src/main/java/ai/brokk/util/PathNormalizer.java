@@ -3,7 +3,6 @@ package ai.brokk.util;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
-import java.util.Locale;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
@@ -128,11 +127,6 @@ public final class PathNormalizer {
     // ------------------------------
     // Internal helpers
     // ------------------------------
-
-    private static boolean isWindows() {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        return os.contains("win");
-    }
 
     private static boolean looksAbsolute(String s) {
         if (s.startsWith("/")) return true; // POSIX absolute
@@ -267,7 +261,7 @@ public final class PathNormalizer {
     @Nullable
     private static Path toSystemPath(String forwardSlashPath) {
         try {
-            if (isWindows()) {
+            if (Environment.isWindows()) {
                 String winForm = forwardSlashPath.replace('/', '\\');
                 return Path.of(winForm);
             } else {
