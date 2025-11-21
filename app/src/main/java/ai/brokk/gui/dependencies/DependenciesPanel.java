@@ -2,7 +2,6 @@ package ai.brokk.gui.dependencies;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.BorderUtils;
@@ -13,6 +12,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Decompiler;
+import ai.brokk.util.DependencyUpdater;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -784,10 +784,10 @@ public final class DependenciesPanel extends JPanel {
         boolean hasUpdatableMetadata = false;
         boolean updateInProgress = depName != null && updatesInProgress.contains(depName);
         if (pf != null) {
-            var metadataOpt = AbstractProject.readDependencyMetadata(pf);
+            var metadataOpt = DependencyUpdater.readDependencyMetadata(pf);
             hasUpdatableMetadata = metadataOpt
-                    .map(m -> m.type() == AbstractProject.DependencySourceType.LOCAL_PATH
-                            || m.type() == AbstractProject.DependencySourceType.GITHUB)
+                    .map(m -> m.type() == DependencyUpdater.DependencySourceType.LOCAL_PATH
+                            || m.type() == DependencyUpdater.DependencySourceType.GITHUB)
                     .orElse(false);
         }
         updateItem.setEnabled(hasUpdatableMetadata && !updateInProgress);
@@ -849,7 +849,7 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(pf);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(pf);
         if (metadataOpt.isEmpty()) {
             chrome.toolError(
                     "This dependency does not have source metadata and cannot be updated automatically.",
@@ -859,9 +859,9 @@ public final class DependenciesPanel extends JPanel {
 
         var metadata = metadataOpt.get();
         CompletableFuture<Set<ProjectFile>> future;
-        if (metadata.type() == AbstractProject.DependencySourceType.GITHUB) {
+        if (metadata.type() == DependencyUpdater.DependencySourceType.GITHUB) {
             future = DependencyUpdateHelper.updateGitDependency(chrome, pf, metadata);
-        } else if (metadata.type() == AbstractProject.DependencySourceType.LOCAL_PATH) {
+        } else if (metadata.type() == DependencyUpdater.DependencySourceType.LOCAL_PATH) {
             future = DependencyUpdateHelper.updateLocalPathDependency(chrome, pf, metadata);
         } else {
             chrome.toolError(

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -71,7 +72,7 @@ class DependencyAutoUpdateCoordinatorTest {
     private void seedLocalDependency(Path depDir) throws IOException {
         Files.createDirectories(depDir);
         Files.copy(localSourceDir.resolve("LocalFoo.java"), depDir.resolve("LocalFoo.java"));
-        AbstractProject.writeLocalPathDependencyMetadata(
+        DependencyUpdater.writeLocalPathDependencyMetadata(
                 depDir, localSourceDir.toAbsolutePath().normalize());
     }
 
@@ -85,7 +86,7 @@ class DependencyAutoUpdateCoordinatorTest {
         if (Files.exists(gitDir)) {
             FileUtil.deleteRecursively(gitDir);
         }
-        AbstractProject.writeGitDependencyMetadata(depDir, remoteUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch);
     }
 
     @Test
@@ -101,7 +102,7 @@ class DependencyAutoUpdateCoordinatorTest {
         // Sanity check: dependency still has old contents
         assertEquals("class LocalFooV1 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));
 
-        var result = project.autoUpdateDependenciesOnce(false, false);
+        var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, false);
 
         assertTrue(result.changedFiles().isEmpty(), "No files should change when flags are disabled");
         assertEquals(0, result.updatedDependencies(), "No dependencies should be reported as updated");
@@ -133,7 +134,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 .setAuthor("Test", "test@example.com")
                 .call();
 
-        var result = project.autoUpdateDependenciesOnce(true, false);
+        var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
 
         // Local dependency should be updated
         assertEquals("class LocalFooV2 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));
@@ -180,7 +181,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 .setAuthor("Test", "test@example.com")
                 .call();
 
-        var result = project.autoUpdateDependenciesOnce(false, true);
+        var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);
 
         // Local dependency should remain unchanged
         assertEquals(
@@ -224,7 +225,7 @@ class DependencyAutoUpdateCoordinatorTest {
         // Mutate local source to cause an update
         Files.writeString(localSourceDir.resolve("LocalFoo.java"), "class LocalFooV2 {}");
 
-        var result = project.autoUpdateDependenciesOnce(true, false);
+        var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
 
         // Local dependency should be updated as usual
         assertEquals("class LocalFooV2 {}", Files.readString(localDepDir.resolve("LocalFoo.java")));

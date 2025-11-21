@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -100,15 +101,15 @@ public class ImportDependencyDialogDirectCloneTest {
         String repoUrl = "https://github.com/test/repo.git";
         String branch = "main";
 
-        AbstractProject.writeGitDependencyMetadata(depDir, repoUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, repoUrl, branch);
 
-        Path metadataPath = depDir.resolve(AbstractProject.DEPENDENCY_METADATA_FILE);
+        Path metadataPath = depDir.resolve(DependencyUpdater.DEPENDENCY_METADATA_FILE);
         assertTrue(Files.exists(metadataPath), "Metadata file should be created for GitHub dependency");
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Metadata should be readable");
         var metadata = metadataOpt.get();
-        assertEquals(AbstractProject.DependencySourceType.GITHUB, metadata.type());
+        assertEquals(DependencyUpdater.DependencySourceType.GITHUB, metadata.type());
         assertEquals(repoUrl, metadata.repoUrl());
         assertEquals(branch, metadata.ref());
         assertNull(metadata.sourcePath());
@@ -123,16 +124,16 @@ public class ImportDependencyDialogDirectCloneTest {
         Path sourceDir = testRoot.resolve("external-lib");
         Files.createDirectories(sourceDir);
 
-        AbstractProject.writeLocalPathDependencyMetadata(
+        DependencyUpdater.writeLocalPathDependencyMetadata(
                 depDir, sourceDir.toAbsolutePath().normalize());
 
-        Path metadataPath = depDir.resolve(AbstractProject.DEPENDENCY_METADATA_FILE);
+        Path metadataPath = depDir.resolve(DependencyUpdater.DEPENDENCY_METADATA_FILE);
         assertTrue(Files.exists(metadataPath), "Metadata file should be created for local dependency");
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Metadata should be readable");
         var metadata = metadataOpt.get();
-        assertEquals(AbstractProject.DependencySourceType.LOCAL_PATH, metadata.type());
+        assertEquals(DependencyUpdater.DependencySourceType.LOCAL_PATH, metadata.type());
         assertEquals(sourceDir.toAbsolutePath().normalize().toString(), metadata.sourcePath());
         assertNull(metadata.repoUrl());
         assertNull(metadata.ref());

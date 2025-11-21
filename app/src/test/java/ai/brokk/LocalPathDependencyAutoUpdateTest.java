@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +20,7 @@ import org.junit.jupiter.api.Test;
  * Tests for local-directory dependency auto-update mechanics.
  *
  * <p>These tests exercise
- * {@link AbstractProject#updateLocalPathDependencyOnDisk(ProjectFile, AbstractProject.DependencyMetadata)}.
+ * {@link DependencyUpdater#updateLocalPathDependencyOnDisk(ai.brokk.IProject, ProjectFile, DependencyUpdater.DependencyMetadata)}.
  */
 class LocalPathDependencyAutoUpdateTest {
 
@@ -55,10 +56,10 @@ class LocalPathDependencyAutoUpdateTest {
         Files.copy(sourceDir.resolve("Foo.java"), depDir.resolve("Foo.java"));
 
         // Record dependency metadata pointing at our local source directory.
-        AbstractProject.writeLocalPathDependencyMetadata(
+        DependencyUpdater.writeLocalPathDependencyMetadata(
                 depDir, sourceDir.toAbsolutePath().normalize());
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata to be present for local path dependency");
 
         // Mutate the source directory: add a new file.
@@ -69,7 +70,8 @@ class LocalPathDependencyAutoUpdateTest {
                 project.getMasterRootPathForConfig(),
                 project.getMasterRootPathForConfig().relativize(depDir));
 
-        Set<ProjectFile> changedFiles = project.updateLocalPathDependencyOnDisk(depProjectFile, metadataOpt.get());
+        Set<ProjectFile> changedFiles =
+                DependencyUpdater.updateLocalPathDependencyOnDisk(project, depProjectFile, metadataOpt.get());
 
         assertFalse(changedFiles.isEmpty(), "Changed files set should not be empty after source update");
 
@@ -101,10 +103,10 @@ class LocalPathDependencyAutoUpdateTest {
         Path depDir = dependenciesRoot.resolve("local-dep");
         Files.createDirectories(depDir);
 
-        AbstractProject.writeLocalPathDependencyMetadata(
+        DependencyUpdater.writeLocalPathDependencyMetadata(
                 depDir, badSource.toAbsolutePath().normalize());
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata for local path dependency");
 
         var depProjectFile = new ProjectFile(
@@ -113,7 +115,7 @@ class LocalPathDependencyAutoUpdateTest {
 
         assertThrows(
                 java.io.IOException.class,
-                () -> project.updateLocalPathDependencyOnDisk(depProjectFile, metadataOpt.get()),
+                () -> DependencyUpdater.updateLocalPathDependencyOnDisk(project, depProjectFile, metadataOpt.get()),
                 "Expected update to fail when source directory is inside dependencies root");
     }
 }
