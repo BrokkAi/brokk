@@ -76,7 +76,6 @@ import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.plaf.LayerUI;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -595,7 +594,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Set up custom renderers for history table columns
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new IndentedIconRenderer());
-        historyTable.getColumnModel().getColumn(1).setCellRenderer(new DiffAwareActionRenderer());
+        historyTable
+                .getColumnModel()
+                .getColumn(1)
+                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome, historyTable));
 
         // Add selection listener to preview context (ignore group header rows)
         historyTable.getSelectionModel().addListSelectionListener(e -> {
@@ -889,13 +891,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
+            // Reset any per-row height customizations before rebuilding; individual rows that
+            // need more space (e.g., with diff summaries) will be expanded explicitly later.
+            historyTable.setRowHeight(historyTable.getRowHeight());
 
             int rowToSelect = -1;
             int currentRow = 0;
 
             var contexts = contextManager.getContextHistoryList();
+
+            // (Re)bind computed fragment subscriptions for all contexts shown in the table.
+            ComputedSubscription.disposeAll(historyTable);
+            for (var ctx1 : contexts) {
+                ctx1.allFragments()
+                        .filter(f -> f instanceof ContextFragment.ComputedFragment)
+                        .forEach(f -> ComputedSubscription.bind(
+                                (ContextFragment.ComputedFragment) f, historyTable, historyTable::repaint));
+            }
+
             // Warm up diffs centrally via ContextHistory.DiffService
-            contextManager.getContextHistory().getDiffService().warmUp(contexts);
+            var diffService = contextManager.getContextHistory().getDiffService();
+            diffService.warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -983,6 +999,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             suppressScrollOnNextUpdate = false;
             pendingViewportPosition = null;
 
+            // Adjust row heights for any Context rows that already have cached, non-empty
+            // diff summaries so their per-fragment diff panels are fully visible.
+            for (int row = 0; row < historyModel.getRowCount(); row++) {
+                Object v = historyModel.getValueAt(row, 2);
+                if (v instanceof Context ctxRow) {
+                    var diffsOpt = diffService.peek(ctxRow);
+                    if (diffsOpt.isPresent() && !diffsOpt.get().isEmpty()) {
+                        adjustRowHeightForContext(ctxRow);
+                    }
+                }
+            }
+
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
@@ -1030,6 +1058,45 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Recompute cumulative changes summary for the Changes tab in the background
             refreshCumulativeChangesAsync();
         });
+    }
+
+    /**
+     * Adjusts the row height for the given Context so that the Action column's renderer
+     * (including any diff summary) is fully visible.
+     *
+     * <p>This method must be called on the EDT and performs no work if the context is
+     * not currently represented in the table.
+     */
+    void adjustRowHeightForContext(Context ctx) {
+        assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
+
+        int targetRow = -1;
+        for (int row = 0; row < historyModel.getRowCount(); row++) {
+            Object val = historyModel.getValueAt(row, 2);
+            if (val == ctx) {
+                targetRow = row;
+                break;
+            }
+        }
+        if (targetRow < 0) {
+            return;
+        }
+
+        int actionCol = 1;
+        if (actionCol >= historyTable.getColumnCount()) {
+            return;
+        }
+
+        var renderer = historyTable.getCellRenderer(targetRow, actionCol);
+        Component comp = historyTable.prepareRenderer(renderer, targetRow, actionCol);
+
+        int colWidth = historyTable.getColumnModel().getColumn(actionCol).getWidth();
+        comp.setSize(colWidth, Short.MAX_VALUE);
+        int prefHeight = Math.max(18, comp.getPreferredSize().height + 2);
+
+        if (historyTable.getRowHeight(targetRow) != prefHeight) {
+            historyTable.setRowHeight(targetRow, prefHeight);
+        }
     }
 
     /**
@@ -2681,8 +2748,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Builds a tooltip that prepends the model summary on its own line when available,
      * followed by the provided base text ("normal tooltip").
+     *
+     * <p>Exposed for use by external renderers such as {@link HistoryCellRenderer}.
      */
-    private String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
+    public String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
         if (ctx == null) return base;
         var spec = modelOf(ctx);
         if (spec == null) return base;
@@ -2807,166 +2876,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             llmStreamArea.dispose();
         } catch (Throwable t) {
             logger.debug("Ignoring error disposing MarkdownOutputPanel during HistoryOutputPanel.dispose()", t);
-        }
-    }
-
-    /** A renderer that shows the action text and a diff summary (when available) under it. */
-    private class DiffAwareActionRenderer extends DefaultTableCellRenderer {
-        private final ActivityTableRenderers.ActionCellRenderer fallback =
-                new ActivityTableRenderers.ActionCellRenderer();
-        private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
-
-        @Override
-        public Component getTableCellRendererComponent(
-                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            // Extract action text and structural indent level
-            int indentLevel = 0;
-            String actionText;
-            if (value instanceof ActionText at) {
-                actionText = at.text();
-                indentLevel = Math.max(0, at.indentLevel());
-            } else {
-                actionText = value != null ? value.toString() : "";
-            }
-
-            // Separator handling delegates to existing painter
-            if (ActivityTableRenderers.isSeparatorAction(actionText)) {
-                var comp = fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
-                return adjustRowHeight(table, row, column, comp);
-            }
-
-            // Determine context for this row
-            Object ctxVal = table.getModel().getValueAt(row, 2);
-
-            // If not a Context row, render a normal label (top-aligned)
-            if (!(ctxVal instanceof Context ctx)) {
-                var comp = super.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
-                if (comp instanceof JLabel lbl) {
-                    lbl.setVerticalAlignment(JLabel.TOP);
-                }
-                if (comp instanceof JComponent jc) {
-                    jc.setToolTipText(actionText); // Show full header text on hover
-                }
-                return adjustRowHeight(table, row, column, comp);
-            }
-
-            // Decide whether to render a diff panel or just the label
-            var ds = contextManager.getContextHistory().getDiffService();
-            var cachedOpt = ds.peek(ctx);
-
-            // Kick off background computation if needed
-            if (cachedOpt.isEmpty()) {
-                ds.diff(ctx).whenComplete((r, ex) -> SwingUtilities.invokeLater(table::repaint));
-            }
-
-            // Build action component using LAF-consistent renderer, but make it non-opaque
-            var actionComp =
-                    fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
-            if (actionComp instanceof JComponent jc) {
-                jc.setOpaque(false);
-            }
-
-            // Composite panel that applies structural indent to the entire cell
-            var panel = new JPanel(new BorderLayout());
-            panel.setOpaque(true);
-            panel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
-            panel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-
-            int indentPx = indentLevel * Constants.H_GAP * 3;
-            panel.setBorder(new EmptyBorder(0, indentPx, 0, 0));
-            panel.add(actionComp, BorderLayout.NORTH);
-            // Ensure tooltip is visible even though we return a composite panel.
-            // Only include model info for AI result contexts with metadata.
-            if (ctx.isAiResult() && lastMetaOf(ctx) != null) {
-                panel.setToolTipText(buildTooltipWithModel(ctx, actionText));
-            } else {
-                panel.setToolTipText(actionText);
-            }
-
-            // If we have cached diff entries, add a summary panel; otherwise, action-only
-            if (cachedOpt.isPresent() && !cachedOpt.get().isEmpty()) {
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-
-                var diffPanel = new JPanel();
-                diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
-                diffPanel.setOpaque(false);
-                // No extra left inset; the outer panel border provides the indent alignment
-                diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
-
-                for (var de : cachedOpt.get()) {
-                    String bareName;
-                    try {
-                        var fragment = de.fragment();
-                        // Try non-blocking access for ComputedFragments
-                        Set<ProjectFile> files = Set.of();
-                        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                            // Use tryGet() for non-blocking access; won't block EDT
-                            var computedFilesOpt = cf.computedFiles();
-                            var filesOpt = computedFilesOpt.tryGet();
-                            if (filesOpt.isPresent()) {
-                                files = filesOpt.get();
-                            }
-                            // Ensure table repaints when files become available/computed
-                            ComputedSubscription.bind(
-                                    cf,
-                                    HistoryOutputPanel.this.historyTable,
-                                    HistoryOutputPanel.this.historyTable::repaint);
-                        } else {
-                            // Non-computed fragments: safe to call files() directly
-                            files = fragment.files();
-                        }
-                        if (!files.isEmpty()) {
-                            var pf = files.iterator().next();
-                            bareName = pf.getRelPath().getFileName().toString();
-                        } else {
-                            bareName = fragment.shortDescription();
-                        }
-                    } catch (Exception ex) {
-                        bareName = de.fragment().shortDescription();
-                    }
-
-                    var nameLabel = new JLabel(bareName + " ");
-                    nameLabel.setFont(smallFont);
-                    nameLabel.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-
-                    var plus = new JLabel("+" + de.linesAdded());
-                    plus.setFont(smallFont);
-                    plus.setForeground(plusColor);
-
-                    var minus = new JLabel("-" + de.linesDeleted());
-                    minus.setFont(smallFont);
-                    minus.setForeground(minusColor);
-
-                    var rowPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-                    rowPanel.setOpaque(false);
-                    rowPanel.add(nameLabel);
-                    rowPanel.add(plus);
-                    rowPanel.add(minus);
-
-                    diffPanel.add(rowPanel);
-                }
-
-                panel.add(diffPanel, BorderLayout.CENTER);
-            }
-
-            return adjustRowHeight(table, row, column, panel);
-        }
-
-        /**
-         * Adjust the row height to the preferred height of the rendered component. This keeps rows compact when there
-         * is no diff and expands only as needed when a diff summary is present.
-         */
-        private Component adjustRowHeight(JTable table, int row, int column, Component comp) {
-            int colWidth = table.getColumnModel().getColumn(column).getWidth();
-            // Give the component the column width so its preferred height is accurate.
-            comp.setSize(colWidth, Short.MAX_VALUE);
-            int pref = Math.max(18, comp.getPreferredSize().height + 2); // small vertical breathing room
-            if (table.getRowHeight(row) != pref) {
-                table.setRowHeight(row, pref);
-            }
-            return comp;
         }
     }
 
@@ -3521,7 +3430,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
     // Structural action text + indent data for column 1 (Option A)
-    private static record ActionText(String text, int indentLevel) {}
+    static record ActionText(String text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
