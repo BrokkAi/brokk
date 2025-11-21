@@ -411,7 +411,7 @@ public final class GlobalUiSettings {
     }
 
     public static boolean isVerticalActivityLayout() {
-        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, false);
+        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, true);
     }
 
     public static void saveVerticalActivityLayout(boolean enabled) {
