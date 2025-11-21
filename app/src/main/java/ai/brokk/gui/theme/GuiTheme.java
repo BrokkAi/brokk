@@ -252,8 +252,8 @@ public class GuiTheme {
     public static Optional<Theme> loadRSyntaxTheme(String themeName) {
         String themeResource =
                 switch (themeName) {
-                    case THEME_LIGHT -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
-                    case THEME_DARK -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    case THEME_LIGHT, THEME_LIGHT_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+                    case THEME_DARK, THEME_DARK_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
                     case THEME_HIGH_CONTRAST -> "/org/fife/ui/rsyntaxtextarea/themes/high-contrast.xml";
                     default -> {
                         logger.warn("Unknown theme '{}' for RSyntaxTextArea, defaulting to dark", themeName);
