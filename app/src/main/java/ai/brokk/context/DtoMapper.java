@@ -558,9 +558,18 @@ public class DtoMapper {
         return new TaskFragmentDto(fragment.id(), messagesDto, fragment.description());
     }
 
-    private static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
+    static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
         String contentId = writer.writeContent(Messages.getRepr(message), null);
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
+        String reasoningContentId = null;
+
+        if (message instanceof AiMessage aiMessage) {
+            String reasoning = aiMessage.reasoningContent();
+            if (reasoning != null && !reasoning.isBlank()) {
+                reasoningContentId = writer.writeContent(reasoning, null);
+            }
+        }
+
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
