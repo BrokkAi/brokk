@@ -1,6 +1,5 @@
 package ai.brokk.gui.git;
 
-import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -52,10 +51,9 @@ public interface GitTabErrorUtil {
             return "Request timed out. Please try again or check your network.";
         } else if (ex instanceof ConnectException) {
             return "Request timed out or connection refused. Please try again.";
-        } else if (ex instanceof IOException) {
-            return "I/O error: " + ex.getMessage();
         } else {
-            return "Error: " + ex.getMessage();
+            var message = ex.getMessage();
+            return message != null ? message : "An unexpected error occurred.";
         }
     }
 }

@@ -585,14 +585,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             githubHostField.setVisible(selected);
             githubInfoLabel.setVisible(selected);
 
+            // Enable/disable text fields based on checkbox selection
+            githubOwnerField.setEnabled(selected);
+            githubRepoField.setEnabled(selected);
+            githubHostField.setEnabled(selected);
+
             if (!selected) {
-                // Clear fields and remove any validation borders when unchecked
+                // Clear fields when unchecked - validation listener will restore borders
                 githubOwnerField.setText("");
                 githubRepoField.setText("");
                 githubHostField.setText("");
-                githubOwnerField.setBorder(UIManager.getBorder("TextField.border"));
-                githubRepoField.setBorder(UIManager.getBorder("TextField.border"));
-                githubHostField.setBorder(UIManager.getBorder("TextField.border"));
             }
 
             // Revalidate and repaint to update layout

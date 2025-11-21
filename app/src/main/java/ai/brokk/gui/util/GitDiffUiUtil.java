@@ -14,8 +14,6 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
-import ai.brokk.gui.components.RoundedLineBorder;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.SyntaxDetector;
 import java.time.Duration;
 import java.time.Instant;
@@ -47,16 +45,11 @@ public interface GitDiffUiUtil {
     Logger logger = LogManager.getLogger(GitDiffUiUtil.class);
 
     /**
-     * Creates a real-time validation listener for a JTextField that provides visual feedback
-     * on keystroke as the user types.
+     * Creates a real-time validation listener for a JTextField that provides feedback
+     * via tooltip as the user types.
      *
      * <p>The listener validates input with a 200ms debounce using javax.swing.Timer. On validation
-     * failure, the text field border is set to a red RoundedLineBorder (2px thickness, 3px arc)
-     * and a tooltip is set with the error message. On validation success, a transparent placeholder
-     * border is applied and the tooltip is cleared.
-     *
-     * <p>This design prevents layout shifts by maintaining constant border dimensions regardless
-     * of validation state.
+     * failure, a tooltip is set with the error message. On validation success, the tooltip is cleared.
      *
      * @param textField The JTextField to attach validation feedback to
      * @param validator A function that validates the text field's content and returns
@@ -65,16 +58,6 @@ public interface GitDiffUiUtil {
      */
     static DocumentListener createRealtimeValidationListener(
             JTextField textField, Function<String, Optional<String>> validator) {
-        // Store the original border to restore when validation passes
-        var defaultBorder = textField.getBorder();
-        if (defaultBorder == null) {
-            defaultBorder = UIManager.getBorder("TextField.border");
-        }
-        var normalBorder = defaultBorder;
-
-        // Error border
-        var errorBorder = new RoundedLineBorder(ThemeColors.getColor(ThemeColors.NOTIF_ERROR_BORDER), 2, 3);
-
         AtomicReference<Timer> debounceTimer = new AtomicReference<>(null);
 
         return new DocumentListener() {
@@ -106,13 +89,8 @@ public interface GitDiffUiUtil {
                     Optional<String> validationError = validator.apply(text);
 
                     if (validationError.isPresent()) {
-                        // Validation failed: apply error border and set tooltip
-                        String errorMessage = validationError.get();
-                        textField.setBorder(errorBorder);
-                        textField.setToolTipText(errorMessage);
+                        textField.setToolTipText(validationError.get());
                     } else {
-                        // Validation succeeded: restore normal border and clear tooltip
-                        textField.setBorder(normalBorder);
                         textField.setToolTipText(null);
                     }
                 });
