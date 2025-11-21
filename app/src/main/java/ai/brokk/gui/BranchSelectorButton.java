@@ -253,7 +253,8 @@ public class BranchSelectorButton extends SplitButton {
                             String hexColor = String.format(
                                     "#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
-                            Color fg = getForeground();
+                            // Use contrasting text color for highlighted portions
+                            Color fg = isDark ? Color.BLACK : Color.WHITE;
                             String fgHex = String.format(
                                     "#%02x%02x%02x",
                                     fg.getRed(), fg.getGreen(), fg.getBlue());
