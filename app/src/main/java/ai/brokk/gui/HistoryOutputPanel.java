@@ -889,6 +889,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
+            // Reset any per-row height customizations before rebuilding; individual rows that
+            // need more space (e.g., with diff summaries) will be expanded explicitly later.
+            historyTable.setRowHeight(historyTable.getRowHeight());
 
             int rowToSelect = -1;
             int currentRow = 0;
@@ -905,7 +908,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Warm up diffs centrally via ContextHistory.DiffService
-            contextManager.getContextHistory().getDiffService().warmUp(contexts);
+            var diffService = contextManager.getContextHistory().getDiffService();
+            diffService.warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -993,6 +997,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             suppressScrollOnNextUpdate = false;
             pendingViewportPosition = null;
 
+            // Adjust row heights for any Context rows that already have cached, non-empty
+            // diff summaries so their per-fragment diff panels are fully visible.
+            for (int row = 0; row < historyModel.getRowCount(); row++) {
+                Object v = historyModel.getValueAt(row, 2);
+                if (v instanceof Context ctxRow) {
+                    var diffsOpt = diffService.peek(ctxRow);
+                    if (diffsOpt.isPresent() && !diffsOpt.get().isEmpty()) {
+                        adjustRowHeightForContext(ctxRow);
+                    }
+                }
+            }
+
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
@@ -1040,6 +1056,45 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Recompute cumulative changes summary for the Changes tab in the background
             refreshCumulativeChangesAsync();
         });
+    }
+
+    /**
+     * Adjusts the row height for the given Context so that the Action column's renderer
+     * (including any diff summary) is fully visible.
+     *
+     * <p>This method must be called on the EDT and performs no work if the context is
+     * not currently represented in the table.
+     */
+    void adjustRowHeightForContext(Context ctx) {
+        assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
+
+        int targetRow = -1;
+        for (int row = 0; row < historyModel.getRowCount(); row++) {
+            Object val = historyModel.getValueAt(row, 2);
+            if (val == ctx) {
+                targetRow = row;
+                break;
+            }
+        }
+        if (targetRow < 0) {
+            return;
+        }
+
+        int actionCol = 1;
+        if (actionCol >= historyTable.getColumnCount()) {
+            return;
+        }
+
+        var renderer = historyTable.getCellRenderer(targetRow, actionCol);
+        Component comp = historyTable.prepareRenderer(renderer, targetRow, actionCol);
+
+        int colWidth = historyTable.getColumnModel().getColumn(actionCol).getWidth();
+        comp.setSize(colWidth, Short.MAX_VALUE);
+        int prefHeight = Math.max(18, comp.getPreferredSize().height + 2);
+
+        if (historyTable.getRowHeight(targetRow) != prefHeight) {
+            historyTable.setRowHeight(targetRow, prefHeight);
+        }
     }
 
     /**

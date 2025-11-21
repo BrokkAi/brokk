@@ -112,9 +112,20 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         var diffService = contextManager.getContextHistory().getDiffService();
         var cachedOpt = diffService.peek(ctx);
 
-        // Kick off background computation if needed; repaint the table when finished.
+        // Kick off background computation if needed; when finished, adjust row height (on EDT)
+        // and repaint the table once. This keeps the renderer side-effect free while still
+        // expanding rows that gain diff summaries.
         if (cachedOpt.isEmpty()) {
-            diffService.diff(ctx).whenComplete((r, ex) -> SwingUtilities.invokeLater(table::repaint));
+            diffService.diff(ctx).whenComplete((result, ex) -> {
+                if (ex != null || result == null || result.isEmpty()) {
+                    SwingUtilities.invokeLater(table::repaint);
+                    return;
+                }
+                SwingUtilities.invokeLater(() -> {
+                    historyOutputPanel.adjustRowHeightForContext(ctx);
+                    table.repaint();
+                });
+            });
         }
 
         // Primary action component rendered via the existing ActionCellRenderer (for consistent look).
