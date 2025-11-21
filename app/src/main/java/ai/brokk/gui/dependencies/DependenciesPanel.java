@@ -80,6 +80,7 @@ public final class DependenciesPanel extends JPanel {
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
     private final List<DependencyStateChangeListener> stateChangeListeners = new ArrayList<>();
+    private final Set<String> updatesInProgress = new HashSet<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
     private boolean autoUpdateAttempted = false;
@@ -781,6 +782,7 @@ public final class DependenciesPanel extends JPanel {
 
         var updateItem = new JMenuItem("Update from Source");
         boolean hasUpdatableMetadata = false;
+        boolean updateInProgress = depName != null && updatesInProgress.contains(depName);
         if (pf != null) {
             var metadataOpt = AbstractProject.readDependencyMetadata(pf);
             hasUpdatableMetadata = metadataOpt
@@ -788,7 +790,10 @@ public final class DependenciesPanel extends JPanel {
                             || m.type() == AbstractProject.DependencySourceType.GITHUB)
                     .orElse(false);
         }
-        updateItem.setEnabled(hasUpdatableMetadata);
+        updateItem.setEnabled(hasUpdatableMetadata && !updateInProgress);
+        if (updateInProgress) {
+            updateItem.setText("Update in Progress...");
+        }
         updateItem.addActionListener(ev -> updateDependencyForRow(modelRow));
         menu.add(updateItem);
 
@@ -839,6 +844,11 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
 
+        // Prevent concurrent updates of the same dependency
+        if (updatesInProgress.contains(depName)) {
+            return;
+        }
+
         var metadataOpt = AbstractProject.readDependencyMetadata(pf);
         if (metadataOpt.isEmpty()) {
             chrome.toolError(
@@ -860,12 +870,16 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
 
-        future.whenComplete((changed, ex) -> {
+        // Track this update as in-progress
+        updatesInProgress.add(depName);
+
+        future.whenComplete((changed, ex) -> SwingUtilities.invokeLater(() -> {
+            updatesInProgress.remove(depName);
             if (ex == null) {
                 // Re-count files across dependencies after an update
                 new FileCountingWorker().execute();
             }
-        });
+        }));
     }
 
     private void removeSelectedDependency() {
