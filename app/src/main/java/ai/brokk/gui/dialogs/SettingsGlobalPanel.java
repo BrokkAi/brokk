@@ -76,6 +76,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton localhostProxyRadio; // Can be null if STAGING
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
+    private JRadioButton lightPlusThemeRadio = new JRadioButton("Light+");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
     private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
     private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
@@ -262,6 +263,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         switch (currentTheme) {
             case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
             case GuiTheme.THEME_DARK_PLUS -> darkPlusThemeRadio.setSelected(true);
+            case GuiTheme.THEME_LIGHT_PLUS -> lightPlusThemeRadio.setSelected(true);
             case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
             default -> lightThemeRadio.setSelected(true);
         }
@@ -1154,16 +1156,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         appearancePanel.add(new JLabel("Theme:"), gbc);
 
         lightThemeRadio = new JRadioButton("Light");
+        lightPlusThemeRadio = new JRadioButton("Light+");
         darkThemeRadio = new JRadioButton("Dark");
         darkPlusThemeRadio = new JRadioButton("Dark+");
         highContrastThemeRadio = new JRadioButton("High Contrast");
         var themeGroup = new ButtonGroup();
         themeGroup.add(lightThemeRadio);
+        themeGroup.add(lightPlusThemeRadio);
         themeGroup.add(darkThemeRadio);
         themeGroup.add(darkPlusThemeRadio);
         themeGroup.add(highContrastThemeRadio);
 
         lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
+        lightPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT_PLUS);
         darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
         darkPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK_PLUS);
         highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
@@ -1173,6 +1178,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         appearancePanel.add(lightThemeRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(lightPlusThemeRadio, gbc);
 
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
@@ -1993,6 +2001,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String newTheme = GuiTheme.THEME_LIGHT;
         if (lightThemeRadio.isSelected()) {
             newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (lightPlusThemeRadio.isSelected()) {
+            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
         } else if (darkThemeRadio.isSelected()) {
             newTheme = (String) darkThemeRadio.getClientProperty("theme");
         } else if (darkPlusThemeRadio.isSelected()) {
