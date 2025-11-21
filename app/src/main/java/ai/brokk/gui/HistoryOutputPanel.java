@@ -707,10 +707,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
 
         // Add undo/redo buttons at the bottom, side by side
-        var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
+        undoButton.setPreferredSize(new Dimension(100, 28));
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
@@ -720,6 +721,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
+        redoButton.setPreferredSize(new Dimension(100, 28));
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
         });
@@ -729,7 +731,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
-        buttonPanel.setBorder(new EmptyBorder(5, 0, 10, 0)); // Add top + slight bottom padding to align with Output
+        buttonPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 
         historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
 
