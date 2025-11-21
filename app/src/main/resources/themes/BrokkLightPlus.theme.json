@@ -6,31 +6,31 @@
     "*": {
       "background": "#f5f5f5",
       "foreground": "#2c2c2c",
-      "infoForeground": "#1976d2",
+      "infoForeground": "#757575",
       "successForeground": "#388e3c",
       "warningForeground": "#f57c00",
       "errorForeground": "#d32f2f",
-      "selectionBackground": "#bbdefb",
+      "selectionBackground": "#E0E0E0",
       "selectionForeground": "#1a1a1a",
       "selectionInactiveBackground": "#e8e8e8",
       "disabledBackground": "#f5f5f5",
       "disabledForeground": "#999999",
       "borderColor": "#e0e0e0",
-      "focusColor": "#1976d2",
-      "focusedBorderColor": "#1976d2",
-      "hoverBorderColor": "#1976d2",
+      "focusColor": "#757575",
+      "focusedBorderColor": "#757575",
+      "hoverBorderColor": "#757575",
       "separatorColor": "#eeeeee"
     },
 
     "Component": {
-      "focusedBorderColor": "#1976d2",
+      "focusedBorderColor": "#757575",
       "errorFocusColor": "#d32f2f",
       "inactiveErrorFocusColor": "#f8bbd0",
       "warningFocusColor": "#f57c00",
       "inactiveWarningFocusColor": "#ffe0b2",
       "iconColor": "#424242",
       "hoverIconColor": "#1a1a1a",
-      "linkColor": "#1976d2"
+      "linkColor": "#757575"
     },
 
     "Button": {
@@ -38,23 +38,23 @@
       "endBackground": "#f5f5f5",
       "startBorderColor": "#e0e0e0",
       "endBorderColor": "#d0d0d0",
-      "focusedBorderColor": "#1976d2",
+      "focusedBorderColor": "#757575",
       "default": {
         "foreground": "#ffffff",
-        "startBackground": "#1976d2",
-        "endBackground": "#1565c0",
-        "startBorderColor": "#1565c0",
-        "endBorderColor": "#0d47a1",
-        "focusedBorderColor": "#42a5f5"
+        "startBackground": "#757575",
+        "endBackground": "#616161",
+        "startBorderColor": "#616161",
+        "endBorderColor": "#424242",
+        "focusedBorderColor": "#9E9E9E"
       }
     },
 
     "TabbedPane": {
-      "underlineColor": "#1976d2",
+      "underlineColor": "#757575",
       "tabSelectionHeight": 4,
       "contentAreaColor": "#fafafa",
-      "hoverColor": "#e3f2fd",
-      "focusColor": "#e3f2fd"
+      "hoverColor": "#EEEEEE",
+      "focusColor": "#EEEEEE"
     },
 
     "ScrollBar": {
@@ -86,12 +86,12 @@
     "TextField": {
       "background": "#ffffff",
       "foreground": "#2c2c2c",
-      "caretForeground": "#1976d2",
+      "caretForeground": "#757575",
       "focusedBackground": "#f9f9f9",
       "disabledBackground": "#f5f5f5",
       "disabledForeground": "#999999",
       "borderColor": "#e0e0e0",
-      "focusedBorderColor": "#1976d2"
+      "focusedBorderColor": "#757575"
     },
 
     "ToolTip": {
@@ -109,17 +109,17 @@
     "Table": {
       "background": "#ffffff",
       "foreground": "#2c2c2c",
-      "selectionBackground": "#bbdefb",
+      "selectionBackground": "#E0E0E0",
       "selectionForeground": "#1a1a1a",
       "gridColor": "#f0f0f0",
-      "focusCellBackground": "#bbdefb",
+      "focusCellBackground": "#E0E0E0",
       "focusCellForeground": "#1a1a1a"
     },
 
     "Tree": {
       "background": "#ffffff",
       "foreground": "#2c2c2c",
-      "selectionBackground": "#bbdefb",
+      "selectionBackground": "#E0E0E0",
       "selectionForeground": "#1a1a1a",
       "selectionInactiveBackground": "#e8e8e8"
     },
@@ -127,7 +127,7 @@
     "List": {
       "background": "#ffffff",
       "foreground": "#2c2c2c",
-      "selectionBackground": "#bbdefb",
+      "selectionBackground": "#E0E0E0",
       "selectionForeground": "#1a1a1a"
     },
 
@@ -161,7 +161,7 @@
 
     "ProgressBar": {
       "background": "#eeeeee",
-      "foreground": "#1976d2",
+      "foreground": "#757575",
       "failedColor": "#d32f2f",
       "passedColor": "#388e3c"
     },
@@ -190,46 +190,46 @@
     },
 
     "DefaultTabs": {
-      "underlineColor": "#1976d2",
+      "underlineColor": "#757575",
       "inactiveUnderlineColor": "#e0e0e0",
       "underlineHeight": 4,
-      "hoverBackground": "#e3f2fd"
+      "hoverBackground": "#EEEEEE"
     },
 
     "Brokk": {
       "chat_background": "#f5f5f5",
       "message_background": "#ffffff",
       "chat_text": "#2c2c2c",
-      "chat_header_text": "#1976d2",
+      "chat_header_text": "#757575",
       "message_border_custom": "#4caf50",
-      "message_border_ai": "#1976d2",
-      "message_border_user": "#42a5f5",
+      "message_border_ai": "#757575",
+      "message_border_user": "#9E9E9E",
       "custom_message_background": "#fafafa",
       "custom_message_foreground": "#2c2c2c",
 
       "code_block_background": "#fafafa",
       "code_block_border": "#e0e0e0",
-      "code_block_glow": "#1976d230",
+      "code_block_glow": "#9E9E9E30",
       "plain_text_foreground": "#424242",
       "codeHighlight": "#388e3c",
       "rsyntax_background": "#fafafa",
 
-      "link_color_hex": "#1976d2",
+      "link_color_hex": "#757575",
       "border_color_hex": "#e0e0e0",
 
       "git_status_new": "#388e3c",
-      "git_status_modified": "#1976d2",
+      "git_status_modified": "#757575",
       "git_status_deleted": "#d32f2f",
       "git_status_unknown": "#9e9e9e",
       "git_status_added": "#388e3c",
       "git_changed": "#f57c00",
 
-      "git_badge_background": "#1976d2",
+      "git_badge_background": "#757575",
       "git_badge_text": "#ffffff",
 
-      "mode_answer_bg": "#1976d2",
+      "mode_answer_bg": "#757575",
       "mode_answer_fg": "#ffffff",
-      "mode_answer_accent": "#42a5f5",
+      "mode_answer_accent": "#9E9E9E",
       "mode_code_bg": "#388e3c",
       "mode_code_fg": "#ffffff",
       "mode_code_accent": "#81c784",
@@ -237,9 +237,9 @@
       "mode_lutz_fg": "#ffffff",
       "mode_lutz_accent": "#ffb74d",
 
-      "badge_border": "#1976d2",
-      "badge_foreground": "#1976d2",
-      "badge_hover_border": "#1565c0",
+      "badge_border": "#757575",
+      "badge_foreground": "#757575",
+      "badge_hover_border": "#616161",
       "badge_muted_bg": "#e8e8e8",
       "badge_muted_fg": "#757575",
       "selected_badge_border": "#1a1a1a",
@@ -258,15 +258,15 @@
       "notif_confirm_bg": "#e8f5e9",
       "notif_confirm_fg": "#1b5e20",
       "notif_confirm_border": "#388e3c",
-      "notif_cost_bg": "#e3f2fd",
-      "notif_cost_fg": "#0d47a1",
-      "notif_cost_border": "#1976d2",
+      "notif_cost_bg": "#EEEEEE",
+      "notif_cost_fg": "#424242",
+      "notif_cost_border": "#757575",
       "notif_info_bg": "#fff3e0",
       "notif_info_fg": "#e65100",
       "notif_info_border": "#f57c00",
 
       "diff_added": "#e8f5e9",
-      "diff_changed": "#e3f2fd",
+      "diff_changed": "#EEEEEE",
       "diff_deleted": "#ffebee",
       "diff_added_fg": "#388e3c",
       "diff_deleted_fg": "#d32f2f",
@@ -274,27 +274,27 @@
       "search_highlight": "#ffeb3b",
       "search_current": "#ffa500",
 
-      "chip_edit_bg": "#1976d2",
+      "chip_edit_bg": "#757575",
       "chip_edit_fg": "#ffffff",
-      "chip_edit_border": "#1565c0",
-      "chip_summary_bg": "#1565c0",
+      "chip_edit_border": "#616161",
+      "chip_summary_bg": "#616161",
       "chip_summary_fg": "#ffffff",
-      "chip_summary_border": "#0d47a1",
+      "chip_summary_border": "#424242",
       "chip_history_bg": "#388e3c",
       "chip_history_fg": "#ffffff",
       "chip_history_border": "#2e7d32",
-      "chip_other_bg": "#e3f2fd",
+      "chip_other_bg": "#EEEEEE",
       "chip_other_fg": "#1a1a1a",
-      "chip_other_border": "#1976d2",
-      "chip_tasklist_bg": "#B3E5FC",
-      "chip_tasklist_fg": "#01579B",
-      "chip_tasklist_border": "#0277BD",
+      "chip_other_border": "#757575",
+      "chip_tasklist_bg": "#E0E0E0",
+      "chip_tasklist_fg": "#424242",
+      "chip_tasklist_border": "#9E9E9E",
       "chip_neutral_bg": "#f0f0f0",
       "chip_neutral_fg": "#4a4a4a",
       "chip_neutral_border": "#e0e0e0",
 
-      "accent_gradient_start": "#1976d2",
-      "accent_gradient_end": "#1565c0",
+      "accent_gradient_start": "#757575",
+      "accent_gradient_end": "#616161",
       "glass_panel_bg": "#ffffff99",
       "surface_overlay": "#00000010",
       "panel_tint": "#0000000a",
@@ -302,8 +302,8 @@
       "header_gradient_end": "#eeeeee",
       "tooltip_bg_translucent": "#ffffffcc",
       "modal_scrim": "#00000066",
-      "selection_tint": "#bbdefb4d",
-      "focus_ring": "#1976d2",
+      "selection_tint": "#E0E0E04d",
+      "focus_ring": "#757575",
       "toolbar_bg": "#f5f5f5",
       "toolbar_border": "#eeeeee",
 
