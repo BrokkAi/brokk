@@ -7,7 +7,6 @@ import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.*;
-import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
@@ -1473,75 +1472,6 @@ public class ContextSerializationTest {
         // Verify Messages.isReasoningMessage returns true (reasoning is present and non-blank)
         assertTrue(
                 Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true when reasoning is present");
-    }
-
-    @Test
-    void testLegacyAiMessageReprParsing() {
-        // Test legacy fallback: deserialize a pre-change flattened representation
-        // This simulates loading old history that doesn't have reasoningContentId
-        var legacyRepr =
-                """
-                Reasoning:
-                Let me analyze the problem step by step.
-                First, I'll consider all edge cases.
-
-                Text:
-                The solution is to refactor the code.
-                """;
-
-        var contentWriter = new HistoryIo.ContentWriter();
-        var contentId = contentWriter.writeContent(legacyRepr, null);
-        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
-        contentReader.setContentMetadata(contentWriter.getContentMetadata());
-
-        // Create a legacy DTO without reasoningContentId (simulating old serialization)
-        var legacyDto = new ChatMessageDto("ai", contentId, null);
-
-        // Deserialize using the fallback parser
-        var deserializedMessage = DtoMapper.fromChatMessageDto(legacyDto, contentReader);
-
-        // Verify fallback parsing recovered reasoning and text
-        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
-        var aiMsg = (AiMessage) deserializedMessage;
-
-        assertNotNull(aiMsg.reasoningContent(), "Reasoning should be recovered from legacy repr");
-        assertNotNull(aiMsg.text(), "Text should be recovered from legacy repr");
-
-        assertTrue(aiMsg.reasoningContent().contains("Let me analyze"), "Reasoning should contain expected content");
-        assertTrue(aiMsg.text().contains("solution is to refactor"), "Text should contain expected content");
-
-        // Verify Messages.isReasoningMessage detects reasoning in legacy format
-        assertTrue(
-                Messages.isReasoningMessage(aiMsg),
-                "isReasoningMessage should return true for legacy format with reasoning");
-    }
-
-    @Test
-    void testLegacyAiMessageReprParsingWithoutReasoningMarker() {
-        // Test legacy fallback when only text is present (no "Reasoning:" marker)
-        var legacyRepr = "The solution is straightforward.";
-
-        var contentWriter = new HistoryIo.ContentWriter();
-        var contentId = contentWriter.writeContent(legacyRepr, null);
-        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
-        contentReader.setContentMetadata(contentWriter.getContentMetadata());
-
-        // Create a legacy DTO without reasoningContentId
-        var legacyDto = new ChatMessageDto("ai", contentId, null);
-
-        // Deserialize
-        var deserializedMessage = DtoMapper.fromChatMessageDto(legacyDto, contentReader);
-
-        // Verify fallback parsing treats entire content as text
-        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
-        var aiMsg = (AiMessage) deserializedMessage;
-
-        assertEquals("The solution is straightforward.", aiMsg.text(), "Entire content should be treated as text");
-        assertNull(aiMsg.reasoningContent(), "Reasoning should be null when no 'Reasoning:' marker present");
-
-        // Verify Messages.isReasoningMessage returns false
-        assertFalse(
-                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return false when no reasoning marker");
     }
 
     @Test

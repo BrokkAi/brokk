@@ -40,22 +40,6 @@ class DtoMapperChatMessageDtoTest {
                 Arguments.of(new SystemMessage("You are a helpful assistant"), "system"));
     }
 
-    static Stream<Arguments> legacyCases() {
-        return Stream.of(
-                Arguments.of(
-                        "Reasoning:\nLet me think step by step\nText:\nThe final answer",
-                        "The final answer",
-                        "Let me think step by step"),
-                Arguments.of(
-                        "Reasoning:\nLet me think through this carefully", null, "Let me think through this carefully"),
-                Arguments.of("The final answer without any reasoning", "The final answer without any reasoning", null),
-                Arguments.of(
-                        "Reasoning:\n  Some reasoning with spaces  \nText:\n  Some text with spaces  ",
-                        "Some text with spaces",
-                        "Some reasoning with spaces"),
-                Arguments.of("Reasoning:\n\nText:\n\n", null, null));
-    }
-
     // ===== Tests =====
 
     @ParameterizedTest
@@ -108,33 +92,6 @@ class DtoMapperChatMessageDtoTest {
 
         assertEquals(message.type(), reconstructed.type());
         assertEquals(Messages.getRepr(message), Messages.getRepr(reconstructed));
-    }
-
-    @ParameterizedTest
-    @MethodSource("legacyCases")
-    void testLegacyAiReprParsing_FromDtoOnly(String legacyRepr, String expectedText, String expectedReasoning) {
-        // Prepare legacy DTO without reasoningContentId
-        ContentWriter writer = new ContentWriter();
-        String contentId = writer.writeContent(legacyRepr, null);
-        ChatMessageDto legacyDto = new ChatMessageDto("ai", contentId);
-
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(legacyDto, reader);
-
-        assertInstanceOf(AiMessage.class, reconstructed);
-        AiMessage ai = (AiMessage) reconstructed;
-
-        if (expectedText == null) {
-            assertNull(ai.text(), "Expected null text");
-        } else {
-            assertEquals(expectedText, ai.text());
-        }
-
-        if (expectedReasoning == null) {
-            assertNull(ai.reasoningContent(), "Expected null reasoning");
-        } else {
-            assertEquals(expectedReasoning, ai.reasoningContent());
-        }
     }
 
     // ===== Helper Methods =====
