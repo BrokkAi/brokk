@@ -272,6 +272,7 @@
       "diff_deleted_fg": "#ef5350",
 
       "search_highlight": "#ffeb3b",
+      "search_highlight_text": "#000000",
       "search_current": "#ffa500",
 
       "chip_edit_bg": "#1e88e5",

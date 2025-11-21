@@ -248,16 +248,12 @@ public class BranchSelectorButton extends SplitButton {
 
                         private String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
                             fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
-                            boolean isDark = UIManager.getBoolean("laf.dark");
-                            Color highlightColor = ThemeColors.getColor(isDark, ThemeColors.SEARCH_HIGHLIGHT);
+                            Color highlightColor = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
                             String hexColor = String.format(
                                     "#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
-                            // Use contrasting text color for highlighted portions
-                            Color fg = isDark ? Color.BLACK : Color.WHITE;
-                            String fgHex = String.format(
-                                    "#%02x%02x%02x",
-                                    fg.getRed(), fg.getGreen(), fg.getBlue());
+                            Color fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+                            String fgHex = String.format("#%02x%02x%02x", fg.getRed(), fg.getGreen(), fg.getBlue());
                             String result = "<html>";
                             int lastEnd = 0;
                             for (var range : fragments) {
