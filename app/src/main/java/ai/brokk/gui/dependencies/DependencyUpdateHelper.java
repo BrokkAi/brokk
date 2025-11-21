@@ -62,9 +62,10 @@ public final class DependencyUpdateHelper {
 
         boolean needsUpdate = !storedHash.equals(remoteHash);
         if (!needsUpdate) {
-            logger.debug("Git dependency at {} is up to date (commit {})",
-                         repoUrl,
-                         storedHash.substring(0, Math.min(8, storedHash.length())));
+            logger.debug(
+                    "Git dependency at {} is up to date (commit {})",
+                    repoUrl,
+                    storedHash.substring(0, Math.min(8, storedHash.length())));
         }
         return needsUpdate;
     }
@@ -160,8 +161,9 @@ public final class DependencyUpdateHelper {
         return runUpdate(chrome, dependencyRoot, "local path", project -> {
             // Check needs-update in background to avoid blocking EDT with file system scan
             if (!localDependencyNeedsUpdate(metadata)) {
-                logger.debug("Local dependency {} is already up to date (no newer files)",
-                             dependencyRoot.getRelPath().getFileName());
+                logger.debug(
+                        "Local dependency {} is already up to date (no newer files)",
+                        dependencyRoot.getRelPath().getFileName());
                 return Collections.emptySet();
             }
             try {
@@ -188,47 +190,56 @@ public final class DependencyUpdateHelper {
                 IConsoleIO.NotificationRole.INFO,
                 String.format("Updating %s dependency '%s' in the background...", dependencyKindLabel, depName));
 
-        var future = cm.submitBackgroundTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
-            var analyzer = cm.getAnalyzerWrapper();
-            analyzer.pause();
-            try {
-                Set<ProjectFile> changedFiles = updateOperation.apply(project);
-
-                if (!changedFiles.isEmpty()) {
+        var future =
+                cm.submitBackgroundTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
+                    var analyzer = cm.getAnalyzerWrapper();
+                    analyzer.pause();
                     try {
-                        analyzer.updateFiles(new HashSet<>(changedFiles)).get();
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Interrupted while updating analyzer for dependency " + depName, ie);
-                    } catch (ExecutionException ee) {
-                        throw new RuntimeException("Analyzer update failed for dependency " + depName, ee.getCause());
-                    }
-                }
+                        Set<ProjectFile> changedFiles = updateOperation.apply(project);
 
-                return changedFiles;
-            } finally {
-                analyzer.resume();
-            }
-        });
+                        if (!changedFiles.isEmpty()) {
+                            try {
+                                analyzer.updateFiles(new HashSet<>(changedFiles))
+                                        .get();
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException(
+                                        "Interrupted while updating analyzer for dependency " + depName, ie);
+                            } catch (ExecutionException ee) {
+                                throw new RuntimeException(
+                                        "Analyzer update failed for dependency " + depName, ee.getCause());
+                            }
+                        }
+
+                        return changedFiles;
+                    } finally {
+                        analyzer.resume();
+                    }
+                });
 
         future.whenComplete((changedFiles, ex) -> SwingUtilities.invokeLater(() -> {
             if (ex != null) {
                 logger.error("Error updating {} dependency {}: {}", dependencyKindLabel, depName, ex.getMessage(), ex);
                 chrome.toolError(
-                        String.format("Failed to update %s dependency '%s': %s", dependencyKindLabel, depName, ex.getMessage()),
+                        String.format(
+                                "Failed to update %s dependency '%s': %s",
+                                dependencyKindLabel, depName, ex.getMessage()),
                         "Dependency Update Error");
             } else {
                 assert changedFiles != null;
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            String.format("%s dependency '%s' is already up to date.", capitalize(dependencyKindLabel), depName));
+                            String.format(
+                                    "%s dependency '%s' is already up to date.",
+                                    capitalize(dependencyKindLabel), depName));
                 } else {
                     logger.info("Updated dependency {}: {} files changed", depName, changedFiles.size());
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            String.format("Updated %s dependency '%s' (%d files changed).",
-                                          dependencyKindLabel, depName, changedFiles.size()));
+                            String.format(
+                                    "Updated %s dependency '%s' (%d files changed).",
+                                    dependencyKindLabel, depName, changedFiles.size()));
                 }
             }
         }));
@@ -312,8 +323,9 @@ public final class DependencyUpdateHelper {
             } else {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
-                        String.format("Updated %d imported %s (%d files changed).",
-                                      depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
+                        String.format(
+                                "Updated %d imported %s (%d files changed).",
+                                depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
             }
         }));
 
