@@ -52,6 +52,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.PYTHON, state);
     }
 
+    public static PythonAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new PythonAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new PythonAnalyzer(getProject(), state);

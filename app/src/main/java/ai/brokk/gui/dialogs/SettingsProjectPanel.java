@@ -20,17 +20,15 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.io.IOException;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
@@ -1177,17 +1175,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         try {
             var currentDetails = project.loadBuildDetails();
 
-            Set<String> excludesSet = Collections.list(excludedDirectoriesListModel.elements()).stream()
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(s -> {
-                        try {
-                            return Path.of(s).normalize().toString();
-                        } catch (InvalidPathException ex) {
-                            return s;
-                        }
-                    })
-                    .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+            var rawExclusions = Collections.list(excludedDirectoriesListModel.elements());
+            var canonicalized =
+                    PathNormalizer.canonicalizeAllForProject(rawExclusions, project.getMasterRootPathForConfig());
+            // Preserve case-insensitive de-duplication for stability in UI and persistence
+            Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            excludesSet.addAll(canonicalized);
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),

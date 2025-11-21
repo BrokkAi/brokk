@@ -12,6 +12,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;
@@ -777,7 +778,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 var selPath = jdkSelector.getSelectedJdkPath();
                 if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", selPath);
+                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
                 }
             }
         } else if (selectedPrimaryLang == Languages.PYTHON) {
