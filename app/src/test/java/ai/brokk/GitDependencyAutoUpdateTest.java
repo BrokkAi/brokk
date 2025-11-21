@@ -15,6 +15,8 @@ import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 /**
  * Tests for GitHub-style dependency auto-update mechanics.
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.Test;
  * <p>These tests exercise {@link DependencyUpdater#updateGitDependencyOnDisk(ai.brokk.IProject, ProjectFile,
  * DependencyUpdater.DependencyMetadata)} using a local Git repository as the remote.
  */
+@DisabledOnOs(value = OS.WINDOWS, disabledReason = "JGit has known issues with memory-mapped pack files on Windows")
 class GitDependencyAutoUpdateTest {
 
     private Path tempRoot;
