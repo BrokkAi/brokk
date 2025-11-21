@@ -253,13 +253,17 @@ public class BranchSelectorButton extends SplitButton {
                             String hexColor = String.format(
                                     "#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
+                            Color fg = getForeground();
+                            String fgHex = String.format(
+                                    "#%02x%02x%02x",
+                                    fg.getRed(), fg.getGreen(), fg.getBlue());
                             String result = "<html>";
                             int lastEnd = 0;
                             for (var range : fragments) {
                                 if (range.getStartOffset() > lastEnd) {
                                     result += escapeHtml(text.substring(lastEnd, range.getStartOffset()));
                                 }
-                                result += "<span style='background-color:" + hexColor + ";color:#000000;'>"
+                                result += "<span style='background-color:" + hexColor + ";color:" + fgHex + ";'>"
                                         + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset()))
                                         + "</span>";
                                 lastEnd = range.getEndOffset();
