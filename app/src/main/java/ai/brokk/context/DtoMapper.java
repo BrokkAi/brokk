@@ -586,7 +586,7 @@ public class DtoMapper {
         return mgr.toFile(dto.relPath());
     }
 
-    private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+    public static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
         String content = reader.readContent(dto.contentId());
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
