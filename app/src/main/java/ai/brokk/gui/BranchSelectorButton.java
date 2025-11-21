@@ -12,6 +12,7 @@ import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
+import javax.swing.UIManager;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -251,7 +252,8 @@ public class BranchSelectorButton extends SplitButton {
                             var sb = new StringBuilder("<html>");
                             int lastEnd = 0;
                             fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
-                            Color highlightColor = ThemeColors.getSearchHighlight();
+                            boolean isDark = UIManager.getBoolean("laf.dark");
+                            Color highlightColor = ThemeColors.getColor(isDark, ThemeColors.SEARCH_HIGHLIGHT);
                             String hexColor = String.format("#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
                             for (var range : fragments) {
