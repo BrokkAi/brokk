@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import javax.swing.*;
-import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
@@ -233,7 +232,7 @@ public class BranchSelectorButton extends SplitButton {
                     // Custom cell renderer for highlighting matches
                     list.setCellRenderer(new DefaultListCellRenderer() {
                         @Override
-                        public java.awt.Component getListCellRendererComponent(
+                        public Component getListCellRendererComponent(
                                 JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                             String text = value.toString();
@@ -247,31 +246,28 @@ public class BranchSelectorButton extends SplitButton {
                             return this;
                         }
 
-                        private String highlightMatches(String text, java.util.List<FuzzyMatcher.TextRange> fragments) {
-                            var sb = new StringBuilder("<html>");
-                            int lastEnd = 0;
+                        private String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
                             fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
                             boolean isDark = UIManager.getBoolean("laf.dark");
                             Color highlightColor = ThemeColors.getColor(isDark, ThemeColors.SEARCH_HIGHLIGHT);
                             String hexColor = String.format(
                                     "#%02x%02x%02x",
                                     highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
+                            String result = "<html>";
+                            int lastEnd = 0;
                             for (var range : fragments) {
                                 if (range.getStartOffset() > lastEnd) {
-                                    sb.append(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
+                                    result += escapeHtml(text.substring(lastEnd, range.getStartOffset()));
                                 }
-                                sb.append("<span style='background-color:")
-                                        .append(hexColor)
-                                        .append(";color:#000000;'>");
-                                sb.append(escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())));
-                                sb.append("</span>");
+                                result += "<span style='background-color:" + hexColor + ";color:#000000;'>"
+                                        + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset()))
+                                        + "</span>";
                                 lastEnd = range.getEndOffset();
                             }
                             if (lastEnd < text.length()) {
-                                sb.append(escapeHtml(text.substring(lastEnd)));
+                                result += escapeHtml(text.substring(lastEnd));
                             }
-                            sb.append("</html>");
-                            return sb.toString();
+                            return result + "</html>";
                         }
 
                         private String escapeHtml(String s) {

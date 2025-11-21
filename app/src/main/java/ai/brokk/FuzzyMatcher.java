@@ -4,7 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.util.FList;
 import ai.brokk.util.FuzzyMatcherUtil;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -217,12 +219,12 @@ public class FuzzyMatcher {
      * @return List of TextRange objects indicating matched portions, or null if no match.
      */
     @Nullable
-    public java.util.List<TextRange> getMatchingFragments(String name) {
+    public List<TextRange> getMatchingFragments(String name) {
         var fragments = matchingFragments(name);
         if (fragments == null) {
             return null;
         }
-        var result = new java.util.ArrayList<TextRange>();
+        var result = new ArrayList<TextRange>();
         for (var range : fragments) {
             result.add(range);
         }
