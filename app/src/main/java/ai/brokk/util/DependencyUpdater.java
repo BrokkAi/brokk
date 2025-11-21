@@ -169,6 +169,15 @@ public final class DependencyUpdater {
     }
 
     /**
+     * Returns true if the file should be excluded from change-set computation.
+     * Excludes clone markers and the dependency metadata file.
+     */
+    private static boolean shouldExcludeFromChangeset(Path path) {
+        String fileName = path.getFileName().toString();
+        return DEPENDENCY_METADATA_FILE.equals(fileName) || isCloneMarker(path);
+    }
+
+    /**
      * Updates a dependency imported from a Git repository on disk using the metadata recorded
      * at import time.
      *
@@ -274,7 +283,7 @@ public final class DependencyUpdater {
                 try (var pathStream = Files.walk(targetPath)) {
                     pathStream
                             .filter(Files::isRegularFile)
-                            .filter(p -> !isCloneMarker(p))
+                            .filter(p -> !shouldExcludeFromChangeset(p))
                             .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
                 }
             }
@@ -283,7 +292,7 @@ public final class DependencyUpdater {
             try (var pathStream = Files.walk(tempDir)) {
                 pathStream
                         .filter(Files::isRegularFile)
-                        .filter(p -> !isCloneMarker(p))
+                        .filter(p -> !shouldExcludeFromChangeset(p))
                         .forEach(p -> {
                             // Map temporary path to its eventual location under the real dependency root
                             Path relWithinTemp = tempDir.relativize(p);
@@ -423,17 +432,23 @@ public final class DependencyUpdater {
             var oldFiles = new HashSet<Path>();
             if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
                 try (var pathStream = Files.walk(targetPath)) {
-                    pathStream.filter(Files::isRegularFile).forEach(p -> oldFiles.add(masterRoot.relativize(p)));
+                    pathStream
+                            .filter(Files::isRegularFile)
+                            .filter(p -> !shouldExcludeFromChangeset(p))
+                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
                 }
             }
 
             var newFiles = new HashSet<Path>();
             try (var pathStream = Files.walk(tempDir)) {
-                pathStream.filter(Files::isRegularFile).forEach(p -> {
-                    Path relWithinTemp = tempDir.relativize(p);
-                    Path futureLocation = targetPath.resolve(relWithinTemp);
-                    newFiles.add(masterRoot.relativize(futureLocation));
-                });
+                pathStream
+                        .filter(Files::isRegularFile)
+                        .filter(p -> !shouldExcludeFromChangeset(p))
+                        .forEach(p -> {
+                            Path relWithinTemp = tempDir.relativize(p);
+                            Path futureLocation = targetPath.resolve(relWithinTemp);
+                            newFiles.add(masterRoot.relativize(futureLocation));
+                        });
             }
 
             // Union of old and new files: include all files that may have changed (added, removed, or modified)

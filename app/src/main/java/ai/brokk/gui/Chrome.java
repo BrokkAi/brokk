@@ -1672,6 +1672,7 @@ public class Chrome
     public void close() {
         logger.info("Closing Chrome UI");
 
+        dependenciesPanel.close();
         contextManager.close();
         frame.dispose();
         // Unregister this instance
