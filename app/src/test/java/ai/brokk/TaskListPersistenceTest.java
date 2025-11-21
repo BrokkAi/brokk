@@ -9,7 +9,6 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.List;
 import java.util.Optional;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -19,7 +18,6 @@ import org.junit.jupiter.api.Test;
  * Note: These tests require a full ContextManager instance which depends on project infrastructure.
  * They are marked @Disabled pending test infrastructure setup.
  */
-@Disabled("Requires full ContextManager with project infrastructure")
 public class TaskListPersistenceTest {
 
     @Test
