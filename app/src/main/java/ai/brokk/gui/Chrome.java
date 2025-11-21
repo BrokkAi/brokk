@@ -18,7 +18,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.services.HeadlessExecutorService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -432,6 +431,94 @@ public class Chrome
     }
 
     /**
+     * Formats and displays a job event from the headless executor.
+     * Handles different event types and converts them to human-readable output.
+     */
+    private void handleJobEvent(com.fasterxml.jackson.databind.JsonNode eventNode) {
+        if (agentModeOutputPanel == null || eventNode == null) {
+            return;
+        }
+
+        var typeNode = eventNode.get("type");
+        if (typeNode == null || typeNode.isNull()) {
+            logger.debug("Event has no type field");
+            return;
+        }
+
+        String eventType = typeNode.asText("UNKNOWN");
+        var dataNode = eventNode.get("data");
+
+        switch (eventType) {
+            case "LLM_TOKEN" -> {
+                if (dataNode != null && !dataNode.isNull()) {
+                    String token = dataNode.get("token").asText("");
+                    String messageTypeStr = dataNode.get("messageType").asText("AI");
+                    boolean isNewMessage = dataNode.get("isNewMessage").asBoolean(false);
+
+                    try {
+                        ChatMessageType messageType = ChatMessageType.valueOf(messageTypeStr);
+                        agentModeOutputPanel.append(token, messageType, isNewMessage);
+                    } catch (IllegalArgumentException e) {
+                        logger.warn("Unknown message type: {}", messageTypeStr);
+                        agentModeOutputPanel.append(token, ChatMessageType.AI, isNewMessage);
+                    }
+                }
+            }
+            case "NOTIFICATION" -> {
+                if (dataNode != null && !dataNode.isNull()) {
+                    String level = dataNode.get("level").asText("INFO");
+                    String message = dataNode.get("message").asText("");
+                    String title = dataNode.get("title").asText("");
+
+                    String formatted = "**" + title + "** (" + level + ")\n" + message;
+                    agentModeOutputPanel.append(formatted, ChatMessageType.AI, true);
+                }
+            }
+            case "ERROR" -> {
+                if (dataNode != null && !dataNode.isNull()) {
+                    String msg = dataNode.get("message").asText("");
+                    String title = dataNode.get("title").asText("Error");
+
+                    String formatted = "**[ERROR] " + title + "**\n" + msg;
+                    agentModeOutputPanel.append(formatted, ChatMessageType.AI, true);
+                }
+            }
+            case "CONTEXT_BASELINE" -> {
+                if (dataNode != null && !dataNode.isNull()) {
+                    int count = dataNode.get("count").asInt(0);
+                    String formatted = "*Context now contains " + count + " snippet" + (count == 1 ? "" : "s") + ".*";
+                    agentModeOutputPanel.append(formatted, ChatMessageType.AI, true);
+                }
+            }
+            case "CONFIRM_REQUEST" -> {
+                if (dataNode != null && !dataNode.isNull()) {
+                    String message = dataNode.get("message").asText("");
+                    String title = dataNode.get("title").asText("Confirmation");
+                    int defaultDecision = dataNode.get("defaultDecision").asInt(-1);
+
+                    String decisionStr = switch (defaultDecision) {
+                        case javax.swing.JOptionPane.YES_OPTION -> "YES";
+                        case javax.swing.JOptionPane.NO_OPTION -> "NO";
+                        case javax.swing.JOptionPane.CANCEL_OPTION -> "CANCEL";
+                        default -> "OK";
+                    };
+
+                    String formatted = "**[CONFIRM] " + title + "** (default: " + decisionStr + ")\n" + message;
+                    agentModeOutputPanel.append(formatted, ChatMessageType.AI, true);
+                }
+            }
+            case "STATE_HINT" -> {
+                // STATE_HINT events are for UI synchronization and should be ignored in Agent Mode output
+                logger.debug("Ignoring STATE_HINT event");
+            }
+            default -> {
+                // Ignore unknown event types
+                logger.debug("Unknown event type: {}", eventType);
+            }
+        }
+    }
+
+    /**
      * Submits a job to the headless executor for a given session.
      * Sends the prompt via HTTP POST to the executor's /v1/jobs endpoint.
      */
@@ -544,19 +631,7 @@ public class Chrome
 
                         if (events != null && events.isArray()) {
                             for (var eventNode : events) {
-                                var type = eventNode.get("type").asText();
-                                var message = eventNode.get("message").asText("");
-
-                                // Update UI with event
-                                if (!message.isEmpty()) {
-                                    final String eventMessage = message;
-                                    SwingUtilities.invokeLater(() -> {
-                                        if (agentModeOutputPanel != null) {
-                                            agentModeOutputPanel.append(eventMessage, ChatMessageType.AI, true);
-                                        }
-                                    });
-                                }
-
+                                SwingUtilities.invokeLater(() -> handleJobEvent(eventNode));
                                 afterSeq = eventNode.get("seq").asLong();
                             }
                         }
@@ -781,28 +856,19 @@ public class Chrome
                     var responseObj = mapper.readTree(responseBody);
                     var events = responseObj.get("events");
 
-                    final List<String> messages = new ArrayList<>();
                     if (events != null && events.isArray() && events.size() > 0) {
                         for (var eventNode : events) {
-                            var message = eventNode.get("message").asText("");
-                            if (!message.isEmpty()) {
-                                messages.add(message);
-                            }
+                            SwingUtilities.invokeLater(() -> handleJobEvent(eventNode));
                         }
                     }
 
                     SwingUtilities.invokeLater(() -> {
                         agentModeOutputPanel.hideSpinner();
-                        if (messages.isEmpty()) {
+                        if (events == null || events.size() == 0) {
                             var message = Messages.customSystem(
                                 "Conversation: " + sessionInfo.name() + "\n\n"
                                 + "No events found for this conversation.");
                             agentModeOutputPanel.setText(List.of(message));
-                        } else {
-                            // Display each message as AI output
-                            for (var msg : messages) {
-                                agentModeOutputPanel.append(msg, ChatMessageType.AI, true);
-                            }
                         }
                     });
                 }
