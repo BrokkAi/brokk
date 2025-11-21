@@ -953,42 +953,38 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         try {
             var cm = chrome.getContextManager();
             var selected = cm.selectedContext();
-            cm.submitBackgroundTask("Loading task list data", () -> {
-                TaskList.TaskListData data = (selected != null)
-                        ? selected.getTaskListDataOrEmpty()
-                        : cm.liveContext().getTaskListDataOrEmpty();
+            TaskList.TaskListData data = (selected != null)
+                    ? selected.getTaskListDataOrEmpty()
+                    : cm.liveContext().getTaskListDataOrEmpty();
 
-                // Only populate if still the same sessionId
-                if (!sid.equals(this.sessionIdAtLoad)) {
-                    return;
-                }
+            // Only populate if still the same sessionId
+            if (!sid.equals(this.sessionIdAtLoad)) {
+                return;
+            }
 
-                SwingUtilities.invokeLater(() -> {
-                    model.clear();
-                    for (var dto : data.tasks()) {
-                        if (!dto.text().isBlank()) {
-                            // dto is already the domain type used by the model
-                            model.addElement(dto);
-                        }
+            SwingUtilities.invokeLater(() -> {
+                model.clear();
+                for (var dto : data.tasks()) {
+                    if (!dto.text().isBlank()) {
+                        // dto is already the domain type used by the model
+                        model.addElement(dto);
                     }
-                    clearExpansionOnStructureChange();
-                    updateButtonStates();
-                });
+                }
+                clearExpansionOnStructureChange();
+                updateButtonStates();
             });
         } finally {
             isLoadingTasks = false;
             // Update the last-seen fragment ID after successful load (respecting selected context)
             var cm = chrome.getContextManager();
-            cm.submitBackgroundTask("Updating last-seen fragment", () -> {
-                Context sel = cm.selectedContext();
-                Context baseCtx = (sel != null) ? sel : cm.liveContext();
-                lastTaskListFragmentId =
-                        baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
+            Context sel = cm.selectedContext();
+            Context baseCtx = (sel != null) ? sel : cm.liveContext();
+            lastTaskListFragmentId =
+                    baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
-                clearExpansionOnStructureChange();
-                // Ensure the Tasks tab badge reflects the freshly loaded model.
-                updateTasksTabBadge();
-            });
+            clearExpansionOnStructureChange();
+            // Ensure the Tasks tab badge reflects the freshly loaded model.
+            updateTasksTabBadge();
         }
     }
 
@@ -2417,29 +2413,27 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Toggle read-only state based on whether we're viewing history
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 
-        cm.submitBackgroundTask("Checking if context has changed", () -> {
-            // Extract current Task List fragment ID from the newly selected context
-            String currentFragmentId = (selected != null ? selected : newCtx)
-                    .getTaskListFragment()
-                    .map(ContextFragment::id)
-                    .orElse(null);
+        // Extract current Task List fragment ID from the newly selected context
+        String currentFragmentId = (selected != null ? selected : newCtx)
+                .getTaskListFragment()
+                .map(ContextFragment::id)
+                .orElse(null);
 
-            boolean sessionChanged = !Objects.equals(current, loaded);
-            boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
+        boolean sessionChanged = !Objects.equals(current, loaded);
+        boolean fragmentChanged = !Objects.equals(currentFragmentId, lastTaskListFragmentId);
 
-            logger.debug(
-                    "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
-                    sessionChanged,
-                    current,
-                    loaded,
-                    fragmentChanged,
-                    currentFragmentId,
-                    lastTaskListFragmentId);
+        logger.debug(
+                "contextChanged: session changed? {} (current={}, loaded={}); fragment changed? {} (current={}, last={})",
+                sessionChanged,
+                current,
+                loaded,
+                fragmentChanged,
+                currentFragmentId,
+                lastTaskListFragmentId);
 
-            if (sessionChanged || fragmentChanged) {
-                SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
-            }
-        });
+        if (sessionChanged || fragmentChanged) {
+            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+        }
     }
 
     private final class TaskRenderer extends JPanel implements ListCellRenderer<TaskList.TaskItem> {

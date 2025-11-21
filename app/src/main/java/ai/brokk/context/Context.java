@@ -793,12 +793,11 @@ public class Context {
 
     // --- SpecialTextType helpers ---
 
-    @Blocking
     public Optional<ContextFragment.StringFragment> getSpecial(String description) {
-        var desc = description;
+        // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return virtualFragments()
                 .filter(f -> f instanceof ContextFragment.StringFragment sf
-                        && desc.equals(sf.description().join()))
+                        && description.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragment.StringFragment.class::cast)
                 .findFirst();
     }
@@ -1104,7 +1103,6 @@ public class Context {
     /**
      * Retrieves the Task List fragment if present.
      */
-    @Blocking
     public Optional<ContextFragment.StringFragment> getTaskListFragment() {
         return getSpecial(SpecialTextType.TASK_LIST.description());
     }
@@ -1112,14 +1110,19 @@ public class Context {
     /**
      * Returns the current Task List data parsed from the Task List fragment or an empty list on absence/parse error.
      */
-    @Blocking
     public TaskList.TaskListData getTaskListDataOrEmpty() {
         var existing = getTaskListFragment();
         if (existing.isEmpty()) {
             return new TaskList.TaskListData(List.of());
         }
         try {
-            return Json.fromJson(existing.get().text().join(), TaskList.TaskListData.class);
+            var fragment = existing.get();
+            var textOpt = fragment.text().tryGet();
+            return textOpt.map(s -> Json.fromJson(s, TaskList.TaskListData.class))
+                    .orElseGet(() -> {
+                        logger.warn("Failed to load Task List JSON in time for {}", fragment);
+                        return new TaskList.TaskListData(List.of());
+                    });
         } catch (Exception e) {
             logger.warn("Failed to parse Task List JSON", e);
             return new TaskList.TaskListData(List.of());
