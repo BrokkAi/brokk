@@ -12,6 +12,7 @@ import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -2855,6 +2856,92 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    /** Performs a pull operation on the current branch with user feedback. */
+    private void performPull() {
+        try {
+            var repoOpt = repo();
+            if (repoOpt.isEmpty()) {
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
+                return;
+            }
+
+            var gitRepo = repoOpt.get();
+            String currentBranch = gitRepo.getCurrentBranch();
+
+            contextManager.submitExclusiveAction(() -> {
+                try {
+                    showSpinner("Pulling " + currentBranch + "...");
+                    var workflow = new GitWorkflow(contextManager);
+                    var pullResult = workflow.pull(currentBranch);
+
+                    SwingUtilities.invokeLater(() -> {
+                        hideSpinner();
+                        if (pullResult.isEmpty()) {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
+                        } else {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
+                        }
+                        refreshBranchDiffPanel();
+                        chrome.updateGitRepo();
+                    });
+                } catch (Exception e) {
+                    logger.error("Error pulling branch {}", currentBranch, e);
+                    SwingUtilities.invokeLater(() -> {
+                        hideSpinner();
+                        chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
+                    });
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("Error initiating pull", e);
+            chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
+        }
+    }
+
+    /** Performs a push operation on the current branch with user feedback. */
+    private void performPush() {
+        try {
+            var repoOpt = repo();
+            if (repoOpt.isEmpty()) {
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
+                return;
+            }
+
+            var gitRepo = repoOpt.get();
+            String currentBranch = gitRepo.getCurrentBranch();
+
+            contextManager.submitExclusiveAction(() -> {
+                try {
+                    showSpinner("Pushing " + currentBranch + "...");
+                    var workflow = new GitWorkflow(contextManager);
+                    var pushResult = workflow.push(currentBranch);
+
+                    SwingUtilities.invokeLater(() -> {
+                        hideSpinner();
+                        if (pushResult.isEmpty()) {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
+                        } else {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
+                        }
+                        refreshBranchDiffPanel();
+                        chrome.updateGitRepo();
+                    });
+                } catch (Exception e) {
+                    logger.error("Error pushing branch {}", currentBranch, e);
+                    SwingUtilities.invokeLater(() -> {
+                        hideSpinner();
+                        chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
+                    });
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("Error initiating push", e);
+            chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
+        }
+    }
+
     /**
      * Releases owned resources. Must be called on the EDT.
      */
@@ -2940,14 +3027,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
-                        return new CumulativeChanges(0, 0, 0, List.of());
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var repo = repoOpt.get();
 
                     // Branch-specific methods require GitRepo, not just IGitRepo
                     if (!(repo instanceof GitRepo gitRepo)) {
-                        return new CumulativeChanges(0, 0, 0, List.of());
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var baseline = computeBaselineForChanges();
@@ -2956,16 +3043,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new CumulativeChanges(0, 0, 0, List.of());
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     try {
                         Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
                         String leftCommitSha = null;
+                        String currentBranch = gitRepo.getCurrentBranch();
 
                         switch (baseline.mode()) {
                             case NON_DEFAULT_BRANCH -> {
-                                String currentBranch = gitRepo.getCurrentBranch();
                                 String defaultBranch = baseline.baselineRef();
 
                                 // Get files changed between branches
@@ -3026,11 +3113,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
                         }
 
-                        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+                        GitWorkflow.PushPullState pushPullState = null;
+                        try {
+                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                            boolean canPull = hasUpstream;
+                            boolean canPush;
+                            Set<String> unpushedCommitIds = new HashSet<>();
+                            if (hasUpstream) {
+                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                                canPush = !unpushedCommitIds.isEmpty();
+                            } else {
+                                // Can push to create upstream branch
+                                canPush = true;
+                            }
+                            pushPullState =
+                                    new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
+                        } catch (Exception e) {
+                            logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
+                        }
+
+                        return new CumulativeChanges(
+                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
-                        return new CumulativeChanges(0, 0, 0, List.of());
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
                 })
                 .thenApply(result -> {
@@ -3179,6 +3286,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             buttonPanel.add(changesToCommitButton);
         }
 
+        // Add Pull button (left of Create PR button)
+        var pushPullState = res.pushPullState();
+        if (pushPullState != null && pushPullState.canPull()) {
+            var pullButton = new MaterialButton("Pull");
+            pullButton.setToolTipText("Pull changes from upstream");
+            pullButton.setEnabled(!hasUncommittedChanges);
+            pullButton.addActionListener(e -> performPull());
+            buttonPanel.add(pullButton);
+        }
+
+        // Add Push button (left of Create PR button)
+        if (pushPullState != null && pushPullState.canPush()) {
+            var pushButton = new MaterialButton("Push");
+            pushButton.setToolTipText("Push commits to remote");
+            pushButton.setEnabled(!hasUncommittedChanges && pushPullState.canPush());
+            pushButton.addActionListener(e -> performPush());
+            buttonPanel.add(pushButton);
+        }
+
         // Create PR button on the right (conditionally visible)
         boolean showCreatePR = false;
         if (lastBaselineMode != null) {
@@ -3294,7 +3420,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private record PerFileChange(String displayFile, String earliestOld, String latestNew) {}
 
     private record CumulativeChanges(
-            int filesChanged, int totalAdded, int totalDeleted, List<PerFileChange> perFileChanges) {}
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<PerFileChange> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {}
 
     /** A LayerUI that paints reset-from-history arrows over the history table. */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
