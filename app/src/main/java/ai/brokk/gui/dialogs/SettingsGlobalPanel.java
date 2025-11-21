@@ -1585,20 +1585,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
         var vendorComboHolder = new JPanel(new BorderLayout(0, 0));
         vendorComboHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
-        
+
         // Build dynamic tooltip with current Default model names
-        String quickName = chrome.getProject().getMainProject().getQuickModelConfig().name();
-        String quickEditName = chrome.getProject().getMainProject().getQuickEditModelConfig().name();
-        String quickestName = chrome.getProject().getMainProject().getQuickestModelConfig().name();
-        String scanName = chrome.getProject().getMainProject().getScanModelConfig().name();
-        
+        String quickName =
+                chrome.getProject().getMainProject().getQuickModelConfig().name();
+        String quickEditName =
+                chrome.getProject().getMainProject().getQuickEditModelConfig().name();
+        String quickestName =
+                chrome.getProject().getMainProject().getQuickestModelConfig().name();
+        String scanName =
+                chrome.getProject().getMainProject().getScanModelConfig().name();
+
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName + "; Scan=" + scanName
+                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName
+                + "; Scan=" + scanName
                 + "</div></html>";
-        
+
         var vendorHelpButton = new MaterialButton();
         vendorHelpButton.setIcon(Icons.HELP);
         vendorHelpButton.setToolTipText(vendorTooltip);
@@ -1692,13 +1697,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Create nested tabbed pane for Favorites and Model Roles
         var modelsTabbed = new JTabbedPane(JTabbedPane.TOP);
         modelsTabbed.addTab("Favorites", null, favoritesPanel, "Manage favorite model aliases");
-        modelsTabbed.addTab("Model Roles", null, new JPanel(new BorderLayout(5, 5)) {
-            {
-                add(rolesPanel, BorderLayout.NORTH);
-                add(Box.createVerticalGlue(), BorderLayout.CENTER);
-                setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            }
-        }, "Assign models for specific roles");
+        modelsTabbed.addTab(
+                "Model Roles",
+                null,
+                new JPanel(new BorderLayout(5, 5)) {
+                    {
+                        add(rolesPanel, BorderLayout.NORTH);
+                        add(Box.createVerticalGlue(), BorderLayout.CENTER);
+                        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+                    }
+                },
+                "Assign models for specific roles");
 
         // Create container panel to return
         var container = new JPanel(new BorderLayout(5, 5));
@@ -1970,7 +1979,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Primary & Lutz Code Model saves from new model name combos
         var selectedCodeModelName = (String) preferredCodeModelCombo.getSelectedItem();
         var selectedPrimaryModelName = (String) primaryModelCombo.getSelectedItem();
-        
+
         // Vendor mapping for Other Models (Quick, Quick Edit, Quickest, Scan)
         var selectedVendor = (String) otherModelsVendorCombo.getSelectedItem();
 
@@ -2075,7 +2084,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Save Primary Model (by name)
         if (selectedPrimaryModelName != null && !selectedPrimaryModelName.isEmpty()) {
-            chrome.getProject().getMainProject().setArchitectModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
+            chrome.getProject()
+                    .getMainProject()
+                    .setArchitectModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
