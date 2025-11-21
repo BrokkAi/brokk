@@ -1,24 +1,23 @@
 package ai.brokk.util;
 
-import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
-import java.util.HashSet;
-import java.util.concurrent.ExecutionException;
+import ai.brokk.gui.dependencies.DependencyUpdateHelper;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Manages periodic background checking and updating of dependencies.
- * Local dependencies are checked every 5 minutes (sequentially).
- * Git dependencies are checked every 30 minutes (in parallel).
+ * Local dependencies are checked every 5 minutes.
+ * Git dependencies are checked every 30 minutes.
+ * Uses a single scheduler with separate tasks for each type.
  */
 public class DependencyUpdateScheduler implements SettingsChangeListener, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(DependencyUpdateScheduler.class);
@@ -29,21 +28,25 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
     private final Chrome chrome;
     private final Object schedulerLock = new Object();
 
-    private @Nullable ScheduledExecutorService localScheduler;
-    private @Nullable ScheduledExecutorService gitScheduler;
+    private @Nullable ScheduledExecutorService scheduler;
+    private @Nullable ScheduledFuture<?> localTask;
+    private @Nullable ScheduledFuture<?> gitTask;
 
     public DependencyUpdateScheduler(Chrome chrome) {
         this.chrome = chrome;
         MainProject.addSettingsChangeListener(this);
         chrome.getContextManager().addAnalyzerCallback(this);
 
-        // Check initial state and start schedulers if enabled
+        // Check initial state and start tasks if enabled
         var project = chrome.getProject();
-        if (project.getAutoUpdateLocalDependencies()) {
-            startLocalScheduler();
-        }
-        if (project.getAutoUpdateGitDependencies()) {
-            startGitScheduler();
+        if (project.getAutoUpdateLocalDependencies() || project.getAutoUpdateGitDependencies()) {
+            ensureSchedulerRunning();
+            if (project.getAutoUpdateLocalDependencies()) {
+                startLocalTask();
+            }
+            if (project.getAutoUpdateGitDependencies()) {
+                startGitTask();
+            }
         }
     }
 
@@ -52,11 +55,13 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
         // Run initial check when analyzer is ready
         logger.debug("Analyzer ready, running initial dependency checks");
         synchronized (schedulerLock) {
-            if (localScheduler != null && !localScheduler.isShutdown()) {
-                localScheduler.execute(this::checkLocalDependencies);
-            }
-            if (gitScheduler != null && !gitScheduler.isShutdown()) {
-                gitScheduler.execute(this::checkGitDependencies);
+            if (scheduler != null && !scheduler.isShutdown()) {
+                if (localTask != null) {
+                    scheduler.execute(() -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome));
+                }
+                if (gitTask != null) {
+                    scheduler.execute(() -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome));
+                }
             }
         }
     }
@@ -66,9 +71,11 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
         synchronized (schedulerLock) {
             var project = chrome.getProject();
             if (project.getAutoUpdateLocalDependencies()) {
-                startLocalScheduler();
+                ensureSchedulerRunning();
+                startLocalTask();
             } else {
-                stopLocalScheduler();
+                stopLocalTask();
+                maybeStopScheduler();
             }
         }
     }
@@ -78,188 +85,112 @@ public class DependencyUpdateScheduler implements SettingsChangeListener, IConte
         synchronized (schedulerLock) {
             var project = chrome.getProject();
             if (project.getAutoUpdateGitDependencies()) {
-                startGitScheduler();
+                ensureSchedulerRunning();
+                startGitTask();
             } else {
-                stopGitScheduler();
+                stopGitTask();
+                maybeStopScheduler();
             }
         }
     }
 
-    private void startLocalScheduler() {
+    private void ensureSchedulerRunning() {
         synchronized (schedulerLock) {
-            if (localScheduler != null && !localScheduler.isShutdown()) {
-                logger.debug("Local dependency scheduler already running");
+            if (scheduler == null || scheduler.isShutdown()) {
+                scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                    var t = new Thread(r, "DependencyUpdate");
+                    t.setDaemon(true);
+                    return t;
+                });
+                logger.debug("Started dependency update scheduler");
+            }
+        }
+    }
+
+    private void maybeStopScheduler() {
+        synchronized (schedulerLock) {
+            if (localTask == null && gitTask == null && scheduler != null) {
+                scheduler.shutdown();
+                scheduler = null;
+                logger.debug("Stopped dependency update scheduler (no active tasks)");
+            }
+        }
+    }
+
+    private void startLocalTask() {
+        synchronized (schedulerLock) {
+            if (localTask != null) {
+                logger.debug("Local dependency task already scheduled");
                 return;
             }
 
-            localScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                var t = new Thread(r, "DependencyUpdate-Local");
-                t.setDaemon(true);
-                return t;
-            });
-
+            assert scheduler != null;
             // Run immediate check, then every 5 minutes
-            localScheduler.execute(this::checkLocalDependencies);
-            localScheduler.scheduleAtFixedRate(
-                    this::checkLocalDependencies,
+            scheduler.execute(() -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome));
+            localTask = scheduler.scheduleAtFixedRate(
+                    () -> DependencyUpdateHelper.autoUpdateLocalDependencies(chrome),
                     LOCAL_CHECK_INTERVAL_MINUTES,
                     LOCAL_CHECK_INTERVAL_MINUTES,
                     TimeUnit.MINUTES);
 
-            logger.info(
-                    "Started local dependency update scheduler (interval: {} minutes)", LOCAL_CHECK_INTERVAL_MINUTES);
+            logger.info("Started local dependency update task (interval: {} minutes)", LOCAL_CHECK_INTERVAL_MINUTES);
         }
     }
 
-    private void stopLocalScheduler() {
+    private void stopLocalTask() {
         synchronized (schedulerLock) {
-            if (localScheduler != null) {
-                localScheduler.shutdown();
-                localScheduler = null;
-                logger.info("Stopped local dependency update scheduler");
+            if (localTask != null) {
+                localTask.cancel(false);
+                localTask = null;
+                logger.info("Stopped local dependency update task");
             }
         }
     }
 
-    private void startGitScheduler() {
+    private void startGitTask() {
         synchronized (schedulerLock) {
-            if (gitScheduler != null && !gitScheduler.isShutdown()) {
-                logger.debug("Git dependency scheduler already running");
+            if (gitTask != null) {
+                logger.debug("Git dependency task already scheduled");
                 return;
             }
 
-            gitScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                var t = new Thread(r, "DependencyUpdate-Git");
-                t.setDaemon(true);
-                return t;
-            });
-
+            assert scheduler != null;
             // Run immediate check, then every 30 minutes
-            gitScheduler.execute(this::checkGitDependencies);
-            gitScheduler.scheduleAtFixedRate(
-                    this::checkGitDependencies,
+            scheduler.execute(() -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome));
+            gitTask = scheduler.scheduleAtFixedRate(
+                    () -> DependencyUpdateHelper.autoUpdateGitDependencies(chrome),
                     GIT_CHECK_INTERVAL_MINUTES,
                     GIT_CHECK_INTERVAL_MINUTES,
                     TimeUnit.MINUTES);
 
-            logger.info("Started Git dependency update scheduler (interval: {} minutes)", GIT_CHECK_INTERVAL_MINUTES);
+            logger.info("Started Git dependency update task (interval: {} minutes)", GIT_CHECK_INTERVAL_MINUTES);
         }
     }
 
-    private void stopGitScheduler() {
+    private void stopGitTask() {
         synchronized (schedulerLock) {
-            if (gitScheduler != null) {
-                gitScheduler.shutdown();
-                gitScheduler = null;
-                logger.info("Stopped Git dependency update scheduler");
+            if (gitTask != null) {
+                gitTask.cancel(false);
+                gitTask = null;
+                logger.info("Stopped Git dependency update task");
             }
-        }
-    }
-
-    private void checkLocalDependencies() {
-        try {
-            logger.debug("Checking local dependencies for updates...");
-            var project = chrome.getProject();
-            var cm = chrome.getContextManager();
-            var analyzer = cm.getAnalyzerWrapper();
-
-            analyzer.pause();
-            try {
-                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
-
-                if (result.updatedDependencies() > 0) {
-                    // Update analyzer index for changed files
-                    if (!result.changedFiles().isEmpty()) {
-                        try {
-                            analyzer.updateFiles(new HashSet<>(result.changedFiles()))
-                                    .get();
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            logger.error("Interrupted while updating analyzer after local dependency update", ie);
-                            return;
-                        } catch (ExecutionException ee) {
-                            logger.error("Analyzer update failed after local dependency update", ee.getCause());
-                        }
-                    }
-
-                    // Notify user on EDT
-                    int depsUpdated = result.updatedDependencies();
-                    int filesChanged = result.changedFiles().size();
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                String.format(
-                                        "Updated %d local %s (%d files changed)",
-                                        depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
-                    });
-                } else {
-                    logger.debug("No local dependency updates found");
-                }
-            } finally {
-                analyzer.resume();
-            }
-        } catch (Exception e) {
-            logger.error("Error checking local dependencies for updates", e);
-        }
-    }
-
-    private void checkGitDependencies() {
-        try {
-            logger.debug("Checking Git dependencies for updates...");
-            var project = chrome.getProject();
-            var cm = chrome.getContextManager();
-            var analyzer = cm.getAnalyzerWrapper();
-
-            analyzer.pause();
-            try {
-                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);
-
-                if (result.updatedDependencies() > 0) {
-                    // Update analyzer index for changed files
-                    if (!result.changedFiles().isEmpty()) {
-                        try {
-                            analyzer.updateFiles(new HashSet<>(result.changedFiles()))
-                                    .get();
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            logger.error("Interrupted while updating analyzer after Git dependency update", ie);
-                            return;
-                        } catch (ExecutionException ee) {
-                            logger.error("Analyzer update failed after Git dependency update", ee.getCause());
-                        }
-                    }
-
-                    // Notify user on EDT
-                    int depsUpdated = result.updatedDependencies();
-                    int filesChanged = result.changedFiles().size();
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                String.format(
-                                        "Updated %d Git %s (%d files changed)",
-                                        depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
-                    });
-                } else {
-                    logger.debug("No Git dependency updates found");
-                }
-            } finally {
-                analyzer.resume();
-            }
-        } catch (Exception e) {
-            logger.error("Error checking Git dependencies for updates", e);
         }
     }
 
     /**
-     * Shuts down all schedulers and unregisters from settings changes.
+     * Shuts down the scheduler and unregisters from settings changes.
      * Call this when the project is closing.
      */
     public void close() {
         MainProject.removeSettingsChangeListener(this);
         chrome.getContextManager().removeAnalyzerCallback(this);
         synchronized (schedulerLock) {
-            stopLocalScheduler();
-            stopGitScheduler();
+            stopLocalTask();
+            stopGitTask();
+            if (scheduler != null) {
+                scheduler.shutdown();
+                scheduler = null;
+            }
         }
         logger.info("Closed dependency update scheduler");
     }
