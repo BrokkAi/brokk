@@ -3,6 +3,7 @@ package ai.brokk.gui.dependencies;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.util.DependencyUpdater;
 import java.io.IOException;
@@ -49,6 +50,21 @@ public final class DependencyUpdateHelper {
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
             Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        // Check if update is needed by comparing commit hashes
+        var storedHash = metadata.commitHash();
+        var repoUrl = metadata.repoUrl();
+        var ref = metadata.ref();
+
+        if (storedHash != null && repoUrl != null && ref != null) {
+            var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
+            if (remoteHash != null && storedHash.equals(remoteHash)) {
+                logger.debug("Git dependency {} is already up to date (commit {})",
+                             dependencyRoot.getRelPath().getFileName(),
+                             storedHash.substring(0, Math.min(8, storedHash.length())));
+                return CompletableFuture.completedFuture(Collections.emptySet());
+            }
+        }
+
         return runUpdate(chrome, dependencyRoot, "GitHub", project -> {
             try {
                 return DependencyUpdater.updateGitDependencyOnDisk(project, dependencyRoot, metadata);
