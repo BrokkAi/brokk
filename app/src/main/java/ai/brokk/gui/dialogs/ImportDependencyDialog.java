@@ -16,6 +16,7 @@ import ai.brokk.gui.FileSelectionPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -530,7 +531,7 @@ public class ImportDependencyDialog {
                             .distinct()
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
-                    AbstractProject.writeLocalPathDependencyMetadata(
+                    DependencyUpdater.writeLocalPathDependencyMetadata(
                             targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
                         dialog.dispose();
@@ -612,7 +613,7 @@ public class ImportDependencyDialog {
                             FileUtil.deleteRecursively(gitInternalDir);
                         }
 
-                        AbstractProject.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag);
+                        DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag);
 
                         CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
                         CloneOperationTracker.unregisterCloneOperation(targetPath);

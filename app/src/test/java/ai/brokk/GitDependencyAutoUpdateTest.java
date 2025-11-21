@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,8 +19,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests for GitHub-style dependency auto-update mechanics.
  *
- * <p>These tests exercise {@link AbstractProject#updateGitDependencyOnDisk(ProjectFile,
- * AbstractProject.DependencyMetadata)} using a local Git repository as the remote.
+ * <p>These tests exercise {@link DependencyUpdater#updateGitDependencyOnDisk(ai.brokk.IProject, ProjectFile,
+ * DependencyUpdater.DependencyMetadata)} using a local Git repository as the remote.
  */
 class GitDependencyAutoUpdateTest {
 
@@ -78,7 +79,7 @@ class GitDependencyAutoUpdateTest {
         }
 
         // Record dependency metadata pointing at our local "remote" and branch.
-        AbstractProject.writeGitDependencyMetadata(depDir, remoteUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch);
 
         // Mutate the remote repository: add a new file and commit.
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
@@ -94,10 +95,11 @@ class GitDependencyAutoUpdateTest {
                 project.getMasterRootPathForConfig(),
                 project.getMasterRootPathForConfig().relativize(depDir));
 
-        var metadataOpt = AbstractProject.readDependencyMetadata(depDir);
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
         assertTrue(metadataOpt.isPresent(), "Expected metadata to be present for Git dependency");
 
-        Set<ProjectFile> changedFiles = project.updateGitDependencyOnDisk(depProjectFile, metadataOpt.get());
+        Set<ProjectFile> changedFiles =
+                DependencyUpdater.updateGitDependencyOnDisk(project, depProjectFile, metadataOpt.get());
 
         assertFalse(changedFiles.isEmpty(), "Changed files set should not be empty after remote update");
 

@@ -399,6 +399,13 @@ public interface IProject extends AutoCloseable {
      */
     default void setAutoUpdateGitDependencies(boolean enabled) {}
 
+    /**
+     * Returns all on-disk dependency directories (immediate children of the dependencies folder).
+     */
+    default Set<ProjectFile> getAllOnDiskDependencies() {
+        return Set.of();
+    }
+
     default Set<String> getExcludedDirectories() {
         return Set.of();
     }

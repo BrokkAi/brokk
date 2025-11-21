@@ -1,9 +1,10 @@
 package ai.brokk.gui.dependencies;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.util.DependencyUpdater;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
@@ -47,10 +48,10 @@ public final class DependencyUpdateHelper {
      * @return future completing with the set of changed/added/removed files, or an empty set on failure
      */
     public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
-            Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
-        return runUpdate(chrome, dependencyRoot, "GitHub", abstractProject -> {
+            Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        return runUpdate(chrome, dependencyRoot, "GitHub", project -> {
             try {
-                return abstractProject.updateGitDependencyOnDisk(dependencyRoot, metadata);
+                return DependencyUpdater.updateGitDependencyOnDisk(project, dependencyRoot, metadata);
             } catch (IOException e) {
                 throw new RuntimeException("I/O error while updating GitHub dependency on disk: " + dependencyRoot, e);
             }
@@ -71,10 +72,10 @@ public final class DependencyUpdateHelper {
      * @return future completing with the set of changed/added/removed files, or an empty set on failure
      */
     public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
-            Chrome chrome, ProjectFile dependencyRoot, AbstractProject.DependencyMetadata metadata) {
-        return runUpdate(chrome, dependencyRoot, "local path", abstractProject -> {
+            Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        return runUpdate(chrome, dependencyRoot, "local path", project -> {
             try {
-                return abstractProject.updateLocalPathDependencyOnDisk(dependencyRoot, metadata);
+                return DependencyUpdater.updateLocalPathDependencyOnDisk(project, dependencyRoot, metadata);
             } catch (IOException e) {
                 throw new RuntimeException(
                         "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
@@ -86,7 +87,7 @@ public final class DependencyUpdateHelper {
             Chrome chrome,
             ProjectFile dependencyRoot,
             String dependencyKindLabel,
-            Function<AbstractProject, Set<ProjectFile>> updateOperation) {
+            Function<IProject, Set<ProjectFile>> updateOperation) {
 
         var project = chrome.getProject();
 
@@ -161,7 +162,7 @@ public final class DependencyUpdateHelper {
      * @param chrome current Chrome instance
      * @return future completing with the aggregate result of the auto-update pass
      */
-    public static CompletableFuture<AbstractProject.DependencyAutoUpdateResult> autoUpdateEligibleDependencies(
+    public static CompletableFuture<DependencyUpdater.DependencyAutoUpdateResult> autoUpdateEligibleDependencies(
             Chrome chrome) {
         var project = chrome.getProject();
 
@@ -171,7 +172,7 @@ public final class DependencyUpdateHelper {
         if (!includeLocal && !includeGit) {
             logger.debug("Automatic dependency update skipped: both auto-update flags are disabled.");
             return CompletableFuture.completedFuture(
-                    new AbstractProject.DependencyAutoUpdateResult(Collections.emptySet(), 0));
+                    new DependencyUpdater.DependencyAutoUpdateResult(Collections.emptySet(), 0));
         }
 
         var cm = chrome.getContextManager();
@@ -183,8 +184,8 @@ public final class DependencyUpdateHelper {
             var analyzer = cm.getAnalyzerWrapper();
             analyzer.pause();
             try {
-                AbstractProject.DependencyAutoUpdateResult result =
-                        project.autoUpdateDependenciesOnce(includeLocal, includeGit);
+                DependencyUpdater.DependencyAutoUpdateResult result =
+                        DependencyUpdater.autoUpdateDependenciesOnce(project, includeLocal, includeGit);
 
                 if (!result.changedFiles().isEmpty()) {
                     try {
