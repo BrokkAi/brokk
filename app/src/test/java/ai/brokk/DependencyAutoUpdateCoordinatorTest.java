@@ -86,7 +86,7 @@ class DependencyAutoUpdateCoordinatorTest {
         if (Files.exists(gitDir)) {
             FileUtil.deleteRecursively(gitDir);
         }
-        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch, null);
     }
 
     @Test

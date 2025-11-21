@@ -406,6 +406,13 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    /**
+     * Returns the set of enabled (live) dependencies.
+     */
+    default Set<Dependency> getLiveDependencies() {
+        return Set.of();
+    }
+
     default Set<String> getExcludedDirectories() {
         return Set.of();
     }

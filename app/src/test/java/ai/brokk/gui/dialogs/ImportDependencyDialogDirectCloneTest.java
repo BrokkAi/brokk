@@ -101,7 +101,7 @@ public class ImportDependencyDialogDirectCloneTest {
         String repoUrl = "https://github.com/test/repo.git";
         String branch = "main";
 
-        DependencyUpdater.writeGitDependencyMetadata(depDir, repoUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, repoUrl, branch, null);
 
         Path metadataPath = depDir.resolve(DependencyUpdater.DEPENDENCY_METADATA_FILE);
         assertTrue(Files.exists(metadataPath), "Metadata file should be created for GitHub dependency");

@@ -79,7 +79,7 @@ class GitDependencyAutoUpdateTest {
         }
 
         // Record dependency metadata pointing at our local "remote" and branch.
-        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch);
+        DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch, null);
 
         // Mutate the remote repository: add a new file and commit.
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");

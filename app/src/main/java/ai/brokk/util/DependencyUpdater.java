@@ -50,6 +50,7 @@ public final class DependencyUpdater {
             @Nullable String sourcePath,
             @Nullable String repoUrl,
             @Nullable String ref,
+            @Nullable String commitHash,
             long lastUpdatedMillis) {
 
         /**
@@ -63,6 +64,7 @@ public final class DependencyUpdater {
                     sourcePath.toAbsolutePath().normalize().toString(),
                     null,
                     null,
+                    null,
                     System.currentTimeMillis());
         }
 
@@ -71,9 +73,10 @@ public final class DependencyUpdater {
          *
          * @param repoUrl normalized repository URL
          * @param ref branch or tag name used during import
+         * @param commitHash the commit hash that was cloned
          */
-        public static DependencyMetadata forGit(String repoUrl, String ref) {
-            return new DependencyMetadata(DependencySourceType.GITHUB, null, repoUrl, ref, System.currentTimeMillis());
+        public static DependencyMetadata forGit(String repoUrl, String ref, @Nullable String commitHash) {
+            return new DependencyMetadata(DependencySourceType.GITHUB, null, repoUrl, ref, commitHash, System.currentTimeMillis());
         }
     }
 
@@ -138,8 +141,8 @@ public final class DependencyUpdater {
      * Writes metadata describing a dependency imported from a Git repository.
      * Errors are logged but do not prevent the import from succeeding.
      */
-    public static void writeGitDependencyMetadata(Path dependencyRoot, String repoUrl, String ref) {
-        writeDependencyMetadata(dependencyRoot, DependencyMetadata.forGit(repoUrl, ref));
+    public static void writeGitDependencyMetadata(Path dependencyRoot, String repoUrl, String ref, @Nullable String commitHash) {
+        writeDependencyMetadata(dependencyRoot, DependencyMetadata.forGit(repoUrl, ref, commitHash));
     }
 
     private static void writeDependencyMetadata(Path dependencyRoot, DependencyMetadata metadata) {
@@ -212,9 +215,21 @@ public final class DependencyUpdater {
 
         // First, clone into an empty temporary directory. Only after a successful clone do we
         // create clone markers and register the operation, mirroring ImportDependencyDialog.
+        String clonedCommitHash = null;
         try {
             // Clone latest version into the temporary directory (must be empty)
             GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref);
+
+            // Capture the cloned commit hash before removing .git
+            try (var git = org.eclipse.jgit.api.Git.open(tempDir.toFile())) {
+                var head = git.getRepository().resolve("HEAD");
+                if (head != null) {
+                    clonedCommitHash = head.name();
+                    logger.info("Cloned {} at commit {}", depName, head.abbreviate(8).name());
+                }
+            } catch (Exception e) {
+                logger.debug("Could not read commit hash from cloned repo: {}", e.getMessage());
+            }
 
             // Mark this clone as in-progress for cleanup purposes and register shutdown-hook tracking
             CloneOperationTracker.createInProgressMarker(tempDir, repoUrl, ref);
@@ -287,8 +302,8 @@ public final class DependencyUpdater {
             }
             Files.move(tempDir, targetPath);
 
-            // Refresh metadata timestamp for this dependency
-            writeGitDependencyMetadata(targetPath, repoUrl, ref);
+            // Refresh metadata timestamp and commit hash for this dependency
+            writeGitDependencyMetadata(targetPath, repoUrl, ref, clonedCommitHash);
 
             return allAffectedPaths.stream()
                     .map(rel -> new ProjectFile(masterRoot, rel))
@@ -471,6 +486,65 @@ public final class DependencyUpdater {
     }
 
     /**
+     * Checks if a Git dependency needs to be updated by comparing commit hashes.
+     * Uses git ls-remote to fetch the current HEAD of the remote ref without cloning.
+     *
+     * @return true if an update is needed (or if we can't determine), false if up to date
+     */
+    private static boolean gitDependencyNeedsUpdate(DependencyMetadata metadata) {
+        if (metadata.type() != DependencySourceType.GITHUB) {
+            return false;
+        }
+
+        var repoUrl = metadata.repoUrl();
+        var ref = metadata.ref();
+        var storedHash = metadata.commitHash();
+
+        if (repoUrl == null || ref == null) {
+            return true; // Missing metadata, needs update
+        }
+
+        if (storedHash == null) {
+            return true; // No stored hash, needs update
+        }
+
+        try {
+            // Use JGit's ls-remote to get the current HEAD of the ref
+            var lsRemote = org.eclipse.jgit.api.Git.lsRemoteRepository()
+                    .setRemote(repoUrl)
+                    .setHeads(true)
+                    .setTags(true);
+
+            var refs = lsRemote.call();
+            String remoteHash = null;
+
+            // Look for the ref in heads or tags
+            for (var remoteRef : refs) {
+                var refName = remoteRef.getName();
+                if (refName.equals("refs/heads/" + ref) || refName.equals("refs/tags/" + ref)) {
+                    remoteHash = remoteRef.getObjectId().name();
+                    break;
+                }
+            }
+
+            if (remoteHash == null) {
+                logger.debug("Could not find ref {} in remote {}, assuming update needed", ref, repoUrl);
+                return true;
+            }
+
+            boolean needsUpdate = !storedHash.equals(remoteHash);
+            if (!needsUpdate) {
+                logger.debug("Git dependency at {} is up to date (commit {})",
+                        repoUrl, storedHash.substring(0, Math.min(8, storedHash.length())));
+            }
+            return needsUpdate;
+        } catch (Exception e) {
+            logger.debug("Failed to check remote for {}: {}, assuming update needed", repoUrl, e.getMessage());
+            return true; // On error, assume update is needed
+        }
+    }
+
+    /**
      * Returns the newest file modification timestamp in a directory (recursive).
      * Returns 0 if directory is empty or cannot be read.
      */
@@ -535,7 +609,18 @@ public final class DependencyUpdater {
             return new DependencyAutoUpdateResult(Set.of(), 0);
         }
 
+        // Get names of enabled (live) dependencies
+        var enabledNames = project.getLiveDependencies().stream()
+                .map(dep -> dep.root().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+
         for (var depRoot : allDeps) {
+            // Skip disabled dependencies
+            var depName = depRoot.absPath().getFileName().toString();
+            if (!enabledNames.contains(depName)) {
+                continue;
+            }
+
             var metadataOpt = readDependencyMetadata(depRoot);
             if (metadataOpt.isEmpty()) {
                 continue;
@@ -558,16 +643,21 @@ public final class DependencyUpdater {
                 if (isLocal) {
                     // Quick timestamp check to avoid expensive full sync
                     if (!localDependencyNeedsUpdate(metadata)) {
-                        logger.debug("Local dependency {} is up to date (timestamp check)", depRoot.absPath().getFileName());
                         continue;
                     }
                     delta = updateLocalPathDependencyOnDisk(project, depRoot, metadata);
                 } else {
+                    // Quick commit hash check to avoid expensive clone
+                    if (!gitDependencyNeedsUpdate(metadata)) {
+                        continue;
+                    }
                     delta = updateGitDependencyOnDisk(project, depRoot, metadata);
                 }
                 if (!delta.isEmpty()) {
                     updatedDependencies++;
                     changedFiles.addAll(delta);
+                    logger.info("Updated dependency {}: {} files changed",
+                            depRoot.absPath().getFileName(), delta.size());
                 }
             } catch (IOException e) {
                 logger.warn(
