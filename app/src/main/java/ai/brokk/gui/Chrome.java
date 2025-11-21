@@ -327,6 +327,9 @@ public class Chrome
         agentModeConversationsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         agentModeConversationsList.setCellRenderer(new AgentModeConversationRenderer());
 
+        // Populate initial conversations from SessionManager
+        populateAgentModeConversationsList();
+
         // Add listener for conversation selection
         agentModeConversationsList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && agentModeConversationsList.getSelectedIndex() >= 0) {
@@ -349,45 +352,36 @@ public class Chrome
             contextManager.summarizeTaskForConversation(text).thenAccept(sessionName -> {
                 // Create a new session with the summarized name
                 contextManager.createSessionAsync(sessionName).thenRun(() -> {
-                    // Update the conversations list on EDT
+                    // Refresh the conversations list to include the new session
+                    populateAgentModeConversationsList();
                     SwingUtilities.invokeLater(() -> {
                         try {
-                            agentModeConversationsModel.clear();
-                            var sessionManager = contextManager.getProject().getSessionManager();
-                            var sessions = sessionManager.listSessions();
-                            // Sort by most recently modified first
-                            sessions.sort((a, b) -> Long.compare(b.modified(), a.modified()));
-                            for (var session : sessions) {
-                                agentModeConversationsModel.addElement(session);
-                            }
-                            // Select the newly created session (should be at index 0)
+                            // Get the newly created session (should be at index 0 after sort by modification time)
                             if (agentModeConversationsModel.size() > 0) {
                                 agentModeConversationsList.setSelectedIndex(0);
                                 var newSession = agentModeConversationsModel.getElementAt(0);
-                                
+
                                 // Create worktree for the new session and submit the prompt
                                 createWorktreeForSession(newSession, text);
-                                
+
                                 // Submit the prompt to the executor after a short delay to allow initialization
-                                SwingUtilities.invokeLater(() -> {
-                                    Thread submissionThread = new Thread(() -> {
-                                        try {
-                                            // Wait for executor to be fully initialized
-                                            Thread.sleep(1000);
-                                            submitJobToExecutor(newSession.id(), text, newSession);
-                                        } catch (InterruptedException ex) {
-                                            Thread.currentThread().interrupt();
-                                            logger.debug("Prompt submission thread interrupted");
-                                        }
-                                    });
-                                    submissionThread.setDaemon(true);
-                                    submissionThread.start();
+                                Thread submissionThread = new Thread(() -> {
+                                    try {
+                                        // Wait for executor to be fully initialized
+                                        Thread.sleep(1000);
+                                        submitJobToExecutor(newSession.id(), text, newSession);
+                                    } catch (InterruptedException ex) {
+                                        Thread.currentThread().interrupt();
+                                        logger.debug("Prompt submission thread interrupted");
+                                    }
                                 });
+                                submissionThread.setDaemon(true);
+                                submissionThread.start();
                             }
                             showNotification(NotificationRole.INFO, "Session created: " + sessionName);
                         } catch (Exception ex) {
-                            logger.error("Failed to update conversations list", ex);
-                            toolError("Failed to load conversations: " + ex.getMessage(), "Error");
+                            logger.error("Failed to handle new session", ex);
+                            toolError("Failed to process new session: " + ex.getMessage(), "Error");
                         }
                     });
                 }).exceptionally(ex -> {
@@ -698,6 +692,34 @@ public class Chrome
                 });
 
                 return null;
+            }
+        });
+    }
+
+    /**
+     * Populates the Agent Mode conversations list with all sessions from SessionManager.
+     * Sorts sessions by most recently modified first.
+     * Safe to call from any thread; updates occur on EDT.
+     */
+    private void populateAgentModeConversationsList() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                var sessionManager = contextManager.getProject().getSessionManager();
+                var sessions = sessionManager.listSessions();
+                // Sort by most recently modified first
+                sessions.sort((a, b) -> Long.compare(b.modified(), a.modified()));
+
+                agentModeConversationsModel.clear();
+                for (var session : sessions) {
+                    agentModeConversationsModel.addElement(session);
+                }
+
+                // Auto-select the most recent session if available
+                if (agentModeConversationsModel.size() > 0) {
+                    agentModeConversationsList.setSelectedIndex(0);
+                }
+            } catch (Exception ex) {
+                logger.error("Failed to populate Agent Mode conversations list", ex);
             }
         });
     }
