@@ -9,6 +9,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -250,12 +251,14 @@ public class BranchSelectorButton extends SplitButton {
                             var sb = new StringBuilder("<html>");
                             int lastEnd = 0;
                             fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
+                            Color highlightColor = ThemeColors.getSearchHighlight();
+                            String hexColor = String.format("#%02x%02x%02x",
+                                    highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
                             for (var range : fragments) {
                                 if (range.getStartOffset() > lastEnd) {
                                     sb.append(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
                                 }
-                                String matchColor = isSelected ? "#FFFF00" : "#FFA500";
-                                sb.append("<span style='background-color:").append(matchColor).append(";color:#000000;'>");
+                                sb.append("<span style='background-color:").append(hexColor).append(";color:#000000;'>");
                                 sb.append(escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())));
                                 sb.append("</span>");
                                 lastEnd = range.getEndOffset();
