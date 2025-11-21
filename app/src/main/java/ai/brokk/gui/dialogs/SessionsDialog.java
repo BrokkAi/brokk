@@ -17,7 +17,7 @@ import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -479,7 +479,7 @@ public class SessionsDialog extends JDialog {
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
             String active = session.id().equals(currentSessionId) ? "✓" : "";
-            var date = GitUiUtil.formatRelativeDate(
+            var date = GitDiffUiUtil.formatRelativeDate(
                     Instant.ofEpochMilli(session.modified()), LocalDate.now(ZoneId.systemDefault()));
             sessionsTableModel.addRow(new Object[] {active, session.name(), date, session});
         }
