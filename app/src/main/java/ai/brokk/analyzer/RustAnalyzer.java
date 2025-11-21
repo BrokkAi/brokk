@@ -48,6 +48,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.RUST, state);
     }
 
+    public static RustAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new RustAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new RustAnalyzer(getProject(), state);

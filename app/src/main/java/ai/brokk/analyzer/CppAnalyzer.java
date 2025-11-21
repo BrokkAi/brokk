@@ -97,6 +97,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
+    public static CppAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new CppAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new CppAnalyzer(getProject(), state);

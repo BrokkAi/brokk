@@ -53,8 +53,10 @@ public class JavaLanguage implements Language {
 
     @Override
     public IAnalyzer loadAnalyzer(IProject project) {
-        // the LSP server component will handle loading in the cache
-        return createAnalyzer(project);
+        var storage = getStoragePath(project);
+        return TreeSitterStateIO.load(storage)
+                .map(state -> (IAnalyzer) JavaAnalyzer.fromState(project, state))
+                .orElseGet(() -> createAnalyzer(project));
     }
 
     @Override

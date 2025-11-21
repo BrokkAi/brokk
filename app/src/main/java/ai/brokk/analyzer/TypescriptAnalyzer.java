@@ -120,6 +120,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.TYPESCRIPT, state);
     }
 
+    /**
+     * Factory to create a snapshot-based analyzer from a prebuilt AnalyzerState.
+     */
+    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new TypescriptAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new TypescriptAnalyzer(getProject(), state);
