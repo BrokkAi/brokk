@@ -4,8 +4,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import ai.brokk.util.ImageUtil;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -111,7 +109,7 @@ public final class DiffService {
      *
      * @param currentIds the set of context ids whose diffs should be retained
      */
-    public void retainOnly(java.util.Set<UUID> currentIds) {
+    public void retainOnly(Set<UUID> currentIds) {
         cache.keySet().retainAll(currentIds);
     }
 
@@ -120,12 +118,7 @@ public final class DiffService {
         if (!(fragment instanceof ContextFragment.PathFragment)) {
             return false;
         }
-        Set<ProjectFile> files;
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            files = cf.computedFiles().future().join();
-        } else {
-            files = fragment.files();
-        }
+        Set<ProjectFile> files = fragment.files().join();
         if (files.isEmpty()) {
             return false;
         }
@@ -193,8 +186,8 @@ public final class DiffService {
                         var result = ContentDiffUtils.computeDiffResult(
                                 "",
                                 newContent,
-                                "old/" + thisFragment.shortDescription(),
-                                "new/" + thisFragment.shortDescription());
+                                "old/" + thisFragment.shortDescription().join(),
+                                "new/" + thisFragment.shortDescription().join());
                         if (result.diff().isEmpty()) {
                             return null;
                         }
@@ -223,7 +216,7 @@ public final class DiffService {
                     .exceptionally(ex -> {
                         logger.warn(
                                 "Error computing image diff for fragment '{}': {}",
-                                thisFragment.shortDescription(),
+                                thisFragment.shortDescription().join(),
                                 ex.getMessage(),
                                 ex);
                         return new Context.DiffEntry(
@@ -240,7 +233,7 @@ public final class DiffService {
                             newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             curr.id(),
                             oldLineCount,
                             newLineCount);
@@ -248,12 +241,12 @@ public final class DiffService {
                     var result = ContentDiffUtils.computeDiffResult(
                             oldContent,
                             newContent,
-                            "old/" + thisFragment.shortDescription(),
-                            "new/" + thisFragment.shortDescription());
+                            "old/" + thisFragment.shortDescription().join(),
+                            "new/" + thisFragment.shortDescription().join());
 
                     logger.trace(
                             "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             result.added(),
                             result.deleted(),
                             result.diff().isEmpty());
@@ -268,7 +261,7 @@ public final class DiffService {
                 .exceptionally(ex -> {
                     logger.warn(
                             "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription(),
+                            thisFragment.shortDescription().join(),
                             ex.getMessage(),
                             ex);
                     return new Context.DiffEntry(
@@ -281,19 +274,16 @@ public final class DiffService {
      */
     private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
         try {
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var computedTextFuture = cf.computedText().future();
-                return computedTextFuture.exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing text for {} fragment '{}': {}",
-                            fragment.getClass().getSimpleName(),
-                            fragment.shortDescription(),
-                            ex.getMessage(),
-                            ex);
-                    return "";
-                });
-            }
-            return CompletableFuture.completedFuture(fragment.text());
+            var computedTextFuture = fragment.text().future();
+            return computedTextFuture.exceptionally(ex -> {
+                logger.warn(
+                        "Error computing text for {} fragment '{}': {}",
+                        fragment.getClass().getSimpleName(),
+                        fragment.shortDescription(),
+                        ex.getMessage(),
+                        ex);
+                return "";
+            });
         } catch (UncheckedIOException e) {
             logger.warn(
                     "IO error reading content for {} fragment '{}' ({}): {}",
@@ -321,55 +311,36 @@ public final class DiffService {
     }
 
     /**
-     * Extract image bytes from a fragment, handling Computed/Image fragments.
-     */
-    private static byte @Nullable [] extractImageBytes(ContextFragment fragment) {
-        try {
-            if (fragment instanceof ContextFragment.ImageFragment imgFrag) {
-                var image = imgFrag.image();
-                return ImageUtil.imageToBytes(image);
-            }
-        } catch (java.util.concurrent.CancellationException | IOException e) {
-            logger.warn(
-                    "Computation cancelled for image fragment '{}'; image will show as changed. Cause: {}",
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return null;
-        }
-        return null;
-    }
-
-    /**
      * Compute a placeholder diff entry for image fragments when the bytes differ.
      */
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
-        byte[] oldImageBytes = extractImageBytes(otherFragment);
-        byte[] newImageBytes = extractImageBytes(thisFragment);
+        var oldBytesOpt = otherFragment.imageBytes();
+        var newBytesOpt = thisFragment.imageBytes();
 
-        if (oldImageBytes == null && newImageBytes == null) {
+        if (oldBytesOpt == null || newBytesOpt == null) {
             return null;
         }
-        boolean imagesEqual =
-                oldImageBytes != null && newImageBytes != null && Arrays.equals(oldImageBytes, newImageBytes);
+
+        byte[] oldImageBytes = oldBytesOpt.join();
+        byte[] newImageBytes = newBytesOpt.join();
+
+        boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
         if (imagesEqual) {
             return null;
         }
         String diff = "[Image changed]";
-        return new Context.DiffEntry(
-                thisFragment,
-                diff,
-                1,
-                1,
-                oldImageBytes != null ? "[image]" : "",
-                newImageBytes != null ? "[image]" : "");
+        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
      * Compute the set of ProjectFile objects that differ between curr (new/right) and other (old/left).
      */
-    public static java.util.Set<ProjectFile> getChangedFiles(Context curr, Context other) {
+    @Blocking
+    public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
         var diffs = computeDiff(curr, other);
-        return diffs.stream().flatMap(de -> de.fragment().files().stream()).collect(Collectors.toSet());
+        return diffs.stream()
+                .flatMap(de -> de.fragment().files().join().stream())
+                .collect(Collectors.toSet());
     }
 }

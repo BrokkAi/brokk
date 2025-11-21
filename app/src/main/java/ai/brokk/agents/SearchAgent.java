@@ -53,6 +53,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -190,6 +191,7 @@ public class SearchAgent {
                 .count();
     }
 
+    @Blocking
     private TaskResult executeInternal() throws InterruptedException {
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
@@ -809,6 +811,7 @@ public class SearchAgent {
      * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      */
+    @Blocking
     public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
@@ -843,7 +846,8 @@ public class SearchAgent {
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
-                            .syntaxStyle())));
+                            .syntaxStyle()
+                            .join())));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
@@ -864,6 +868,7 @@ public class SearchAgent {
         return context;
     }
 
+    @Blocking
     public Context scanInitialContext() throws InterruptedException {
         return scanInitialContext(cm.getService().getScanModel());
     }
@@ -1109,6 +1114,7 @@ public class SearchAgent {
         metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
+    @Blocking
     private void recordFinalWorkspaceState() {
         metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
@@ -1123,10 +1129,11 @@ public class SearchAgent {
                 || f.getType() == ContextFragment.FragmentType.SKELETON;
     }
 
+    @Blocking
     private Set<ProjectFile> getWorkspaceFileSet() {
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1134,14 +1141,15 @@ public class SearchAgent {
         return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
+    @Blocking
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
-                        f.description(),
-                        f.files().stream()
+                        f.description().join(),
+                        f.files().join().stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))

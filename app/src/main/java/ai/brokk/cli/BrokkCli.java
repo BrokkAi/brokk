@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
@@ -194,6 +195,7 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     @Override
+    @Blocking
     public Integer call() throws Exception {
 
         // Handle --list-models early exit
@@ -490,7 +492,7 @@ public final class BrokkCli implements Callable<Integer> {
                             cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files(), Set.of());
+                        default -> cm.addSummaries(fragment.files().join(), Set.of());
                     }
                 }
             } else {

@@ -33,7 +33,9 @@ public class FragmentColorUtils {
             return FragmentKind.HISTORY;
         }
         if (fragment instanceof ContextFragment.StringFragment sf
-                && SpecialTextType.TASK_LIST.description().equals(sf.description())) {
+                && SpecialTextType.TASK_LIST
+                        .description()
+                        .equals(sf.description().renderNowOrNull())) {
             return FragmentKind.TASK_LIST;
         }
         return FragmentKind.OTHER;

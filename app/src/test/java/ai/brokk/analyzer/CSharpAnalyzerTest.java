@@ -281,7 +281,7 @@ public final class CSharpAnalyzerTest {
         // and would re-fetch skeletons, which is beyond the scope of this analyzer unit test.
         assertEquals(
                 "Summary of " + ifaceCU.fqName(),
-                skeletonFragment.description(),
+                skeletonFragment.description().join(),
                 "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods

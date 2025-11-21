@@ -54,7 +54,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Strongly typed chip component representing one or more ContextFragments.
- *
+ * <p>
  * Encapsulates UI, tooltips, theming, hover behavior, and context menus, avoiding brittle
  * clientProperty string keys except for ComputedValue subscription bookkeeping.
  */
@@ -161,19 +161,14 @@ public class WorkspaceChip extends JPanel {
         readOnlyIcon.setIcon(null);
 
         ContextFragment fragment = getPrimaryFragment();
-        String safeShortDescription = fragment != null ? fragment.shortDescription() : "(no description)";
+        String safeShortDescription =
+                fragment != null ? fragment.shortDescription().renderNowOr("") : "(no description)";
         if (safeShortDescription.isBlank()) {
             safeShortDescription = "(no description)";
         }
 
         // Initial label text (may be updated once computed values are ready)
-        if (fragment instanceof ContextFragment.ComputedFragment) {
-            label.setText("Loading...");
-        } else if (kind == ChipKind.OTHER) {
-            label.setText(capitalizeFirst(safeShortDescription));
-        } else {
-            label.setText(safeShortDescription);
-        }
+        label.setText("Loading...");
 
         refreshLabelAndTooltip();
 
@@ -291,11 +286,13 @@ public class WorkspaceChip extends JPanel {
             e.consume();
             return;
         }
-        JPopupMenu menu = createContextMenu();
-        if (menu != null) {
-            menu.show(invoker, e.getX(), e.getY());
-            e.consume();
-        }
+        contextManager.submitBackgroundTask("Constructing context menu", () -> {
+            JPopupMenu menu = createContextMenu();
+            if (menu != null) {
+                SwingUtilities.invokeLater(() -> menu.show(invoker, e.getX(), e.getY()));
+            }
+        });
+        e.consume();
     }
 
     protected void onPrimaryClick() {
@@ -474,7 +471,7 @@ public class WorkspaceChip extends JPanel {
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragment.StringFragment sf) {
-            if (SpecialTextType.TASK_LIST.description().equals(sf.description())) {
+            if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
                 border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
@@ -572,8 +569,16 @@ public class WorkspaceChip extends JPanel {
 
     protected void bindComputed() {
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
+        if (fragment != null) {
+            // Bind to any ComputedValue changes for this fragment.
+            ComputedSubscription.bind(fragment, this, this::refreshLabelAndTooltip);
+            // Prime key ComputedValues so they resolve off-EDT without blocking.
+            try {
+                fragment.shortDescription().start();
+                fragment.description().start();
+            } catch (Exception ex) {
+                logger.trace("Failed to prime fragment computed values", ex);
+            }
         }
     }
 
@@ -582,41 +587,53 @@ public class WorkspaceChip extends JPanel {
         if (fragment == null) {
             return;
         }
-        updateTextAndTooltip(fragment);
-        applyTheme();
+        // Ensure UI updates occur on the EDT and avoid scheduling background tasks.
+        SwingUtilities.invokeLater(() -> {
+            try {
+                updateTextAndTooltip(fragment);
+                applyTheme();
+            } catch (Exception ex) {
+                logger.warn("Failed to refresh chip UI for fragment {}", fragment, ex);
+            }
+        });
     }
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
-        String newLabelText;
-        if (kind == ChipKind.SUMMARY) {
-            // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
-            newLabelText = fragment.shortDescription();
-        } else if (kind == ChipKind.OTHER) {
-            String sd;
-            try {
-                sd = fragment.shortDescription();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
-            newLabelText = capitalizeFirst(sd);
-        } else {
-            String sd;
-            try {
-                sd = fragment.shortDescription();
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
-            newLabelText = sd.isBlank() ? label.getText() : sd;
+        // Non-blocking reads; values refine as ComputedValues complete via ComputedSubscription.
+        String shortDescription = fragment.shortDescription().renderNowOr("");
+        if (shortDescription.isBlank()) {
+            shortDescription = "(no description)";
         }
-        label.setText(newLabelText);
+        if (kind == ChipKind.OTHER) {
+            shortDescription = WorkspaceChip.capitalizeFirst(shortDescription);
+        }
 
+        String description = fragment.description().renderNowOr("");
+
+        // Only update label text if it actually changed to avoid flicker
+        String currentText = label.getText();
+        if (!Objects.equals(currentText, shortDescription)) {
+            label.setText(shortDescription);
+        }
+
+        // Only update tooltip if it actually changed to avoid flicker
         try {
-            label.setToolTipText(buildDefaultTooltip(fragment));
-            label.getAccessibleContext().setAccessibleDescription(fragment.description());
+            String newTooltip = buildDefaultTooltip(fragment);
+            String currentTooltip = label.getToolTipText();
+            if (!Objects.equals(currentTooltip, newTooltip)) {
+                label.setToolTipText(newTooltip);
+            }
+
+            // Update accessible description only if it changed
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                String currentDesc = ac.getAccessibleDescription();
+                if (!Objects.equals(currentDesc, description)) {
+                    ac.setAccessibleDescription(description);
+                }
+            }
         } catch (Exception ex) {
-            logger.debug("Failed to refresh chip tooltip for fragment {}", fragment, ex);
+            logger.warn("Failed to refresh chip tooltip for fragment {}", fragment, ex);
         }
     }
 
@@ -838,12 +855,7 @@ public class WorkspaceChip extends JPanel {
     private static String buildMetricsHtml(ContextFragment fragment) {
         try {
             if (fragment.isText() || fragment.getType().isOutput()) {
-                String text;
-                if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                    text = cf.computedText().renderNowOr("");
-                } else {
-                    text = fragment.text();
-                }
+                String text = fragment.text().renderNowOr("");
                 int loc = text.split("\\r?\\n", -1).length;
                 int tokens = Messages.getApproximateTokens(text);
                 return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
@@ -855,12 +867,7 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
-        String d;
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            d = cf.computedDescription().renderNowOr("");
-        } else {
-            d = fragment.description();
-        }
+        String d = fragment.description().renderNowOr("");
 
         String descriptionHtml = StringEscapeUtils.escapeHtml4(d)
                 .replace("\r\n", "\n")
@@ -959,9 +966,7 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void bindComputed() {
             for (var f : summaryFragments) {
-                if (f instanceof ContextFragment.ComputedFragment cf) {
-                    ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
-                }
+                ComputedSubscription.bind(f, this, this::refreshLabelAndTooltip);
             }
         }
 
@@ -1025,40 +1030,48 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
-            String text = buildSummaryLabel();
-            label.setText(text);
+            // Non-blocking reads; values refine as underlying ComputedValues complete.
+            String text = computeSummaryLabelNonBlocking();
+            String toolTip = computeAggregateSummaryTooltipNonBlocking();
+
+            // Only update label text if changed
+            String currentText = label.getText();
+            if (!Objects.equals(currentText, text)) {
+                label.setText(text);
+            }
+
+            // Only update tooltip if changed
             try {
-                label.setToolTipText(buildAggregateSummaryTooltip());
-                label.getAccessibleContext().setAccessibleDescription("All summaries combined");
+                String currentTooltip = label.getToolTipText();
+                if (!Objects.equals(currentTooltip, toolTip)) {
+                    label.setToolTipText(toolTip);
+                }
+
+                var ac = label.getAccessibleContext();
+                if (ac != null) {
+                    String currentDesc = ac.getAccessibleDescription();
+                    String newDesc = "All summaries combined";
+                    if (!Objects.equals(currentDesc, newDesc)) {
+                        ac.setAccessibleDescription(newDesc);
+                    }
+                }
             } catch (Exception ex) {
                 logger.warn("Failed to set tooltip for synthetic summary chip", ex);
             }
         }
 
-        private String buildSummaryLabel() {
+        private String computeSummaryLabelNonBlocking() {
             int totalFiles = (int) summaryFragments.stream()
-                    .flatMap(f -> {
-                        if (f instanceof ContextFragment.ComputedFragment cff) {
-                            return cff.computedFiles().renderNowOr(Set.of()).stream();
-                        } else {
-                            return f.files().stream();
-                        }
-                    })
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .count();
             return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         }
 
-        private String buildAggregateSummaryTooltip() {
+        private String computeAggregateSummaryTooltipNonBlocking() {
             var allFiles = summaryFragments.stream()
-                    .flatMap(f -> {
-                        if (f instanceof ContextFragment.ComputedFragment cff) {
-                            return cff.computedFiles().renderNowOr(Set.of()).stream();
-                        } else {
-                            return f.files().stream();
-                        }
-                    })
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .sorted()
@@ -1066,26 +1079,22 @@ public class WorkspaceChip extends JPanel {
 
             StringBuilder body = new StringBuilder();
 
+            // Best-effort metrics using non-blocking renders
             int totalLoc = 0;
             int totalTokens = 0;
-            try {
-                for (var summary : summaryFragments) {
-                    String text;
-                    if (summary instanceof ContextFragment.ComputedFragment cf) {
-                        text = cf.computedText().renderNowOr("");
-                    } else {
-                        text = summary.text();
-                    }
+            for (var summary : summaryFragments) {
+                String text = summary.text().renderNowOr("");
+                if (!text.isEmpty()) {
                     totalLoc += text.split("\\r?\\n", -1).length;
                     totalTokens += Messages.getApproximateTokens(text);
                 }
+            }
+            if (totalLoc > 0 || totalTokens > 0) {
                 body.append("<div>")
                         .append(formatCount(totalLoc))
                         .append(" LOC \u2022 ~")
                         .append(formatCount(totalTokens))
                         .append(" tokens</div><br/>");
-            } catch (Exception e) {
-                logger.error(e);
             }
 
             body.append("<div><b>Summaries</b></div>");
@@ -1145,16 +1154,13 @@ public class WorkspaceChip extends JPanel {
         }
 
         private String buildIndividualDropLabel(ContextFragment fragment) {
-            var files = (fragment instanceof ContextFragment.ComputedFragment cff
-                            ? cff.computedFiles().renderNowOr(Set.of())
-                            : fragment.files())
-                    .stream()
-                            .map(pf -> {
-                                String path = pf.toString();
-                                int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                                return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                            })
-                            .toList();
+            var files = fragment.files().renderNowOr(Set.of()).stream()
+                    .map(pf -> {
+                        String path = pf.toString();
+                        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+                    })
+                    .toList();
 
             if (files.isEmpty()) {
                 return "Drop: no files";
@@ -1198,13 +1204,7 @@ public class WorkspaceChip extends JPanel {
 
         private void previewSyntheticChip() {
             int totalFiles = (int) summaryFragments.stream()
-                    .flatMap(f -> {
-                        if (f instanceof ContextFragment.ComputedFragment cff) {
-                            return cff.computedFiles().renderNowOr(Set.of()).stream();
-                        } else {
-                            return f.files().stream();
-                        }
-                    })
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
                     .distinct()
                     .count();
@@ -1212,9 +1212,7 @@ public class WorkspaceChip extends JPanel {
 
             StringBuilder combinedText = new StringBuilder();
             for (var summary : summaryFragments) {
-                String txt = (summary instanceof ContextFragment.ComputedFragment cf)
-                        ? cf.computedText().renderNowOr("")
-                        : summary.text();
+                var txt = summary.text().renderNowOr("");
                 combinedText.append(txt).append("\n\n");
             }
 

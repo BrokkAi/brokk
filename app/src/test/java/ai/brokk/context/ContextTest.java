@@ -167,7 +167,7 @@ class ContextTest {
         ctx = ctx.withBuildResult(false, "Some error");
         var buildFrag = ctx.getBuildFragment();
         assertTrue(buildFrag.isPresent(), "Build result fragment should be present on failure");
-        assertEquals("Some error", buildFrag.get().text());
+        assertEquals("Some error", buildFrag.get().text().join());
         assertFalse(ctx.getBuildError().isBlank());
 
         // Build success -> cleared

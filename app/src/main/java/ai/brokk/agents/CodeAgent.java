@@ -47,6 +47,7 @@ import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -119,6 +120,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
@@ -131,6 +133,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
@@ -181,7 +184,7 @@ public class CodeAgent {
             contextManager
                     .getAnalyzerWrapper()
                     .updateFiles(context.fileFragments()
-                            .flatMap(cf -> cf.files().stream())
+                            .flatMap(cf -> cf.files().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -265,7 +268,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().stream())
+                    .flatMap(f -> f.files().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -735,6 +738,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
@@ -1469,6 +1473,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     private static Set<String> computeReadOnlyPaths(Context ctx) {
         // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
         // Our priority is:
@@ -1477,12 +1482,14 @@ public class CodeAgent {
         // 3. Files referred to by other read-only Fragments should be in our Set.
         var readonlyPaths = ctx.getReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toSet());
-        var editableAll =
-                ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        var readonly =
-                ctx.getReadonlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var editableAll = ctx.getEditableFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
+        var readonly = ctx.getReadonlyFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
     }

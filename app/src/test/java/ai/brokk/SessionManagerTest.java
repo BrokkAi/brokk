@@ -214,40 +214,47 @@ public class SessionManagerTest {
         assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         assertEquals(
-                expected.description(), actual.description(), "Fragment description mismatch for ID " + expected.id());
+                expected.description().join(),
+                actual.description().join(),
+                "Fragment description mismatch for ID " + expected.id());
         assertEquals(
-                expected.shortDescription(),
-                actual.shortDescription(),
+                expected.shortDescription().join(),
+                actual.shortDescription().join(),
                 "Fragment shortDescription mismatch for ID " + expected.id());
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         assertEquals(
-                expected.syntaxStyle(), actual.syntaxStyle(), "Fragment syntaxStyle mismatch for ID " + expected.id());
+                expected.syntaxStyle().join(),
+                actual.syntaxStyle().join(),
+                "Fragment syntaxStyle mismatch for ID " + expected.id());
 
         if (expected.isText()) {
-            assertEquals(expected.text(), actual.text(), "Fragment text content mismatch for ID " + expected.id());
+            assertEquals(
+                    expected.text().join(),
+                    actual.text().join(),
+                    "Fragment text content mismatch for ID " + expected.id());
         } else {
             // Compare image content via the common API
             assertArrayEquals(
-                    imageToBytes(expected.image()),
-                    imageToBytes(actual.image()),
+                    expected.imageBytes().join(),
+                    actual.imageBytes().join(),
                     "Fragment image content mismatch for ID " + expected.id());
         }
 
         // Compare additional serialized top-level methods
         assertEquals(
-                expected.description(),
-                actual.description(),
+                expected.description().join(),
+                actual.description().join(),
                 "Fragment formatSummary mismatch for ID " + expected.id());
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
         // Compare files and sources (ProjectFile and CodeUnit DTOs are by value)
         assertEquals(
-                expected.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
-                actual.sources().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                expected.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
+                actual.sources().join().stream().map(CodeUnit::fqName).collect(Collectors.toSet()),
                 "Fragment sources mismatch for ID " + expected.id());
         assertEquals(
-                expected.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 

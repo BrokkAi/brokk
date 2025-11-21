@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
@@ -162,8 +163,12 @@ public class Messages {
         return texts.parallelStream().mapToInt(Messages::getApproximateTokens).sum();
     }
 
+    @Blocking
     public static int getApproximateTokens(Context ctx) {
-        var texts = ctx.allFragments().map(ContextFragment::text).toList();
+        var texts = ctx.allFragments()
+                .map(ContextFragment::text)
+                .map(ComputedValue::join)
+                .toList();
         return getApproximateTokens(texts);
     }
 

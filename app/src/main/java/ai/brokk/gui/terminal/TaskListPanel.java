@@ -961,15 +961,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             if (!sid.equals(this.sessionIdAtLoad)) {
                 return;
             }
-            model.clear();
-            for (var dto : data.tasks()) {
-                if (!dto.text().isBlank()) {
-                    // dto is already the domain type used by the model
-                    model.addElement(dto);
+
+            SwingUtilities.invokeLater(() -> {
+                model.clear();
+                for (var dto : data.tasks()) {
+                    if (!dto.text().isBlank()) {
+                        // dto is already the domain type used by the model
+                        model.addElement(dto);
+                    }
                 }
-            }
-            clearExpansionOnStructureChange();
-            updateButtonStates();
+                clearExpansionOnStructureChange();
+                updateButtonStates();
+            });
         } finally {
             isLoadingTasks = false;
             // Update the last-seen fragment ID after successful load (respecting selected context)
@@ -1025,6 +1028,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     private void saveTasksForCurrentSession(String action) {
         if (isLoadingTasks) return;
+
+        if (SwingUtilities.isEventDispatchThread() && registeredContextManager != null) {
+            // Delegate to a background task
+            registeredContextManager.submitBackgroundTask("Saving tasks for current session", () -> {
+                saveTasksForCurrentSession(action);
+                return null;
+            });
+            return;
+        }
 
         var dtos = new ArrayList<TaskList.TaskItem>(model.size());
         for (int i = 0; i < model.size(); i++) {
@@ -2037,7 +2049,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * reorders) to avoid stale mappings.
      */
     private void clearExpansionOnStructureChange() {
-        assert SwingUtilities.isEventDispatchThread();
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::clearExpansionOnStructureChange);
+        }
         list.revalidate();
         list.repaint();
     }

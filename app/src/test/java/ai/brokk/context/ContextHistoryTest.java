@@ -29,7 +29,8 @@ public class ContextHistoryTest {
 
     @BeforeEach
     public void setUp() {
-        contextManager = new TestContextManager(tempDir, new TestConsoleIO());
+        TestConsoleIO consoleIO = new TestConsoleIO();
+        contextManager = new TestContextManager(tempDir, consoleIO);
         ContextFragment.setMinimumId(1);
     }
 
@@ -46,7 +47,7 @@ public class ContextHistoryTest {
 
         var initialFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to simulate live context readiness
-        initialFragment.computedText().await(Duration.ofSeconds(2));
+        initialFragment.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
                 contextManager,
@@ -152,7 +153,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
         var history = new ContextHistory(ctx1);
@@ -183,7 +184,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
         var history = new ContextHistory(ctx1);
@@ -249,7 +250,7 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
         // Seed computed text to snapshot original content for diff
-        frag1.computedText().await(Duration.ofSeconds(2));
+        frag1.text().await(Duration.ofSeconds(2));
         var context1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
 
@@ -274,5 +275,43 @@ public class ContextHistoryTest {
                 assertTrue(diffService.peek(ctx).isPresent(), "After join, diff should be cached");
             }
         }
+    }
+
+    /**
+     * Verifies that undo/redo operations restore file content from the context snapshot,
+     * not from the live file system state at the time of undo/redo.
+     */
+    @Test
+    public void testUndoRedoRestoresSnapshotContent() throws Exception {
+        // 1. Initial state: file with "version 1"
+        var pf = new ProjectFile(tempDir, "src/Test.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "version 1");
+
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
+        var history = new ContextHistory(ctx1);
+
+        // 2. Second state: file with "version 2"
+        Files.writeString(pf.absPath(), "version 2");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
+        history.pushContext(ctx2); // This should trigger snapshot of ctx1
+
+        // 3. External change: file is now "version 3"
+        Files.writeString(pf.absPath(), "version 3");
+        assertEquals("version 3", Files.readString(pf.absPath()), "File should have external changes before undo");
+
+        // 4. UNDO: should revert to ctx1 state, writing "version 1"
+        history.undo(1, contextManager.getIo(), contextManager.getProject());
+        assertEquals("version 1", Files.readString(pf.absPath()), "Undo should restore content from first snapshot");
+        assertEquals(ctx1.id(), history.liveContext().id(), "Live context should be ctx1 after undo");
+
+        // 5. REDO: should restore ctx2 state, writing "version 2"
+        history.redo(contextManager.getIo(), contextManager.getProject());
+        assertEquals("version 2", Files.readString(pf.absPath()), "Redo should restore content from second snapshot");
+        assertEquals(ctx2.id(), history.liveContext().id(), "Live context should be ctx2 after redo");
     }
 }

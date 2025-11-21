@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -384,6 +385,7 @@ public class BuildAgent {
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
 
@@ -410,12 +412,12 @@ public class BuildAgent {
 
         // Get ProjectFiles from editable and read-only fragments
         var projectFilesFromEditableOrReadOnly =
-                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
+                .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)

@@ -36,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -115,6 +116,7 @@ public class MergeAgent {
      * High-level merge entry point. First annotates all conflicts, then resolves them file-by-file. Also publishes
      * commit explanations for the relevant ours/theirs commits discovered by blame.
      */
+    @Blocking
     public TaskResult execute() throws IOException, GitAPIException, InterruptedException {
         logger.debug("MergeAgent.execute() started for mode: {}, otherCommitId: {}", mode, otherCommitId);
         codeAgentFailures.clear();
@@ -713,13 +715,14 @@ public class MergeAgent {
         }
     }
 
+    @Blocking
     private TaskResult interruptedResult(String message) {
         // Build resulting context that contains all conflict files
         var top = cm.liveContext();
         var conflictFiles = allConflictFilesInWorkspace();
         var existingEditableFiles = top.fileFragments()
                 .filter(cf -> cf.getType().isEditable())
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toSet());
         var fragmentsToAdd = conflictFiles.stream()
                 .filter(pf -> !existingEditableFiles.contains(pf))

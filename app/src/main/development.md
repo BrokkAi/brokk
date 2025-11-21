@@ -471,6 +471,37 @@ export BRK_USAGE_BOOL=""        # treated as true
 export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
 ```
 
+### BRK_EAGER_FRAGMENTS
+
+Controls whether ContextFragment prime computations are started eagerly in the background as soon as a fragment is constructed. This reduces first-use latency by priming ComputedValue surfaces off the UI thread.
+
+- Name: BRK_EAGER_FRAGMENTS
+- Type: Boolean-ish
+- Evaluation rules (from ContextFragment.primeComputations()):
+  - Unset: false (no eager priming)
+  - Set to empty string: true
+  - Set to "true" (any case): true
+  - Any other non-empty value: false
+- Effect when true: For each newly created fragment, the following computed surfaces are started asynchronously on the dedicated ContextFragment executor:
+  - shortDescription(), description(), text(), syntaxStyle(), sources(), files(), format()
+  - imageBytes() for image-capable fragments
+  - CodeFragment.computedUnit() for CodeFragment instances
+- Notes:
+  - Scheduling is non-blocking and safe for the Swing EDT.
+  - Improves perceived responsiveness at the cost of additional background CPU work during fragment creation.
+
+Examples:
+```bash
+# Enable eager priming
+export BRK_EAGER_FRAGMENTS=true
+
+# Also enables (empty string is treated as true)
+export BRK_EAGER_FRAGMENTS=""
+
+# Disable eager priming
+export BRK_EAGER_FRAGMENTS=false
+```
+
 ## Style Guide Aggregation (AGENTS.md)
 
 Brokk aggregates nested AGENTS.md files to build the style guide used in prompts.
