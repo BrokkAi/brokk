@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.storage.file.WindowCacheConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,9 @@ class DependencyAutoUpdateCoordinatorTest {
         try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
             // GitRepo closed by try-with-resources
         }
+        // Flush JGit's WindowCache to release memory-mapped pack files (required for Windows)
+        WindowCacheConfig config = new WindowCacheConfig();
+        config.install();
         Path gitDir = depDir.resolve(".git");
         if (Files.exists(gitDir)) {
             FileUtil.deleteRecursively(gitDir);

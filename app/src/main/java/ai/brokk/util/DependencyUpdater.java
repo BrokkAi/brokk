@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.storage.file.WindowCacheConfig;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -237,6 +238,8 @@ public final class DependencyUpdater {
             try (var ignored = GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref)) {
                 // GitRepo closed by try-with-resources
             }
+            // Flush JGit's WindowCache to release memory-mapped pack files (required for Windows)
+            new WindowCacheConfig().install();
 
             // Capture the cloned commit hash before removing .git
             clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
