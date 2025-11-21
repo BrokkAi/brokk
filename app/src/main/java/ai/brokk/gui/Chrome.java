@@ -18,6 +18,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.services.HeadlessExecutorService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -110,6 +116,24 @@ public class Chrome
     final ContextManager contextManager;
     private Context activeContext; // Track the currently displayed context
     private final HeadlessExecutorService headlessExecutorService;
+    private final Map<UUID, AgentModeExecutorInfo> agentExecutorMap = new ConcurrentHashMap<>();
+
+    /**
+     * Stores information about a headless executor instance for an Agent Mode session.
+     */
+    private record AgentModeExecutorInfo(int port, String authToken, Process process) {}
+
+    /**
+     * Request structure for submitting a job to the headless executor.
+     */
+    private record JobSpecRequest(
+            String sessionId,
+            String taskInput,
+            boolean autoCommit,
+            boolean autoCompress,
+            @Nullable String plannerModel,
+            @Nullable String codeModel,
+            @Nullable Map<String, String> tags) {}
 
     // Global Undo/Redo Actions
     private final GlobalUndoAction globalUndoAction;
@@ -341,8 +365,24 @@ public class Chrome
                                 agentModeConversationsList.setSelectedIndex(0);
                                 var newSession = agentModeConversationsModel.getElementAt(0);
                                 
-                                // Create worktree for the new session
-                                createWorktreeForSession(newSession);
+                                // Create worktree for the new session and submit the prompt
+                                createWorktreeForSession(newSession, text);
+                                
+                                // Submit the prompt to the executor after a short delay to allow initialization
+                                SwingUtilities.invokeLater(() -> {
+                                    Thread submissionThread = new Thread(() -> {
+                                        try {
+                                            // Wait for executor to be fully initialized
+                                            Thread.sleep(1000);
+                                            submitJobToExecutor(newSession.id(), text, newSession);
+                                        } catch (InterruptedException ex) {
+                                            Thread.currentThread().interrupt();
+                                            logger.debug("Prompt submission thread interrupted");
+                                        }
+                                    });
+                                    submissionThread.setDaemon(true);
+                                    submissionThread.start();
+                                });
                             }
                             showNotification(NotificationRole.INFO, "Session created: " + sessionName);
                         } catch (Exception ex) {
@@ -397,10 +437,166 @@ public class Chrome
     }
 
     /**
+     * Submits a job to the headless executor for a given session.
+     * Sends the prompt via HTTP POST to the executor's /v1/jobs endpoint.
+     */
+    private void submitJobToExecutor(UUID sessionId, String prompt, SessionManager.SessionInfo sessionInfo) {
+        contextManager.submitBackgroundTask("Submit job to executor", () -> {
+            var executorInfo = agentExecutorMap.get(sessionId);
+            if (executorInfo == null) {
+                logger.error("No executor info found for session {}", sessionId);
+                SwingUtilities.invokeLater(() ->
+                    toolError("Executor not found for session", "Submission Error")
+                );
+                return null;
+            }
+
+            try {
+                // Create the job spec request
+                var jobSpec = new JobSpecRequest(
+                    sessionId.toString(),
+                    prompt,
+                    true,  // autoCommit
+                    true,  // autoCompress
+                    "gpt-5",  // plannerModel (default)
+                    null,  // codeModel
+                    Map.of()  // tags
+                );
+
+                // Send the request to the executor
+                var client = new OkHttpClient();
+                var mapper = new ObjectMapper();
+                var jsonBody = mapper.writeValueAsString(jobSpec);
+
+                var request = new Request.Builder()
+                    .url("http://127.0.0.1:" + executorInfo.port() + "/v1/jobs")
+                    .addHeader("Authorization", "Bearer " + executorInfo.authToken())
+                    .addHeader("Idempotency-Key", UUID.randomUUID().toString())
+                    .post(RequestBody.create(jsonBody, MediaType.get("application/json")))
+                    .build();
+
+                try (var response = client.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        var errorBody = response.body() != null ? response.body().string() : "Unknown error";
+                        logger.error("Failed to submit job: {} - {}", response.code(), errorBody);
+                        SwingUtilities.invokeLater(() ->
+                            toolError("Failed to submit job: " + response.code(), "Submission Error")
+                        );
+                    } else {
+                        var responseBody = response.body() != null ? response.body().string() : "{}";
+                        var responseObj = mapper.readTree(responseBody);
+                        var jobId = responseObj.get("jobId").asText();
+                        logger.info("Job submitted successfully: {}", jobId);
+
+                        // Start polling for job events
+                        pollExecutorForJobEvents(sessionId, jobId, executorInfo);
+
+                        SwingUtilities.invokeLater(() ->
+                            showNotification(NotificationRole.INFO, "Job submitted: " + jobId)
+                        );
+                    }
+                }
+            } catch (Exception ex) {
+                logger.error("Error submitting job to executor", ex);
+                SwingUtilities.invokeLater(() ->
+                    toolError("Error submitting job: " + ex.getMessage(), "Submission Error")
+                );
+            }
+
+            return null;
+        });
+    }
+
+    /**
+     * Polls the executor for job events and displays them in the output panel.
+     */
+    private void pollExecutorForJobEvents(UUID sessionId, String jobId, AgentModeExecutorInfo executorInfo) {
+        contextManager.submitBackgroundTask("Poll executor for job events", () -> {
+            try {
+                var client = new OkHttpClient();
+                long afterSeq = -1;
+                boolean isFirstPoll = true;
+
+                while (true) {
+                    // Check if executor process is still alive
+                    if (!executorInfo.process().isAlive()) {
+                        logger.info("Executor process terminated");
+                        break;
+                    }
+
+                    // Poll for events
+                    var queryParams = afterSeq >= 0 ? "?after=" + afterSeq + "&limit=50" : "?limit=50";
+                    var request = new Request.Builder()
+                        .url("http://127.0.0.1:" + executorInfo.port() + "/v1/jobs/" + jobId + "/events" + queryParams)
+                        .addHeader("Authorization", "Bearer " + executorInfo.authToken())
+                        .get()
+                        .build();
+
+                    try (var response = client.newCall(request).execute()) {
+                        if (!response.isSuccessful()) {
+                            logger.warn("Failed to poll events: {}", response.code());
+                            Thread.sleep(2000);  // Retry after 2 seconds
+                            continue;
+                        }
+
+                        var responseBody = response.body() != null ? response.body().string() : "{}";
+                        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        var responseObj = mapper.readTree(responseBody);
+                        var events = responseObj.get("events");
+
+                        if (events != null && events.isArray()) {
+                            for (var eventNode : events) {
+                                var type = eventNode.get("type").asText();
+                                var message = eventNode.get("message").asText("");
+
+                                // Update UI with event
+                                if (!message.isEmpty()) {
+                                    final String eventMessage = message;
+                                    SwingUtilities.invokeLater(() -> {
+                                        if (agentModeOutputPanel != null) {
+                                            agentModeOutputPanel.append(eventMessage, ChatMessageType.AI, true);
+                                        }
+                                    });
+                                }
+
+                                afterSeq = eventNode.get("seq").asLong();
+                            }
+                        }
+
+                        // Check if job is complete
+                        var status = responseObj.get("status");
+                        if (status != null) {
+                            var statusStr = status.asText();
+                            if ("completed".equalsIgnoreCase(statusStr) || "failed".equalsIgnoreCase(statusStr)) {
+                                logger.info("Job completed with status: {}", statusStr);
+                                break;
+                            }
+                        }
+
+                        // Wait before next poll
+                        Thread.sleep(isFirstPoll ? 500 : 2000);
+                        isFirstPoll = false;
+                    }
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                logger.debug("Job event polling interrupted");
+            } catch (Exception ex) {
+                logger.error("Error polling executor for job events", ex);
+            }
+
+            return null;
+        });
+    }
+
+    /**
      * Creates a git worktree and branch for a new Agent Mode session.
      * This is done asynchronously in a background task.
+     *
+     * @param sessionInfo the session to create a worktree for
+     * @param prompt the user's prompt to submit to the executor
      */
-    private void createWorktreeForSession(SessionManager.SessionInfo sessionInfo) {
+    private void createWorktreeForSession(SessionManager.SessionInfo sessionInfo, String prompt) {
         contextManager.submitBackgroundTask("Create worktree for Agent Mode session", () -> {
             try {
                 // Check if project is a MainProject with git support
@@ -458,17 +654,28 @@ public class Chrome
                     logger.info(
                             "Started headless executor for session {} on port {}", sessionInfo.name(), result.port());
 
+                    // Store executor info for later reference
+                    agentExecutorMap.put(sessionInfo.id(), new AgentModeExecutorInfo(result.port(), result.authToken(), result.process()));
+
                     // On success, show notification
                     SwingUtilities.invokeLater(() -> {
                         showNotification(
                             NotificationRole.INFO,
                             "Worktree created at: " + worktreePath.getFileName());
                     });
+
+                    // Wait a bit for executor to initialize, then submit the prompt
+                    Thread.sleep(1000);
+                    submitJobToExecutor(sessionInfo.id(), prompt, sessionInfo);
                 } catch (IOException ex) {
                     logger.error("Failed to start headless executor for session {}", sessionInfo.name(), ex);
                     SwingUtilities.invokeLater(() -> {
                         toolError("Failed to start executor: " + ex.getMessage(), "Executor Start Error");
                     });
+                    return null;
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Interrupted while waiting for executor initialization", ex);
                     return null;
                 }
 
