@@ -494,7 +494,9 @@ public final class DependencyUpdater {
 
         var remoteHash = GitRepoFactory.getRemoteRefCommit(repoUrl, ref);
         if (remoteHash == null) {
-            return true; // Could not determine, assume update needed
+            // Remote unreachable - skip update to avoid repeated failed clone attempts
+            logger.warn("Could not reach remote {} for ref {}; skipping update check", repoUrl, ref);
+            return false;
         }
 
         boolean needsUpdate = !storedHash.equals(remoteHash);
