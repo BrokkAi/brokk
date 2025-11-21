@@ -12,7 +12,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Decompiler;
-import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.DependencyUpdater;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -84,7 +83,6 @@ public final class DependenciesPanel extends JPanel {
     private final Set<String> updatesInProgress = new HashSet<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
-    private @Nullable DependencyUpdateScheduler updateScheduler;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
     private static final String UPDATING = "Updating...";
@@ -504,11 +502,6 @@ public final class DependenciesPanel extends JPanel {
 
         loadDependenciesAsync();
 
-        // Start the background update scheduler
-        if (updateScheduler == null) {
-            updateScheduler = new DependencyUpdateScheduler(chrome);
-        }
-
         // Ensure spacer size is set after initial layout
         SwingUtilities.invokeLater(this::updateBottomSpacer);
 
@@ -540,10 +533,7 @@ public final class DependenciesPanel extends JPanel {
      * Call this when the project is closing.
      */
     public void close() {
-        if (updateScheduler != null) {
-            updateScheduler.close();
-            updateScheduler = null;
-        }
+        // Scheduler is now owned by Chrome, nothing to close here
     }
 
     @Override

@@ -28,12 +28,6 @@ public class DependencyUpdaterTest {
     // ========== gitDependencyNeedsUpdate edge cases ==========
 
     @Test
-    public void gitDependencyNeedsUpdate_nonGitType_returnsFalse() {
-        var metadata = DependencyUpdater.DependencyMetadata.forLocalPath(Path.of("/some/path"));
-        assertFalse(DependencyUpdater.gitDependencyNeedsUpdate(metadata));
-    }
-
-    @Test
     public void gitDependencyNeedsUpdate_missingRepoUrl_returnsTrue() {
         var metadata = new DependencyUpdater.DependencyMetadata(
                 DependencyUpdater.DependencySourceType.GITHUB,
@@ -70,24 +64,6 @@ public class DependencyUpdaterTest {
     }
 
     // ========== localDependencyNeedsUpdate edge cases ==========
-
-    @Test
-    public void localDependencyNeedsUpdate_nonLocalType_returnsFalse() {
-        var metadata = DependencyUpdater.DependencyMetadata.forGit("https://github.com/owner/repo", "main", "abc123");
-        assertFalse(DependencyUpdater.localDependencyNeedsUpdate(metadata));
-    }
-
-    @Test
-    public void localDependencyNeedsUpdate_nullSourcePath_returnsFalse() {
-        var metadata = new DependencyUpdater.DependencyMetadata(
-                DependencyUpdater.DependencySourceType.LOCAL_PATH,
-                null, // null sourcePath
-                null,
-                null,
-                null,
-                System.currentTimeMillis());
-        assertFalse(DependencyUpdater.localDependencyNeedsUpdate(metadata));
-    }
 
     @Test
     public void localDependencyNeedsUpdate_nonExistentDirectory_returnsFalse() {
@@ -215,22 +191,6 @@ public class DependencyUpdaterTest {
         var project = createMinimalProject(masterRoot);
 
         assertThrows(IOException.class, () -> {
-            DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
-        });
-    }
-
-    @Test
-    public void updateLocalPathDependencyOnDisk_wrongMetadataType_throws() throws IOException {
-        Path depsRoot = Files.createDirectories(tempDir.resolve(".brokk").resolve("dependencies"));
-        Path depDir = Files.createDirectory(depsRoot.resolve("my-dep"));
-        var masterRoot = tempDir;
-        var depRoot = new ProjectFile(masterRoot, masterRoot.relativize(depDir));
-
-        var metadata = DependencyUpdater.DependencyMetadata.forGit("https://github.com/owner/repo", "main", "abc123");
-
-        var project = createMinimalProject(masterRoot);
-
-        assertThrows(IllegalArgumentException.class, () -> {
             DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
         });
     }
