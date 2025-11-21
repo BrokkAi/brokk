@@ -35,6 +35,8 @@ public class GuiTheme {
     public static final String THEME_HIGH_CONTRAST = "high-contrast";
     // Independent Dark+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
     public static final String THEME_DARK_PLUS = "dark-plus";
+    // Light Plus theme with greyer, more subtle icons than the standard light theme
+    public static final String THEME_LIGHT_PLUS = "light-plus";
 
     private final JFrame frame;
 
@@ -126,8 +128,7 @@ public class GuiTheme {
             ThemeColors.reloadColors();
 
             // Register custom icons for this theme
-            boolean isDark = !THEME_LIGHT.equals(themeName);
-            registerCustomIcons(isDark);
+            registerCustomIcons(themeName);
 
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName, wordWrap);
@@ -469,13 +470,14 @@ public class GuiTheme {
     /**
      * Registers custom icons for the application based on the current theme
      *
-     * @param isDark true for dark theme icons, false for light theme icons
+     * @param themeName the theme name ("dark", "light", "light-plus", or "dark-plus")
      */
-    private void registerCustomIcons(boolean isDark) {
-        String iconBase = isDark ? "/icons/dark/" : "/icons/light/";
+    private void registerCustomIcons(String themeName) {
+        String iconBase = getIconDirectoryForTheme(themeName);
+        String fallbackBase = getIconFallbackDirectoryForTheme(themeName);
 
         try {
-            // Try to discover icons from the resource directory
+            // Try to discover icons from the primary theme resource directory
             var iconUrl = GuiTheme.class.getResource(iconBase);
             if (iconUrl != null) {
                 var iconFiles = discoverIconFiles(iconUrl, iconBase);
@@ -488,13 +490,62 @@ public class GuiTheme {
 
                     registerIcon(iconKey, iconFile);
                 }
-                logger.debug("Registered {} custom icons for {} theme", iconFiles.size(), isDark ? "dark" : "light");
+                logger.debug("Registered {} custom icons for {} theme from {}", iconFiles.size(), themeName, iconBase);
             } else {
                 logger.warn("Icon directory not found: {}", iconBase);
             }
+
+            // Register fallback icons if applicable (e.g., light-plus falls back to light)
+            if (fallbackBase != null) {
+                var fallbackUrl = GuiTheme.class.getResource(fallbackBase);
+                if (fallbackUrl != null) {
+                    var fallbackFiles = discoverIconFiles(fallbackUrl, fallbackBase);
+                    for (String iconFile : fallbackFiles) {
+                        String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
+                        int dotIndex = filename.lastIndexOf('.');
+                        String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
+                        String iconKey = "Brokk." + keyName;
+
+                        // Only register if not already registered from primary directory
+                        if (UIManager.get(iconKey) == null) {
+                            registerIcon(iconKey, iconFile);
+                        }
+                    }
+                    logger.debug("Registered fallback icons for {} theme from {}", themeName, fallbackBase);
+                }
+            }
         } catch (Exception e) {
-            logger.warn("Failed to discover icons from {}: {}", iconBase, e.getMessage());
+            logger.warn("Failed to discover icons for theme {}: {}", themeName, e.getMessage());
         }
+    }
+
+    /**
+     * Gets the primary icon directory for the given theme name
+     *
+     * @param themeName the theme name
+     * @return the icon directory path
+     */
+    private String getIconDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_DARK, THEME_HIGH_CONTRAST -> "/icons/dark/";
+            case THEME_LIGHT_PLUS -> "/icons/light-plus/";
+            case THEME_LIGHT -> "/icons/light/";
+            case THEME_DARK_PLUS -> "/icons/dark/";
+            default -> "/icons/light/";
+        };
+    }
+
+    /**
+     * Gets the fallback icon directory for the given theme name (or null if no fallback)
+     *
+     * @param themeName the theme name
+     * @return the fallback icon directory path, or null if no fallback
+     */
+    private @Nullable String getIconFallbackDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_LIGHT_PLUS -> "/icons/light/";
+            default -> null;
+        };
     }
 
     /**
