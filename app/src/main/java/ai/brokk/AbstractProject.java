@@ -805,12 +805,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                         });
             }
 
-            // Symmetric difference: added + removed paths relative to master root
-            var changedRelPaths = new HashSet<Path>(newFiles);
-            changedRelPaths.removeAll(oldFiles);
-            var removedRelPaths = new HashSet<Path>(oldFiles);
-            removedRelPaths.removeAll(newFiles);
-            changedRelPaths.addAll(removedRelPaths);
+            // Union of old and new files: include all files that may have changed (added, removed, or modified)
+            // Since we're doing a full directory swap, any file in either set should be re-indexed
+            var allAffectedPaths = new HashSet<Path>(newFiles);
+            allAffectedPaths.addAll(oldFiles);
 
             // Swap directories: remove old dependency directory and move new clone in its place
             if (Files.exists(targetPath)) {
@@ -824,7 +822,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Refresh metadata timestamp for this dependency
             writeGitDependencyMetadata(targetPath, repoUrl, ref);
 
-            return changedRelPaths.stream()
+            return allAffectedPaths.stream()
                     .map(rel -> new ProjectFile(masterRoot, rel))
                     .collect(Collectors.toSet());
         } catch (IOException e) {
@@ -943,11 +941,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                 });
             }
 
-            var changedRelPaths = new HashSet<Path>(newFiles);
-            changedRelPaths.removeAll(oldFiles);
-            var removedRelPaths = new HashSet<Path>(oldFiles);
-            removedRelPaths.removeAll(newFiles);
-            changedRelPaths.addAll(removedRelPaths);
+            // Union of old and new files: include all files that may have changed (added, removed, or modified)
+            // Since we're doing a full directory swap, any file in either set should be re-indexed
+            var allAffectedPaths = new HashSet<Path>(newFiles);
+            allAffectedPaths.addAll(oldFiles);
 
             if (Files.exists(targetPath)) {
                 boolean deleted = FileUtil.deleteRecursively(targetPath);
@@ -959,7 +956,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
             writeLocalPathDependencyMetadata(targetPath, sourcePath);
 
-            return changedRelPaths.stream()
+            return allAffectedPaths.stream()
                     .map(rel -> new ProjectFile(masterRoot, rel))
                     .collect(Collectors.toSet());
         } catch (IOException e) {
