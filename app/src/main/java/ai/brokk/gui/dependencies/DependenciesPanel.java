@@ -529,6 +529,7 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private void maybeAutoUpdateDependencies() {
+        assert SwingUtilities.isEventDispatchThread();
         if (autoUpdateAttempted) {
             return;
         }
