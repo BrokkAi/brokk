@@ -559,14 +559,22 @@ public class DtoMapper {
     }
 
     static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
-        String contentId = writer.writeContent(Messages.getRepr(message), null);
         String reasoningContentId = null;
+        String contentId;
 
         if (message instanceof AiMessage aiMessage) {
+            // For AiMessage, store text and reasoning separately
+            String text = aiMessage.text();
             String reasoning = aiMessage.reasoningContent();
+            
+            contentId = writer.writeContent(text != null ? text : "", null);
+            
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
+        } else {
+            // For other message types, use the display representation
+            contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
         return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
@@ -582,11 +590,67 @@ public class DtoMapper {
         String content = reader.readContent(dto.contentId());
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
-            case "ai" -> AiMessage.from(content);
+            case "ai" -> {
+                // Prefer structured reasoningContentId if available
+                if (dto.reasoningContentId() != null) {
+                    String reasoning = reader.readContent(dto.reasoningContentId());
+                    yield new AiMessage(content, reasoning);
+                }
+                // Fallback: parse legacy flattened representation
+                var parsed = parseLegacyAiRepr(content);
+                yield new AiMessage(parsed.text(), parsed.reasoning());
+            }
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
     }
+
+    /**
+     * Parse a legacy flattened AI message representation to extract reasoning and text.
+     * Expected format: "Reasoning:\n...\nText:\n..." or just "Text:\n..." or just "Reasoning:\n..."
+     * 
+     * @param repr the flattened representation
+     * @return a record containing extracted text and reasoning (each may be empty string or null-like)
+     */
+    private static ParsedAiRepr parseLegacyAiRepr(String repr) {
+        String reasoning = null;
+        String text = null;
+
+        // Try to extract "Reasoning:" section
+        String reasoningMarker = "Reasoning:\n";
+        int reasoningIdx = repr.indexOf(reasoningMarker);
+        if (reasoningIdx >= 0) {
+            int reasoningStart = reasoningIdx + reasoningMarker.length();
+            // Find the end of reasoning section (either "Text:\n" or end of string)
+            String textMarker = "Text:\n";
+            int textIdx = repr.indexOf(textMarker, reasoningStart);
+            int reasoningEnd = (textIdx >= 0) ? textIdx : repr.length();
+            reasoning = repr.substring(reasoningStart, reasoningEnd).strip();
+            if (reasoning.isEmpty()) {
+                reasoning = null;
+            }
+
+            // Extract text if present
+            if (textIdx >= 0) {
+                int textStart = textIdx + textMarker.length();
+                text = repr.substring(textStart).strip();
+                if (text.isEmpty()) {
+                    text = null;
+                }
+            }
+        } else {
+            // No "Reasoning:" marker; treat entire content as text
+            text = repr.strip();
+            if (text.isEmpty()) {
+                text = null;
+            }
+        }
+
+        return new ParsedAiRepr(text, reasoning);
+    }
+
+    /** Record to hold parsed text and reasoning from legacy format. */
+    private record ParsedAiRepr(@Nullable String text, @Nullable String reasoning) {}
 
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) {
         ProjectFile pf = codeUnit.source();
