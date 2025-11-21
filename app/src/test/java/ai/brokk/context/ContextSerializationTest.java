@@ -7,10 +7,10 @@ import ai.brokk.Service;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.*;
+import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
@@ -1409,7 +1409,8 @@ public class ContextSerializationTest {
         assertEquals("This is the reasoning content", aiMsg.reasoningContent(), "Reasoning should be preserved");
 
         // Verify Messages.isReasoningMessage detects this as a reasoning message
-        assertTrue(Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true for reasoning-only message");
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true for reasoning-only message");
     }
 
     @Test
@@ -1462,21 +1463,24 @@ public class ContextSerializationTest {
         assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
         var aiMsg = (AiMessage) deserializedMessage;
         assertEquals("The final answer is 42", aiMsg.text(), "Text should be preserved");
-        assertEquals("Let me think through this step by step...", aiMsg.reasoningContent(), "Reasoning should be preserved");
+        assertEquals(
+                "Let me think through this step by step...", aiMsg.reasoningContent(), "Reasoning should be preserved");
 
         // Verify Messages.isReasoningMessage returns true (reasoning is present and non-blank)
-        assertTrue(Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true when reasoning is present");
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true when reasoning is present");
     }
 
     @Test
     void testLegacyAiMessageReprParsing() {
         // Test legacy fallback: deserialize a pre-change flattened representation
         // This simulates loading old history that doesn't have reasoningContentId
-        var legacyRepr = """
+        var legacyRepr =
+                """
                 Reasoning:
                 Let me analyze the problem step by step.
                 First, I'll consider all edge cases.
-                
+
                 Text:
                 The solution is to refactor the code.
                 """;
@@ -1495,16 +1499,12 @@ public class ContextSerializationTest {
         // Verify fallback parsing recovered reasoning and text
         assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
         var aiMsg = (AiMessage) deserializedMessage;
-        
+
         assertNotNull(aiMsg.reasoningContent(), "Reasoning should be recovered from legacy repr");
         assertNotNull(aiMsg.text(), "Text should be recovered from legacy repr");
-        
-        assertTrue(
-                aiMsg.reasoningContent().contains("Let me analyze"),
-                "Reasoning should contain expected content");
-        assertTrue(
-                aiMsg.text().contains("solution is to refactor"),
-                "Text should contain expected content");
+
+        assertTrue(aiMsg.reasoningContent().contains("Let me analyze"), "Reasoning should contain expected content");
+        assertTrue(aiMsg.text().contains("solution is to refactor"), "Text should contain expected content");
 
         // Verify Messages.isReasoningMessage detects reasoning in legacy format
         assertTrue(
@@ -1531,14 +1531,13 @@ public class ContextSerializationTest {
         // Verify fallback parsing treats entire content as text
         assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
         var aiMsg = (AiMessage) deserializedMessage;
-        
+
         assertEquals("The solution is straightforward.", aiMsg.text(), "Entire content should be treated as text");
         assertNull(aiMsg.reasoningContent(), "Reasoning should be null when no 'Reasoning:' marker present");
 
         // Verify Messages.isReasoningMessage returns false
         assertFalse(
-                Messages.isReasoningMessage(aiMsg),
-                "isReasoningMessage should return false when no reasoning marker");
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return false when no reasoning marker");
     }
 
     @Test
@@ -1733,5 +1732,4 @@ public class ContextSerializationTest {
             }
         }
     }
-
 }

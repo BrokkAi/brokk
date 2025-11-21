@@ -7,12 +7,9 @@ import ai.brokk.util.HistoryIo.ContentReader;
 import ai.brokk.util.HistoryIo.ContentWriter;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -125,7 +122,8 @@ class DtoMapperFromChatMessageDtoTest {
 
         assertInstanceOf(AiMessage.class, reconstructed);
         AiMessage reconstructedAi = (AiMessage) reconstructed;
-        assertEquals("The final answer without any reasoning", reconstructedAi.text(), "Text should be the entire repr");
+        assertEquals(
+                "The final answer without any reasoning", reconstructedAi.text(), "Text should be the entire repr");
         assertNull(reconstructedAi.reasoningContent(), "Reasoning should be null");
     }
 
@@ -199,10 +197,7 @@ class DtoMapperFromChatMessageDtoTest {
         assertInstanceOf(AiMessage.class, reconstructed);
         AiMessage reconstructedAi = (AiMessage) reconstructed;
         assertEquals("Some text with spaces", reconstructedAi.text(), "Text should be trimmed");
-        assertEquals(
-                "Some reasoning with spaces",
-                reconstructedAi.reasoningContent(),
-                "Reasoning should be trimmed");
+        assertEquals("Some reasoning with spaces", reconstructedAi.reasoningContent(), "Reasoning should be trimmed");
     }
 
     @Test
@@ -246,8 +241,8 @@ class DtoMapperFromChatMessageDtoTest {
     private dev.langchain4j.data.message.ChatMessage fromChatMessageDtoPublic(
             ChatMessageDto dto, ContentReader reader) {
         try {
-            var method = DtoMapper.class.getDeclaredMethod(
-                    "fromChatMessageDto", ChatMessageDto.class, ContentReader.class);
+            var method =
+                    DtoMapper.class.getDeclaredMethod("fromChatMessageDto", ChatMessageDto.class, ContentReader.class);
             method.setAccessible(true);
             return (dev.langchain4j.data.message.ChatMessage) method.invoke(null, dto, reader);
         } catch (Exception e) {

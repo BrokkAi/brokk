@@ -566,9 +566,9 @@ public class DtoMapper {
             // For AiMessage, store text and reasoning separately
             String text = aiMessage.text();
             String reasoning = aiMessage.reasoningContent();
-            
+
             contentId = writer.writeContent(text != null ? text : "", null);
-            
+
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
@@ -608,7 +608,7 @@ public class DtoMapper {
     /**
      * Parse a legacy flattened AI message representation to extract reasoning and text.
      * Expected format: "Reasoning:\n...\nText:\n..." or just "Text:\n..." or just "Reasoning:\n..."
-     * 
+     *
      * @param repr the flattened representation
      * @return a record containing extracted text and reasoning (each may be empty string or null-like)
      */
