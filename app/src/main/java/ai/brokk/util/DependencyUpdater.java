@@ -6,8 +6,12 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.dependencies.DependencyUpdateHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Locale;
@@ -394,28 +398,26 @@ public final class DependencyUpdater {
                     .distinct()
                     .collect(Collectors.toList());
 
-            java.nio.file.Files.walkFileTree(sourcePath, new java.nio.file.SimpleFileVisitor<Path>() {
+            Files.walkFileTree(sourcePath, new SimpleFileVisitor<Path>() {
                 @Override
-                public java.nio.file.FileVisitResult preVisitDirectory(
-                        Path dir, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     Path targetSubdir = tempDir.resolve(sourcePath.relativize(dir));
                     Files.createDirectories(targetSubdir);
-                    return java.nio.file.FileVisitResult.CONTINUE;
+                    return FileVisitResult.CONTINUE;
                 }
 
                 @Override
-                public java.nio.file.FileVisitResult visitFile(
-                        Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     String fileName = file.getFileName().toString();
                     int lastDot = fileName.lastIndexOf('.');
                     if (lastDot > 0 && lastDot < fileName.length() - 1) {
                         String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                         if (allowedExtensions.contains(ext)) {
                             Path dest = tempDir.resolve(sourcePath.relativize(file));
-                            Files.copy(file, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            Files.copy(file, dest, StandardCopyOption.REPLACE_EXISTING);
                         }
                     }
-                    return java.nio.file.FileVisitResult.CONTINUE;
+                    return FileVisitResult.CONTINUE;
                 }
             });
 

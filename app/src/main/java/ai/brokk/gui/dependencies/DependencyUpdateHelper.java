@@ -186,9 +186,9 @@ public final class DependencyUpdateHelper {
 
         chrome.showNotification(
                 IConsoleIO.NotificationRole.INFO,
-                "Updating " + dependencyKindLabel + " dependency '" + depName + "' in the background...");
+                String.format("Updating %s dependency '%s' in the background...", dependencyKindLabel, depName));
 
-        var future = cm.submitBackgroundTask("Update " + dependencyKindLabel + " dependency " + depName, () -> {
+        var future = cm.submitBackgroundTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
             var analyzer = cm.getAnalyzerWrapper();
             analyzer.pause();
             try {
@@ -215,25 +215,20 @@ public final class DependencyUpdateHelper {
             if (ex != null) {
                 logger.error("Error updating {} dependency {}: {}", dependencyKindLabel, depName, ex.getMessage(), ex);
                 chrome.toolError(
-                        "Failed to update " + dependencyKindLabel + " dependency '" + depName + "': " + ex.getMessage(),
+                        String.format("Failed to update %s dependency '%s': %s", dependencyKindLabel, depName, ex.getMessage()),
                         "Dependency Update Error");
             } else {
                 assert changedFiles != null;
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            capitalize(dependencyKindLabel) + " dependency '" + depName + "' is already up to date.");
+                            String.format("%s dependency '%s' is already up to date.", capitalize(dependencyKindLabel), depName));
                 } else {
                     logger.info("Updated dependency {}: {} files changed", depName, changedFiles.size());
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
-                            "Updated "
-                                    + dependencyKindLabel
-                                    + " dependency '"
-                                    + depName
-                                    + "' ("
-                                    + changedFiles.size()
-                                    + " files changed).");
+                            String.format("Updated %s dependency '%s' (%d files changed).",
+                                          dependencyKindLabel, depName, changedFiles.size()));
                 }
             }
         }));
@@ -301,7 +296,8 @@ public final class DependencyUpdateHelper {
             if (ex != null) {
                 logger.error("Error during automatic dependency update: {}", ex.getMessage(), ex);
                 chrome.toolError(
-                        "Automatic dependency update failed: " + ex.getMessage(), "Dependency Auto-Update Error");
+                        String.format("Automatic dependency update failed: %s", ex.getMessage()),
+                        "Dependency Auto-Update Error");
                 return;
             }
 
@@ -316,13 +312,8 @@ public final class DependencyUpdateHelper {
             } else {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
-                        "Updated "
-                                + depsUpdated
-                                + " imported dependenc"
-                                + (depsUpdated == 1 ? "y" : "ies")
-                                + " ("
-                                + filesChanged
-                                + " files changed).");
+                        String.format("Updated %d imported %s (%d files changed).",
+                                      depsUpdated, depsUpdated == 1 ? "dependency" : "dependencies", filesChanged));
             }
         }));
 
