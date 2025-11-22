@@ -396,7 +396,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var callback = progressCallback.get();
 
             while (!allFutures.isDone()) {
-                int completed = (int) futures.stream().filter(CompletableFuture::isDone).count();
+                int completed =
+                        (int) futures.stream().filter(CompletableFuture::isDone).count();
                 callback.onProgress(completed, totalFiles, "Parsing " + language.name() + " files");
 
                 try {
@@ -3352,64 +3353,63 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         for (var file : relevantFiles) {
             futures.add(CompletableFuture.runAsync(
                     () -> {
-                            long cleanupStart = System.nanoTime();
+                        long cleanupStart = System.nanoTime();
 
-                            // Remove old entries for this file
-                            Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
-                            newFileState.remove(file);
-                            // Purge CodeUnitState entries for this file and prune children lists
-                            newCodeUnitState.keySet().removeIf(fromFile);
-                            newCodeUnitState.replaceAll((parent, state) -> {
-                                var filteredKids = state.children().stream()
-                                        .filter(fromFile.negate())
-                                        .toList();
-                                return filteredKids.equals(state.children())
-                                        ? state
-                                        : new CodeUnitProperties(
-                                                List.copyOf(filteredKids),
-                                                state.signatures(),
-                                                state.ranges(),
-                                                state.rawSupertypes(),
-                                                state.supertypes(),
-                                                state.hasBody());
-                            });
-                            // Purge from symbol index
-                            var symbolsToRemove = new ArrayList<String>();
-                            newSymbolIndex.replaceAll((symbol, cus) -> {
-                                var remaining =
-                                        cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
-                                if (remaining.isEmpty()) symbolsToRemove.add(symbol);
-                                return remaining;
-                            });
-                            for (var s : symbolsToRemove) newSymbolIndex.remove(s);
+                        // Remove old entries for this file
+                        Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
+                        newFileState.remove(file);
+                        // Purge CodeUnitState entries for this file and prune children lists
+                        newCodeUnitState.keySet().removeIf(fromFile);
+                        newCodeUnitState.replaceAll((parent, state) -> {
+                            var filteredKids = state.children().stream()
+                                    .filter(fromFile.negate())
+                                    .toList();
+                            return filteredKids.equals(state.children())
+                                    ? state
+                                    : new CodeUnitProperties(
+                                            List.copyOf(filteredKids),
+                                            state.signatures(),
+                                            state.ranges(),
+                                            state.rawSupertypes(),
+                                            state.supertypes(),
+                                            state.hasBody());
+                        });
+                        // Purge from symbol index
+                        var symbolsToRemove = new ArrayList<String>();
+                        newSymbolIndex.replaceAll((symbol, cus) -> {
+                            var remaining =
+                                    cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
+                            if (remaining.isEmpty()) symbolsToRemove.add(symbol);
+                            return remaining;
+                        });
+                        for (var s : symbolsToRemove) newSymbolIndex.remove(s);
 
-                            cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
+                        cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
 
-                            // Re-analyze if file still exists
-                            if (Files.exists(file.absPath())) {
-                                long reanStart = System.nanoTime();
-                                try {
-                                    var parser = getTSParser();
-                                    byte[] bytes = readFileBytes(file, null);
-                                    var analysisResult = analyzeFileContent(file, bytes, parser, null);
-                                    mergeAnalysisResultIntoMaps(
-                                            file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
-                                    reanalyzedCount.incrementAndGet();
-                                } catch (UncheckedIOException e) {
-                                    log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                                } finally {
-                                    reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
-                                }
-                            } else {
-                                deletedCount.incrementAndGet();
-                                log.debug("File {} deleted; state cleaned.", file);
+                        // Re-analyze if file still exists
+                        if (Files.exists(file.absPath())) {
+                            long reanStart = System.nanoTime();
+                            try {
+                                var parser = getTSParser();
+                                byte[] bytes = readFileBytes(file, null);
+                                var analysisResult = analyzeFileContent(file, bytes, parser, null);
+                                mergeAnalysisResultIntoMaps(
+                                        file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
+                                reanalyzedCount.incrementAndGet();
+                            } catch (UncheckedIOException e) {
+                                log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                            } finally {
+                                reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
                             }
-                        },
-                        GLOBAL_PARSE_EXECUTOR));
+                        } else {
+                            deletedCount.incrementAndGet();
+                            log.debug("File {} deleted; state cleaned.", file);
+                        }
+                    },
+                    GLOBAL_PARSE_EXECUTOR));
         }
         if (!futures.isEmpty())
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .join();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         // Build new immutable snapshot and return a new analyzer instance
         var snapshotInstant = Instant.now();
