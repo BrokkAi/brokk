@@ -10,9 +10,12 @@
     export let threadId: number;
     export let taskSequence: number | undefined;
     export let allowDelete: boolean = false;
+    export let compressed: boolean = false;
+    export let showSummaryOnly: boolean = false;
 
     export let onCopy: ((threadId: number) => void) | undefined;
     export let onDelete: ((threadId: number) => void) | undefined;
+    export let onToggleSummary: (() => void) | undefined;
 
 
     let copied = false;
@@ -55,6 +58,18 @@
     <span class="sep">•</span>
   {/if}
     {msgLabel} • {totalLines} lines
+    {#if compressed}
+      <button
+        type="button"
+        class="summary-toggle-btn"
+        on:click|stopPropagation|preventDefault={onToggleSummary}
+        on:keydown|stopPropagation={() => {}}
+        aria-label={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
+        title={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
+      >
+        <span class="badge">{showSummaryOnly ? 'Full messages' : 'AI summary'}</span>
+      </button>
+    {/if}
     <button
             type="button"
             class="delete-btn"
@@ -128,5 +143,33 @@
     .spacer {
         display: inline-block;
         width: 20px;
+    }
+
+    .summary-toggle-btn {
+        background: transparent;
+        border: none;
+        padding: 0.25em 0.5em;
+        color: var(--chat-text);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.35em;
+        margin: 0 0.25em;
+        font-size: 0.85em;
+    }
+
+    .summary-toggle-btn:hover {
+        background: color-mix(in srgb, var(--chat-background) 70%, var(--message-background));
+    }
+
+    .summary-toggle-btn:focus-visible {
+        outline: 2px solid var(--focus-ring, #5b9dd9);
+        outline-offset: 2px;
+    }
+
+    .badge {
+        font-weight: 600;
+        color: var(--summary-badge-color, #9b59b6);
     }
 </style>
