@@ -4236,6 +4236,15 @@ public class Chrome
             label.setIcon(icon);
         }
 
+        /**
+         * Updates the tooltip to show progress details. Safe to call from any thread.
+         *
+         * @param tooltip The tooltip text, or null to clear
+         */
+        void setProgressTooltip(String tooltip) {
+            SwingUtil.runOnEdt(() -> label.setToolTipText(tooltip));
+        }
+
         @Override
         public void applyTheme(GuiTheme guiTheme) {
             // Keep basic colors in sync with theme; refresh spinner icon if visible
@@ -4542,9 +4551,19 @@ public class Chrome
     public void hideAnalyzerRebuildStatus() {
         SwingUtil.runOnEdt(() -> {
             analyzerStatusStrip.setVisible(false);
+            analyzerStatusStrip.setProgressTooltip(null); // Clear tooltip when hiding
             analyzerStatusStrip.revalidate();
             analyzerStatusStrip.repaint();
         });
+    }
+
+    /**
+     * Updates the analyzer rebuild status strip tooltip with progress details. Safe to call from any thread.
+     *
+     * @param progressMessage The progress message to display as a tooltip
+     */
+    public void updateAnalyzerProgress(String progressMessage) {
+        analyzerStatusStrip.setProgressTooltip(progressMessage);
     }
 
     /**

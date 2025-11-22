@@ -522,6 +522,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     submitBackgroundTask("Code Intelligence ready", callback::onAnalyzerReady);
                 }
             }
+
+            @Override
+            public void onProgress(int completed, int total, String description) {
+                // Update tooltip on "Rebuilding Code Intelligence" label with progress details
+                String progressMsg = String.format("%s (%d/%d)", description, completed, total);
+                if (io instanceof Chrome chrome) {
+                    chrome.updateAnalyzerProgress(progressMsg);
+                }
+            }
         };
     }
 

@@ -69,9 +69,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
 
+    // Global shared thread pools to prevent oversubscription when multiple projects/worktrees analyze simultaneously
+    private static final java.util.concurrent.ExecutorService GLOBAL_PARSE_EXECUTOR =
+            ExecutorServiceUtil.newFixedThreadExecutor(Runtime.getRuntime().availableProcessors(), "ts-parse-");
+    private static final java.util.concurrent.ExecutorService GLOBAL_INGEST_EXECUTOR =
+            ExecutorServiceUtil.newFixedThreadExecutor(Runtime.getRuntime().availableProcessors(), "ts-ingest-");
+
     // Common separators across languages to denote hierarchy or member access.
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
+    // Progress callback for reporting parsing progress to UI
+    private static final ThreadLocal<AnalyzerProgressCallback> progressCallback =
+            ThreadLocal.withInitial(() -> AnalyzerProgressCallback.NOOP);
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -271,6 +281,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
+    /**
+     * Sets the progress callback for the current thread. This should be called before
+     * constructing an analyzer to receive progress updates during parsing.
+     *
+     * @param callback The progress callback, or null to use the no-op callback
+     */
+    public static void setProgressCallback(AnalyzerProgressCallback callback) {
+        progressCallback.set(callback != null ? callback : AnalyzerProgressCallback.NOOP);
+    }
+
+    /**
+     * Clears the progress callback for the current thread.
+     */
+    public static void clearProgressCallback() {
+        progressCallback.remove();
+    }
+
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language) {
         this.project = project;
@@ -316,12 +343,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
-        // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-                var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
-                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
+        // Executors: virtual threads for I/O (per-instance), global shared pools for parsing/ingestion
+        // Using global pools prevents CPU oversubscription when multiple projects/worktrees analyze simultaneously
+        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP)) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
@@ -329,7 +353,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     return readFileBytes(pf, timing);
                                 },
                                 ioExecutor)
-                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), GLOBAL_PARSE_EXECUTOR)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResultIntoMaps(
                                         pf,
@@ -338,7 +362,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         localSymbolIndex,
                                         localCodeUnitState,
                                         localFileState),
-                                ingestExecutor)
+                                GLOBAL_INGEST_EXECUTOR)
                         .whenComplete((ignored, ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
@@ -366,7 +390,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 futures.add(future);
             }
 
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            // Monitor progress while waiting for all futures to complete
+            var allFutures = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+            int totalFiles = futures.size();
+            var callback = progressCallback.get();
+
+            while (!allFutures.isDone()) {
+                int completed = (int) futures.stream().filter(CompletableFuture::isDone).count();
+                callback.onProgress(completed, totalFiles, "Parsing " + language.name() + " files");
+
+                try {
+                    allFutures.get(500, TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    // Continue monitoring
+                } catch (Exception e) {
+                    // Exception already handled by individual futures
+                    break;
+                }
+            }
+
+            // Final progress update
+            callback.onProgress(totalFiles, totalFiles, "Parsing " + language.name() + " files");
         }
 
         // Build immutable snapshot state from accumulated maps
@@ -3302,13 +3346,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
 
-        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
-            for (var file : relevantFiles) {
-                futures.add(CompletableFuture.runAsync(
-                        () -> {
+        // Use global shared executor to prevent oversubscription when multiple projects update simultaneously
+        for (var file : relevantFiles) {
+            futures.add(CompletableFuture.runAsync(
+                    () -> {
                             long cleanupStart = System.nanoTime();
 
                             // Remove old entries for this file
@@ -3362,12 +3405,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                 log.debug("File {} deleted; state cleaned.", file);
                             }
                         },
-                        executor));
-            }
-            if (!futures.isEmpty())
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .join();
+                        GLOBAL_PARSE_EXECUTOR));
         }
+        if (!futures.isEmpty())
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .join();
 
         // Build new immutable snapshot and return a new analyzer instance
         var snapshotInstant = Instant.now();
@@ -3540,9 +3582,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<ProjectFile, FileProperties> updatedFileState = new ConcurrentHashMap<>(baseState.fileState());
 
+        int totalFiles = baseState.fileState().size();
+        var processedCount = new AtomicInteger(0);
+        var callback = progressCallback.get();
+
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.execute(() -> {
+            var task = fjp.submit(() -> {
                 baseState.fileState().entrySet().parallelStream().forEach(entry -> {
                     ProjectFile file = entry.getKey();
                     FileProperties fileProps = entry.getValue();
@@ -3555,8 +3601,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     fileProps.parsedTree(),
                                     fileProps.importStatements(),
                                     Collections.unmodifiableSet(resolvedImports)));
+                    processedCount.incrementAndGet();
                 });
             });
+
+            // Monitor progress while waiting for completion
+            while (!task.isDone()) {
+                int completed = processedCount.get();
+                callback.onProgress(completed, totalFiles, "Resolving imports");
+
+                try {
+                    task.get(500, TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    // Continue monitoring
+                } catch (Exception e) {
+                    throw new RuntimeException("Error during import resolution", e);
+                }
+            }
+
+            // Final progress update
+            callback.onProgress(totalFiles, totalFiles, "Resolving imports");
         }
 
         return new AnalyzerState(
@@ -3576,9 +3640,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
 
+        // Count total classes to process
+        long totalClasses = baseState.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .count();
+        var processedCount = new AtomicInteger(0);
+        var callback = progressCallback.get();
+
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.execute(() -> {
+            var task = fjp.submit(() -> {
                 baseState.codeUnitState().entrySet().parallelStream()
                         .filter(e -> e.getKey().isClass())
                         .forEach(entry -> {
@@ -3596,8 +3667,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                 supers,
                                                 props.hasBody()));
                             }
+                            processedCount.incrementAndGet();
                         });
             });
+
+            // Monitor progress while waiting for completion
+            while (!task.isDone()) {
+                int completed = processedCount.get();
+                callback.onProgress(completed, (int) totalClasses, "Computing type hierarchies");
+
+                try {
+                    task.get(500, TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    // Continue monitoring
+                } catch (Exception e) {
+                    throw new RuntimeException("Error during type analysis", e);
+                }
+            }
+
+            // Final progress update
+            callback.onProgress((int) totalClasses, (int) totalClasses, "Computing type hierarchies");
         }
 
         return new AnalyzerState(

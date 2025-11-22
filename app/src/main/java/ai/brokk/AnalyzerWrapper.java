@@ -305,6 +305,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        // Set up progress callback for TreeSitter analyzers
+        ai.brokk.analyzer.TreeSitterAnalyzer.setProgressCallback((completed, total, description) -> {
+            if (listener != null) {
+                listener.onProgress(completed, total, description);
+            }
+        });
+
         IAnalyzer analyzer;
         try {
             logger.debug("Attempting to load existing analyzer");
@@ -322,6 +329,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
             needsRebuild = false;
+        } finally {
+            // Clean up progress callback
+            ai.brokk.analyzer.TreeSitterAnalyzer.clearProgressCallback();
         }
 
         // Persist analyzer snapshots by language (best-effort)
