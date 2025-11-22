@@ -85,7 +85,7 @@ public final class DependencyUpdateHelper {
      *
      * <p>This method mirrors {@link #updateGitDependency(Chrome, ProjectFile, AbstractProject.DependencyMetadata)}
      * but delegates to
-     * {@link AbstractProject#updateLocalPathDependencyOnDisk(ProjectFile, AbstractProject.DependencyMetadata)}
+     * {@link DependencyUpdater#updateLocalPathDependencyOnDisk(IProject, ProjectFile, DependencyUpdater.DependencyMetadata)}
      * for the on-disk update.
      *
      * @param chrome current Chrome instance
