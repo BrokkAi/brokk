@@ -39,6 +39,23 @@ export function onHistoryEvent(evt: BrokkEvent): void {
             case 'history-task': {
                 const threadId = getNextThreadId();
                 const entries: BubbleState[] = [];
+                
+                // Build bubbles from messages first
+                (evt.messages ?? []).forEach(msg => {
+                    const isReasoning = !!msg.reasoning;
+                    entries.push({
+                        seq: nextHistoryBubbleSeq++,
+                        threadId: threadId,
+                        type: msg.msgType,
+                        markdown: msg.text,
+                        streaming: false,
+                        reasoning: isReasoning,
+                        reasoningComplete: isReasoning,
+                        isCollapsed: isReasoning,
+                    });
+                });
+
+                // Add summary bubble if available and compressed
                 if (evt.compressed && evt.summary) {
                     entries.push({
                         seq: nextHistoryBubbleSeq++,
@@ -46,21 +63,8 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                         type: 'SYSTEM',
                         markdown: evt.summary,
                         streaming: false,
-                        reasoning: false
-                    });
-                } else {
-                    (evt.messages ?? []).forEach(msg => {
-                        const isReasoning = !!msg.reasoning;
-                        entries.push({
-                            seq: nextHistoryBubbleSeq++,
-                            threadId: threadId,
-                            type: msg.msgType,
-                            markdown: msg.text,
-                            streaming: false,
-                            reasoning: isReasoning,
-                            reasoningComplete: isReasoning,
-                            isCollapsed: isReasoning,
-                        });
+                        reasoning: false,
+                        isSummary: true,
                     });
                 }
 
@@ -68,6 +72,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     threadId: threadId,
                     taskSequence: evt.taskSequence,
                     compressed: evt.compressed,
+                    summary: evt.summary,
                     entries: entries,
                 };
 

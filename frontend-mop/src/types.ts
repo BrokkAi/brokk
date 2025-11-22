@@ -60,11 +60,20 @@ export type BubbleState = Bubble & {
   reasoningComplete?: boolean;  // true when the reasoning stream ends
   duration?: number;            // calculated duration in seconds
   isCollapsed?: boolean;        // for UI state
+
+  // Properties for AI Summary bubbles
+  isSummary?: boolean;          // true if this bubble represents a compressed AI summary
 };
 
+/**
+ * Represents a historical task/conversation entry.
+ * When compressed=true, the backend may provide both a summary and full messages.
+ * The frontend displays full messages by default and can toggle to the summary view.
+ */
 export type HistoryTask = {
   threadId: number;
   taskSequence: number;
   compressed: boolean;
+  summary?: string;
   entries: BubbleState[];
 };
