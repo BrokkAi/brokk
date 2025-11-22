@@ -140,9 +140,10 @@ public class GitRepo implements Closeable, IGitRepo {
         this.tokenSupplier = tokenSupplier;
 
         try {
-            var builder = new FileRepositoryBuilder()
-                    .setWorkTree(projectRoot.toFile())
-                    .findGitDir(projectRoot.toFile());
+            // Find the .git directory by searching up from projectRoot
+            // Don't set workTree explicitly - let it be auto-detected from the .git location
+            // This ensures JGit operations work correctly even when projectRoot is a subdirectory
+            var builder = new FileRepositoryBuilder().findGitDir(projectRoot.toFile());
             if (builder.getGitDir() == null) {
                 throw new RuntimeException("No git repo found at or above " + projectRoot);
             }
@@ -245,12 +246,13 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to JGit's working tree
-     * root, suitable for JGit commands.
+     * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to the git repository root,
+     * suitable for JGit commands.
      */
     String toRepoRelativePath(ProjectFile file) {
         // ProjectFile.absPath() gives the absolute path on the filesystem.
-        // We need to make it relative to JGit's working tree root.
+        // We need to make it relative to the working tree root for JGit commands.
+        // JGit always works relative to the working tree, even in worktrees.
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         Path relativePath = workingTreeRoot.relativize(file.absPath());
         return relativePath.toString().replace('\\', '/');
@@ -433,7 +435,10 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public synchronized void add(Path path) throws GitAPIException {
         var addCommand = git.add();
-        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
+        // JGit expects paths relative to the working tree, not gitTopLevel
+        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+        var repoRelativePath =
+                workingTreeRoot.relativize(path.toAbsolutePath()).toString().replace('\\', '/');
         addCommand.addFilepattern(repoRelativePath);
         addCommand.call();
     }

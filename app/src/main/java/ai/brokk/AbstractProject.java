@@ -71,15 +71,28 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        boolean hasGit = GitRepoFactory.hasGitRepo(this.root);
+        this.repo = hasGit ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            Path workTreeRoot = gitRepoInstance.getWorkTreeRoot();
+            boolean isSubdirectory = isSubdirectoryProject(this.root, workTreeRoot);
+            boolean isWorktree = gitRepoInstance.isWorktree();
+
+            if (isWorktree && !isSubdirectory) {
+                // Worktree opened at root → share config with main repo
+                this.masterRootPathForConfig =
+                        gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+            } else {
+                // All other cases: use project root for config
+                // - Regular projects (worktree or not)
+                // - Worktrees opened at subdirectory
+                this.masterRootPathForConfig = this.root;
+            }
         } else {
             this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
         }
@@ -1128,5 +1141,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    /**
+     * Checks if projectRoot is a subdirectory of workTreeRoot.
+     * Uses toRealPath() for symlink resolution with fallback to normalize() if that fails.
+     *
+     * @param projectRoot The project root path
+     * @param workTreeRoot The git working tree root path
+     * @return true if projectRoot is a subdirectory (different from workTreeRoot)
+     */
+    static boolean isSubdirectoryProject(Path projectRoot, Path workTreeRoot) {
+        try {
+            return !projectRoot.toRealPath().equals(workTreeRoot.toRealPath());
+        } catch (IOException e) {
+            logger.trace("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
+            return !projectRoot
+                    .toAbsolutePath()
+                    .normalize()
+                    .equals(workTreeRoot.toAbsolutePath().normalize());
+        }
     }
 }
