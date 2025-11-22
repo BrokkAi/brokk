@@ -846,6 +846,9 @@ public class BlitzForgeDialog extends JDialog {
             // Capture language selection on EDT before offloading to background
             String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
 
+            // Disable button while operation is in progress to prevent duplicate requests
+            addEntireButton.setEnabled(false);
+
             // Offload expensive file enumeration and filtering to background thread
             var cm = chrome.getContextManager();
             cm.submitBackgroundTask("Enumerate project files", () -> {
@@ -858,7 +861,14 @@ public class BlitzForgeDialog extends JDialog {
                                         .toList();
                         return filtered;
                     })
-                    .thenAccept(fileList -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(fileList)));
+                    .thenAccept(fileList -> SwingUtil.runOnEdt(() -> {
+                        addProjectFilesToTable(fileList);
+                        addEntireButton.setEnabled(true);
+                    }))
+                    .exceptionally(ex -> {
+                        SwingUtil.runOnEdt(() -> addEntireButton.setEnabled(true));
+                        return null;
+                    });
         });
         attachFilesButton.addActionListener(e -> openAttachFilesDialog());
 
