@@ -52,7 +52,7 @@ public final class DependencyUpdateHelper {
      *
      * <p>This method submits a background task via the project's ContextManager. It performs the
      * on-disk update by delegating to
-     * {@link AbstractProject#updateGitDependencyOnDisk(ProjectFile, AbstractProject.DependencyMetadata)},
+     * {@link DependencyUpdater#updateGitDependencyOnDisk(ProjectFile, DependencyUpdater.DependencyMetadata)},
      * then calls {@code AnalyzerWrapper.updateFiles(...)} with the resulting changed files.
      *
      * <p>Progress and errors are surfaced via {@link Chrome#showNotification(IConsoleIO.NotificationRole, String)}
