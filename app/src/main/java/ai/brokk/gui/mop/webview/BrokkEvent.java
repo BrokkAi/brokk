@@ -57,7 +57,11 @@ public sealed interface BrokkEvent {
         }
     }
 
-    /** Appends a task (either compressed summary or full messages) to the frontend's history. */
+    /**
+     * Appends a task to the frontend's history.
+     * Can contain summary (when compressed=true), messages (when available), or both.
+     * The compressed flag indicates whether the AI uses a summary for this task.
+     */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record HistoryTask(
             int epoch, int taskSequence, boolean compressed, @Nullable String summary, @Nullable List<Message> messages)
