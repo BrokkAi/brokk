@@ -4551,7 +4551,7 @@ public class Chrome
     public void hideAnalyzerRebuildStatus() {
         SwingUtil.runOnEdt(() -> {
             analyzerStatusStrip.setVisible(false);
-            analyzerStatusStrip.setProgressTooltip(null); // Clear tooltip when hiding
+            analyzerStatusStrip.setProgressTooltip(""); // Clear tooltip when hiding
             analyzerStatusStrip.revalidate();
             analyzerStatusStrip.repaint();
         });
