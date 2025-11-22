@@ -42,8 +42,8 @@ class GoAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinition("main.Foo").isPresent());
-        assertTrue(analyzer.getDefinition("main.Bar").isEmpty());
+        assertTrue(analyzer.getDefinitions("main.Foo").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("main.Bar").stream().findFirst().isEmpty());
 
         new ProjectFile(project.getRoot(), "a.go")
                 .write(
@@ -55,7 +55,7 @@ class GoAnalyzerUpdateTest {
 
         var file = AnalyzerUtil.getFileFor(analyzer, "main.Foo").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
-        assertTrue(analyzer.getDefinition("main.Bar").isPresent());
+        assertTrue(analyzer.getDefinitions("main.Bar").stream().findFirst().isPresent());
     }
 
     @Test
@@ -68,11 +68,11 @@ class GoAnalyzerUpdateTest {
                 func Baz() int { return 3 }
                 """);
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("main.Baz").isPresent());
+        assertTrue(analyzer.getDefinitions("main.Baz").stream().findFirst().isPresent());
 
         var file = AnalyzerUtil.getFileFor(analyzer, "main.Foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("main.Foo").isEmpty());
+        assertTrue(analyzer.getDefinitions("main.Foo").stream().findFirst().isEmpty());
     }
 }

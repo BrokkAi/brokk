@@ -342,7 +342,8 @@ public final class CSharpAnalyzerTest {
                 "File should contain class GetTerminationRecordByIdRequest with correct namespace");
 
         // Check that the namespace and class name in the full definition are correct
-        Optional<CodeUnit> handlerDefinition = analyzer.getDefinition(handlerClass.fqName());
+        Optional<CodeUnit> handlerDefinition =
+                analyzer.getDefinitions(handlerClass.fqName()).stream().findFirst();
         assertTrue(handlerDefinition.isPresent(), "Handler definition should be found");
 
         // Without proper byte/char handling, we'd get "onsumerCentricity..." and "etTermination..."

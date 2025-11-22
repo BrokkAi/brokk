@@ -43,8 +43,8 @@ class PythonAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinition("mod.foo").isPresent());
-        assertTrue(analyzer.getDefinition("mod.bar").isEmpty());
+        assertTrue(analyzer.getDefinitions("mod.foo").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("mod.bar").stream().findFirst().isEmpty());
 
         // change: add bar()
         new ProjectFile(project.getRoot(), "mod.py")
@@ -60,7 +60,7 @@ class PythonAnalyzerUpdateTest {
         var maybeFile = AnalyzerUtil.getFileFor(analyzer, "mod.foo");
         assertTrue(maybeFile.isPresent());
         analyzer = analyzer.update(Set.of(maybeFile.get()));
-        assertTrue(analyzer.getDefinition("mod.bar").isPresent());
+        assertTrue(analyzer.getDefinitions("mod.bar").stream().findFirst().isPresent());
     }
 
     @Test
@@ -73,12 +73,12 @@ class PythonAnalyzerUpdateTest {
         analyzer = analyzer.update();
         // There is no separate fqName namespace for functions in a module-less python file,
         // the simple name remains 'foo', verify it's still present
-        assertTrue(analyzer.getDefinition("mod.foo").isPresent());
+        assertTrue(analyzer.getDefinitions("mod.foo").stream().findFirst().isPresent());
 
         // delete file – symbols should disappear
         var pyFile = AnalyzerUtil.getFileFor(analyzer, "mod.foo").orElseThrow();
         Files.deleteIfExists(pyFile.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("mod.foo").isEmpty());
+        assertTrue(analyzer.getDefinitions("mod.foo").stream().findFirst().isEmpty());
     }
 }

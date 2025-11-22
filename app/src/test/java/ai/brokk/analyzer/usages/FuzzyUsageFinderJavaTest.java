@@ -138,7 +138,6 @@ public class FuzzyUsageFinderJavaTest {
         assertTrue(files.contains("E.java"), "Expected a usage in E.java; actual: " + files);
     }
 
-    // Mirrors: getUsesFieldNonexistentTest
     @Test
     public void getUsesFieldNonexistentTest() {
         var finder = newFinder(testProject);
@@ -303,5 +302,26 @@ public class FuzzyUsageFinderJavaTest {
                 .map(uh -> uh.enclosing().identifier())
                 .collect(Collectors.toSet());
         assertEquals(Set.of("demonstrateCall", "demonstrateInstanceReference", "demonstrateReferenceParameter"), hits);
+    }
+
+    @Test
+    public void getUsesOverloadedMethodsAggregationTest() {
+        // Test that findUsages aggregates usages from all overloaded methods
+        var finder = newFinder(testProject);
+        var symbol = "Overloads.process";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        // Should find usages in OverloadsUser.java which calls multiple process() overloads
+        assertTrue(files.contains("OverloadsUser.java"), "Expected usage in OverloadsUser.java; actual: " + files);
+
+        // Should have at least one hit from OverloadsUser
+        assertFalse(hits.isEmpty(), "Expected at least one hit for process() calls");
     }
 }

@@ -92,17 +92,53 @@ public interface IAnalyzer {
     }
 
     /**
-     * Finds a single CodeUnit definition matching the exact symbol name.
-     * For overloaded methods, returns a single CodeUnit representing all overloads.
+     * Finds ALL CodeUnits matching the given fqName, returned in priority order.
+     * For overloaded functions, returns all overloads ordered by language-specific prioritization.
+     * First element is the preferred definition (e.g., .cpp implementation over .h declaration in C++).
      *
-     * @param fqName The exact, case-sensitive FQ name of the class, method, or field. Symbols are checked in that
-     *               order, so if you have a field and a method with the same name, the method will be returned.
-     * @return An Optional containing the CodeUnit if a match is found, otherwise empty.
+     * <p>To select a specific overload, filter the returned set by {@link CodeUnit#signature()}.
+     *
+     * <p><b>API Contract:</b> fqName is never unique - multiple CodeUnits may share the same fqName
+     * (overloads, cross-file duplicates). Callers using {@code .findFirst()} get the highest-priority
+     * definition per {@link #sortDefinitions}. For call graphs or navigation where the specific
+     * overload matters, filter by signature or use the CodeUnit directly.
+     *
+     * @param fqName The exact, case-sensitive FQ name (without signature)
+     * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
-    Optional<CodeUnit> getDefinition(String fqName);
+    SequencedSet<CodeUnit> getDefinitions(String fqName);
 
-    default Optional<CodeUnit> getDefinition(CodeUnit cu) {
-        return getDefinition(cu.fqName());
+    /**
+     * Returns a comparator for prioritizing among multiple definitions with the same FQN.
+     * Language-specific analyzers can override to provide custom ordering (e.g., preferring
+     * .cpp implementations over .h declarations in C++).
+     *
+     * @return Comparator for definition prioritization (default returns no-op comparator)
+     */
+    default Comparator<CodeUnit> priorityComparator() {
+        return Comparator.comparingInt(cu -> 0);
+    }
+
+    /**
+     * Sorts a set of definitions by priority order.
+     * Helper method for implementing getDefinitions() with consistent ordering.
+     * Sorts by: language-specific priority -> source file -> fqName -> signature -> kind.
+     *
+     * @param definitions Unsorted set of definitions
+     * @return SequencedSet with definitions in priority order (preserves uniqueness)
+     */
+    default SequencedSet<CodeUnit> sortDefinitions(Set<CodeUnit> definitions) {
+        var sorted = definitions.stream()
+                .sorted(priorityComparator()
+                        .thenComparing((CodeUnit cu) -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(
+                                cu -> cu.signature() != null ? cu.signature() : "", String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(cu -> cu.kind().name()))
+                .toList();
+
+        // LinkedHashSet preserves insertion order (= sort order) while maintaining uniqueness
+        return new LinkedHashSet<>(sorted);
     }
 
     default Set<CodeUnit> searchDefinitions(String pattern) {
@@ -171,12 +207,14 @@ public interface IAnalyzer {
             return baseResults;
         }
 
-        // Deduplicate by fqName, preserve insertion order (base first, then fuzzy)
-        LinkedHashMap<String, CodeUnit> byFqName = new LinkedHashMap<>();
-        for (CodeUnit cu : baseResults) byFqName.put(cu.fqName(), cu);
-        for (CodeUnit cu : fuzzyResults) byFqName.putIfAbsent(cu.fqName(), cu);
+        // Merge results, preserving all overloads (fqName is not unique)
+        LinkedHashMap<String, Set<CodeUnit>> byFqName = new LinkedHashMap<>();
+        for (CodeUnit cu : baseResults)
+            byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
+        for (CodeUnit cu : fuzzyResults)
+            byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
-        return new HashSet<>(byFqName.values());
+        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
     }
 
     /**

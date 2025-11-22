@@ -182,9 +182,20 @@ public class MultiAnalyzer
         return delegateFor(file).map(delegate -> delegate.getDeclarations(file)).orElse(Set.of());
     }
 
+    /**
+     * Aggregates definitions from all delegate analyzers and returns them in sorted order.
+     *
+     * <p><b>Cross-language behavior:</b> Results from all languages are combined. If the same fqName
+     * exists in multiple languages (e.g., Java and Kotlin), all are returned. The default sort order
+     * is by file path, so callers using {@code .findFirst()} get deterministic results. To prefer
+     * a specific language, override {@link #priorityComparator()} or filter by file extension.
+     */
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return findFirst(analyzer -> analyzer.getDefinition(fqName));
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var results = delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDefinitions(fqName).stream())
+                .collect(Collectors.toSet());
+        return sortDefinitions(results);
     }
 
     @Override

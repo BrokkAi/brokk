@@ -149,13 +149,17 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         return Set.copyOf(declarationsByFile.getOrDefault(file, Collections.emptyList()));
     }
 
+    /**
+     * Returns all SQL definitions matching the fqName.
+     *
+     * <p><b>Note:</b> Unlike the previous API that returned empty on ambiguity (multiple matches),
+     * this now returns all matches. Callers using {@code .findFirst()} will get the first by sort order.
+     * If uniqueness matters, check {@code size() > 1} and handle accordingly.
+     */
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         var cus = definitionsByFqName.getOrDefault(fqName, Collections.emptyList());
-        if (cus.size() == 1) {
-            return Optional.of(cus.get(0));
-        }
-        return Optional.empty(); // Ambiguous or not found
+        return sortDefinitions(new HashSet<>(cus));
     }
 
     @Override

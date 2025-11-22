@@ -11,6 +11,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -110,8 +111,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).findFirst();
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var matches = allClasses.stream()
+                .filter(cu -> cu.fqName().equals(fqName))
+                .collect(java.util.stream.Collectors.toSet());
+        return sortDefinitions(matches);
     }
 
     @Override

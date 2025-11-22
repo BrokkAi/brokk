@@ -282,8 +282,10 @@ public class SymbolLookupService {
 
         try {
             // First try exact FQN match
-            var definition = analyzer.getDefinition(trimmed);
-            if (definition.isPresent() && definition.get().isClass()) {
+            var definition = analyzer.getDefinitions(trimmed).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (definition.isPresent()) {
                 var processingTime = (System.nanoTime() - startTime) / 1_000_000;
                 logger.trace(
                         "[PERF][STREAM] Found exact FQN match for '{}': {} in {}ms",
@@ -326,8 +328,10 @@ public class SymbolLookupService {
                         "Generated {} candidate variants for '{}': {}", candidates.size(), rawClassName, candidates);
                 for (var candidate : candidates) {
                     // Try exact FQN match for candidate
-                    var classDefinition = analyzer.getDefinition(candidate);
-                    if (classDefinition.isPresent() && classDefinition.get().isClass()) {
+                    var classDefinition = analyzer.getDefinitions(candidate).stream()
+                            .filter(CodeUnit::isClass)
+                            .findFirst();
+                    if (classDefinition.isPresent()) {
                         var processingTime = (System.nanoTime() - startTime) / 1_000_000;
                         logger.trace(
                                 "[PERF][STREAM] Found partial match via FQN lookup for candidate '{}': {} in {}ms",

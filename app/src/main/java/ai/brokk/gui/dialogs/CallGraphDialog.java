@@ -152,13 +152,16 @@ public class CallGraphDialog extends JDialog {
         final Map<String, List<CallSite>> callGraph = new HashMap<>();
         try {
             analyzer.as(CallGraphProvider.class).ifPresent(cgp -> {
-                analyzer.getDefinition(methodName).filter(CodeUnit::isFunction).ifPresent(methodCu -> {
-                    if (isCallerGraph) {
-                        callGraph.putAll(cgp.getCallgraphTo(methodCu, depth));
-                    } else {
-                        callGraph.putAll(cgp.getCallgraphFrom(methodCu, depth));
-                    }
-                });
+                analyzer.getDefinitions(methodName).stream()
+                        .findFirst()
+                        .filter(CodeUnit::isFunction)
+                        .ifPresent(methodCu -> {
+                            if (isCallerGraph) {
+                                callGraph.putAll(cgp.getCallgraphTo(methodCu, depth));
+                            } else {
+                                callGraph.putAll(cgp.getCallgraphFrom(methodCu, depth));
+                            }
+                        });
             });
 
             // Count total call sites
