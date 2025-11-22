@@ -202,17 +202,9 @@ public final class MOPBridge {
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();
 
-        // compressed summary
-        if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(e, entry.sequence(), true, requireNonNull(entry.summary()), null);
-            eventQueue.add(event);
-            scheduleSend();
-            return;
-        }
-
-        // Uncompressed: convert messages
-        var taskFragment = entry.log();
+        // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
+        var taskFragment = entry.log();
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
@@ -222,7 +214,14 @@ public final class MOPBridge {
                         new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
         }
-        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
+
+        // Build event: compressed flag is true when summary is present (AI uses summary)
+        // Include both summary and messages when available
+        var summary = entry.hasSummary() ? entry.summary() : null;
+        var compressed = entry.hasSummary();
+        var messagesList = messages.isEmpty() ? null : messages;
+
+        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), compressed, summary, messagesList);
         eventQueue.add(event);
         scheduleSend();
     }
