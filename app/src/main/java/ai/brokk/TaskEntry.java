@@ -11,12 +11,15 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Represents a single task interaction for the Task History, including the user request ("description") and the full
- * LLM message log. The log can be compressed to save context space while retaining the most relevant information.
+ * Represents a single task interaction for the Task History, including the user request and the full LLM message log.
+ * The log can be compressed to save context space while retaining the most relevant information.
+ * Both `log` (original messages) and `summary` can coexist: when present, the AI sees the summary,
+ * but the UI prefers to render the full log messages with a visual indicator.
  *
  * @param sequence A unique sequence number for ordering tasks.
- * @param log The uncompressed list of chat messages for this task. Null if compressed.
- * @param summary The compressed representation of the chat messages (summary). Null if uncompressed.
+ * @param log The uncompressed list of chat messages for this task. Null if not available.
+ * @param summary The compressed representation of the chat messages. Null if not available.
+ * @param meta Optional metadata (task type, model config) associated with this task entry.
  */
 public record TaskEntry(
         int sequence,
@@ -24,15 +27,45 @@ public record TaskEntry(
         @Nullable String summary,
         @Nullable TaskResult.TaskMeta meta) {
 
-    /** Enforce that exactly one of log or summary is non-null */
+    /** Enforce that at least one of log or summary is non-null */
     public TaskEntry {
-        assert (log == null) != (summary == null) : "Exactly one of log or summary must be non-null";
-        assert summary == null || !summary.isEmpty();
+        assert (log != null) || (summary != null) : "At least one of log or summary must be non-null";
+        assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
     }
 
     // Backward-compatible overload for existing call-sites (pre-meta)
     public TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
         this(sequence, log, summary, null);
+    }
+
+    /**
+     * Returns true if this TaskEntry holds an original message log.
+     */
+    public boolean hasLog() {
+        return log != null;
+    }
+
+    /**
+     * Returns true if this TaskEntry holds a compressed summary.
+     */
+    public boolean hasSummary() {
+        return summary != null;
+    }
+
+    /**
+     * Returns true if this TaskEntry has a summary that the AI should use.
+     * This is equivalent to `hasSummary()` and indicates the AI will process a compressed version.
+     */
+    public boolean isSummarized() {
+        return hasSummary();
+    }
+
+    /**
+     * Returns true only when this TaskEntry is summary-only (i.e., the original log is not available).
+     * This indicates a legacy compressed entry where only the summary is kept.
+     */
+    public boolean isCompressed() {
+        return hasSummary() && !hasLog();
     }
 
     /**
@@ -52,34 +85,35 @@ public record TaskEntry(
         return new TaskEntry(sequence, null, compressedLog, null);
     }
 
-    /**
-     * Returns true if this TaskEntry holds a compressed summary instead of the full message log.
-     *
-     * @return true if compressed, false otherwise.
-     */
-    public boolean isCompressed() {
-        return summary != null;
-    }
-
-    /** Provides a string representation suitable for logging or context display. */
+    /** Provides a string representation suitable for logging or context display. Prefers full messages when available. */
     @Override
     public String toString() {
-        if (isCompressed()) {
+        if (hasLog()) {
+            // Prefer full messages if available, note if a summary also exists
+            var logText = formatMessages(castNonNull(log).messages());
+            if (hasSummary()) {
+                return """
+                  <task sequence=%s summarized=true>
+                  %s
+                  </task>
+                  """
+                        .formatted(sequence, logText.indent(2).stripTrailing());
+            }
             return """
-              <task sequence=%s summarized=true>
+              <task sequence=%s>
               %s
               </task>
               """
-                    .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
+                    .formatted(sequence, logText.indent(2).stripTrailing());
         }
 
-        var logText = formatMessages(castNonNull(log).messages());
+        // Fallback to summary-only representation (legacy or edge case)
         return """
-          <task sequence=%s>
+          <task sequence=%s summary-only=true>
           %s
           </task>
           """
-                .formatted(sequence, logText.indent(2).stripTrailing());
+                .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
     }
 
     public static String formatMessages(List<ChatMessage> messages) {

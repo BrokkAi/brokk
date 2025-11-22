@@ -1435,6 +1435,68 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testTaskEntryHelperMethods() {
+        // Test all three scenarios: log-only, summary-only, and both
+        var messages = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Task");
+
+        // Log only
+        var logOnly = new TaskEntry(1, taskFragment, null);
+        assertTrue(logOnly.hasLog());
+        assertFalse(logOnly.hasSummary());
+        assertFalse(logOnly.isSummarized());
+        assertFalse(logOnly.isCompressed());
+
+        // Summary only
+        var summaryOnly = new TaskEntry(2, null, "Summary text");
+        assertFalse(summaryOnly.hasLog());
+        assertTrue(summaryOnly.hasSummary());
+        assertTrue(summaryOnly.isSummarized());
+        assertTrue(summaryOnly.isCompressed());
+
+        // Both
+        var both = new TaskEntry(3, taskFragment, "Summary text");
+        assertTrue(both.hasLog());
+        assertTrue(both.hasSummary());
+        assertTrue(both.isSummarized());
+        assertFalse(both.isCompressed());
+    }
+
+    @Test
+    void testTaskEntryToStringWithBothLogAndSummary() {
+        // Verify toString prefers full messages when both are present
+        var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Task");
+        var summary = "Compressed summary";
+
+        var both = new TaskEntry(1, taskFragment, summary);
+        String str = both.toString();
+
+        // Should include the messages (from log), not just the summary
+        assertTrue(str.contains("summarized=true"), "toString should indicate summarized");
+        assertTrue(str.contains("user") || str.contains("ai"), "toString should include message types");
+
+        // Summary only should show as summary-only
+        var summaryOnly = new TaskEntry(2, null, summary);
+        String str2 = summaryOnly.toString();
+        assertTrue(str2.contains("summary-only=true"), "toString should indicate summary-only");
+    }
+
+    @Test
+    void testBackwardCompatibilityTaskEntryConstruction() {
+        // Verify the old 3-arg constructor still works
+        List<ChatMessage> messages = List.of(UserMessage.from("User"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Task");
+
+        // Old way: 3 args (no meta)
+        var entry = new TaskEntry(1, taskFragment, null);
+        assertNotNull(entry);
+        assertNull(entry.meta());
+        assertTrue(entry.hasLog());
+        assertFalse(entry.hasSummary());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void testReadOnlyBackwardCompatibilityLongerAndShorterLists() throws Exception {
         // Build a simple context with one editable and one non-editable fragment
@@ -1542,6 +1604,59 @@ public class ContextSerializationTest {
             }
         }
         return Set.of();
+    }
+
+    @Test
+    void testMixedTaskEntryStatesRoundTrip() throws Exception {
+        // Create a context with multiple TaskEntry states: log-only, summary-only, and both
+        var ctx = new Context(mockContextManager, "Mixed task entries");
+
+        // Entry 1: Log only
+        var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
+        var tf1 = new ContextFragment.TaskFragment(mockContextManager, msg1, "Task 1");
+        var entry1 = new TaskEntry(1, tf1, null);
+        ctx = ctx.addHistoryEntry(entry1, tf1, CompletableFuture.completedFuture("Action 1"));
+
+        // Entry 2: Both log and summary
+        var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
+        var tf2 = new ContextFragment.TaskFragment(mockContextManager, msg2, "Task 2");
+        var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
+        ctx = ctx.addHistoryEntry(entry2, tf2, CompletableFuture.completedFuture("Action 2"));
+
+        // Entry 3: Summary only (legacy compressed)
+        var entry3 = new TaskEntry(3, null, "Summary of task 3 only");
+        ctx = ctx.addHistoryEntry(entry3, null, CompletableFuture.completedFuture("Action 3"));
+
+        ContextHistory original = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("mixed_task_entries.zip");
+        HistoryIo.writeZip(original, zipFile);
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+
+        List<TaskEntry> loadedEntries = loaded.getHistory().get(0).getTaskHistory();
+        assertEquals(3, loadedEntries.size(), "Should have 3 task entries");
+
+        // Verify Entry 1: Log only
+        TaskEntry loaded1 = loadedEntries.get(0);
+        assertEquals(1, loaded1.sequence());
+        assertTrue(loaded1.hasLog());
+        assertFalse(loaded1.hasSummary());
+        assertEquals(2, loaded1.log().messages().size());
+
+        // Verify Entry 2: Both log and summary
+        TaskEntry loaded2 = loadedEntries.get(1);
+        assertEquals(2, loaded2.sequence());
+        assertTrue(loaded2.hasLog());
+        assertTrue(loaded2.hasSummary());
+        assertEquals("Summary of task 2", loaded2.summary());
+        assertEquals(2, loaded2.log().messages().size());
+
+        // Verify Entry 3: Summary only
+        TaskEntry loaded3 = loadedEntries.get(2);
+        assertEquals(3, loaded3.sequence());
+        assertFalse(loaded3.hasLog());
+        assertTrue(loaded3.hasSummary());
+        assertEquals("Summary of task 3 only", loaded3.summary());
     }
 
     // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
