@@ -3,8 +3,13 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
+import com.google.common.base.Splitter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +19,8 @@ import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
@@ -398,22 +405,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             root = root.getParent();
         }
 
-        var cursor = new org.treesitter.TSQueryCursor();
+        var cursor = new TSQueryCursor();
         cursor.exec(query, root);
 
-        org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
-        List<TSNode> aggregateSuperNodes = new java.util.ArrayList<>();
+        var match = new TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new ArrayList<>();
 
         final int targetStart = classNode.getStartByte();
         final int targetEnd = classNode.getEndByte();
 
         while (cursor.nextMatch(match)) {
             TSNode declNode = null;
-            List<TSNode> superCapturesThisMatch = new java.util.ArrayList<>();
+            List<TSNode> superCapturesThisMatch = new ArrayList<>();
 
-            for (org.treesitter.TSQueryCapture cap : match.getCaptures()) {
-                String capName = query.getCaptureNameForId(cap.getIndex());
-                TSNode n = cap.getNode();
+            for (var cap : match.getCaptures()) {
+                var capName = query.getCaptureNameForId(cap.getIndex());
+                var n = cap.getNode();
                 if (n == null || n.isNull()) continue;
 
                 if ("type.decl".equals(capName)) {
@@ -429,24 +436,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         // Sort by position to preserve source order
-        aggregateSuperNodes.sort(java.util.Comparator.comparingInt(TSNode::getStartByte));
+        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-        List<String> supers = new java.util.ArrayList<>(aggregateSuperNodes.size());
-        for (TSNode s : aggregateSuperNodes) {
-            String text = textSlice(s, src).strip();
+        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+        for (var s : aggregateSuperNodes) {
+            var text = textSlice(s, src).strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }
         }
 
         // Deduplicate while preserving order
-        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>(supers);
+        var unique = new LinkedHashSet<>(supers);
         return List.copyOf(unique);
     }
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Set<CodeUnit> resolved = new java.util.LinkedHashSet<>();
+        Set<CodeUnit> resolved = new LinkedHashSet<>();
 
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
@@ -463,7 +470,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     String imports = normalized.substring(importIdx + 8).strip();
 
                     // Split multiple imports: "Class1, Class2"
-                    for (String importName : imports.split(",")) {
+                    for (String importName : Splitter.on(',').split(imports)) {
                         importName = importName.strip();
                         // Handle "as" alias: "Class as Alias"
                         int asIdx = importName.indexOf(" as ");
@@ -499,7 +506,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        return java.util.Collections.unmodifiableSet(resolved);
+        return Collections.unmodifiableSet(resolved);
     }
 
     @Override
@@ -517,7 +524,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         // Get resolved imports for this file
         Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
 
-        List<CodeUnit> result = new java.util.ArrayList<>();
+        List<CodeUnit> result = new ArrayList<>();
 
         for (String rawName : rawNames) {
             // First try to find in imports
@@ -541,9 +548,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
             // Try global search
             var searchResults = searchDefinitions(rawName, false);
-            Optional<CodeUnit> fromSearch = searchResults.stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
+            Optional<CodeUnit> fromSearch =
+                    searchResults.stream().filter(CodeUnit::isClass).findFirst();
             fromSearch.ifPresent(result::add);
         }
 
