@@ -1,6 +1,10 @@
 ; We capture the whole definition node now (@*.definition) for top-level items.
 ; The name is still useful (@*.name).
 
+; Import statements
+(import_statement) @import.declaration
+(import_from_statement) @import.declaration
+
 ; Class definition (captures at any nesting level initially, Java logic sorts out hierarchy)
 (class_definition
   name: (identifier) @class.name) @class.definition

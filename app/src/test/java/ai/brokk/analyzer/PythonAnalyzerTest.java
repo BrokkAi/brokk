@@ -1044,9 +1044,14 @@ public final class PythonAnalyzerTest {
         System.out.println("MySubclass skeleton:\n" + skeleton.get());
         assertTrue(skeleton.get().contains("(Base)"), "Skeleton should show Base inheritance");
 
-        // Check imports
+        // Check imports are captured
         var fileProps = testAnalyzer.withFileProperties(fp -> fp.get(subclassPy));
         System.out.println("\nImports captured: " + fileProps.importStatements());
+        assertFalse(fileProps.importStatements().isEmpty(), "Imports should be captured");
+        assertTrue(
+                fileProps.importStatements().stream()
+                        .anyMatch(imp -> imp.contains("from conditional_pkg.base import Base")),
+                "Should capture 'from conditional_pkg.base import Base'");
         System.out.println("Resolved imports: " + fileProps.resolvedImports().stream()
                 .map(CodeUnit::fqName)
                 .collect(Collectors.joining(", ")));
