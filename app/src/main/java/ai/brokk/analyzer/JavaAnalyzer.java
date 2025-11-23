@@ -26,6 +26,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.JAVA);
     }
 
+    public JavaAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.JAVA, listener);
+    }
+
     private JavaAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.JAVA, state);
     }

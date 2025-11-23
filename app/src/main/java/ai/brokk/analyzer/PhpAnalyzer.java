@@ -62,6 +62,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
+    public PhpAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.PHP, listener);
+        this.phpNamespaceQuery = createPhpNamespaceQuery();
+    }
+
     private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
         super(project, language, state);
         this.phpNamespaceQuery = createPhpNamespaceQuery();

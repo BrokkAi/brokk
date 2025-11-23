@@ -48,6 +48,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
     }
 
+    public CSharpAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.C_SHARP, listener);
+        log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
+    }
+
     private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState) {
         super(project, Languages.C_SHARP, prebuiltState);
     }

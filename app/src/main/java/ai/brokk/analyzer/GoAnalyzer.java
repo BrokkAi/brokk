@@ -69,6 +69,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         this.packageQuery = createGoNamespaceQuery();
     }
 
+    public GoAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.GO, listener);
+        this.packageQuery = createGoNamespaceQuery();
+    }
+
     private GoAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.GO, state);
         this.packageQuery = createGoNamespaceQuery();

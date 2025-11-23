@@ -40,6 +40,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.JAVASCRIPT);
     }
 
+    public JavascriptAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.JAVASCRIPT, listener);
+    }
+
     private JavascriptAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.JAVASCRIPT, state);
     }
