@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +26,14 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+
+    // Regex patterns for import parsing
+    // Matches: from module.path import Name1, Name2 as Alias
+    private static final Pattern FROM_IMPORT_PATTERN = Pattern.compile("from\\s+([\\w.]+)\\s+import\\s+(.+)");
+    // Matches: import module.path as alias
+    private static final Pattern IMPORT_PATTERN = Pattern.compile("import\\s+([\\w.]+)(?:\\s+as\\s+\\w+)?");
+    // Matches: Name as Alias (to extract the original name)
+    private static final Pattern AS_ALIAS_PATTERN = Pattern.compile("([\\w.]+)\\s+as\\s+\\w+");
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -458,48 +467,43 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
-            String normalized = importLine.strip();
+            var normalized = importLine.strip();
 
             // Handle "from X import Y" style
-            if (normalized.startsWith("from ")) {
-                // from module.path import ClassName
-                // from module.path import Class1, Class2
-                int importIdx = normalized.indexOf(" import ");
-                if (importIdx > 0) {
-                    String modulePath = normalized.substring(5, importIdx).strip();
-                    String imports = normalized.substring(importIdx + 8).strip();
+            var fromMatcher = FROM_IMPORT_PATTERN.matcher(normalized);
+            if (fromMatcher.matches()) {
+                var modulePath = fromMatcher.group(1);
+                var imports = fromMatcher.group(2);
 
-                    // Split multiple imports: "Class1, Class2"
-                    for (String importName : Splitter.on(',').split(imports)) {
-                        importName = importName.strip();
-                        // Handle "as" alias: "Class as Alias"
-                        int asIdx = importName.indexOf(" as ");
-                        if (asIdx > 0) {
-                            importName = importName.substring(0, asIdx).strip();
-                        }
+                // Split multiple imports: "Class1, Class2"
+                for (String importName : Splitter.on(',').split(imports)) {
+                    importName = importName.strip();
 
-                        if (!importName.isEmpty() && !importName.equals("*")) {
-                            // Try to find the imported class
-                            String fqn = modulePath + "." + importName;
-                            Optional<CodeUnit> found = getDefinition(fqn);
-                            if (found.isPresent() && found.get().isClass()) {
-                                resolved.add(found.get());
-                            }
+                    // Handle "as" alias: "Class as Alias"
+                    var aliasMatcher = AS_ALIAS_PATTERN.matcher(importName);
+                    if (aliasMatcher.matches()) {
+                        importName = aliasMatcher.group(1);
+                    }
+
+                    if (!importName.isEmpty() && !importName.equals("*")) {
+                        // Try to find the imported class
+                        var fqn = modulePath + "." + importName;
+                        var found = getDefinition(fqn);
+                        if (found.isPresent() && found.get().isClass()) {
+                            resolved.add(found.get());
                         }
                     }
                 }
+                continue;
             }
+
             // Handle "import X" style (less common for class imports)
-            else if (normalized.startsWith("import ")) {
-                String moduleName = normalized.substring(7).strip();
-                // Handle "as" alias
-                int asIdx = moduleName.indexOf(" as ");
-                if (asIdx > 0) {
-                    moduleName = moduleName.substring(0, asIdx).strip();
-                }
+            var importMatcher = IMPORT_PATTERN.matcher(normalized);
+            if (importMatcher.matches()) {
+                var moduleName = importMatcher.group(1);
 
                 // Try to find it as a class
-                Optional<CodeUnit> found = getDefinition(moduleName);
+                var found = getDefinition(moduleName);
                 if (found.isPresent() && found.get().isClass()) {
                     resolved.add(found.get());
                 }
