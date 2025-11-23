@@ -988,22 +988,8 @@ public final class PythonAnalyzerTest {
         ProjectFile basePy = new ProjectFile(testProject.getRoot(), "conditional_pkg/base.py");
         Set<CodeUnit> declarations = testAnalyzer.getDeclarations(basePy);
 
-        System.out.println("\n=== Conditional base.py Analysis ===");
-        System.out.println("Total declarations: " + declarations.size());
-
         // Group by type
         var classes = declarations.stream().filter(CodeUnit::isClass).toList();
-        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
-        var fields = declarations.stream().filter(CodeUnit::isField).toList();
-
-        System.out.println("\nClasses (" + classes.size() + "):");
-        classes.forEach(cu -> System.out.println("  - " + cu.fqName()));
-
-        System.out.println("\nFunctions (" + functions.size() + "):");
-        functions.forEach(cu -> System.out.println("  - " + cu.fqName()));
-
-        System.out.println("\nFields (" + fields.size() + "):");
-        fields.forEach(cu -> System.out.println("  - " + cu.fqName()));
 
         // Verify classes inside if/else are captured
         assertTrue(
@@ -1016,19 +1002,7 @@ public final class PythonAnalyzerTest {
                 classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.FallbackBase")),
                 "FallbackBase class inside 'else' should be captured");
 
-        // Check if functions/fields inside conditionals are captured (currently they are NOT)
-        System.out.println("\nConditional function captured: " +
-                functions.stream().anyMatch(cu -> cu.identifier().equals("conditional_function")));
-        System.out.println("Conditional field captured: " +
-                fields.stream().anyMatch(cu -> cu.identifier().equals("CONDITIONAL_VAR")));
-
-        // Get top-level declarations
-        var topLevelDecls = testAnalyzer.withFileProperties(tld -> tld.get(basePy)).topLevelCodeUnits();
-        System.out.println("\nTop-level declarations (" + topLevelDecls.size() + "):");
-        topLevelDecls.forEach(cu -> System.out.println("  - " + cu.fqName() + " [" + cu.kind() + "]"));
-
         // Test subclass resolution
-        System.out.println("\n=== Testing Subclass Resolution ===");
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
 
@@ -1036,25 +1010,19 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.identifier().equals("MySubclass"))
                 .findFirst();
         assertTrue(mySubclass.isPresent(), "MySubclass should be found");
-        System.out.println("MySubclass FQN: " + mySubclass.get().fqName());
 
         // Check skeleton shows inheritance
         var skeleton = testAnalyzer.getSkeleton(mySubclass.get());
         assertTrue(skeleton.isPresent(), "MySubclass should have a skeleton");
-        System.out.println("MySubclass skeleton:\n" + skeleton.get());
         assertTrue(skeleton.get().contains("(Base)"), "Skeleton should show Base inheritance");
 
         // Check imports are captured
         var fileProps = testAnalyzer.withFileProperties(fp -> fp.get(subclassPy));
-        System.out.println("\nImports captured: " + fileProps.importStatements());
         assertFalse(fileProps.importStatements().isEmpty(), "Imports should be captured");
         assertTrue(
                 fileProps.importStatements().stream()
                         .anyMatch(imp -> imp.contains("from conditional_pkg.base import Base")),
                 "Should capture 'from conditional_pkg.base import Base'");
-        System.out.println("Resolved imports: " + fileProps.resolvedImports().stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
 
         // Can we find Base from getAllDeclarations?
         var allDecls = testAnalyzer.getAllDeclarations();
@@ -1062,14 +1030,9 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.fqName().equals("conditional_pkg.Base"))
                 .findFirst();
         assertTrue(baseClass.isPresent(), "conditional_pkg.Base should be findable in getAllDeclarations");
-        System.out.println("\nBase class found: " + baseClass.get().fqName());
 
         // Test: Can we find the parent class (Base) from MySubclass?
-        System.out.println("\n=== Testing Parent Resolution ===");
         var ancestors = testAnalyzer.getDirectAncestors(mySubclass.get());
-        System.out.println("MySubclass direct ancestors: " + ancestors.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
 
         // Parent resolution should now work
         assertEquals(1, ancestors.size(), "MySubclass should have exactly 1 direct ancestor (Base)");
@@ -1086,30 +1049,23 @@ public final class PythonAnalyzerTest {
         TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
 
-        // === Test 1: Simple same-file inheritance ===
-        System.out.println("\n=== Test 1: Simple Same-File Inheritance ===");
+        // Test 1: Simple same-file inheritance
         ProjectFile simplePy = new ProjectFile(testProject.getRoot(), "inheritance/simple.py");
         Set<CodeUnit> simpleDecls = testAnalyzer.getDeclarations(simplePy);
 
         // Find Dog class
-        var dogClass = simpleDecls.stream()
-                .filter(cu -> cu.identifier().equals("Dog"))
-                .findFirst();
+        var dogClass =
+                simpleDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
         assertTrue(dogClass.isPresent(), "Dog class should be found");
-        System.out.println("Dog FQN: " + dogClass.get().fqName());
 
         // Find Animal class
         var animalClass = simpleDecls.stream()
                 .filter(cu -> cu.identifier().equals("Animal"))
                 .findFirst();
         assertTrue(animalClass.isPresent(), "Animal class should be found");
-        System.out.println("Animal FQN: " + animalClass.get().fqName());
 
         // Test getDirectAncestors for Dog
         var dogAncestors = testAnalyzer.getDirectAncestors(dogClass.get());
-        System.out.println("Dog direct ancestors: " + dogAncestors.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
 
         // This should pass once implementation is complete
         assertEquals(1, dogAncestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
@@ -1118,15 +1074,13 @@ public final class PythonAnalyzerTest {
                 "Dog's ancestor should be Animal");
 
         // Test Cat also extends Animal
-        var catClass = simpleDecls.stream()
-                .filter(cu -> cu.identifier().equals("Cat"))
-                .findFirst();
+        var catClass =
+                simpleDecls.stream().filter(cu -> cu.identifier().equals("Cat")).findFirst();
         assertTrue(catClass.isPresent(), "Cat class should be found");
         var catAncestors = testAnalyzer.getDirectAncestors(catClass.get());
         assertEquals(1, catAncestors.size(), "Cat should have exactly 1 direct ancestor (Animal)");
 
-        // === Test 2: Multi-level inheritance ===
-        System.out.println("\n=== Test 2: Multi-Level Inheritance ===");
+        // Test 2: Multi-level inheritance
         ProjectFile multilevelPy = new ProjectFile(testProject.getRoot(), "inheritance/multilevel.py");
         Set<CodeUnit> multilevelDecls = testAnalyzer.getDeclarations(multilevelPy);
 
@@ -1137,9 +1091,6 @@ public final class PythonAnalyzerTest {
 
         // Direct ancestors should only be Middle
         var childDirectAncestors = testAnalyzer.getDirectAncestors(childClass.get());
-        System.out.println("Child direct ancestors: " + childDirectAncestors.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
         assertEquals(1, childDirectAncestors.size(), "Child should have exactly 1 direct ancestor (Middle)");
         assertTrue(
                 childDirectAncestors.stream().anyMatch(cu -> cu.identifier().equals("Middle")),
@@ -1147,13 +1098,9 @@ public final class PythonAnalyzerTest {
 
         // Transitive ancestors should include Middle and Base
         var childAllAncestors = testAnalyzer.getAncestors(childClass.get());
-        System.out.println("Child all ancestors: " + childAllAncestors.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
         assertEquals(2, childAllAncestors.size(), "Child should have 2 transitive ancestors (Middle, Base)");
 
-        // === Test 3: Cross-file inheritance ===
-        System.out.println("\n=== Test 3: Cross-File Inheritance ===");
+        // Test 3: Cross-file inheritance
         ProjectFile childPy = new ProjectFile(testProject.getRoot(), "inheritance/child.py");
         Set<CodeUnit> childFileDecls = testAnalyzer.getDeclarations(childPy);
 
@@ -1161,17 +1108,32 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.identifier().equals("Bird"))
                 .findFirst();
         assertTrue(birdClass.isPresent(), "Bird class should be found");
-        System.out.println("Bird FQN: " + birdClass.get().fqName());
 
         // Bird extends Animal from simple.py
         var birdAncestors = testAnalyzer.getDirectAncestors(birdClass.get());
-        System.out.println("Bird direct ancestors: " + birdAncestors.stream()
-                .map(CodeUnit::fqName)
-                .collect(Collectors.joining(", ")));
         assertEquals(1, birdAncestors.size(), "Bird should have exactly 1 direct ancestor (Animal)");
         assertTrue(
                 birdAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
                 "Bird's ancestor should be Animal from simple.py");
+
+        // Test 4: Multiple inheritance
+        ProjectFile multiplePy = new ProjectFile(testProject.getRoot(), "inheritance/multiple.py");
+        Set<CodeUnit> multipleDecls = testAnalyzer.getDeclarations(multiplePy);
+
+        var duckClass = multipleDecls.stream()
+                .filter(cu -> cu.identifier().equals("Duck"))
+                .findFirst();
+        assertTrue(duckClass.isPresent(), "Duck class should be found");
+
+        // Duck extends both Flyable and Swimmable
+        var duckAncestors = testAnalyzer.getDirectAncestors(duckClass.get());
+        assertEquals(2, duckAncestors.size(), "Duck should have exactly 2 direct ancestors (Flyable, Swimmable)");
+        assertTrue(
+                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Flyable")),
+                "Duck's ancestors should include Flyable");
+        assertTrue(
+                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Swimmable")),
+                "Duck's ancestors should include Swimmable");
 
         testProject.close();
     }
