@@ -384,4 +384,169 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected boolean isClassLike(TSNode node) {
         return super.isClassLike(node) || "function_definition".equals(node.getType());
     }
+
+    @Override
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Extract superclass names from Python class definition
+        // Pattern: class Child(Parent1, Parent2): ...
+        var query = getThreadLocalQuery();
+
+        // Ascend to root node for matching
+        TSNode root = classNode;
+        while (root.getParent() != null && !root.getParent().isNull()) {
+            root = root.getParent();
+        }
+
+        var cursor = new org.treesitter.TSQueryCursor();
+        cursor.exec(query, root);
+
+        org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new java.util.ArrayList<>();
+
+        final int targetStart = classNode.getStartByte();
+        final int targetEnd = classNode.getEndByte();
+
+        while (cursor.nextMatch(match)) {
+            TSNode declNode = null;
+            List<TSNode> superCapturesThisMatch = new java.util.ArrayList<>();
+
+            for (org.treesitter.TSQueryCapture cap : match.getCaptures()) {
+                String capName = query.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+
+                if ("type.decl".equals(capName)) {
+                    declNode = n;
+                } else if ("type.super".equals(capName)) {
+                    superCapturesThisMatch.add(n);
+                }
+            }
+
+            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                aggregateSuperNodes.addAll(superCapturesThisMatch);
+            }
+        }
+
+        // Sort by position to preserve source order
+        aggregateSuperNodes.sort(java.util.Comparator.comparingInt(TSNode::getStartByte));
+
+        List<String> supers = new java.util.ArrayList<>(aggregateSuperNodes.size());
+        for (TSNode s : aggregateSuperNodes) {
+            String text = textSlice(s, src).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+
+        // Deduplicate while preserving order
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>(supers);
+        return List.copyOf(unique);
+    }
+
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        Set<CodeUnit> resolved = new java.util.LinkedHashSet<>();
+
+        for (String importLine : importStatements) {
+            if (importLine.isBlank()) continue;
+
+            String normalized = importLine.strip();
+
+            // Handle "from X import Y" style
+            if (normalized.startsWith("from ")) {
+                // from module.path import ClassName
+                // from module.path import Class1, Class2
+                int importIdx = normalized.indexOf(" import ");
+                if (importIdx > 0) {
+                    String modulePath = normalized.substring(5, importIdx).strip();
+                    String imports = normalized.substring(importIdx + 8).strip();
+
+                    // Split multiple imports: "Class1, Class2"
+                    for (String importName : imports.split(",")) {
+                        importName = importName.strip();
+                        // Handle "as" alias: "Class as Alias"
+                        int asIdx = importName.indexOf(" as ");
+                        if (asIdx > 0) {
+                            importName = importName.substring(0, asIdx).strip();
+                        }
+
+                        if (!importName.isEmpty() && !importName.equals("*")) {
+                            // Try to find the imported class
+                            String fqn = modulePath + "." + importName;
+                            Optional<CodeUnit> found = getDefinition(fqn);
+                            if (found.isPresent() && found.get().isClass()) {
+                                resolved.add(found.get());
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle "import X" style (less common for class imports)
+            else if (normalized.startsWith("import ")) {
+                String moduleName = normalized.substring(7).strip();
+                // Handle "as" alias
+                int asIdx = moduleName.indexOf(" as ");
+                if (asIdx > 0) {
+                    moduleName = moduleName.substring(0, asIdx).strip();
+                }
+
+                // Try to find it as a class
+                Optional<CodeUnit> found = getDefinition(moduleName);
+                if (found.isPresent() && found.get().isClass()) {
+                    resolved.add(found.get());
+                }
+            }
+        }
+
+        return java.util.Collections.unmodifiableSet(resolved);
+    }
+
+    @Override
+    public List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        if (!cu.isClass()) return List.of();
+
+        // Get raw supertype names from CodeUnitProperties
+        var rawNames = withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+
+        if (rawNames.isEmpty()) {
+            return List.of();
+        }
+
+        // Get resolved imports for this file
+        Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
+
+        List<CodeUnit> result = new java.util.ArrayList<>();
+
+        for (String rawName : rawNames) {
+            // First try to find in imports
+            Optional<CodeUnit> fromImport = resolvedImports.stream()
+                    .filter(imp -> imp.identifier().equals(rawName))
+                    .findFirst();
+
+            if (fromImport.isPresent()) {
+                result.add(fromImport.get());
+                continue;
+            }
+
+            // Then try same package (same file or same directory)
+            String packageName = cu.packageName();
+            String fqnInPackage = packageName.isEmpty() ? rawName : packageName + "." + rawName;
+            Optional<CodeUnit> inPackage = getDefinition(fqnInPackage);
+            if (inPackage.isPresent() && inPackage.get().isClass()) {
+                result.add(inPackage.get());
+                continue;
+            }
+
+            // Try global search
+            var searchResults = searchDefinitions(rawName, false);
+            Optional<CodeUnit> fromSearch = searchResults.stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            fromSearch.ifPresent(result::add);
+        }
+
+        return result;
+    }
 }

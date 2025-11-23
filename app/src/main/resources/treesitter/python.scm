@@ -9,6 +9,13 @@
 (class_definition
   name: (identifier) @class.name) @class.definition
 
+; Type hierarchy: capture superclasses for inheritance resolution
+(class_definition
+  name: (identifier) @type.name
+  superclasses: (argument_list
+    (identifier) @type.super)?
+) @type.decl
+
 ; Function definition at module level (direct child of module)
 (module
   (function_definition
