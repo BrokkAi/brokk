@@ -978,4 +978,87 @@ public final class PythonAnalyzerTest {
                 topDecls.size(),
                 "Top-level declaration FQNs should be unique after deduplication");
     }
+
+    @Test
+    void testConditionalClassDefinitions() {
+        // Test how PythonAnalyzer handles conditional class definitions (like Reflex base.py pattern)
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile basePy = new ProjectFile(testProject.getRoot(), "conditional_pkg/base.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(basePy);
+
+        System.out.println("\n=== Conditional base.py Analysis ===");
+        System.out.println("Total declarations: " + declarations.size());
+
+        // Group by type
+        var classes = declarations.stream().filter(CodeUnit::isClass).toList();
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
+        var fields = declarations.stream().filter(CodeUnit::isField).toList();
+
+        System.out.println("\nClasses (" + classes.size() + "):");
+        classes.forEach(cu -> System.out.println("  - " + cu.fqName()));
+
+        System.out.println("\nFunctions (" + functions.size() + "):");
+        functions.forEach(cu -> System.out.println("  - " + cu.fqName()));
+
+        System.out.println("\nFields (" + fields.size() + "):");
+        fields.forEach(cu -> System.out.println("  - " + cu.fqName()));
+
+        // Verify classes inside if/else are captured
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base")),
+                "Base class inside 'if' should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base$Config")),
+                "Nested Config class should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.FallbackBase")),
+                "FallbackBase class inside 'else' should be captured");
+
+        // Check if functions/fields inside conditionals are captured (currently they are NOT)
+        System.out.println("\nConditional function captured: " +
+                functions.stream().anyMatch(cu -> cu.identifier().equals("conditional_function")));
+        System.out.println("Conditional field captured: " +
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CONDITIONAL_VAR")));
+
+        // Get top-level declarations
+        var topLevelDecls = testAnalyzer.withFileProperties(tld -> tld.get(basePy)).topLevelCodeUnits();
+        System.out.println("\nTop-level declarations (" + topLevelDecls.size() + "):");
+        topLevelDecls.forEach(cu -> System.out.println("  - " + cu.fqName() + " [" + cu.kind() + "]"));
+
+        // Test subclass resolution
+        System.out.println("\n=== Testing Subclass Resolution ===");
+        ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
+        Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
+
+        var mySubclass = subclassDecls.stream()
+                .filter(cu -> cu.identifier().equals("MySubclass"))
+                .findFirst();
+        assertTrue(mySubclass.isPresent(), "MySubclass should be found");
+        System.out.println("MySubclass FQN: " + mySubclass.get().fqName());
+
+        // Check skeleton shows inheritance
+        var skeleton = testAnalyzer.getSkeleton(mySubclass.get());
+        assertTrue(skeleton.isPresent(), "MySubclass should have a skeleton");
+        System.out.println("MySubclass skeleton:\n" + skeleton.get());
+        assertTrue(skeleton.get().contains("(Base)"), "Skeleton should show Base inheritance");
+
+        // Check imports
+        var fileProps = testAnalyzer.withFileProperties(fp -> fp.get(subclassPy));
+        System.out.println("\nImports captured: " + fileProps.importStatements());
+        System.out.println("Resolved imports: " + fileProps.resolvedImports().stream()
+                .map(CodeUnit::fqName)
+                .collect(Collectors.joining(", ")));
+
+        // Can we find Base from getAllDeclarations?
+        var allDecls = testAnalyzer.getAllDeclarations();
+        var baseClass = allDecls.stream()
+                .filter(cu -> cu.fqName().equals("conditional_pkg.Base"))
+                .findFirst();
+        assertTrue(baseClass.isPresent(), "conditional_pkg.Base should be findable in getAllDeclarations");
+        System.out.println("\nBase class found: " + baseClass.get().fqName());
+
+        testProject.close();
+    }
 }
