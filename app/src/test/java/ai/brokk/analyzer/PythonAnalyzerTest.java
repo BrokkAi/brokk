@@ -1071,15 +1071,11 @@ public final class PythonAnalyzerTest {
                 .map(CodeUnit::fqName)
                 .collect(Collectors.joining(", ")));
 
-        // This currently fails because Python doesn't resolve imports to CodeUnits
-        // Once import resolution is implemented, this should find conditional_pkg.Base
-        if (!ancestors.isEmpty()) {
-            assertTrue(
-                    ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base")),
-                    "MySubclass should have conditional_pkg.Base as ancestor");
-        } else {
-            System.out.println("WARNING: Parent resolution not working - ancestors is empty");
-        }
+        // Parent resolution should now work
+        assertEquals(1, ancestors.size(), "MySubclass should have exactly 1 direct ancestor (Base)");
+        assertTrue(
+                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base")),
+                "MySubclass should have conditional_pkg.Base as ancestor");
 
         testProject.close();
     }
