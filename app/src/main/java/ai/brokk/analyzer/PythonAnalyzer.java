@@ -418,22 +418,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             root = root.getParent();
         }
 
-        var cursor = new TSQueryCursor();
+        var cursor = new org.treesitter.TSQueryCursor();
         cursor.exec(query, root);
 
-        var match = new TSQueryMatch();
-        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+        org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new java.util.ArrayList<>();
 
         final int targetStart = classNode.getStartByte();
         final int targetEnd = classNode.getEndByte();
 
         while (cursor.nextMatch(match)) {
             TSNode declNode = null;
-            List<TSNode> superCapturesThisMatch = new ArrayList<>();
+            List<TSNode> superCapturesThisMatch = new java.util.ArrayList<>();
 
-            for (var cap : match.getCaptures()) {
-                var capName = query.getCaptureNameForId(cap.getIndex());
-                var n = cap.getNode();
+            for (org.treesitter.TSQueryCapture cap : match.getCaptures()) {
+                String capName = query.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
                 if (n == null || n.isNull()) continue;
 
                 if ("type.decl".equals(capName)) {
@@ -449,216 +449,77 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         // Sort by position to preserve source order
-        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+        aggregateSuperNodes.sort(java.util.Comparator.comparingInt(TSNode::getStartByte));
 
-        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-        for (var s : aggregateSuperNodes) {
-            var text = textSlice(s, src).strip();
+        List<String> supers = new java.util.ArrayList<>(aggregateSuperNodes.size());
+        for (TSNode s : aggregateSuperNodes) {
+            String text = textSlice(s, src).strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }
         }
 
         // Deduplicate while preserving order
-        var unique = new LinkedHashSet<>(supers);
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>(supers);
         return List.copyOf(unique);
     }
 
-    /**
-     * Resolves a relative import to an absolute package path.
-     *
-     * @param file The file containing the import
-     * @param relativeImportText The text of the relative_import node (e.g., ".sibling", "..parent", "...")
-     * @return The absolute package path, or empty if resolution fails
-     */
-    private Optional<String> resolveRelativeImport(ProjectFile file, String relativeImportText) {
-        // Count leading dots
-        int dotCount = 0;
-        while (dotCount < relativeImportText.length() && relativeImportText.charAt(dotCount) == '.') {
-            dotCount++;
-        }
-
-        // Get the module name after the dots (if any)
-        String relativeModule = relativeImportText.substring(dotCount);
-
-        // Get the current file's package
-        String currentPackage = getPackageNameForFile(file);
-
-        // Navigate up dotCount-1 levels (1 dot = current package, 2 dots = parent, etc.)
-        String[] packageParts = currentPackage.isEmpty() ? new String[0] : currentPackage.split("\\.");
-        int levelsUp = dotCount - 1;
-
-        if (levelsUp > packageParts.length) {
-            // Import goes above project root - invalid
-            log.warn("Relative import {} in {} goes above project root", relativeImportText, file.getRelPath());
-            return Optional.empty();
-        }
-
-        // Build target package
-        String[] targetParts = new String[packageParts.length - levelsUp];
-        System.arraycopy(packageParts, 0, targetParts, 0, targetParts.length);
-        String targetPackage = String.join(".", targetParts);
-
-        // Append the relative module name if present
-        if (!relativeModule.isEmpty()) {
-            if (!targetPackage.isEmpty()) {
-                targetPackage = targetPackage + "." + relativeModule;
-            } else {
-                targetPackage = relativeModule;
-            }
-        }
-
-        return Optional.of(targetPackage);
-    }
-
-    /**
-     * Resolves a module path to a ProjectFile, checking both module.py and package __init__.py.
-     *
-     * @param modulePath The dotted module path (e.g., "pkg.subpkg" or "module")
-     * @return The resolved ProjectFile, or null if neither exists
-     */
-    private @Nullable ProjectFile resolveModuleFile(String modulePath) {
-        var basePath = modulePath.replace('.', '/');
-
-        // Try module.py first
-        var moduleFilePath = basePath + ".py";
-        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
-        if (Files.exists(moduleFile.absPath())) {
-            return moduleFile;
-        }
-
-        // Fall back to package __init__.py
-        var initFilePath = basePath + "/__init__.py";
-        var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
-        if (Files.exists(initFile.absPath())) {
-            return initFile;
-        }
-
-        return null;
-    }
-
-    /**
-     * Resolves import statements into a set of {@link CodeUnit}s, matching Python's native import semantics.
-     * In Python, imports are executed in order and later imports override earlier ones with the same name.
-     * This means a wildcard import that comes after an explicit import will shadow the explicit import
-     * if both provide the same name.
-     * <p>
-     * Wildcard imports include public classes and functions (those without leading underscore).
-     */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
-        Map<String, CodeUnit> resolvedByName = new LinkedHashMap<>();
+        Set<CodeUnit> resolved = new java.util.LinkedHashSet<>();
 
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
-            // Parse the import statement with TreeSitter
-            var parser = getTSParser();
-            var tree = parser.parseString(null, importLine);
-            var rootNode = tree.getRootNode();
+            String normalized = importLine.strip();
 
-            var query = getThreadLocalQuery();
-            var cursor = new TSQueryCursor();
-            cursor.exec(query, rootNode);
+            // Handle "from X import Y" style
+            if (normalized.startsWith("from ")) {
+                // from module.path import ClassName
+                // from module.path import Class1, Class2
+                int importIdx = normalized.indexOf(" import ");
+                if (importIdx > 0) {
+                    String modulePath = normalized.substring(5, importIdx).strip();
+                    String imports = normalized.substring(importIdx + 8).strip();
 
-            var match = new TSQueryMatch();
-            String currentModule = null;
-            String wildcardModule = null;
-
-            // Collect all captures from this import statement
-            while (cursor.nextMatch(match)) {
-                for (var cap : match.getCaptures()) {
-                    var capName = query.getCaptureNameForId(cap.getIndex());
-                    var node = cap.getNode();
-                    if (node == null || node.isNull()) continue;
-
-                    var text = textSlice(node, importLine);
-
-                    switch (capName) {
-                        case IMPORT_MODULE -> currentModule = text;
-                        case IMPORT_RELATIVE -> {
-                            // Resolve relative import to absolute package path
-                            var absolutePath = resolveRelativeImport(file, text);
-                            currentModule = absolutePath.orElse(null);
+                    // Split multiple imports: "Class1, Class2"
+                    for (String importName : imports.split(",")) {
+                        importName = importName.strip();
+                        // Handle "as" alias: "Class as Alias"
+                        int asIdx = importName.indexOf(" as ");
+                        if (asIdx > 0) {
+                            importName = importName.substring(0, asIdx).strip();
                         }
-                        case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
-                        case IMPORT_RELATIVE_WILDCARD -> {
-                            // Resolve relative wildcard import to absolute package path
-                            var absolutePath = resolveRelativeImport(file, text);
-                            wildcardModule = absolutePath.orElse(null);
-                        }
-                        case IMPORT_WILDCARD -> {
-                            // Wildcard import - expand and add all public symbols (may overwrite previous imports)
-                            if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                var moduleFile = resolveModuleFile(wildcardModule);
-                                if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        for (CodeUnit child : decls) {
-                                            // Import public classes and functions (no underscore prefix)
-                                            // TODO: Consider including public top-level constants (fields)
-                                            if ((child.isClass() || child.isFunction())
-                                                    && !child.identifier().startsWith("_")) {
-                                                resolvedByName.put(child.identifier(), child);
-                                            }
-                                        }
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not expand wildcard import from {}: {}",
-                                                wildcardModule,
-                                                e.getMessage());
-                                    }
-                                } else {
-                                    log.warn("Could not find module file for wildcard import: {}", wildcardModule);
-                                }
+
+                        if (!importName.isEmpty() && !importName.equals("*")) {
+                            // Try to find the imported class
+                            String fqn = modulePath + "." + importName;
+                            Optional<CodeUnit> found = getDefinition(fqn);
+                            if (found.isPresent() && found.get().isClass()) {
+                                resolved.add(found.get());
                             }
                         }
-                        case IMPORT_NAME -> {
-                            // For "from X import Y" style, we need the module
-                            if (currentModule != null) {
-                                // In Python, modules (files) don't add a level to class FQNs
-                                // "from package.module import Class" means:
-                                //   - Look for Class in file package/module.py or package/__init__.py
-                                //   - The FQN will be package.Class, not package.module.Class
-
-                                // Try to find the symbol in the module file
-                                var moduleFile = resolveModuleFile(currentModule);
-                                if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        decls.stream()
-                                                .filter(cu -> cu.identifier().equals(text)
-                                                        && (cu.isClass() || cu.isFunction()))
-                                                .findFirst()
-                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not resolve import '{}' from module {}: {}",
-                                                text,
-                                                currentModule,
-                                                e.getMessage());
-                                    }
-                                } else {
-                                    log.debug("Could not find module file for import: {}", currentModule);
-                                }
-                            } else if (currentModule == null && wildcardModule == null) {
-                                // For "import X" style (no module context)
-                                var definitions = getDefinitions(text);
-                                definitions.stream()
-                                        .filter(cu -> cu.isClass() || cu.isFunction())
-                                        .findFirst()
-                                        .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                            }
-                        }
-                            // Note: IMPORT_ALIAS captures the alias name, but we don't need it
-                            // for resolution - we only care about the original name
                     }
+                }
+            }
+            // Handle "import X" style (less common for class imports)
+            else if (normalized.startsWith("import ")) {
+                String moduleName = normalized.substring(7).strip();
+                // Handle "as" alias
+                int asIdx = moduleName.indexOf(" as ");
+                if (asIdx > 0) {
+                    moduleName = moduleName.substring(0, asIdx).strip();
+                }
+
+                // Try to find it as a class
+                Optional<CodeUnit> found = getDefinition(moduleName);
+                if (found.isPresent() && found.get().isClass()) {
+                    resolved.add(found.get());
                 }
             }
         }
 
-        return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+        return java.util.Collections.unmodifiableSet(resolved);
     }
 
     @Override
@@ -676,7 +537,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         // Get resolved imports for this file
         Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
 
-        List<CodeUnit> result = new ArrayList<>();
+        List<CodeUnit> result = new java.util.ArrayList<>();
 
         for (String rawName : rawNames) {
             // First try to find in imports
@@ -692,17 +553,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             // Then try same package (same file or same directory)
             String packageName = cu.packageName();
             String fqnInPackage = packageName.isEmpty() ? rawName : packageName + "." + rawName;
-            var inPackageSet = getDefinitions(fqnInPackage);
-            var inPackage = inPackageSet.stream().filter(CodeUnit::isClass).findFirst();
-            if (inPackage.isPresent()) {
+            Optional<CodeUnit> inPackage = getDefinition(fqnInPackage);
+            if (inPackage.isPresent() && inPackage.get().isClass()) {
                 result.add(inPackage.get());
                 continue;
             }
 
             // Try global search
             var searchResults = searchDefinitions(rawName, false);
-            Optional<CodeUnit> fromSearch =
-                    searchResults.stream().filter(CodeUnit::isClass).findFirst();
+            Optional<CodeUnit> fromSearch = searchResults.stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
             fromSearch.ifPresent(result::add);
         }
 
