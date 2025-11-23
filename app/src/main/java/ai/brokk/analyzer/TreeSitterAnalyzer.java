@@ -281,7 +281,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      *
      * @param callback The progress callback, or null to use the no-op callback
      */
-    public static void setProgressCallback(AnalyzerProgressCallback callback) {
+    public static void setProgressCallback(@Nullable AnalyzerProgressCallback callback) {
         progressCallback.set(callback != null ? callback : AnalyzerProgressCallback.NOOP);
     }
 
