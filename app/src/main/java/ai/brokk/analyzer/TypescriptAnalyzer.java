@@ -116,6 +116,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.TYPESCRIPT);
     }
 
+    public TypescriptAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.TYPESCRIPT, listener);
+    }
+
     private TypescriptAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.TYPESCRIPT, state);
     }
