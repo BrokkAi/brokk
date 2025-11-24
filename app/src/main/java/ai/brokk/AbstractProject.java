@@ -1091,12 +1091,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /**
-     * Checks if projectRoot is a subdirectory of workTreeRoot.
-     * Uses toRealPath() for symlink resolution with fallback to normalize() if that fails.
+     * Checks if projectRoot is a subdirectory of workTreeRoot (i.e., not at the worktree root itself).
      *
-     * @param projectRoot The project root path
+     * <p>Uses toRealPath() for robust symlink resolution, with fallback to normalize() if
+     * toRealPath() fails (e.g., on non-existent paths or permission issues).
+     *
+     * @param projectRoot The project root path to check
      * @param workTreeRoot The git working tree root path
-     * @return true if projectRoot is a subdirectory (different from workTreeRoot)
+     * @return true if projectRoot differs from workTreeRoot (indicating a subdirectory),
+     *         false if they point to the same location
      */
     static boolean isSubdirectoryProject(Path projectRoot, Path workTreeRoot) {
         try {
@@ -1114,11 +1117,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * Determines the master root path for configuration based on project root and git repository.
      * This is the canonical location for .brokk config, sessions, and llm-history.
      *
-     * <p>Rules:
+     * <p><b>Config Location Rules:</b>
      * <ul>
-     *   <li>Worktree opened at root → share config with main repo (returns gitTopLevel)</li>
-     *   <li>All other cases → use projectRoot for config</li>
+     *   <li><b>Regular git project</b> (not a worktree) → {@code projectRoot}
+     *       <br>Config stored at the project root</li>
+     *   <li><b>Worktree opened at worktree root</b> (projectRoot == workTreeRoot) → {@code gitTopLevel}
+     *       <br>Config shared with main repository</li>
+     *   <li><b>Worktree opened at subdirectory</b> (projectRoot is subdir of workTreeRoot) → {@code projectRoot}
+     *       <br>Config stored at subdirectory, independent from main repo</li>
+     *   <li><b>Subdirectory project</b> (regular repo opened at subdirectory) → {@code projectRoot}
+     *       <br>Config stored at subdirectory</li>
      * </ul>
+     *
+     * <p>In summary: worktrees opened at their root share config with the main repo;
+     * all other cases use the project root for independent configuration.
      *
      * @param projectRoot The project root path (must be absolute and normalized)
      * @param gitRepo The git repository instance
