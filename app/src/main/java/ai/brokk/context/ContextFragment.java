@@ -148,7 +148,7 @@ public interface ContextFragment {
      * Forcefully shuts down the dedicated ContextFragment executor. Safe to call multiple times.
      * Intended for application shutdown to ensure no lingering threads keep the JVM alive.
      */
-    public static void shutdownFragmentExecutor() {
+    static void shutdownFragmentExecutor() {
         try {
             FRAGMENT_EXECUTOR.shutdownNow();
         } catch (Throwable t) {
@@ -156,58 +156,16 @@ public interface ContextFragment {
         }
     }
 
-    /**
-     * @param fallbackPolicy You can optionally store a fallback policy for when the caller *is* the EDT
-     */
-    record SelectiveCallerRunsPolicy(RejectedExecutionHandler fallbackPolicy) implements RejectedExecutionHandler {
-
-        @Override
-        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-            if (SwingUtilities.isEventDispatchThread()) {
-                logger.error("Task rejected and submitted by EDT. Applying fallback policy.");
-                fallbackPolicy.rejectedExecution(r, executor);
-            } else {
-                // If it is NOT the EDT, execute the task on the caller thread
-                // This is the desired 'CallerRunsPolicy' behavior for non-EDT threads
-                logger.debug("Task rejected, running on non-EDT caller thread: "
-                        + Thread.currentThread().getName());
-                if (!executor.isShutdown()) {
-                    r.run();
-                }
-            }
-        }
-    }
-
-    // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
     LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
     private static LoggingExecutorService createFragmentExecutor() {
-        // Build a daemon thread factory with helpful names
-        ThreadFactory baseFactory = Executors.defaultThreadFactory();
-        ThreadFactory daemonFactory = r -> {
-            var t = baseFactory.newThread(r);
-            t.setDaemon(true);
-            t.setName("brokk-cf-" + t.threadId());
-            return t;
-        };
-
-        // Use SynchronousQueue for direct hand-off to minimize queuing latency, but ensure
-        // saturation does not cause REJECT and leave dependent ComputedValues unscheduled.
-        // SelectiveCallerRunsPolicy executes the task inline on the submitting thread which prevents
-        // deadlocks when a compute() blocks awaiting another ComputedValue on the same pool.
-        int maxThreads = Math.max(4, Runtime.getRuntime().availableProcessors() * 3);
-        var tpe = new ThreadPoolExecutor(
-                0,
-                maxThreads,
-                60L,
-                TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(),
-                daemonFactory,
-                new SelectiveCallerRunsPolicy(new ThreadPoolExecutor.AbortPolicy()));
-        tpe.allowCoreThreadTimeOut(true);
-
+        ThreadFactory virtualThreadFactory = Thread.ofVirtual()
+                .name("brokk-cf-", 0) // Prefix and starting counter
+                .factory();
+        ExecutorService virtualExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory);
         return new LoggingExecutorService(
-                tpe, th -> logger.error("Uncaught exception in ContextFragment executor", th));
+                virtualExecutor,
+                th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
     }
 
     /**
