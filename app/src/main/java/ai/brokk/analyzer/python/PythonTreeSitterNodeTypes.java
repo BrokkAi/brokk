@@ -32,7 +32,11 @@ public final class PythonTreeSitterNodeTypes {
     // Other common Python node types that might be used
     public static final String DECORATED_DEFINITION = "decorated_definition";
 
+    // Import-related captures
     public static final String IMPORT_DECLARATION = "import.declaration";
+    public static final String IMPORT_MODULE = "import.module";
+    public static final String IMPORT_NAME = "import.name";
+    public static final String IMPORT_ALIAS = "import.alias";
 
     private PythonTreeSitterNodeTypes() {}
 }
