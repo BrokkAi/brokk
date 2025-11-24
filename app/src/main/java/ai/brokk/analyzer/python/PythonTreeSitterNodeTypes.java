@@ -39,5 +39,10 @@ public final class PythonTreeSitterNodeTypes {
     public static final String IMPORT_ALIAS = "import.alias";
     public static final String IMPORT_RELATIVE = "import.relative";
 
+    // Wildcard import captures
+    public static final String IMPORT_WILDCARD = "import.wildcard";
+    public static final String IMPORT_MODULE_WILDCARD = "import.module.wildcard";
+    public static final String IMPORT_RELATIVE_WILDCARD = "import.relative.wildcard";
+
     private PythonTreeSitterNodeTypes() {}
 }
