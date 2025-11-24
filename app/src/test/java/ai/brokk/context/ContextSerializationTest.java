@@ -20,7 +20,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,9 +46,16 @@ public class ContextSerializationTest {
 
     @BeforeEach
     void setup() throws IOException {
-        var codeFragmentTargetCu = CodeUnit.cls(
-                new ProjectFile(tempDir, "src/CodeFragmentTarget.java"), "com.example", "CodeFragmentTarget");
-        var testAnalyzer = new TestAnalyzer(List.of(codeFragmentTargetCu), Map.of());
+        // Mock project components
+        var dummyCodeFragmentTarget = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
+        var codeFragmentTargetCu = CodeUnit.cls(dummyCodeFragmentTarget, "com.example", "CodeFragmentTarget");
+
+        var dummyMyClass = new ProjectFile(tempDir, "src/com/examples/MyClass.java");
+        var codeFragmentTargetMthd = CodeUnit.fn(dummyMyClass, "com.example", "MyClass.myMethod");
+
+        var testAnalyzer = new TestAnalyzer(
+                List.of(codeFragmentTargetCu, codeFragmentTargetMthd),
+                Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)));
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
         // Reset fragment ID counter for test isolation
         ContextFragment.setMinimumId(1);
@@ -76,22 +82,6 @@ public class ContextSerializationTest {
         g.fillRect(0, 0, width, height);
         g.dispose();
         return image;
-    }
-
-    private byte[] imageToBytes(Image image) throws IOException {
-        if (image == null) return null;
-        BufferedImage bufferedImage = (image instanceof BufferedImage)
-                ? (BufferedImage) image
-                : new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-        if (!(image instanceof BufferedImage)) {
-            Graphics2D bGr = bufferedImage.createGraphics();
-            bGr.drawImage(image, 0, 0, null);
-            bGr.dispose();
-        }
-        try (var baos = new ByteArrayOutputStream()) {
-            ImageIO.write(bufferedImage, "PNG", baos);
-            return baos.toByteArray();
-        }
     }
 
     // --- Tests for HistoryIo ---
@@ -1661,7 +1651,7 @@ public class ContextSerializationTest {
         String projectFileContent = "public class SnapshotTest {}";
         Files.writeString(projectFile.absPath(), projectFileContent);
         var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
-        ppf.text().join(); // Force snapshot creation
+        ppf.snapshot(Duration.of(5, ChronoUnit.SECONDS));
         assertNotNull(ppf.getSnapshotTextOrNull());
         assertEquals(projectFileContent, ppf.getSnapshotTextOrNull());
 
@@ -1671,7 +1661,7 @@ public class ContextSerializationTest {
         Files.writeString(externalFilePath, externalFileContent);
         var externalFile = new ExternalFile(externalFilePath);
         var epf = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
-        epf.text().join(); // Force snapshot creation
+        epf.snapshot(Duration.of(5, ChronoUnit.SECONDS));
         assertNotNull(epf.getSnapshotTextOrNull());
         assertEquals(externalFileContent, epf.getSnapshotTextOrNull());
 
@@ -1762,6 +1752,7 @@ public class ContextSerializationTest {
         assertEquals(externalFileContent, epfBefore.getSnapshotTextOrNull());
 
         // After refresh: ppf's snapshot is gone (will be re-read), epf's is intact
+        ppfAfter.snapshot(Duration.of(5, ChronoUnit.SECONDS));
         assertNull(ppfAfter.getSnapshotTextOrNull());
         assertEquals(externalFileContent, epfAfter.getSnapshotTextOrNull());
 
@@ -1803,6 +1794,8 @@ public class ContextSerializationTest {
 
         // After refresh state:
         // When serializing, the text of ppfAfter was computed, so it has a snapshot now.
+        loadedPpfAfter.snapshot(Duration.of(5, ChronoUnit.SECONDS));
+        loadedEpfAfter.snapshot(Duration.of(5, ChronoUnit.SECONDS));
         assertEquals(updatedProjectFileContent, loadedPpfAfter.getSnapshotTextOrNull());
         assertEquals(externalFileContent, loadedEpfAfter.getSnapshotTextOrNull());
     }

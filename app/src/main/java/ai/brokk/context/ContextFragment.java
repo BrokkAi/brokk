@@ -544,6 +544,7 @@ public interface ContextFragment {
         private final ProjectFile file;
         private final String id;
         private final IContextManager contextManager;
+        private final boolean suppressSnapshot;
         private transient @Nullable String frozenContent;
         private transient @Nullable ComputedValue<String> textCv;
         private transient @Nullable ComputedValue<String> descCv;
@@ -554,20 +555,25 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments (no snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
         }
 
         // Primary constructor for new dynamic fragments (with optional snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, false);
         }
 
         private ProjectPathFragment(
-                ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+                ProjectFile file,
+                String id,
+                IContextManager contextManager,
+                @Nullable String snapshotText,
+                boolean suppressSnapshot) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
             this.frozenContent = snapshotText;
+            this.suppressSnapshot = suppressSnapshot;
         }
 
         @Override
@@ -602,7 +608,7 @@ public interface ContextFragment {
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
+            return new ProjectPathFragment(file, existingId, contextManager, snapshotText, false);
         }
 
         @Override
@@ -663,16 +669,13 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            // Generate a new dynamic fragment with no eager priming to avoid populating snapshot during refresh.
+            // Generate a new dynamic fragment with snapshot suppressed to avoid precomputing snapshot.
             return new ProjectPathFragment(
-                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
         }
 
         @Override
         public ComputedValue<String> text() {
-            if (frozenContent != null) {
-                return ComputedValue.completed("ppf-text-" + id(), frozenContent);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -699,16 +702,15 @@ public interface ContextFragment {
                     () -> formatCv,
                     () -> new ComputedValue<>(
                             "ppf-format-" + id(),
-                            () ->
-                                    """
-                                            <file path="%s" fragmentid="%s">
-                                            %s
-                                            </file>
-                                            """
-                                            .formatted(
-                                                    file().toString(),
-                                                    id(),
-                                                    this.text().future().join()),
+                            () -> """
+    <file path="%s" fragmentid="%s">
+    %s
+    </file>
+    """
+                                    .formatted(
+                                            file().toString(),
+                                            id(),
+                                            this.text().future().join()),
                             getFragmentExecutor()),
                     v -> formatCv = v);
         }
@@ -737,6 +739,21 @@ public interface ContextFragment {
                 return null;
             }
             return content.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public void snapshot(java.time.Duration timeout) {
+            // Respect suppression for refreshed copies: do not precompute snapshot.
+            if (suppressSnapshot) {
+                return;
+            }
+            try {
+                // Read directly from file to avoid depending on ComputedValue scheduling/timing.
+                var content = file.read().orElse("");
+                setFrozenContentBytes(content.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                logger.warn("Snapshot failed for ProjectPathFragment {}: {}", id(), e.toString());
+            }
         }
     }
 
@@ -948,10 +965,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            var snapshotText = getSnapshotTextOrNull();
-            if (snapshotText != null) {
-                return ComputedValue.completed("epf-text-" + id(), snapshotText);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2111,14 +2124,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            // Prefer frozen snapshot if available
-            var snap = getSnapshotTextOrNull();
-            if (snap != null) {
-                return ComputedValue.completed("usg-text-" + id(), snap);
-            }
-            if (snapshotText != null) {
-                return ComputedValue.completed("usg-text-" + id(), snapshotText);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2136,10 +2141,9 @@ public interface ContextFragment {
 
                                 List<CodeWithSource> parts = processUsages(analyzer, either);
                                 String formatted = CodeWithSource.text(parts);
-                                String result = formatted.isEmpty()
+                                return formatted.isEmpty()
                                         ? "No relevant usages found for symbol: " + targetIdentifier
                                         : formatted;
-                                return result;
                             },
                             getFragmentExecutor()),
                     v -> textCv = v);
@@ -2379,14 +2383,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            // Prefer frozen snapshot if available
-            var snap = getSnapshotTextOrNull();
-            if (snap != null) {
-                return ComputedValue.completed("cf-text-" + id(), snap);
-            }
-            if (snapshotText != null) {
-                return ComputedValue.completed("cf-text-" + id(), snapshotText);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2536,11 +2532,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            // Prefer frozen snapshot if available
-            var snap = getSnapshotTextOrNull();
-            if (snap != null) {
-                return ComputedValue.completed("cgf-text-" + id(), snap);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2696,11 +2687,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            // Prefer frozen snapshot if available
-            var snap = getSnapshotTextOrNull();
-            if (snap != null) {
-                return ComputedValue.completed("skf-text-" + id(), snap);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
@@ -2875,11 +2861,6 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> text() {
-            // Prefer frozen snapshot if available
-            var snap = getSnapshotTextOrNull();
-            if (snap != null) {
-                return ComputedValue.completed("sumf-text-" + id(), snap);
-            }
             return lazyInitCv(
                     textCv,
                     () -> textCv,
