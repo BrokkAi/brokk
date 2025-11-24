@@ -1,100 +1,101 @@
 <script lang="ts">
-  import Icon from "@iconify/svelte";
-  import HastRenderer from './HastRenderer.svelte';
-  import { rendererPlugins } from '../lib/renderer-plugins';
-  import type { BubbleState } from '../stores/bubblesStore';
-  import type {Bubble} from "@/types";
-  import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
-  import { createLogger } from '../lib/logging';
+    import Icon from "@iconify/svelte";
+    import HastRenderer from './HastRenderer.svelte';
+    import {rendererPlugins} from '../lib/renderer-plugins';
+    import type {BubbleState} from '../stores/bubblesStore';
+    import type {Bubble} from "@/types";
+    import {getBubbleDisplayDefaults} from '../lib/bubble-utils';
+    import {createLogger} from '../lib/logging';
 
-  export let bubble: Bubble;
+    export let bubble: Bubble;
 
-  const log = createLogger('symbol-click');
+    const log = createLogger('symbol-click');
 
 
-  function handleSymbolClick(event: MouseEvent) {
-    const target = event.target as HTMLElement;
-    if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
-      const symbolName = target.getAttribute('data-symbol');
-      const symbolExists = target.getAttribute('data-symbol-exists') === 'true';
-      const symbolFqn = target.getAttribute('data-symbol-fqn');
+    function handleSymbolClick(event: MouseEvent) {
+        const target = event.target as HTMLElement;
+        if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
+            const symbolName = target.getAttribute('data-symbol');
+            const symbolExists = target.getAttribute('data-symbol-exists') === 'true';
+            const symbolFqn = target.getAttribute('data-symbol-fqn');
 
-      if (event.button === 2) { // Right click
-        event.preventDefault();
-        log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
+            if (event.button === 2) { // Right click
+                event.preventDefault();
+                log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
 
-        // Call Java bridge for right-click with coordinates
-        if (window.javaBridge && window.javaBridge.onSymbolClick) {
-          window.javaBridge.onSymbolClick(symbolName, symbolExists, symbolFqn, event.clientX, event.clientY);
+                // Call Java bridge for right-click with coordinates
+                if (window.javaBridge && window.javaBridge.onSymbolClick) {
+                    window.javaBridge.onSymbolClick(symbolName, symbolExists, symbolFqn, event.clientX, event.clientY);
+                }
+            } else if (event.button === 0) { // Left click
+                log.info(`Left-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+                // Left click behavior can be added here later
+            }
         }
-      } else if (event.button === 0) { // Left click
-        log.info(`Left-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
-        // Left click behavior can be added here later
-      }
     }
-  }
 
-  $: defaults = getBubbleDisplayDefaults(bubble.type);
-  $: hlVar = defaults.hlVar;
-  $: bgVar = defaults.bgVar;
+    $: defaults = getBubbleDisplayDefaults(bubble.type);
+    $: hlVar = defaults.hlVar;
+    $: bgVar = defaults.bgVar;
 
-  /* Use provided title/icon if available, otherwise fall back to defaults */
-  $: title = bubble.title ?? defaults.title;
-  $: iconId = bubble.iconId ?? defaults.iconId;
+    /* Use provided title/icon if available, otherwise fall back to defaults */
+    $: title = bubble.title ?? defaults.title;
+    $: iconId = bubble.iconId ?? defaults.iconId;
 </script>
 
 <div
-  class="message-wrapper"
+        class="message-wrapper"
 >
-  <header class="header" style="color: var({hlVar});">
-      <Icon icon={iconId} style="color: var({hlVar}); margin-right: 0.35em;" />
-      <span class="title">{title}</span>
-  </header>
-  <div
-    class="message-bubble"
-    style="
+    <header class="header" style="color: var({hlVar});">
+        <Icon icon={iconId} style="color: var({hlVar}); margin-right: 0.35em;"/>
+        <span class="title">{title}</span>
+    </header>
+    <div
+            class="message-bubble"
+            style="
       background-color: var({bgVar});
       border-left: 4px solid var({hlVar});
       color: var(--chat-text);
     "
-    on:mousedown={handleSymbolClick}
-    on:contextmenu={(e) => e.preventDefault()}
-  >
-    {#if bubble.hast}
-      <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />
-    {/if}
-  </div>
+            on:mousedown={handleSymbolClick}
+            on:contextmenu={(e) => e.preventDefault()}
+    >
+        {#if bubble.hast}
+            <HastRenderer tree={bubble.hast} plugins={rendererPlugins}/>
+        {/if}
+    </div>
 </div>
 
 
 <style>
-  .message-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3em;
-    width: 100%;
-  }
+    .message-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3em;
+        width: 100%;
+        margin-bottom: 1em;
+    }
 
-  .message-bubble {
-    border-radius: 0.9em;
-    padding: 0.8em 1.1em;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4em;
-    word-break: break-word;
-  }
+    .message-bubble {
+        border-radius: 0.9em;
+        padding: 0.8em 1.1em;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4em;
+        word-break: break-word;
+    }
 
-  /* High contrast mode: add a subtle dotted border around the entire bubble */
-  :global(.theme-high-contrast) .message-bubble {
-    border: 1px dotted rgba(230, 230, 230, 0.3);
-    border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
-  }
+    /* High contrast mode: add a subtle dotted border around the entire bubble */
+    :global(.theme-high-contrast) .message-bubble {
+        border: 1px dotted rgba(230, 230, 230, 0.3);
+        border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
+    }
 
-  .header {
-    display: flex;
-    align-items: center;
-    font-weight: 600;
-    font-size: 0.95em;
-  }
+    .header {
+        display: flex;
+        align-items: center;
+        font-weight: 600;
+        font-size: 0.95em;
+    }
 
 </style>

@@ -147,7 +147,7 @@
     background-color: var(--message-background);
     border-left: 4px solid var(--border-color-hex);
     color: var(--chat-text);
-    padding: 0.6em 1.1em;
+    padding: 0.6em 1.0em;
     line-height: 1.5;
     border-radius: 0.9em;
     transition: background-color 0.15s ease;
