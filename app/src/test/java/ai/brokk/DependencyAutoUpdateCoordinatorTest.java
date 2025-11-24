@@ -187,13 +187,13 @@ class DependencyAutoUpdateCoordinatorTest {
         Path gitDepDir = dependenciesRoot.resolve("git-dep");
         seedGitDependency(gitDepDir);
 
-        // Explicitly set future timestamp to guarantee file is newer than metadata
+        // Mutate both sources
         Path sourceFile = localSourceDir.resolve("LocalFoo.java");
+        Files.writeString(sourceFile, "class LocalFooV2 {}");
+
+        // Set future timestamp AFTER writing (writeString resets modification time)
         FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
         Files.setLastModifiedTime(sourceFile, futureTime);
-
-        // Mutate both sources
-        Files.writeString(sourceFile, "class LocalFooV2 {}");
 
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
         remoteGit.add().addFilepattern(".").call();
@@ -244,13 +244,13 @@ class DependencyAutoUpdateCoordinatorTest {
         Files.createDirectories(noMetaDepDir);
         Files.writeString(noMetaDepDir.resolve("Orphan.java"), "class Orphan {}");
 
-        // Explicitly set future timestamp to guarantee file is newer than metadata
+        // Mutate local source to cause an update
         Path sourceFile = localSourceDir.resolve("LocalFoo.java");
+        Files.writeString(sourceFile, "class LocalFooV2 {}");
+
+        // Set future timestamp AFTER writing (writeString resets modification time)
         FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
         Files.setLastModifiedTime(sourceFile, futureTime);
-
-        // Mutate local source to cause an update
-        Files.writeString(sourceFile, "class LocalFooV2 {}");
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
 
