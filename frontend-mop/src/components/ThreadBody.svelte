@@ -175,6 +175,18 @@
         padding-right: 1.5em;
     }
 
+    /* Hide copy/delete until the row is hovered/focused */
+    .first-row :global(.delete-btn) {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease-in-out;
+    }
+    .first-row:hover :global(.delete-btn),
+    .first-row:focus-within :global(.delete-btn) {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
     /* Full-width content under the header row; indent under the chevron */
     .expanded-content {
         display: block;
