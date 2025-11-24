@@ -180,7 +180,7 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(null);
             }
 
-            // Text fragment newly added: diff against empty
+            // Text fragment newly added: diff against empty, preferring snapshot text
             return extractFragmentContentAsync(thisFragment, true)
                     .thenApply(newContent -> {
                         var result = ContentDiffUtils.computeDiffResult(
@@ -205,32 +205,31 @@ public final class DiffService {
                     });
         }
 
-        // Extract content asynchronously for both sides
+        // Image fragments: compare bytes (prefer frozen snapshot bytes)
+        if (!thisFragment.isText() || !otherFragment.isText()) {
+            try {
+                var entry = computeImageDiffEntry(thisFragment, otherFragment);
+                return CompletableFuture.completedFuture(entry);
+            } catch (Exception ex) {
+                logger.warn(
+                        "Error computing image diff for fragment '{}': {}",
+                        thisFragment.shortDescription().join(),
+                        ex.getMessage(),
+                        ex);
+                return CompletableFuture.completedFuture(new Context.DiffEntry(
+                        thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]"));
+            }
+        }
+
+        // Extract text content asynchronously for both sides, preferring snapshots
         var oldContentFuture = extractFragmentContentAsync(otherFragment, false);
         var newContentFuture = extractFragmentContentAsync(thisFragment, true);
-
-        // Image fragments: compare bytes
-        if (!thisFragment.isText() || !otherFragment.isText()) {
-            return newContentFuture
-                    .thenCombine(oldContentFuture, (nc, oc) -> computeImageDiffEntry(thisFragment, otherFragment))
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing image diff for fragment '{}': {}",
-                                thisFragment.shortDescription().join(),
-                                ex.getMessage(),
-                                ex);
-                        return new Context.DiffEntry(
-                                thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
-                    });
-        }
 
         // Text fragments: compute textual diff
         return oldContentFuture
                 .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
                             thisFragment.shortDescription().join(),
@@ -274,6 +273,12 @@ public final class DiffService {
      */
     private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
         try {
+            // Prefer snapshot text if available
+            String snap = fragment.getSnapshotTextOrNull();
+            if (snap != null) {
+                return CompletableFuture.completedFuture(snap);
+            }
+
             var computedTextFuture = fragment.text().future();
             return computedTextFuture.exceptionally(ex -> {
                 logger.warn(
@@ -315,22 +320,39 @@ public final class DiffService {
      */
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
-        var oldBytesOpt = otherFragment.imageBytes();
-        var newBytesOpt = thisFragment.imageBytes();
+        try {
+            // Prefer frozen bytes (snapshot), fall back to computed image bytes
+            byte[] oldImageBytes = otherFragment.getFrozenContentBytes();
+            if (oldImageBytes == null) {
+                var oldCv = otherFragment.imageBytes();
+                oldImageBytes = oldCv == null ? null : oldCv.join();
+            }
 
-        if (oldBytesOpt == null || newBytesOpt == null) {
-            return null;
+            byte[] newImageBytes = thisFragment.getFrozenContentBytes();
+            if (newImageBytes == null) {
+                var newCv = thisFragment.imageBytes();
+                newImageBytes = newCv == null ? null : newCv.join();
+            }
+
+            if (oldImageBytes == null || newImageBytes == null) {
+                return null;
+            }
+
+            boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
+            if (imagesEqual) {
+                return null;
+            }
+            String diff = "[Image changed]";
+            return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        } catch (Exception ex) {
+            logger.warn(
+                    "Error extracting image bytes for diff on fragment '{}': {}",
+                    thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
+                    ex.getMessage(),
+                    ex);
+            return new Context.DiffEntry(
+                    thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
         }
-
-        byte[] oldImageBytes = oldBytesOpt.join();
-        byte[] newImageBytes = newBytesOpt.join();
-
-        boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
-        if (imagesEqual) {
-            return null;
-        }
-        String diff = "[Image changed]";
-        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
