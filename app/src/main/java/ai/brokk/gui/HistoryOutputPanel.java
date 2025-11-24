@@ -3083,7 +3083,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 diffPairFutures.add(task);
             }
 
-            CompletableFuture.allOf(diffPairFutures.toArray(new CompletableFuture[0]));
+            var allDone = CompletableFuture.allOf(diffPairFutures.toArray(new CompletableFuture[0]));
+            allDone.join(); // Block together
 
             diffPairFutures.stream().map(CompletableFuture::join).forEach(pair -> {
                 builder.addComparison(pair.left(), pair.right());
