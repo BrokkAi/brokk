@@ -724,7 +724,12 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
                     if (branchName.contains("/")) {
-                        localTrackingName = branchName.substring(branchName.indexOf('/') + 1);
+                        var slashIndex = branchName.indexOf('/');
+                        var remoteName = branchName.substring(0, slashIndex);
+                        localTrackingName = branchName.substring(slashIndex + 1);
+                        // Fetch the branch before checkout to ensure it's up-to-date
+                        logger.info("Fetching branch '{}' from remote '{}'", localTrackingName, remoteName);
+                        getRepo().remote().fetchBranch(remoteName, localTrackingName);
                     }
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.showNotification(

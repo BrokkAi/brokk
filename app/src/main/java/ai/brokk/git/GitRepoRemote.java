@@ -187,11 +187,8 @@ public class GitRepoRemote {
      * @throws GitAPIException if a Git error occurs.
      */
     public void fetchBranch(String remoteName, String branchName) throws GitAPIException {
-        var refSpec = new RefSpec(
-                "+refs/heads/" + branchName + ":refs/remotes/" + remoteName + "/" + branchName);
-        var fetchCommand = git.fetch()
-                .setRemote(remoteName)
-                .setRefSpecs(refSpec);
+        var refSpec = new RefSpec("+refs/heads/" + branchName + ":refs/remotes/" + remoteName + "/" + branchName);
+        var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
         repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
         fetchCommand.call();
     }

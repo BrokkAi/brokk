@@ -1899,13 +1899,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String repoFullName = prHead.getRepository().getFullName();
                 String remoteBranchRef;
 
-                if (repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
-                    // PR is from the same repository - fetch the branch first
-                    logger.info("Fetching branch '{}' from remote '{}'", prBranchName, remoteName);
-                    getRepo().remote().fetchBranch(remoteName, prBranchName);
-                    remoteBranchRef = remoteName + "/" + prBranchName;
-                } else {
-                    // PR is from a fork
+                if (!repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
+                    // PR is from a fork - add the fork as a remote
                     remoteName = "pr-" + prNumber + "-"
                             + prHead.getRepository().getOwnerName(); // Make remote name more unique
                     String prRepoUrl = prHead.getRepository().getHtmlUrl().toString();
@@ -1927,18 +1922,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             throw new IOException("Error adding remote for PR fork: " + e.getMessage(), e);
                         }
                     }
-
-                    var refSpec = new RefSpec(
-                            "+refs/heads/" + prBranchName + ":refs/remotes/" + remoteName + "/" + prBranchName);
-                    logger.info("Fetching from remote '{}' with refspec '{}'", remoteName, refSpec);
-                    getRepo()
-                            .getGit()
-                            .fetch()
-                            .setRemote(remoteName) // Use the (potentially newly added) remote name
-                            .setRefSpecs(refSpec)
-                            .call();
-                    remoteBranchRef = remoteName + "/" + prBranchName;
                 }
+
+                // Fetch the branch before checkout (applies to both same-repo and fork cases)
+                logger.info("Fetching branch '{}' from remote '{}'", prBranchName, remoteName);
+                getRepo().remote().fetchBranch(remoteName, prBranchName);
+                remoteBranchRef = remoteName + "/" + prBranchName;
 
                 String localBranchName = getExpectedLocalBranchName(pr);
 
