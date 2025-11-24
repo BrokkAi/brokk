@@ -1656,6 +1656,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String diff = repo.diff();
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
+            logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
             contextHistory.addGitState(frozenContext.id(), gitState);
         } catch (Exception e) {
             logger.error("Failed to capture git state", e);
