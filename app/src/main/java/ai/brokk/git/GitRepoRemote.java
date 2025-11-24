@@ -332,10 +332,7 @@ public class GitRepoRemote {
     }
 
     static GitRepo.RemoteInfo listRemoteRefs(Supplier<String> tokenSupplier, String url) throws GitAPIException {
-        var lsRemote = Git.lsRemoteRepository()
-                .setHeads(true)
-                .setTags(true)
-                .setRemote(url);
+        var lsRemote = Git.lsRemoteRepository().setHeads(true).setTags(true).setRemote(url);
 
         // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
         if (url.startsWith("https://") && url.contains("github.com")) {

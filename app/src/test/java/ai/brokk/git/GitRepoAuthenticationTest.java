@@ -48,11 +48,9 @@ public class GitRepoAuthenticationTest {
             localGit.tag().setName("v1.0.0").setMessage("Version 1.0.0").call();
 
             // Push to remote using URI string
-            var remoteUri = new org.eclipse.jgit.transport.URIish(remoteDir.toUri().toString());
-            localGit.remoteAdd()
-                    .setName("origin")
-                    .setUri(remoteUri)
-                    .call();
+            var remoteUri =
+                    new org.eclipse.jgit.transport.URIish(remoteDir.toUri().toString());
+            localGit.remoteAdd().setName("origin").setUri(remoteUri).call();
             localGit.push().setRemote("origin").add("master").call();
             localGit.push().setRemote("origin").setPushTags().call();
         }
@@ -159,9 +157,12 @@ public class GitRepoAuthenticationTest {
         // SSH URLs should not trigger GitHub authentication
         // The operation will fail (can't connect to fake URL), but the important thing is
         // that no GitHubAuthenticationException was thrown
-        assertThrows(GitAPIException.class, () -> {
-            GitRepoRemote.listRemoteRefs(() -> "", sshUrl);
-        }, "SSH URL should fail due to network, not authentication");
+        assertThrows(
+                GitAPIException.class,
+                () -> {
+                    GitRepoRemote.listRemoteRefs(() -> "", sshUrl);
+                },
+                "SSH URL should fail due to network, not authentication");
     }
 
     @Test
@@ -169,9 +170,12 @@ public class GitRepoAuthenticationTest {
         // gitlab.com HTTPS should not trigger GitHub authentication
         String gitlabUrl = "https://gitlab.com/owner/repo.git";
 
-        assertThrows(GitAPIException.class, () -> {
-            GitRepoRemote.listRemoteRefs(() -> "", gitlabUrl);
-        }, "Non-GitHub HTTPS should fail due to network, not authentication");
+        assertThrows(
+                GitAPIException.class,
+                () -> {
+                    GitRepoRemote.listRemoteRefs(() -> "", gitlabUrl);
+                },
+                "Non-GitHub HTTPS should fail due to network, not authentication");
     }
 
     @Test
@@ -179,9 +183,12 @@ public class GitRepoAuthenticationTest {
         // This test verifies that credentials are set for GitHub HTTPS URLs
         String githubUrl = "https://github.com/nonexistent-owner/nonexistent-repo.git";
 
-        assertThrows(GitAPIException.class, () -> {
-            GitRepoRemote.listRemoteRefs(() -> "fake-token", githubUrl);
-        }, "Should fail due to network, but credentials should have been set");
+        assertThrows(
+                GitAPIException.class,
+                () -> {
+                    GitRepoRemote.listRemoteRefs(() -> "fake-token", githubUrl);
+                },
+                "Should fail due to network, but credentials should have been set");
     }
 
     @Test
@@ -189,8 +196,11 @@ public class GitRepoAuthenticationTest {
         // Without token, the method should NOT throw GitHubAuthenticationException
         String githubUrl = "https://github.com/nonexistent-owner/nonexistent-repo.git";
 
-        assertThrows(GitAPIException.class, () -> {
-            GitRepoRemote.listRemoteRefs(() -> "", githubUrl);
-        }, "Should fail due to network access, not missing token");
+        assertThrows(
+                GitAPIException.class,
+                () -> {
+                    GitRepoRemote.listRemoteRefs(() -> "", githubUrl);
+                },
+                "Should fail due to network access, not missing token");
     }
 }
