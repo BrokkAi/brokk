@@ -1286,7 +1286,7 @@ public class GitWorktreeTab extends JPanel {
      * @param relativeSubdir The relative subdirectory path, or null if project is at git root
      * @return The path to open (either worktree root or subdirectory within it)
      */
-    private Path resolveWorktreeOpenPath(Path worktreePath, @Nullable Path relativeSubdir) {
+    static Path resolveWorktreeOpenPath(Path worktreePath, @Nullable Path relativeSubdir) {
         if (relativeSubdir == null) {
             return worktreePath;
         }
