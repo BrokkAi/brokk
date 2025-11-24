@@ -39,6 +39,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -155,13 +156,29 @@ public interface ContextFragment {
         }
     }
 
+    /**
+     * @param fallbackPolicy You can optionally store a fallback policy for when the caller *is* the EDT
+     */
+    record SelectiveCallerRunsPolicy(RejectedExecutionHandler fallbackPolicy) implements RejectedExecutionHandler {
+
+        @Override
+        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.error("Task rejected and submitted by EDT. Applying fallback policy.");
+                fallbackPolicy.rejectedExecution(r, executor);
+            } else {
+                // If it is NOT the EDT, execute the task on the caller thread
+                // This is the desired 'CallerRunsPolicy' behavior for non-EDT threads
+                logger.debug("Task rejected, running on non-EDT caller thread: "
+                        + Thread.currentThread().getName());
+                if (!executor.isShutdown()) {
+                    r.run();
+                }
+            }
+        }
+    }
+
     // IMPORTANT: Keep corePoolSize <= maximumPoolSize on low-core CI runners.
-    // We once saw macOS CI with 2 vCPUs blow up during static init with
-    // IllegalArgumentException("corePoolSize > maximumPoolSize"). To make this robust,
-    // we pick a safe parallelism and set core == max. With an unbounded queue, core==max
-    // is the correct configuration to avoid IllegalArgumentException and unexpected scaling.
-    // Additionally: use daemon threads and allow core thread timeout so the JVM can exit cleanly without explicit
-    // shutdown.
     LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
     private static LoggingExecutorService createFragmentExecutor() {
@@ -176,7 +193,7 @@ public interface ContextFragment {
 
         // Use SynchronousQueue for direct hand-off to minimize queuing latency, but ensure
         // saturation does not cause REJECT and leave dependent ComputedValues unscheduled.
-        // CallerRunsPolicy executes the task inline on the submitting thread which prevents
+        // SelectiveCallerRunsPolicy executes the task inline on the submitting thread which prevents
         // deadlocks when a compute() blocks awaiting another ComputedValue on the same pool.
         int maxThreads = Math.max(4, Runtime.getRuntime().availableProcessors() * 3);
         var tpe = new ThreadPoolExecutor(
@@ -184,9 +201,9 @@ public interface ContextFragment {
                 maxThreads,
                 60L,
                 TimeUnit.SECONDS,
-                new SynchronousQueue<>(),
+                new LinkedBlockingQueue<>(),
                 daemonFactory,
-                new ThreadPoolExecutor.CallerRunsPolicy());
+                new SelectiveCallerRunsPolicy(new ThreadPoolExecutor.AbortPolicy()));
         tpe.allowCoreThreadTimeOut(true);
 
         return new LoggingExecutorService(
