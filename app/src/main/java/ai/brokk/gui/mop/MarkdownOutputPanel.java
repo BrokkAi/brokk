@@ -210,7 +210,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         webHost.clear();
         for (var message : newMessages) {
-            // reasoning is false atm, only transient via streamed append calls (not persisted)
             var isReasoning = isReasoningMessage(message);
             webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
         }
