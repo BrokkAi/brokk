@@ -2528,8 +2528,7 @@ public interface ContextFragment {
                     .map(pkgEntry -> {
                         String packageHeader = "package " + pkgEntry.getKey() + ";";
                         // Preserve insertion order of CodeUnits within each package
-                        String pkgCode =
-                                pkgEntry.getValue().values().stream().sorted().collect(Collectors.joining("\n\n"));
+                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
                         return packageHeader + "\n\n" + pkgCode;
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -2629,9 +2628,8 @@ public interface ContextFragment {
         @Blocking
         public Set<ProjectFile> files() {
             return switch (summaryType) {
-                case CODEUNIT_SKELETON ->
+                case CODEUNIT_SKELETON, FILE_SKELETONS ->
                     sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
-                case FILE_SKELETONS -> Set.of(contextManager.toFile(targetIdentifier));
             };
         }
 
