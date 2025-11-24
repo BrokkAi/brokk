@@ -38,11 +38,29 @@ import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A Git repository abstraction using JGit.
+ * A Git repository abstraction using JGit that provides a filtered view of a Git repository.
  *
- * <p>The semantics are that GitRepo represents a subset of the files in the full Git repository that is located in the
- * `location` directory or one of its parents. The common case is that the git dir is a child of `location` but we
- * support instantiating in one of the working tree's subdirectories as well.
+ * <p><b>Filtered View Design:</b> This class represents the entire Git repository but exposes only
+ * the subtree under {@code projectRoot} via its public API. This enables monorepo subproject support
+ * where a Brokk project can be opened at a subdirectory of a Git repository.
+ *
+ * <ul>
+ *   <li><b>JGit's view:</b> {@code repository.getWorkTree()} returns the actual Git working tree root
+ *       (either the main repo root or a worktree root)</li>
+ *   <li><b>Brokk's view:</b> {@code projectRoot} can be the working tree root OR a subdirectory</li>
+ *   <li><b>Filtering:</b> Methods like {@link #getTrackedFiles()} and {@link #getModifiedFiles()}
+ *       walk the entire repository but only return files under {@code projectRoot}</li>
+ * </ul>
+ *
+ * <p>The filtering is implemented by {@link #toProjectFile(String)}, which maps Git-relative paths
+ * to ProjectFiles only if they fall within the projectRoot subtree.
+ *
+ * <p><b>Path Conventions:</b>
+ * <ul>
+ *   <li>JGit operations work with paths relative to the working tree root</li>
+ *   <li>Public API returns ProjectFiles relative to projectRoot</li>
+ *   <li>For subdirectory projects: projectRoot is a subdirectory of workingTreeRoot</li>
+ * </ul>
  */
 public class GitRepo implements Closeable, IGitRepo {
     private static final Logger logger = LogManager.getLogger(GitRepo.class);
@@ -262,7 +280,13 @@ public class GitRepo implements Closeable, IGitRepo {
      * Creates a ProjectFile instance from a path string returned by JGit. JGit paths are relative to the working tree
      * root. The returned ProjectFile will be relative to projectRoot.
      *
-     * @return An Optional containing the ProjectFile, or empty if the path contains unmappable characters
+     * <p><b>Filtering for monorepo subprojects:</b> This method intentionally filters out files that fall
+     * outside {@code projectRoot}. When a Brokk project is opened at a subdirectory of a Git repository,
+     * this ensures only files within that subdirectory are exposed via the GitRepo API.
+     *
+     * @param gitPath Path string from JGit, relative to working tree root
+     * @return An Optional containing the ProjectFile if the path is under projectRoot and mappable,
+     *         or empty if the file is outside projectRoot or contains unmappable characters
      */
     Optional<ProjectFile> toProjectFile(String gitPath) {
         try {
@@ -488,7 +512,16 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Returns a list of RepoFile objects representing all tracked files in the repository. */
+    /**
+     * Returns all tracked files in the repository that fall under {@code projectRoot}.
+     *
+     * <p><b>Filtering behavior:</b> This method walks the entire Git repository tree but only
+     * returns files within the {@code projectRoot} subtree. This is intentional to support
+     * monorepo subprojects where a Brokk project is opened at a subdirectory.
+     *
+     * @return Set of ProjectFiles relative to projectRoot, filtered to only include files
+     *         under that directory
+     */
     @Override
     public synchronized Set<ProjectFile> getTrackedFiles() {
         if (trackedFilesCache != null) {
