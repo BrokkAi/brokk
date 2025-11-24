@@ -60,9 +60,6 @@ export type BubbleState = Bubble & {
   reasoningComplete?: boolean;  // true when the reasoning stream ends
   duration?: number;            // calculated duration in seconds
   isCollapsed?: boolean;        // for UI state
-
-  // Properties for AI Summary bubbles
-  isSummary?: boolean;          // true if this bubble represents a compressed AI summary
 };
 
 /**
