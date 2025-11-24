@@ -49,6 +49,12 @@
             copyResetTimer = null;
         }, 800);
     }
+
+    function handleToggleSummary() {
+        if (onToggleSummary) {
+            onToggleSummary();
+        }
+    }
 </script>
 
 <span class="thread-meta">
@@ -62,7 +68,7 @@
       <button
         type="button"
         class="summary-toggle-btn"
-        on:click|stopPropagation|preventDefault={onToggleSummary}
+        on:click|stopPropagation|preventDefault={handleToggleSummary}
         on:keydown|stopPropagation={() => {}}
         aria-label={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
         title={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
