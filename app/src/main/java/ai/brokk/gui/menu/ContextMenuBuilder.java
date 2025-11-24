@@ -176,7 +176,7 @@ public class ContextMenuBuilder {
             var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
             var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
             if (analyzer != null
-                    && analyzer.getDefinition(fqn).isPresent()
+                    && !analyzer.getDefinitions(fqn).isEmpty()
                     && analyzer.as(SourceCodeProvider.class).isPresent()) {
                 var captureSourceItem = new JMenuItem("Capture Class Source");
                 captureSourceItem.addActionListener(e -> captureClassSource(context));
@@ -378,7 +378,7 @@ public class ContextMenuBuilder {
 
         try {
             // First try exact FQN match
-            var definition = analyzer.getDefinition(fqn);
+            var definition = analyzer.getDefinitions(fqn).stream().findFirst();
             if (definition.isPresent()) {
                 return definition;
             }

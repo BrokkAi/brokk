@@ -781,7 +781,9 @@ public class EditBlock {
         String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
             // Prefer exact definition lookup
-            var def = analyzer.getDefinition(fqName);
+            var def = analyzer.getDefinitions(fqName).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
             if (def.isPresent()) {
                 var cu = def.get();
                 var src = scp.getClassSource(cu, true);
