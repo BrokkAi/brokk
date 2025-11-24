@@ -2,8 +2,6 @@ package ai.brokk.gui.git;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.AutoScalingHtmlPane;
@@ -30,6 +28,8 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssueService;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.ImageUtil;

@@ -1,11 +1,11 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.Brokk;
-import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.MainProject;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;

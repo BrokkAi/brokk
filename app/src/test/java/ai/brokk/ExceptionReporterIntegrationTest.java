@@ -2,13 +2,12 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
-
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;

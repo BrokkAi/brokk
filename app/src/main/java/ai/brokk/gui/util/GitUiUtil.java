@@ -2,7 +2,6 @@ package ai.brokk.gui.util;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
@@ -15,6 +14,7 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
+import ai.brokk.project.IProject;
 import ai.brokk.util.SyntaxDetector;
 import com.google.common.base.Splitter;
 import java.time.Duration;

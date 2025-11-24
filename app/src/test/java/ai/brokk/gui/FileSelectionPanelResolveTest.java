@@ -2,11 +2,11 @@ package ai.brokk.gui;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestProject;
 import java.io.File;
 import java.io.IOException;

@@ -1,8 +1,8 @@
 package ai.brokk.testutil;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.IProject;
 
 public class AnalyzerCreator {
 

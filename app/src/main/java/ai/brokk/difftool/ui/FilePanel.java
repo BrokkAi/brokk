@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.project.MainProject;
 import ai.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.doc.JMDocumentEvent;
@@ -13,6 +12,7 @@ import ai.brokk.gui.search.SearchableComponent;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.MainProject;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import java.awt.*;

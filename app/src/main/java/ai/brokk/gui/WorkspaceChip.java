@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.MainProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
@@ -11,6 +10,7 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.AlphaComposite;

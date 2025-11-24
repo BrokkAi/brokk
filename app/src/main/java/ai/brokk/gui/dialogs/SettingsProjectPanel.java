@@ -1,11 +1,7 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.project.AbstractProject;
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
-import ai.brokk.project.MainProject;
-import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -20,6 +16,10 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;

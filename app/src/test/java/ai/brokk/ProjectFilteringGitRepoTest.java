@@ -9,13 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
-
-import ai.brokk.project.MainProject;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

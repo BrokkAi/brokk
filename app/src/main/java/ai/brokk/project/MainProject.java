@@ -404,14 +404,14 @@ public final class MainProject extends AbstractProject {
     }
 
     private ModelConfig getModelConfigInternal(ModelType modelType) {
-            var props = loadGlobalProperties();
-            return ModelProperties.getModelConfig(props, objectMapper, modelType);
+        var props = loadGlobalProperties();
+        return ModelProperties.getModelConfig(props, objectMapper, modelType);
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
-            var props = loadGlobalProperties();
-            ModelProperties.setModelConfig(props, objectMapper, modelType, config);
-            saveGlobalProperties(props);
+        var props = loadGlobalProperties();
+        ModelProperties.setModelConfig(props, objectMapper, modelType, config);
+        saveGlobalProperties(props);
     }
 
     @Override
@@ -445,27 +445,27 @@ public final class MainProject extends AbstractProject {
     }
 
     public ModelConfig getQuickEditModelConfig() {
-            return getModelConfigInternal(ModelType.QUICK_EDIT);
+        return getModelConfigInternal(ModelType.QUICK_EDIT);
     }
 
     public void setQuickEditModelConfig(ModelConfig config) {
-            setModelConfigInternal(ModelType.QUICK_EDIT, config);
+        setModelConfigInternal(ModelType.QUICK_EDIT, config);
     }
 
     public ModelConfig getQuickestModelConfig() {
-            return getModelConfigInternal(ModelType.QUICKEST);
+        return getModelConfigInternal(ModelType.QUICKEST);
     }
 
     public void setQuickestModelConfig(ModelConfig config) {
-            setModelConfigInternal(ModelType.QUICKEST, config);
+        setModelConfigInternal(ModelType.QUICKEST, config);
     }
 
     public ModelConfig getScanModelConfig() {
-            return getModelConfigInternal(ModelType.SCAN);
+        return getModelConfigInternal(ModelType.SCAN);
     }
 
     public void setScanModelConfig(ModelConfig config) {
-            setModelConfigInternal(ModelType.SCAN, config);
+        setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override

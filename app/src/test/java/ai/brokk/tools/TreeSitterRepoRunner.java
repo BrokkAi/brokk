@@ -2,12 +2,12 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;

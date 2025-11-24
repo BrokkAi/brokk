@@ -2,7 +2,6 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
-import ai.brokk.project.IProject;
 import ai.brokk.Llm;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;
@@ -11,6 +10,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.util.FileUtil;
 import java.nio.charset.StandardCharsets;

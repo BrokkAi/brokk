@@ -87,9 +87,7 @@ public final class FileFilteringService {
         // If project root is outside the git work tree, skip gitignore filtering
         if (!root.startsWith(workTreeRoot)) {
             logger.warn(
-                    "Project root {} is outside git working tree {}; gitignore filtering skipped",
-                    root,
-                    workTreeRoot);
+                    "Project root {} is outside git working tree {}; gitignore filtering skipped", root, workTreeRoot);
             return baselineFiltered;
         }
 
@@ -232,7 +230,8 @@ public final class FileFilteringService {
         return ignoreNode.isIgnored(pathToCheck, isDirectory);
     }
 
-    private List<Map.Entry<Path, Path>> collectGitignorePairs(Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+    private List<Map.Entry<Path, Path>> collectGitignorePairs(
+            Path gitTopLevel, Path gitRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
         Path directory = gitRelPath.getParent();
         if (directory == null) {
             directory = Path.of("");
@@ -282,7 +281,8 @@ public final class FileFilteringService {
         return toUnixPath(gitRelPath);
     }
 
-    private boolean isPathIgnored(GitRepo gitRepo, Path projectRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
+    private boolean isPathIgnored(
+            GitRepo gitRepo, Path projectRelPath, List<Map.Entry<Path, Path>> fixedGitignorePairs) {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
         Path gitRelPathObj = Path.of(gitRelPath);
         var gitTopLevel = gitRepo.getGitTopLevel();

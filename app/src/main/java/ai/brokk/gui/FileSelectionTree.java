@@ -2,8 +2,8 @@ package ai.brokk.gui;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.InvalidPathException;

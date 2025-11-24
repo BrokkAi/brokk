@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.project.IProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.context.Context;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.testutil.TestService;
 import java.nio.file.Files;

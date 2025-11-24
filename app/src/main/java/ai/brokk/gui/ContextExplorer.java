@@ -1,7 +1,6 @@
 package ai.brokk.gui;
 
 import ai.brokk.IContextManager;
-import ai.brokk.project.IProject;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -9,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.*;
 import java.io.File;

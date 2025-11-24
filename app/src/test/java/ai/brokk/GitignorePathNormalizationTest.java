@@ -2,10 +2,9 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ai.brokk.project.AbstractProject;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
-
-import ai.brokk.project.AbstractProject;
 import org.junit.jupiter.api.Test;
 
 /**

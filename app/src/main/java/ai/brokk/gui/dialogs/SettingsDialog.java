@@ -1,14 +1,14 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
-import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;

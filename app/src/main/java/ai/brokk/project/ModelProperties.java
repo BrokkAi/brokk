@@ -2,6 +2,7 @@ package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.Service;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,10 +44,9 @@ public final class ModelProperties {
             try {
                 var mc = objectMapper.readValue(jsonString, ModelConfig.class);
                 @SuppressWarnings("RedundantNullCheck")
-                ModelConfig checkedMc =
-                        (mc.tier() == null)
-                                ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
-                                : mc;
+                ModelConfig checkedMc = (mc.tier() == null)
+                        ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
+                        : mc;
                 return checkedMc;
             } catch (Exception e) {
                 logger.warn(
@@ -64,11 +64,12 @@ public final class ModelProperties {
      * Writes the ModelConfig for the given modelType into props.
      * The caller is responsible for persisting the mutated Properties.
      */
-    public static void setModelConfig(Properties props, ObjectMapper objectMapper, ModelType modelType, ModelConfig config) {
+    public static void setModelConfig(
+            Properties props, ObjectMapper objectMapper, ModelType modelType, ModelConfig config) {
         try {
             String jsonString = objectMapper.writeValueAsString(config);
             props.setProperty(modelType.propertyKey(), jsonString);
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize ModelConfig for " + modelType, e);
         }
     }
@@ -83,7 +84,7 @@ public final class ModelProperties {
                 var typeFactory = objectMapper.getTypeFactory();
                 var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
                 return objectMapper.readValue(json, listType);
-            } catch (Exception e) {
+            } catch (JsonProcessingException e) {
                 logger.error("Error loading/casting favorite models from JSON: {}", json, e);
             }
         }
@@ -94,13 +95,13 @@ public final class ModelProperties {
      * Saves favorite models to props if changed. Returns true if the value changed.
      * The caller is responsible for persisting the mutated Properties.
      */
-    public static boolean saveFavoriteModels(Properties props, ObjectMapper objectMapper, List<Service.FavoriteModel> favorites) {
+    public static boolean saveFavoriteModels(
+            Properties props, ObjectMapper objectMapper, List<Service.FavoriteModel> favorites) {
         String newJson;
         try {
             newJson = objectMapper.writeValueAsString(favorites);
-        } catch (Exception e) {
-            logger.error("Error serializing favorite models to JSON", e);
-            return false;
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Error serializing favorite models to JSON", e);
         }
         String oldJson = props.getProperty(FAVORITE_MODELS_KEY, "");
         if (!newJson.equals(oldJson)) {

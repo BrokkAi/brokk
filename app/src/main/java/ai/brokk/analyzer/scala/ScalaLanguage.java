@@ -1,10 +1,10 @@
 package ai.brokk.analyzer.scala;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ScalaAnalyzer;
 import ai.brokk.analyzer.TreeSitterStateIO;
+import ai.brokk.project.IProject;
 import java.util.Set;
 
 public class ScalaLanguage implements Language {

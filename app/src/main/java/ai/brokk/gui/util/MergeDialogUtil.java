@@ -1,11 +1,11 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.ContextManager;
-import ai.brokk.project.MainProject;
-import ai.brokk.project.WorktreeProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.MergeDialogPanel;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import java.awt.Component;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;

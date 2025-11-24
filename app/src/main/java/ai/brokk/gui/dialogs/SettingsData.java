@@ -1,9 +1,9 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;

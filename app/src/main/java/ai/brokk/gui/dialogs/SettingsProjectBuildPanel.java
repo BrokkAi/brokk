@@ -1,14 +1,14 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;

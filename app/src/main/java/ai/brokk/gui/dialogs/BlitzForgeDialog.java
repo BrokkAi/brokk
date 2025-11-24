@@ -3,7 +3,6 @@ package ai.brokk.gui.dialogs;
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
@@ -24,6 +23,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;

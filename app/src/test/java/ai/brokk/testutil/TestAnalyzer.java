@@ -1,6 +1,5 @@
 package ai.brokk.testutil;
 
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -8,6 +7,7 @@ import ai.brokk.analyzer.LintResult;
 import ai.brokk.analyzer.LintingProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;

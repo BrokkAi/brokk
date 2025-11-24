@@ -1,10 +1,10 @@
 package ai.brokk.gui.theme;
 
 import ai.brokk.Brokk;
-import ai.brokk.project.MainProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.project.MainProject;
 import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;

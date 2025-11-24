@@ -2,8 +2,8 @@ package ai.brokk.issues;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
+import ai.brokk.project.IProject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
