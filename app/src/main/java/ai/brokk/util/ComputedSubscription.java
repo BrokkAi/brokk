@@ -1,6 +1,5 @@
 package ai.brokk.util;
 
-import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import java.util.ArrayList;
 import java.util.List;
@@ -91,8 +90,8 @@ public final class ComputedSubscription {
 
         if (SwingUtilities.isEventDispatchThread()) {
             var cm = fragment.getContextManager();
-            if (cm instanceof ContextManager ctx) {
-                ctx.submitBackgroundTask("Starting context fragment processing" + fragment.id(), () -> {
+            if (cm != null) {
+                cm.submitBackgroundTask("Starting context fragment processing" + fragment.id(), () -> {
                     startTask.run();
                     return null;
                 });
