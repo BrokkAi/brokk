@@ -460,9 +460,16 @@ public final class BrokkCli implements Callable<Integer> {
         cm.pushContext(ctx -> finalContext);
 
         // --- Deep Scan ------------------------------------------------------
-        boolean isStandaloneDeepScan = deepScan && architectPrompt == null && codePrompt == null
-                && askPrompt == null && searchAnswerPrompt == null && lutzPrompt == null
-                && lutzLitePrompt == null && !merge && !build && searchWorkspace == null;
+        boolean isStandaloneDeepScan = deepScan
+                && architectPrompt == null
+                && codePrompt == null
+                && askPrompt == null
+                && searchAnswerPrompt == null
+                && lutzPrompt == null
+                && lutzLitePrompt == null
+                && !merge
+                && !build
+                && searchWorkspace == null;
 
         if (deepScan) {
             if (planModel == null) {

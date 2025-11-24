@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.ignore.IgnoreNode;
 import org.eclipse.jgit.ignore.IgnoreNode.MatchResult;
 import org.eclipse.jgit.util.FS;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -569,6 +571,32 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
             return Set.of();
         }
+    }
+
+    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
+        Set<ProjectFile> selected;
+        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        var allDeps = getAllOnDiskDependencies();
+        selected = allDeps.stream()
+                .filter(dep -> {
+                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                    if (dep.getRelPath().getNameCount() < 3) {
+                        return false;
+                    }
+                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
+                    var depName = dep.getRelPath().getName(2).toString();
+                    return liveNamesSet.contains(depName);
+                })
+                .collect(Collectors.toSet());
+
+        // Wrap with detected language for each dependency root directory
+        return selected.stream()
+                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
+                .collect(Collectors.toSet());
     }
 
     /**

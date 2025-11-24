@@ -45,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -1054,39 +1055,14 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public Set<Dependency> getLiveDependencies() {
-        var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
         Set<ProjectFile> selected;
-        if (liveDepsNames == null) {
-            // Property not set: default to all dependencies enabled
-            selected = allDeps;
-        } else if (liveDepsNames.isBlank()) {
-            // Property explicitly set but empty: user disabled all dependencies
+        if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return Set.of();
-        } else {
-            var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet());
-
-            selected = allDeps.stream()
-                    .filter(dep -> {
-                        // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                        if (dep.getRelPath().getNameCount() < 3) {
-                            return false;
-                        }
-                        // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                        var depName = dep.getRelPath().getName(2).toString();
-                        return liveNamesSet.contains(depName);
-                    })
-                    .collect(Collectors.toSet());
         }
 
-        // Wrap with detected language for each dependency root directory
-        return selected.stream()
-                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
+        return namesToDependencies(liveDepsNames);
     }
 
     @Override
