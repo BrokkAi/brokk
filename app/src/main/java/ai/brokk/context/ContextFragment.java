@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -2401,6 +2400,7 @@ public interface ContextFragment {
     class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
+        private transient @Nullable Map<CodeUnit, String> cachedSkeletonsWithAncestors;
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             super(contextManager);
@@ -2424,7 +2424,19 @@ public interface ContextFragment {
             return FragmentType.SKELETON;
         }
 
-        private Map<CodeUnit, String> fetchSkeletons() {
+        /**
+         * Lazily fetches and caches skeletons for the target and its ancestors.
+         * Ensures a single fetch pass regardless of how many times this method or its callers are invoked.
+         */
+        private Map<CodeUnit, String> getSkeletonsWithAncestors() {
+            if (cachedSkeletonsWithAncestors != null) {
+                return cachedSkeletonsWithAncestors;
+            }
+            cachedSkeletonsWithAncestors = fetchSkeletonsWithAncestors();
+            return cachedSkeletonsWithAncestors;
+        }
+
+        private Map<CodeUnit, String> fetchSkeletonsWithAncestors() {
             IAnalyzer analyzer = getAnalyzer();
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
             analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
@@ -2440,7 +2452,6 @@ public interface ContextFragment {
                                 var seen = new HashSet<String>();
                                 seen.add(cu.fqName());
                                 analyzer.getDirectAncestors(cu).stream()
-                                        .filter(Objects::nonNull)
                                         .filter(anc -> seen.add(anc.fqName()))
                                         .forEach(anc -> skeletonProvider
                                                 .getSkeleton(anc)
@@ -2451,7 +2462,19 @@ public interface ContextFragment {
                     case FILE_SKELETONS -> {
                         IContextManager cm = getContextManager();
                         ProjectFile projectFile = cm.toFile(targetIdentifier);
-                        skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
+                        // Get all TLDs in the file
+                        Map<CodeUnit, String> tldsMap = skeletonProvider.getSkeletons(projectFile);
+                        skeletonsMap.putAll(tldsMap);
+
+                        // For each TLD that is a class, fetch its direct ancestors
+                        var seen = new HashSet<String>();
+                        tldsMap.keySet().stream().filter(CodeUnit::isClass).forEach(classCu -> {
+                            seen.add(classCu.fqName());
+                            analyzer.getDirectAncestors(classCu).stream()
+                                    .filter(anc -> seen.add(anc.fqName()))
+                                    .forEach(anc ->
+                                            skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
+                        });
                     }
                 }
             });
@@ -2461,86 +2484,135 @@ public interface ContextFragment {
         @Override
         @Blocking
         public String text() {
-            Map<CodeUnit, String> skeletons = fetchSkeletons();
+            Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
             if (skeletons.isEmpty()) {
                 return "No summary found for: " + targetIdentifier;
             }
 
+            var analyzer = getAnalyzer();
+
             if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                var analyzer = getAnalyzer();
                 var maybeCu = analyzer.getDefinition(targetIdentifier);
                 if (maybeCu.isPresent()) {
                     var cu = maybeCu.get();
                     if (cu.isClass()) {
-                        return formatClassSummaryWithDirectAncestors(cu, skeletons);
+                        return formatSummaryWithAncestors(cu, skeletons);
                     }
                 }
             }
 
-            // Fallback: existing combined output for non-class or file summaries
-            return combinedText(List.of(this));
+            // For FILE_SKELETONS or non-class CODEUNIT_SKELETON, format by package
+            return formatSkeletonsByPackage(skeletons);
+        }
+
+        /**
+         * Shared helper: formats skeletons grouped by package.
+         * Groups CodeUnit → skeleton pairs by package name, emits sorted package headers with skeleton bodies.
+         * Preserves insertion order of CodeUnits within each package (does not sort).
+         */
+        private static String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
+            if (skeletons.isEmpty()) {
+                return "";
+            }
+
+            var skeletonsByPackage = skeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        // Preserve insertion order of CodeUnits within each package
+                        String pkgCode =
+                                pkgEntry.getValue().values().stream().sorted().collect(Collectors.joining("\n\n"));
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
+        }
+
+        /**
+         * Formats skeletons grouped by package, with CodeUnits sorted by fqName within each package.
+         * Used for deterministic rendering of ancestors and other sorted outputs.
+         */
+        private static String formatSkeletonsByPackageSorted(Map<CodeUnit, String> skeletons) {
+            if (skeletons.isEmpty()) {
+                return "";
+            }
+
+            var skeletonsByPackage = skeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        // Sort CodeUnits within each package by fqName for deterministic output
+                        String pkgCode = pkgEntry.getValue().entrySet().stream()
+                                .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
+                                .map(Map.Entry::getValue)
+                                .collect(Collectors.joining("\n\n"));
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
         }
 
         /**
          * Formats the primary class skeleton and its direct ancestors into a single, deterministic output.
          * - Partitions provided skeletons into primary and ancestors (by FQN equality with cu)
-         * - Groups by package, preserving insertion order and sorting package headers for stability
-         * - Emits a clearly delineated "Direct ancestors" section listing resolved ancestor FQNs in order
+         * - Groups by package, preserving insertion order for primary, sorting for ancestors
+         * - Includes ancestor skeletons without language-specific comments
+         * - Adds a comment header listing direct ancestors in order
          */
-        private String formatClassSummaryWithDirectAncestors(CodeUnit cu, Map<CodeUnit, String> skeletons) {
+        private String formatSummaryWithAncestors(CodeUnit cu, Map<CodeUnit, String> skeletons) {
             // Partition fetched skeletons into primary and ancestors
             Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            Map<CodeUnit, String> ancestors = new LinkedHashMap<>();
+            List<CodeUnit> ancestorList = new ArrayList<>();
             skeletons.forEach((k, v) -> {
                 if (k.fqName().equals(cu.fqName())) {
                     primary.put(k, v);
                 } else {
-                    ancestors.put(k, v);
+                    ancestorList.add(k);
                 }
             });
 
-            // Group by package with deterministic ordering
-            Function<CodeUnit, String> toPkg = u -> u.packageName().isEmpty() ? "(default package)" : u.packageName();
-
-            Map<String, List<String>> primaryByPkg = primary.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> toPkg.apply(e.getKey()),
-                            LinkedHashMap::new,
-                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
-
-            Map<String, List<String>> ancestorsByPkg = ancestors.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> toPkg.apply(e.getKey()),
-                            LinkedHashMap::new,
-                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+            // Sort ancestors by fqName for deterministic output
+            ancestorList.sort(Comparator.comparing(CodeUnit::fqName));
 
             var sb = new StringBuilder();
 
-            // Emit primary class skeleton(s)
-            primaryByPkg.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(pkgEntry -> {
-                sb.append("package ").append(pkgEntry.getKey()).append(";\n\n");
-                sb.append(String.join("\n\n", pkgEntry.getValue())).append("\n\n");
-            });
+            // Emit primary class skeleton(s) preserving insertion order
+            String primaryFormatted = formatSkeletonsByPackage(primary);
+            if (!primaryFormatted.isEmpty()) {
+                sb.append(primaryFormatted).append("\n\n");
+            }
 
-            // Emit direct ancestors section if any
-            if (!ancestorsByPkg.isEmpty()) {
-                var ancestorNames = getAnalyzer().getDirectAncestors(cu).stream()
-                        .map(CodeUnit::fqName)
-                        .distinct()
-                        .toList();
-
+            // Emit direct ancestors comment header if any
+            if (!ancestorList.isEmpty()) {
+                String ancestorNames =
+                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
                 sb.append("// Direct ancestors of ")
                         .append(cu.shortName())
                         .append(": ")
-                        .append(String.join(", ", ancestorNames))
+                        .append(ancestorNames)
                         .append("\n\n");
 
-                ancestorsByPkg.entrySet().stream()
-                        .sorted(Map.Entry.comparingByKey())
-                        .forEach(pkgEntry -> {
-                            sb.append("package ").append(pkgEntry.getKey()).append(";\n\n");
-                            sb.append(String.join("\n\n", pkgEntry.getValue())).append("\n\n");
-                        });
+                // Emit ancestor skeletons sorted by fqName for determinism
+                Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
+                ancestorList.forEach(anc -> ancestorsMap.put(anc, skeletons.get(anc)));
+                String ancestorsFormatted = formatSkeletonsByPackageSorted(ancestorsMap);
+                if (!ancestorsFormatted.isEmpty()) {
+                    sb.append(ancestorsFormatted).append("\n\n");
+                }
             }
 
             String out = sb.toString().trim();
@@ -2550,7 +2622,7 @@ public interface ContextFragment {
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
-            return fetchSkeletons().keySet();
+            return getSkeletonsWithAncestors().keySet();
         }
 
         @Override
@@ -2610,7 +2682,6 @@ public interface ContextFragment {
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
-
         public static String combinedText(Collection<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
                 return "No summaries available";
@@ -2618,7 +2689,7 @@ public interface ContextFragment {
 
             // Collect all skeletons from all fragments
             Map<CodeUnit, String> allSkeletons = fragments.stream()
-                    .flatMap(f -> f.fetchSkeletons().entrySet().stream())
+                    .flatMap(f -> f.fetchSkeletonsWithAncestors().entrySet().stream())
                     .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             Map.Entry::getValue,
@@ -2629,23 +2700,9 @@ public interface ContextFragment {
                 return "No summaries available";
             }
 
-            // Group by package, then format
-            var skeletonsByPackage = allSkeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> e.getKey().packageName().isEmpty()
-                                    ? "(default package)"
-                                    : e.getKey().packageName(),
-                            Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
-
-            return skeletonsByPackage.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> {
-                        String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        return packageHeader + "\n\n" + pkgCode;
-                    })
-                    .collect(Collectors.joining("\n\n"));
+            // Use shared helper to format by package
+            String formatted = formatSkeletonsByPackage(allSkeletons);
+            return formatted.isEmpty() ? "No summaries available" : formatted;
         }
 
         @Override
