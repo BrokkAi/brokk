@@ -36,11 +36,11 @@ public class TaskListPersistenceTest {
         assertTrue(fragOpt.isPresent(), "Task list fragment should exist after creation");
 
         var frag = fragOpt.get();
-        assertEquals("Task List", frag.description());
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle());
+        assertEquals("Task List", frag.description().join());
+        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle().join());
 
         // Verify JSON can be parsed back
-        var data = Json.fromJson(frag.text(), TaskList.TaskListData.class);
+        var data = Json.fromJson(frag.text().join(), TaskList.TaskListData.class);
         assertEquals(3, data.tasks().size());
         assertEquals("Build feature X", data.tasks().get(0).text());
         assertEquals("Add unit tests", data.tasks().get(1).text());
@@ -87,7 +87,7 @@ public class TaskListPersistenceTest {
         // Verify JSON persistence
         var frag = afterAppend.getTaskListFragment();
         assertTrue(frag.isPresent());
-        var parsedData = Json.fromJson(frag.get().text(), TaskList.TaskListData.class);
+        var parsedData = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
         assertEquals(4, parsedData.tasks().size());
     }
 
@@ -111,7 +111,7 @@ public class TaskListPersistenceTest {
         // Verify replacement in persistent storage
         var frag = afterReplace.getTaskListFragment();
         assertTrue(frag.isPresent());
-        var data = Json.fromJson(frag.get().text(), TaskList.TaskListData.class);
+        var data = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
         assertEquals(2, data.tasks().size());
         assertEquals("Fresh task 1", data.tasks().get(0).text());
         assertEquals("Fresh task 2", data.tasks().get(1).text());
@@ -163,6 +163,6 @@ public class TaskListPersistenceTest {
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.get().syntaxStyle());
+        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.get().syntaxStyle().join());
     }
 }
