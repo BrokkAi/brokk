@@ -24,6 +24,7 @@ import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -880,6 +881,7 @@ public class SearchAgent {
         return scanInitialContext(cm.getService().getScanModel());
     }
 
+    @Blocking
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
         logger.debug("Recommended context fits within final budget.");
         List<ContextFragment> selected = recommendationResult.fragments();
@@ -926,6 +928,7 @@ public class SearchAgent {
         if (!skeletonFragments.isEmpty()) {
             var skeletonNames = skeletonFragments.stream()
                     .map(ContextFragment::description)
+                    .map(ComputedValue::join)
                     .sorted()
                     .toList();
             details.put("skeletonFragments", skeletonNames);
