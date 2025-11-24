@@ -822,7 +822,8 @@ public class GitWorktreeTab extends JPanel {
                                 IConsoleIO.NotificationRole.INFO,
                                 "Successfully opened worktree: " + pathToOpen.getFileName());
                     } else {
-                        chrome.toolError("Error opening worktree " + pathToOpen.getFileName());
+                        chrome.toolError("Error opening worktree " + pathToOpen.getFileName(),
+                                         "Worktree Open Error");
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
