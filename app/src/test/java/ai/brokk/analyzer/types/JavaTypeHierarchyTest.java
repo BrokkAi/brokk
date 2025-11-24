@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.types;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,9 +46,21 @@ public class JavaTypeHierarchyTest {
             var frag =
                     new ContextFragment.SummaryFragment(cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text();
-            assertTrue(
-                    txt.contains("// Direct ancestors of XExtendsY: BaseClass"),
-                    "Summary must include a direct ancestors section listing BaseClass");
+            assertCodeEquals(
+                    """
+                    package (default package);
+
+                    class XExtendsY extends BaseClass {
+                    }
+
+                    // Direct ancestors of XExtendsY: BaseClass
+
+                    package (default package);
+
+                    public class BaseClass {
+                    }
+                    """,
+                    txt);
         }
     }
 
@@ -80,9 +93,21 @@ public class JavaTypeHierarchyTest {
             var frag = new ContextFragment.SummaryFragment(
                     cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text();
-            assertTrue(
-                    txt.contains("// Direct ancestors of ServiceImpl: ServiceInterface"),
-                    "Summary must include a direct ancestors section listing ServiceInterface");
+            assertCodeEquals(
+                    """
+                    package (default package);
+
+                    class ServiceImpl implements ServiceInterface {
+                    }
+
+                    // Direct ancestors of ServiceImpl: ServiceInterface
+
+                    package (default package);
+
+                    interface ServiceInterface {
+                    }
+                    """,
+                    txt);
         }
     }
 
@@ -123,9 +148,27 @@ public class JavaTypeHierarchyTest {
             var frag = new ContextFragment.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text();
-            assertTrue(
-                    txt.contains("// Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface"),
-                    "Summary must list direct ancestors in order [BaseClass, ServiceInterface, Interface]");
+            assertCodeEquals(
+                    """
+                    package (default package);
+
+                    class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
+                    }
+
+                    // Direct ancestors of ExtendsAndImplements: BaseClass, Interface, ServiceInterface
+
+                    package (default package);
+
+                    class BaseClass {
+                    }
+
+                    interface Interface {
+                    }
+
+                    interface ServiceInterface {
+                    }
+                    """,
+                    txt);
         }
     }
 
@@ -149,9 +192,14 @@ public class JavaTypeHierarchyTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragment.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text();
-            assertTrue(
-                    !txt.contains("// Direct ancestors of Plain:"),
-                    "Summary for a class with no ancestors should not include a direct ancestors section");
+            assertCodeEquals(
+                    """
+                    package (default package);
+
+                    public class Plain {
+                    }
+                    """,
+                    txt);
         }
     }
 
