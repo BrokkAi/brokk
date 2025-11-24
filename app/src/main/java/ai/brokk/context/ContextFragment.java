@@ -2687,7 +2687,7 @@ public interface ContextFragment {
 
             // Collect all skeletons from all fragments
             Map<CodeUnit, String> allSkeletons = fragments.stream()
-                    .flatMap(f -> f.fetchSkeletonsWithAncestors().entrySet().stream())
+                    .flatMap(f -> f.getSkeletonsWithAncestors().entrySet().stream())
                     .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             Map.Entry::getValue,
