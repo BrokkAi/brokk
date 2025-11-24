@@ -546,15 +546,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 // Try to find the class in the module file
                                 var moduleFilePath = currentModule.replace('.', '/') + ".py";
                                 try {
-                                    var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+                                    var moduleFile =
+                                            new ProjectFile(getProject().getRoot(), moduleFilePath);
                                     var decls = getDeclarations(moduleFile);
                                     decls.stream()
                                             .filter(cu -> cu.identifier().equals(text) && cu.isClass())
                                             .findFirst()
                                             .ifPresent(resolved::add);
                                 } catch (Exception e) {
-                                    log.warn("Could not resolve import '{}' from module {}: {}",
-                                            text, currentModule, e.getMessage());
+                                    log.warn(
+                                            "Could not resolve import '{}' from module {}: {}",
+                                            text,
+                                            currentModule,
+                                            e.getMessage());
                                 }
                             } else if (currentModule == null) {
                                 // For "import X" style
