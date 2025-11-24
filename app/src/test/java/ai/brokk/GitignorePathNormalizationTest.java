@@ -1,9 +1,9 @@
 package ai.brokk;
 
+import static ai.brokk.project.FileFilteringService.normalizePathForGitignore;
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import ai.brokk.project.AbstractProject;
-import java.lang.reflect.Method;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
@@ -18,24 +18,6 @@ import org.junit.jupiter.api.Test;
  * - Empty paths must be preserved (empty string, not "." or null)
  */
 class GitignorePathNormalizationTest {
-
-    /**
-     * Helper to invoke private static method toUnixPath via reflection.
-     */
-    private static String toUnixPath(Path path) throws Exception {
-        Method method = AbstractProject.class.getDeclaredMethod("toUnixPath", Path.class);
-        method.setAccessible(true);
-        return (String) method.invoke(null, path);
-    }
-
-    /**
-     * Helper to invoke private static method normalizePathForGitignore via reflection.
-     */
-    private static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) throws Exception {
-        Method method = AbstractProject.class.getDeclaredMethod("normalizePathForGitignore", Path.class, Path.class);
-        method.setAccessible(true);
-        return (String) method.invoke(null, gitignoreDir, pathToNormalize);
-    }
 
     // ========================================================================
     // Tests for toUnixPath()

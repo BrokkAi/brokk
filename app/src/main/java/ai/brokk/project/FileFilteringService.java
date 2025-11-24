@@ -21,6 +21,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.ignore.IgnoreNode;
 import org.eclipse.jgit.ignore.IgnoreNode.MatchResult;
 import org.eclipse.jgit.util.FS;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Encapsulates baseline-exclusion + gitignore filtering.
@@ -262,11 +263,13 @@ public final class FileFilteringService {
         return gitignorePairs;
     }
 
-    private static String toUnixPath(Path path) {
+    @VisibleForTesting
+    public static String toUnixPath(Path path) {
         return path.toString().replace('\\', '/');
     }
 
-    private static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) {
+    @VisibleForTesting
+    public static String normalizePathForGitignore(Path gitignoreDir, Path pathToNormalize) {
         if (gitignoreDir.toString().isEmpty()) {
             return toUnixPath(pathToNormalize);
         } else {
