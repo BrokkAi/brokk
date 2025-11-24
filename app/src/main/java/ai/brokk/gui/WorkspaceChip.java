@@ -286,12 +286,10 @@ public class WorkspaceChip extends JPanel {
             e.consume();
             return;
         }
-        contextManager.submitBackgroundTask("Constructing context menu", () -> {
-            JPopupMenu menu = createContextMenu();
-            if (menu != null) {
-                SwingUtilities.invokeLater(() -> menu.show(invoker, e.getX(), e.getY()));
-            }
-        });
+        JPopupMenu menu = createContextMenu();
+        if (menu != null) {
+            SwingUtilities.invokeLater(() -> menu.show(invoker, e.getX(), e.getY()));
+        }
         e.consume();
     }
 
