@@ -481,7 +481,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         String relativeModule = relativeImportText.substring(dotCount);
 
         // Get the current file's package
-        String currentPackage = determinePackageName(file, null, null, null);
+        String currentPackage = getPackageNameForFile(file);
 
         // Navigate up dotCount-1 levels (1 dot = current package, 2 dots = parent, etc.)
         String[] packageParts = currentPackage.isEmpty() ? new String[0] : currentPackage.split("\\.");
