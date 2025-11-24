@@ -102,14 +102,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                         text: evt.summary,
                     });
                     register(summarySeq, (msg: ResultMsg) => handleSummaryParseResult(msg, threadId));
-                    // First a fast pass, then a deferred full pass for syntax highlighting
-                    parse(evt.summary, summarySeq, true, false);
-                    // slow parse can block around 50ms, delay it
-                    setTimeout(() => {
-                        if (isRegistered(summarySeq)) {
-                            parse(evt.summary, summarySeq, false, false);
-                        }
-                    }, 100);
+                    parse(evt.summary, summarySeq, false, false);
                 }
 
                 // Insert in order of sequence
