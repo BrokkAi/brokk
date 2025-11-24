@@ -45,7 +45,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -1057,7 +1056,6 @@ public final class MainProject extends AbstractProject {
     public Set<Dependency> getLiveDependencies() {
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
-        Set<ProjectFile> selected;
         if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return Set.of();
         }
