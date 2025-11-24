@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.TextCanonicalizer;

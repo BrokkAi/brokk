@@ -1,9 +1,9 @@
 package ai.brokk.testutil;
 
 import ai.brokk.AbstractService;
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;

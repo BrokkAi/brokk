@@ -2,11 +2,10 @@ package ai.brokk.analyzer.usages;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;

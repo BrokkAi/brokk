@@ -2,9 +2,9 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.cpp.NamespaceProcessor;
 import ai.brokk.analyzer.cpp.SkeletonGenerator;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;

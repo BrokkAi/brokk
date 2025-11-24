@@ -1,7 +1,6 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.AbstractService;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
@@ -20,6 +19,7 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;

@@ -1,6 +1,5 @@
 package ai.brokk.context;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
@@ -12,6 +11,7 @@ import ai.brokk.context.ContextFragment.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
