@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
-import java.time.Instant;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
@@ -101,12 +100,18 @@ class DependencyAutoUpdateCoordinatorTest {
         Path localDepDir = dependenciesRoot.resolve("local-dep");
         seedLocalDependency(localDepDir);
 
+        // Read metadata to get the exact lastUpdatedMillis timestamp
+        var metadata = DependencyUpdater.readDependencyMetadata(
+                        new ProjectFile(project.getRoot(), project.getRoot().relativize(localDepDir)))
+                .orElseThrow();
+        long metadataTimestamp = metadata.lastUpdatedMillis();
+
         // Mutate local source so an update would be detected if enabled
         Path sourceFile = localSourceDir.resolve("LocalFoo.java");
         Files.writeString(sourceFile, "class LocalFooV2 {}");
 
-        // Set future timestamp AFTER writing (writeString resets modification time)
-        FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
+        // Set timestamp AFTER metadata timestamp (ensuring it's newer)
+        FileTime futureTime = FileTime.fromMillis(metadataTimestamp + 20000);
         Files.setLastModifiedTime(sourceFile, futureTime);
 
         // Sanity check: dependency still has old contents
@@ -132,14 +137,20 @@ class DependencyAutoUpdateCoordinatorTest {
         Path gitDepDir = dependenciesRoot.resolve("git-dep");
         seedGitDependency(gitDepDir);
 
+        // Read metadata to get the exact lastUpdatedMillis timestamp
+        var metadata = DependencyUpdater.readDependencyMetadata(
+                        new ProjectFile(project.getRoot(), project.getRoot().relativize(localDepDir)))
+                .orElseThrow();
+        long metadataTimestamp = metadata.lastUpdatedMillis();
+
         // Mutate both sources
         Path localFooFile = localSourceDir.resolve("LocalFoo.java");
         Path localBarFile = localSourceDir.resolve("LocalBar.java");
         Files.writeString(localFooFile, "class LocalFooV2 {}");
         Files.writeString(localBarFile, "class LocalBar {}");
 
-        // Set future timestamp AFTER writing (writeString resets modification time)
-        FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
+        // Set timestamp AFTER metadata timestamp (ensuring it's newer)
+        FileTime futureTime = FileTime.fromMillis(metadataTimestamp + 20000);
         Files.setLastModifiedTime(localFooFile, futureTime);
         Files.setLastModifiedTime(localBarFile, futureTime);
 
@@ -187,12 +198,18 @@ class DependencyAutoUpdateCoordinatorTest {
         Path gitDepDir = dependenciesRoot.resolve("git-dep");
         seedGitDependency(gitDepDir);
 
+        // Read metadata to get the exact lastUpdatedMillis timestamp
+        var metadata = DependencyUpdater.readDependencyMetadata(
+                        new ProjectFile(project.getRoot(), project.getRoot().relativize(localDepDir)))
+                .orElseThrow();
+        long metadataTimestamp = metadata.lastUpdatedMillis();
+
         // Mutate both sources
         Path sourceFile = localSourceDir.resolve("LocalFoo.java");
         Files.writeString(sourceFile, "class LocalFooV2 {}");
 
-        // Set future timestamp AFTER writing (writeString resets modification time)
-        FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
+        // Set timestamp AFTER metadata timestamp (ensuring it's newer)
+        FileTime futureTime = FileTime.fromMillis(metadataTimestamp + 1000);
         Files.setLastModifiedTime(sourceFile, futureTime);
 
         Files.writeString(remoteRepoDir.resolve("file2.txt"), "new");
@@ -244,12 +261,18 @@ class DependencyAutoUpdateCoordinatorTest {
         Files.createDirectories(noMetaDepDir);
         Files.writeString(noMetaDepDir.resolve("Orphan.java"), "class Orphan {}");
 
+        // Read metadata to get the exact lastUpdatedMillis timestamp
+        var metadata = DependencyUpdater.readDependencyMetadata(
+                        new ProjectFile(project.getRoot(), project.getRoot().relativize(localDepDir)))
+                .orElseThrow();
+        long metadataTimestamp = metadata.lastUpdatedMillis();
+
         // Mutate local source to cause an update
         Path sourceFile = localSourceDir.resolve("LocalFoo.java");
         Files.writeString(sourceFile, "class LocalFooV2 {}");
 
-        // Set future timestamp AFTER writing (writeString resets modification time)
-        FileTime futureTime = FileTime.from(Instant.now().plusSeconds(1));
+        // Set timestamp AFTER metadata timestamp (ensuring it's newer)
+        FileTime futureTime = FileTime.fromMillis(metadataTimestamp + 1000);
         Files.setLastModifiedTime(sourceFile, futureTime);
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
