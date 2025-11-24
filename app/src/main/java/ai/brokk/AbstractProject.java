@@ -104,6 +104,39 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return masterRootPathForConfig;
     }
 
+    /**
+     * Returns the .brokk configuration directory path.
+     * This directory contains project configuration, sessions, and llm-history.
+     * Uses masterRootPathForConfig, so may be shared across worktrees.
+     */
+    public final Path getConfigDir() {
+        return masterRootPathForConfig.resolve(BROKK_DIR);
+    }
+
+    /**
+     * Returns the sessions directory path.
+     * Sessions are stored under the shared config location.
+     */
+    public final Path getSessionsDir() {
+        return getConfigDir().resolve(SESSIONS_DIR);
+    }
+
+    /**
+     * Returns the dependencies directory path.
+     * Dependencies are stored under the shared config location.
+     */
+    public final Path getDependenciesDir() {
+        return getConfigDir().resolve(DEPENDENCIES_DIR);
+    }
+
+    /**
+     * Returns the LLM history directory path.
+     * LLM history is stored under the shared config location.
+     */
+    public final Path getLlmHistoryDir() {
+        return getConfigDir().resolve("llm-history");
+    }
+
     @Override
     public final Path getRoot() {
         return root;
@@ -553,7 +586,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     public Set<ProjectFile> getAllOnDiskDependencies() {
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -597,7 +630,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return trackedFiles;
         }
@@ -1067,7 +1100,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var exclusions = new HashSet<String>();
         exclusions.addAll(loadBuildDetails().excludedDirectories());
 
-        var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesDir = getDependenciesDir();
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
         }
