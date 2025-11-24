@@ -222,15 +222,15 @@ public final class BrokkCli implements Callable<Integer> {
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
-        if (deepScan) actionCount++;
         if (actionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) can be specified.");
+                    "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
+        if (deepScan) actionCount++;
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
+                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
             return 1;
         }
 
