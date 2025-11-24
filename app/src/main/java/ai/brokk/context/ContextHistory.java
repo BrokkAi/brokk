@@ -167,11 +167,6 @@ public class ContextHistory {
      * Push {@code ctx}, select it, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
-        if (!history.isEmpty()) {
-            // When a new context is pushed, the current "live" context becomes historical.
-            // We kick off snapshotting its content to prevent it from changing if files on disk are modified.
-            history.peekLast().startSnapshotting();
-        }
         history.addLast(ctx);
         // Snapshot the new live context immediately to capture its state as of now.
         // This ensures undo/redo restores content from when the context became live, not from a later mutation.
