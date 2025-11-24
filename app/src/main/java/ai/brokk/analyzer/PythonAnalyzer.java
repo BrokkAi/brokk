@@ -452,6 +452,53 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         return List.copyOf(unique);
     }
 
+    /**
+     * Resolves a relative import to an absolute package path.
+     *
+     * @param file The file containing the import
+     * @param relativeImportText The text of the relative_import node (e.g., ".sibling", "..parent", "...")
+     * @return The absolute package path, or empty if resolution fails
+     */
+    private Optional<String> resolveRelativeImport(ProjectFile file, String relativeImportText) {
+        // Count leading dots
+        int dotCount = 0;
+        while (dotCount < relativeImportText.length() && relativeImportText.charAt(dotCount) == '.') {
+            dotCount++;
+        }
+
+        // Get the module name after the dots (if any)
+        String relativeModule = relativeImportText.substring(dotCount);
+
+        // Get the current file's package
+        String currentPackage = determinePackageName(file, null, null, null);
+
+        // Navigate up dotCount-1 levels (1 dot = current package, 2 dots = parent, etc.)
+        String[] packageParts = currentPackage.isEmpty() ? new String[0] : currentPackage.split("\\.");
+        int levelsUp = dotCount - 1;
+
+        if (levelsUp > packageParts.length) {
+            // Import goes above project root - invalid
+            log.warn("Relative import {} in {} goes above project root", relativeImportText, file.getRelPath());
+            return Optional.empty();
+        }
+
+        // Build target package
+        String[] targetParts = new String[packageParts.length - levelsUp];
+        System.arraycopy(packageParts, 0, targetParts, 0, targetParts.length);
+        String targetPackage = String.join(".", targetParts);
+
+        // Append the relative module name if present
+        if (!relativeModule.isEmpty()) {
+            if (!targetPackage.isEmpty()) {
+                targetPackage = targetPackage + "." + relativeModule;
+            } else {
+                targetPackage = relativeModule;
+            }
+        }
+
+        return Optional.of(targetPackage);
+    }
+
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         Set<CodeUnit> resolved = new LinkedHashSet<>();
@@ -483,13 +530,31 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
                     switch (capName) {
                         case IMPORT_MODULE -> currentModule = text;
+                        case IMPORT_RELATIVE -> {
+                            // Resolve relative import to absolute package path
+                            var absolutePath = resolveRelativeImport(file, text);
+                            currentModule = absolutePath.orElse(null);
+                        }
                         case IMPORT_NAME -> {
                             // For "from X import Y" style, we need the module
                             if (currentModule != null && !text.equals("*")) {
-                                var fqn = currentModule + "." + text;
-                                var found = getDefinition(fqn);
-                                if (found.isPresent() && found.get().isClass()) {
-                                    resolved.add(found.get());
+                                // In Python, modules (files) don't add a level to class FQNs
+                                // "from package.module import Class" means:
+                                //   - Look for Class in file package/module.py
+                                //   - The FQN will be package.Class, not package.module.Class
+
+                                // Try to find the class in the module file
+                                var moduleFilePath = currentModule.replace('.', '/') + ".py";
+                                try {
+                                    var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+                                    var decls = getDeclarations(moduleFile);
+                                    decls.stream()
+                                            .filter(cu -> cu.identifier().equals(text) && cu.isClass())
+                                            .findFirst()
+                                            .ifPresent(resolved::add);
+                                } catch (Exception e) {
+                                    log.warn("Could not resolve import '{}' from module {}: {}",
+                                            text, currentModule, e.getMessage());
                                 }
                             } else if (currentModule == null) {
                                 // For "import X" style
