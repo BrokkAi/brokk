@@ -98,6 +98,7 @@ public class ThemeColors {
 
     // Search highlight colors
     public static final String SEARCH_HIGHLIGHT = "search_highlight";
+    public static final String SEARCH_HIGHLIGHT_TEXT = "search_highlight_text";
     public static final String SEARCH_CURRENT = "search_current";
 
     // Chip colors
@@ -148,6 +149,7 @@ public class ThemeColors {
     private static Color getFallbackColor(String key) {
         return switch (key) {
             case SEARCH_HIGHLIGHT -> Color.YELLOW;
+            case SEARCH_HIGHLIGHT_TEXT -> Color.BLACK;
             case SEARCH_CURRENT -> new Color(255, 165, 0); // Orange
             case DIFF_ADDED -> new Color(220, 250, 220);
             case DIFF_CHANGED -> new Color(220, 235, 250);

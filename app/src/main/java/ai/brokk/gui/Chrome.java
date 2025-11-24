@@ -4221,17 +4221,6 @@ public class Chrome
         }
     }
 
-    /**
-     * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
-     */
-    public void refreshTaskListUI() {
-        refreshTaskListUI(true, Set.of());
-    }
-
-    public void refreshTaskListUI(boolean triggerAutoPlay) {
-        refreshTaskListUI(triggerAutoPlay, Set.of());
-    }
-
     public void refreshTaskListUI(boolean triggerAutoPlay, Set<String> preExistingIncompleteTasks) {
         // Terminal drawer removed — bring the Tasks tab to front instead.
         SwingUtilities.invokeLater(() -> {

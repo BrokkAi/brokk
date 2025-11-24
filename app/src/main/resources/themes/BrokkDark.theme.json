@@ -83,6 +83,7 @@
       "diff_deleted_fg": "#FF4340",
 
       "search_highlight": "#FFFF00",
+      "search_highlight_text": "#000000",
       "search_current": "#FFA500",
 
       "chip_edit_bg": "#0078D4",

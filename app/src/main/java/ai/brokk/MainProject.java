@@ -14,6 +14,7 @@ import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -272,7 +274,41 @@ public final class MainProject extends AbstractProject {
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
-                return objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
+                var canonicalExcludes = new LinkedHashSet<String>();
+                for (String r : details.excludedDirectories()) {
+                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExcludes.add(c);
+                    }
+                }
+
+                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                Map<String, String> envIn = details.environmentVariables();
+                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+                for (Map.Entry<String, String> e : envIn.entrySet()) {
+                    String k = e.getKey();
+                    String v = e.getValue();
+                    if (v == null) {
+                        continue;
+                    }
+                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                    } else {
+                        canonicalEnv.put(k, v);
+                    }
+                }
+
+                // Return a re-wrapped BuildDetails with canonicalized content
+                return new BuildAgent.BuildDetails(
+                        details.buildLintCommand(),
+                        details.testAllCommand(),
+                        details.testSomeCommand(),
+                        canonicalExcludes,
+                        canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
             }
@@ -287,9 +323,42 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        if (!details.equals(BuildAgent.BuildDetails.EMPTY)) {
+        // Build canonical details for stable on-disk representation
+        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
+        var canonicalExcludes = new LinkedHashSet<String>();
+        for (String r : details.excludedDirectories()) {
+            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+            if (!c.isBlank()) {
+                canonicalExcludes.add(c);
+            }
+        }
+
+        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        Map<String, String> envIn = details.environmentVariables();
+        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+        for (Map.Entry<String, String> e : envIn.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (v == null) {
+                continue; // NullAway should avoid this, but be defensive
+            }
+            if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+            } else {
+                canonicalEnv.put(k, v);
+            }
+        }
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.testAllCommand(),
+                details.testSomeCommand(),
+                canonicalExcludes,
+                canonicalEnv);
+
+        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
             try {
-                String json = objectMapper.writeValueAsString(details);
+                String json = objectMapper.writeValueAsString(canonicalDetails);
                 projectProps.setProperty(BUILD_DETAILS_KEY, json);
                 logger.debug("Saving build details to project properties.");
             } catch (JsonProcessingException e) {
@@ -297,7 +366,7 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
-        setBuildDetails(details);
+        setBuildDetails(canonicalDetails);
         invalidateAllFiles();
     }
 

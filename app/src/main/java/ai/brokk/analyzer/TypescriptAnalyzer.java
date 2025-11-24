@@ -120,6 +120,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.TYPESCRIPT, state);
     }
 
+    /**
+     * Factory to create a snapshot-based analyzer from a prebuilt AnalyzerState.
+     */
+    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new TypescriptAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new TypescriptAnalyzer(getProject(), state);
@@ -753,15 +760,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return true;
         }
 
-        // Log when field check fails to help debug
-        if ((existing.isField() || candidate.isField()) && existing.fqName().equals(candidate.fqName())) {
-            log.debug(
-                    "TypeScript duplicate {} with at least one field: existing.isField()={} (kind={}), candidate.isField()={} (kind={})",
-                    existing.fqName(),
-                    existing.isField(),
-                    existing.kind(),
-                    candidate.isField(),
-                    candidate.kind());
+        // Field + Function pattern (TypeScript allows properties and methods with the same name)
+        // Example: class A { b: string; b() { ... } }
+        if ((existing.isField() && candidate.isFunction()) || (existing.isFunction() && candidate.isField())) {
+            return true;
         }
 
         // Note: TypeScript enums are mapped to CLASS type via classLikeNodeTypes in the syntax profile.

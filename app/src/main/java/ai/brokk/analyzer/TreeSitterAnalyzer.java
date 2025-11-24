@@ -4,6 +4,7 @@ import ai.brokk.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.TextCanonicalizer;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -108,14 +109,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
      *
+     * Note: parsedTree is not persisted on disk. When loading from a saved snapshot, parsedTree will be null.
+     * This is safe and intentional; clients must not assume parsedTree is non-null.
+     *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree.
+     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      * @param resolvedImports   resolved CodeUnits from import statements.
      */
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,
-            @Nullable TSTree parsedTree,
+            @JsonIgnore @Nullable TSTree parsedTree,
             List<String> importStatements,
             Set<CodeUnit> resolvedImports) {
 
@@ -168,7 +172,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    protected record AnalyzerState(
+    public record AnalyzerState(
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
@@ -465,6 +469,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
+     *
+     * Note: When constructed from a prebuilt state loaded from disk, all FileProperties.parsedTree
+     * references will be null (parsed trees are not persisted). This is safe; logic must not rely
+     * on parsedTree being non-null after load.
      */
     protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
         this.project = project;
@@ -542,6 +550,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     public @Nullable StageTiming getStageTiming() {
         return stageTiming;
+    }
+
+    /**
+     * Exposes the current immutable AnalyzerState snapshot for persistence.
+     * Intended for use by Language.saveAnalyzer and other persistence hooks.
+     */
+    public AnalyzerState snapshotState() {
+        return this.state;
     }
 
     @Override

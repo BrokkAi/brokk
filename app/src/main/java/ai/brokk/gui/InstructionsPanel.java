@@ -2887,7 +2887,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
             cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
-            chrome.refreshTaskListUI(false);
         }
     }
 
