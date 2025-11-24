@@ -163,6 +163,8 @@ public class TaskListPersistenceTest {
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.get().syntaxStyle().join());
+        assertEquals(
+                SpecialTextType.TASK_LIST.syntaxStyle(),
+                frag.get().syntaxStyle().join());
     }
 }

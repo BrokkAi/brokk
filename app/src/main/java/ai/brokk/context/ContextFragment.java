@@ -313,9 +313,7 @@ public interface ContextFragment {
     default void snapshot(Duration timeout) {
         try {
             if (isText()) {
-                text().await(timeout).ifPresent(value -> {
-                    setFrozenContentBytes(value.getBytes(StandardCharsets.UTF_8));
-                });
+                text().await(timeout).ifPresent(text -> setFrozenContentBytes(text.getBytes(StandardCharsets.UTF_8)));
             }
             var ib = imageBytes();
             if (ib != null) {

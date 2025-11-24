@@ -228,8 +228,10 @@ public final class DiffService {
         // Text fragments: compute textual diff
         return oldContentFuture
                 .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    int oldLineCount =
+                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount =
+                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
                             thisFragment.shortDescription().join(),
