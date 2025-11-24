@@ -142,8 +142,26 @@ function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean,
     const html = document.querySelector('html')!;
 
     // Handle theme classes - remove all theme classes first, then add the correct one
-    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast');
-    html.classList.add('theme-' + themeName);
+    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast', 'theme-dark-plus', 'theme-light-plus');
+
+    if (themeName === 'light') {
+        html.classList.add('theme-light');
+    } else if (themeName === 'dark') {
+        html.classList.add('theme-dark');
+    } else if (themeName === 'dark-plus') {
+        // Dark+ reuses dark variables/tokens for readability, plus a marker class for optional future overrides
+        html.classList.add('theme-dark');
+        html.classList.add('theme-dark-plus');
+    } else if (themeName === 'light-plus') {
+        // Light+ reuses light variables/tokens for readability, plus a marker class for optional future overrides
+        html.classList.add('theme-light');
+        html.classList.add('theme-light-plus');
+    } else if (themeName === 'high-contrast') {
+        html.classList.add('theme-high-contrast');
+    } else {
+        // Fallback for unknown theme names: treat as dark
+        html.classList.add('theme-dark');
+    }
 
     // Set zoom if provided
     if (zoom !== undefined) {

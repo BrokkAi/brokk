@@ -14,6 +14,7 @@ import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -97,8 +99,12 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)));
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
+            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
+            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
+            "Scan", new ModelTypeInfo("scanConfig", new ModelConfig(Service.GPT_5_MINI)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -268,7 +274,41 @@ public final class MainProject extends AbstractProject {
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
-                return objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
+                var canonicalExcludes = new LinkedHashSet<String>();
+                for (String r : details.excludedDirectories()) {
+                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExcludes.add(c);
+                    }
+                }
+
+                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                Map<String, String> envIn = details.environmentVariables();
+                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+                for (Map.Entry<String, String> e : envIn.entrySet()) {
+                    String k = e.getKey();
+                    String v = e.getValue();
+                    if (v == null) {
+                        continue;
+                    }
+                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                    } else {
+                        canonicalEnv.put(k, v);
+                    }
+                }
+
+                // Return a re-wrapped BuildDetails with canonicalized content
+                return new BuildAgent.BuildDetails(
+                        details.buildLintCommand(),
+                        details.testAllCommand(),
+                        details.testSomeCommand(),
+                        canonicalExcludes,
+                        canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
             }
@@ -283,9 +323,42 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        if (!details.equals(BuildAgent.BuildDetails.EMPTY)) {
+        // Build canonical details for stable on-disk representation
+        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
+        var canonicalExcludes = new LinkedHashSet<String>();
+        for (String r : details.excludedDirectories()) {
+            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+            if (!c.isBlank()) {
+                canonicalExcludes.add(c);
+            }
+        }
+
+        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        Map<String, String> envIn = details.environmentVariables();
+        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+        for (Map.Entry<String, String> e : envIn.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (v == null) {
+                continue; // NullAway should avoid this, but be defensive
+            }
+            if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+            } else {
+                canonicalEnv.put(k, v);
+            }
+        }
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.testAllCommand(),
+                details.testSomeCommand(),
+                canonicalExcludes,
+                canonicalEnv);
+
+        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
             try {
-                String json = objectMapper.writeValueAsString(details);
+                String json = objectMapper.writeValueAsString(canonicalDetails);
                 projectProps.setProperty(BUILD_DETAILS_KEY, json);
                 logger.debug("Saving build details to project properties.");
             } catch (JsonProcessingException e) {
@@ -293,7 +366,7 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
-        setBuildDetails(details);
+        setBuildDetails(canonicalDetails);
         invalidateAllFiles();
     }
 
@@ -384,6 +457,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public ModelConfig getQuickModelConfig() {
+        return getModelConfigInternal("Quick");
+    }
+
+    @Override
+    public void setQuickModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quick", config);
+    }
+
+    @Override
     public ModelConfig getCodeModelConfig() {
         return getModelConfigInternal("Code");
     }
@@ -401,6 +484,30 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
         setModelConfigInternal("Architect", config);
+    }
+
+    public ModelConfig getQuickEditModelConfig() {
+        return getModelConfigInternal("QuickEdit");
+    }
+
+    public void setQuickEditModelConfig(ModelConfig config) {
+        setModelConfigInternal("QuickEdit", config);
+    }
+
+    public ModelConfig getQuickestModelConfig() {
+        return getModelConfigInternal("Quickest");
+    }
+
+    public void setQuickestModelConfig(ModelConfig config) {
+        setModelConfigInternal("Quickest", config);
+    }
+
+    public ModelConfig getScanModelConfig() {
+        return getModelConfigInternal("Scan");
+    }
+
+    public void setScanModelConfig(ModelConfig config) {
+        setModelConfigInternal("Scan", config);
     }
 
     @Override
@@ -947,39 +1054,13 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public Set<Dependency> getLiveDependencies() {
-        var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
-        Set<ProjectFile> selected;
-        if (liveDepsNames == null) {
-            // Property not set: default to all dependencies enabled
-            selected = allDeps;
-        } else if (liveDepsNames.isBlank()) {
-            // Property explicitly set but empty: user disabled all dependencies
+        if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return Set.of();
-        } else {
-            var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet());
-
-            selected = allDeps.stream()
-                    .filter(dep -> {
-                        // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                        if (dep.getRelPath().getNameCount() < 3) {
-                            return false;
-                        }
-                        // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                        var depName = dep.getRelPath().getName(2).toString();
-                        return liveNamesSet.contains(depName);
-                    })
-                    .collect(Collectors.toSet());
         }
 
-        // Wrap with detected language for each dependency root directory
-        return selected.stream()
-                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
+        return namesToDependencies(liveDepsNames);
     }
 
     @Override
@@ -1302,6 +1383,7 @@ public final class MainProject extends AbstractProject {
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1422,6 +1504,34 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public static int getHistoryCompressionConcurrency() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        int def = 2;
+        if (value == null || value.isBlank()) {
+            return def;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 1) parsed = 1;
+            if (parsed > 8) parsed = 8;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public static void setHistoryCompressionConcurrency(int value) {
+        int clamped = Math.max(1, Math.min(8, value));
+        var props = loadGlobalProperties();
+        if (clamped == 2) {
+            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
+        } else {
+            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
+        }
+        saveGlobalProperties(props);
+    }
+
     // JVM memory settings (global)
     private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
     private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
@@ -1458,6 +1568,107 @@ public final class MainProject extends AbstractProject {
                 "Saved JVM memory settings: mode={}, mb={}",
                 settings.automatic() ? "auto" : "manual",
                 settings.automatic() ? "n/a" : settings.manualMb());
+    }
+
+    // Grouped settings records for atomic batch saving
+    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
+        public void applyTo(Properties props) {
+            if (brokkApiKey.isBlank()) {
+                props.remove("brokkApiKey");
+            } else {
+                props.setProperty("brokkApiKey", brokkApiKey.trim());
+            }
+            props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
+            if (forceToolEmulation) {
+                props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
+            } else {
+                props.remove(FORCE_TOOL_EMULATION_KEY);
+            }
+        }
+    }
+
+    public record AppearanceSettings(String theme, boolean wordWrap, String uiScale, float terminalFontSize) {
+        public void applyTo(Properties props) {
+            props.setProperty("theme", theme);
+            props.setProperty("wordWrap", String.valueOf(wordWrap));
+            props.setProperty(UI_SCALE_KEY, uiScale);
+            if (terminalFontSize == 11.0f) {
+                props.remove(TERMINAL_FONT_SIZE_KEY);
+            } else {
+                props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(terminalFontSize));
+            }
+        }
+    }
+
+    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
+        public void applyTo(Properties props) {
+            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
+            int clamped = Math.max(0, Math.min(100, thresholdPercent));
+            if (clamped == 80) {
+                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+            } else {
+                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
+            }
+        }
+    }
+
+    public record StartupSettings(StartupOpenMode openMode) {
+        public void applyTo(Properties props) {
+            props.setProperty(STARTUP_OPEN_MODE_KEY, openMode.name());
+        }
+    }
+
+    public record GeneralSettings(JvmMemorySettings jvmMemory) {
+        public void applyTo(Properties props) {
+            if (jvmMemory.automatic()) {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "auto");
+                props.remove(JVM_MEMORY_MB_KEY);
+            } else {
+                props.setProperty(JVM_MEMORY_MODE_KEY, "manual");
+                props.setProperty(JVM_MEMORY_MB_KEY, Integer.toString(jvmMemory.manualMb()));
+            }
+        }
+    }
+
+    public record ModelSettings(List<Service.FavoriteModel> favoriteModels, McpConfig mcpConfig) {
+        public void applyTo(Properties props) {
+            try {
+                String json = objectMapper.writeValueAsString(favoriteModels);
+                props.setProperty("favoriteModelsJson", json);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing favorite models to JSON", e);
+            }
+            try {
+                String mcpJson = objectMapper.writeValueAsString(mcpConfig);
+                props.setProperty("mcpConfigJson", mcpJson);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing MCP config to JSON", e);
+            }
+        }
+    }
+
+    public static void saveAllGlobalSettings(
+            ServiceSettings service,
+            AppearanceSettings appearance,
+            CompressionSettings compression,
+            StartupSettings startup,
+            GeneralSettings general,
+            ModelSettings models) {
+        var props = loadGlobalProperties();
+        service.applyTo(props);
+        appearance.applyTo(props);
+        compression.applyTo(props);
+        startup.applyTo(props);
+        general.applyTo(props);
+        models.applyTo(props);
+        saveGlobalProperties(props);
+
+        // Clear cache if brokk key changed
+        if (!service.brokkApiKey().equals(getBrokkKey())) {
+            isDataShareAllowedCache = null;
+        }
+
+        logger.debug("Saved all global settings atomically");
     }
 
     public static String getBrokkKey() {

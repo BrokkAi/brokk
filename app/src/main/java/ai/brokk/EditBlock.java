@@ -4,6 +4,7 @@ import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
+import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -189,16 +190,18 @@ public class EditBlock {
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
+                // check to see if the new contents are already in the file
+                // by calling replaceMostSimilarChunk without saving the result
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(ctx, originalContent, block.afterText(), "");
+                    replaceMostSimilarChunk(originalContent, block.afterText(), "");
                     commentary =
                             """
                     The replacement text is already present in the file. If we no longer need to apply
                     this block, omit it from your reply.
                     """;
-                } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
+                } catch (NoMatchException | AmbiguousMatchException e2) {
                     commentary = "";
                 }
 
@@ -318,7 +321,7 @@ public class EditBlock {
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
         String original = file.exists() ? file.read().orElse("") : "";
-        String updated = replaceMostSimilarChunk(ctx, original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -361,8 +364,8 @@ public class EditBlock {
      * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
      * edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(Context ctx, String content, String target, String replace)
-            throws AmbiguousMatchException, NoMatchException, InterruptedException {
+    static String replaceMostSimilarChunk(String content, String target, String replace)
+            throws AmbiguousMatchException, NoMatchException {
         // -----------------------------
         // 0) BRK_CONFLICT block special-cases
         // -----------------------------
@@ -462,19 +465,6 @@ public class EditBlock {
         }
 
         throw new NoMatchException("No matching oldLines found in content");
-    }
-
-    /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
-    static int countLeadingBlankLines(String[] lines) {
-        int c = 0;
-        for (String ln : lines) {
-            if (ln.trim().isEmpty()) {
-                c++;
-            } else {
-                break;
-            }
-        }
-        return c;
     }
 
     /**
@@ -639,12 +629,33 @@ public class EditBlock {
 
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            String leadingWhitespace = getLeadingWhitespace(originalLines[matchStart]);
-            // Add the first replacement line with adjusted leading whitespace
-            resultLines.add(leadingWhitespace + truncatedReplace[0].stripLeading());
-            // Add subsequent replacement lines, also with adjusted leading whitespace
-            for (int i = 1; i < truncatedReplace.length; i++) {
-                resultLines.add(leadingWhitespace + truncatedReplace[i].stripLeading());
+            String baseIndent = getLeadingWhitespace(originalLines[matchStart]);
+            int baseTargetIndent = IndentUtil.countLeadingWhitespace(truncatedTarget[0]);
+            int baseReplaceIndent = IndentUtil.countLeadingWhitespace(truncatedReplace[0]);
+
+            // Compute a scaling factor using shared utility to keep logic consistent across prod and tests.
+            int targetIndentStep = IndentUtil.findFirstIndentStep(truncatedTarget, baseTargetIndent);
+            int replaceIndentStep = IndentUtil.findFirstIndentStep(truncatedReplace, baseReplaceIndent);
+            double scale = IndentUtil.computeIndentScale(targetIndentStep, replaceIndentStep);
+
+            for (String replLine : truncatedReplace) {
+                if (replLine.trim().isEmpty()) {
+                    // Preserve blank line (no trailing spaces)
+                    resultLines.add("");
+                    continue;
+                }
+                int replaceRelativeIndent = IndentUtil.countLeadingWhitespace(replLine) - baseReplaceIndent;
+                int rawAdjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
+                int adjustedRelativeIndent = Math.max(0, rawAdjustedRelativeIndent);
+                if (rawAdjustedRelativeIndent < 0) {
+                    logger.warn(
+                            "Negative indentation detected in replace block: rawAdjustedRelativeIndent={}, replaceRelativeIndent={}, scale={}",
+                            rawAdjustedRelativeIndent,
+                            replaceRelativeIndent,
+                            scale);
+                }
+                String adjusted = baseIndent + " ".repeat(adjustedRelativeIndent) + replLine.stripLeading();
+                resultLines.add(adjusted);
             }
         }
         resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));

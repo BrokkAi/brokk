@@ -135,6 +135,10 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    default Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        throw new UnsupportedOperationException();
+    }
+
     default Context pushContext(Function<Context, Context> contextGenerator) {
         throw new UnsupportedOperationException();
     }

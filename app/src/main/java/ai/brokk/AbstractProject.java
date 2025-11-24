@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -571,6 +572,32 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    protected Set<Dependency> namesToDependencies(String liveDepsNames) {
+        Set<ProjectFile> selected;
+        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        var allDeps = getAllOnDiskDependencies();
+        selected = allDeps.stream()
+                .filter(dep -> {
+                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                    if (dep.getRelPath().getNameCount() < 3) {
+                        return false;
+                    }
+                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
+                    var depName = dep.getRelPath().getName(2).toString();
+                    return liveNamesSet.contains(depName);
+                })
+                .collect(Collectors.toSet());
+
+        // Wrap with detected language for each dependency root directory
+        return selected.stream()
+                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
+                .collect(Collectors.toSet());
+    }
+
     /**
      * Determine the predominant language for a dependency directory by scanning files inside it.
      * This is shared between MainProject and WorktreeProject to avoid duplication.
@@ -937,11 +964,23 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
-        return baselineExclusions.stream().anyMatch(exclusion -> {
-            var filePath = file.getRelPath();
-            var exclusionPath = Path.of(exclusion);
-            return filePath.equals(exclusionPath) || filePath.startsWith(exclusionPath);
-        });
+        // Use string-based, forward-slash comparison for robust, cross-platform matching
+        String fileRel = file.getRelPath().toString().replace('\\', '/');
+        for (String exclusion : baselineExclusions) {
+            String ex = exclusion.replace('\\', '/');
+            // strip any residual leading "./"
+            while (ex.startsWith("./")) ex = ex.substring(2);
+            // strip a single leading slash for tolerant legacy forms (e.g., "/build")
+            if (ex.startsWith("/")) ex = ex.substring(1);
+            // strip trailing slash
+            if (ex.endsWith("/")) ex = ex.substring(0, ex.length() - 1);
+            if (ex.isEmpty()) continue;
+
+            if (fileRel.equals(ex) || fileRel.startsWith(ex + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -959,8 +998,44 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * @return Filtered set of files that are not ignored by gitignore or baseline exclusions
      */
     protected Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
+        // Always apply baseline exclusions, regardless of Git presence
+        Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
+
+        // Extract raw exclusions that start with '/' before normalization
+        Set<String> rawLeadingSlashExclusions = rawExclusions.stream()
+                .map(String::trim)
+                .filter(s -> s.startsWith("/"))
+                .collect(Collectors.toSet());
+
+        var baselineExclusions = rawExclusions.stream()
+                .map(s -> s.replace('\\', '/').trim())
+                // Tolerate a single leading slash from historical values, e.g. "/nbdist" -> "nbdist"
+                .map(s -> s.startsWith("/") ? s.substring(1) : s)
+                .map(s -> s.startsWith("./") ? s.substring(2) : s)
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        // Add fallback normalization of raw leading-slash exclusions to guarantee matches
+        Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
+                .map(s -> s.substring(1)) // strip the leading '/'
+                .map(s -> s.replace('\\', '/'))
+                .map(String::trim)
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        // Create union of all normalized exclusions
+        Set<String> unionNormalized = new HashSet<>(baselineExclusions);
+        unionNormalized.addAll(normalizedFromRawLeading);
+
+        Set<ProjectFile> baselineFiltered = files.stream()
+                .filter(file -> !isBaselineExcluded(file, unionNormalized))
+                .collect(Collectors.toSet());
+
+        // If no Git repo, return after applying baseline exclusions only
         if (!(repo instanceof GitRepo gitRepo)) {
-            return files;
+            return baselineFiltered;
         }
 
         try {
@@ -974,20 +1049,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                         "Project root {} is outside git working tree {}; gitignore filtering skipped",
                         root,
                         workTreeRoot);
-                return files; // Return all files unfiltered
+                return baselineFiltered; // Return only baseline-filtered when outside worktree
             }
 
             var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
 
-            var baselineExclusions = loadBuildDetails().excludedDirectories().stream()
-                    .map(s -> s.replace('\\', '/').trim())
-                    .map(s -> s.startsWith("./") ? s.substring(2) : s)
-                    .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet());
-
-            return files.stream()
-                    .filter(file -> !isBaselineExcluded(file, baselineExclusions))
+            return baselineFiltered.stream()
                     .filter(file -> {
                         try {
                             // do not filter out deps
@@ -1004,8 +1071,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     })
                     .collect(Collectors.toSet());
         } catch (Exception e) {
-            logger.warn("Error applying gitignore filtering, returning all files: {}", e.getMessage());
-            return files;
+            logger.warn("Error applying gitignore filtering, returning baseline-filtered files: {}", e.getMessage());
+            return baselineFiltered;
         }
     }
 

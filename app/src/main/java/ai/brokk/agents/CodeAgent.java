@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -200,13 +201,15 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
+                var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles());
+                        es.changedFiles(),
+                        viewingPolicy);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {

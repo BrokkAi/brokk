@@ -83,6 +83,7 @@
       "diff_deleted_fg": "#FF4340",
 
       "search_highlight": "#FFFF00",
+      "search_highlight_text": "#000000",
       "search_current": "#FFA500",
 
       "chip_edit_bg": "#0078D4",
@@ -100,6 +101,9 @@
       "chip_other_bg": "#0A5BA0",
       "chip_other_fg": "#FFFFFF",
       "chip_other_border": "#073D70",
+      "chip_tasklist_bg": "#0C3F5C",
+      "chip_tasklist_fg": "#EAF8FF",
+      "chip_tasklist_border": "#1E6A87",
 
       "windowBorder": {
         "enabled": false,

@@ -1425,23 +1425,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Blocking
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var additionsTexts =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (additionsTexts.isEmpty()) {
-            return context;
+    private List<TaskList.TaskItem> summarizeTaskList(List<String> texts) {
+        var cleanedTexts =
+                texts.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleanedTexts.isEmpty()) {
+            return List.of();
         }
 
         // Kick off title summarizations in parallel for all additions.
         // Each future completes on Swing EDT (SwingWorker.done). This method is @Blocking,
         // so it must not be invoked from the EDT to avoid deadlock.
-        var futures = additionsTexts.stream()
+        var futures = cleanedTexts.stream()
                 .map(text -> Map.entry(text, summarizeTaskForConversation(text)))
                 .toList();
 
         // Resolve each future with timeout; fallback to title=text on any failure.
-        List<TaskList.TaskItem> additions = new ArrayList<>(futures.size());
+        List<TaskList.TaskItem> items = new ArrayList<>(futures.size());
         for (var entry : futures) {
             String text = entry.getKey();
             String title;
@@ -1453,22 +1452,39 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Timeout, interruption, or execution error: fallback to original text as title
                 title = text;
             }
-            additions.add(new TaskList.TaskItem(title, text, false));
+            items.add(new TaskList.TaskItem(title, text, false));
         }
 
-        // Use the provided Context's task list as the source of truth (no liveContext use).
-        var currentTasks = context.getTaskListDataOrEmpty().tasks();
+        return items;
+    }
 
-        var combined = new ArrayList<>(currentTasks);
-        combined.addAll(additions);
+    @Blocking
+    @Override
+    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        var items = summarizeTaskList(tasks);
+        if (items.isEmpty()) {
+            // If no valid tasks provided, clear the task list
+            var newData = new TaskList.TaskListData(List.of());
+            return setTaskList(context, newData, "Task list cleared", false);
+        }
 
-        var newData = new TaskList.TaskListData(List.copyOf(combined));
+        var newData = new TaskList.TaskListData(List.copyOf(items));
+        return setTaskList(context, newData, "Task list replaced", true);
+    }
 
-        // Action: created vs updated
-        String action = currentTasks.isEmpty() ? "Task list created" : "Task list updated";
+    @Blocking
+    @Override
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
+        var newItems = summarizeTaskList(tasks);
+        if (newItems.isEmpty()) {
+            return context; // No-op if no valid tasks
+        }
 
-        // Pure function: return updated Context without pushing or UI side effects.
-        return context.withTaskList(newData, action);
+        // Merge with existing tasks
+        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
+        existing.addAll(newItems);
+        var newData = new TaskList.TaskListData(List.copyOf(existing));
+        return setTaskList(context, newData, "Task list updated", true);
     }
 
     /**
@@ -1477,7 +1493,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Context setTaskList(TaskList.TaskListData data, String action) {
         // Track the change in history by pushing a new context with the Task List fragment
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        // Centralized UI refresh after persistence
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(false, Set.of()));
+        }
+
+        return updated;
+    }
+
+    public Context setTaskList(Context context, TaskList.TaskListData data, String action, boolean triggerAutoPlay) {
+        // Capture pre-existing incomplete tasks (for potential EZ-mode guard)
+        var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
+
+        var updated = context.withTaskList(data, action);
+        // Centralized UI refresh after persistence
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(triggerAutoPlay, preExistingIncompleteTasks));
+        }
+
+        return updated;
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
@@ -1618,6 +1656,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String diff = repo.diff();
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
+            logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
             contextHistory.addGitState(frozenContext.id(), gitState);
         } catch (Exception e) {
             logger.error("Failed to capture git state", e);
@@ -2712,23 +2751,45 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
-            // TODO: Get off common FJP
-            List<TaskEntry> compressedTaskEntries = taskHistoryToCompress.parallelStream()
-                    .map(this::compressHistory)
-                    .collect(Collectors.toCollection(() -> new ArrayList<>(taskHistoryToCompress.size())));
+            // Use bounded-concurrency executor to avoid overwhelming the LLM provider
+            int concurrency = MainProject.getHistoryCompressionConcurrency();
+            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
+            List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
+            try {
+                // Submit all compression tasks
+                for (TaskEntry entry : taskHistoryToCompress) {
+                    futures.add(exec.submit(() -> compressHistory(entry)));
+                }
 
-            boolean changed = IntStream.range(0, taskHistoryToCompress.size())
-                    .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+                // Collect results in order, with fallback to original on failure
+                List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                for (int i = 0; i < futures.size(); i++) {
+                    try {
+                        compressedTaskEntries.add(futures.get(i).get());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    } catch (ExecutionException ee) {
+                        logger.warn("History compression task failed", ee);
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    }
+                }
 
-            if (!changed) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
-                return;
+                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                        .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+
+                if (!changed) {
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
+                    return;
+                }
+
+                // pushContext will update liveContext with the compressed history
+                // and add a frozen version to contextHistory.
+                pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+            } finally {
+                exec.shutdownNow();
             }
-
-            // pushContext will update liveContext with the compressed history
-            // and add a frozen version to contextHistory.
-            pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }

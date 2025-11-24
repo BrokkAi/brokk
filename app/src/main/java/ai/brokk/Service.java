@@ -70,8 +70,13 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
         // these should always be available
-        var qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
-        quickModel = qm == null ? new UnavailableStreamingModel() : qm;
+        var quickCfg = project.getMainProject().getQuickModelConfig();
+        var qm = getModel(quickCfg);
+        if (qm == null) {
+            // Fallback to previous behavior if resolution fails
+            qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
+        }
+        quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
 
         // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
         boolean freeTier = false;
@@ -89,15 +94,23 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     .info("Free tier detected – using quickModel for quick‑edit operations.");
             quickEditModel = quickModel;
         } else {
-            var qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
-            quickEditModel = qe == null ? quickModel : qe;
+            var qeCfg = project.getMainProject().getQuickEditModelConfig();
+            var qe = getModel(qeCfg);
+            if (qe == null) {
+                qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
+            }
+            quickEditModel = (qe == null) ? quickModel : qe;
         }
 
         // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel(
-                new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
-                OpenAiChatRequestParameters.builder().temperature(0.0));
-        quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
+        var qkCfg = project.getMainProject().getQuickestModelConfig();
+        var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
+        if (qqm == null) {
+            qqm = getModel(
+                    new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
+                    OpenAiChatRequestParameters.builder().temperature(0.0));
+        }
+        quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()

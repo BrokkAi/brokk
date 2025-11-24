@@ -18,6 +18,7 @@ import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -69,6 +70,8 @@ public class SplitButton extends JComponent {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         actionButton = new MaterialButton(text);
+        Insets originalInsets = actionButton.getInsets();
+
         arrowButton = new MaterialButton();
         // Apply initial fixed width on the arrow button before icon is set
         applyArrowButtonFixedWidth();
@@ -82,7 +85,14 @@ public class SplitButton extends JComponent {
         });
 
         applyCompactStyling(actionButton);
+        // Restore top and bottom padding with 2px left padding to prevent text clipping
+        int top = (originalInsets != null) ? originalInsets.top : 0;
+        int bottom = (originalInsets != null) ? originalInsets.bottom : 0;
+        actionButton.setBorder(new EmptyBorder(top + 2, 2, bottom + 2, 0));
+
         applyCompactStyling(arrowButton);
+        // Match vertical padding with action button for consistent height
+        arrowButton.setBorder(new EmptyBorder(top + 2, 0, bottom + 2, 0));
 
         // Alignments for compact look
         actionButton.setHorizontalAlignment(SwingConstants.LEFT);
@@ -309,16 +319,23 @@ public class SplitButton extends JComponent {
     }
 
     private void applyArrowButtonFixedWidth() {
-        Dimension ps = arrowButton.getPreferredSize();
-        int height = ps != null ? ps.height : 0;
+        // Use the max height of both buttons so they're visually consistent
+        int actionHeight = actionButton.getPreferredSize().height;
+        int arrowHeight = arrowButton.getPreferredSize().height;
+        int height = Math.max(actionHeight, arrowHeight);
         if (height <= 0) {
-            // Fallback to action button height if arrow has not computed yet
-            height = actionButton.getPreferredSize().height;
+            height = 1;
         }
-        // Fix the arrow width while respecting current preferred height
-        Dimension fixed = new Dimension(ARROW_BUTTON_WIDTH, Math.max(1, height));
+        // Fix the arrow width while using the consistent height
+        Dimension fixed = new Dimension(ARROW_BUTTON_WIDTH, height);
         arrowButton.setMinimumSize(fixed);
         arrowButton.setPreferredSize(fixed);
+
+        // Also ensure action button uses the same height
+        Dimension actionSize = actionButton.getPreferredSize();
+        if (actionSize.height != height) {
+            actionButton.setPreferredSize(new Dimension(actionSize.width, height));
+        }
     }
 
     private void updateChildMaximumSizes() {

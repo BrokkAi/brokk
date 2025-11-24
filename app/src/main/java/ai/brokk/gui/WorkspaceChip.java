@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.MainProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
@@ -28,7 +29,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -303,15 +303,8 @@ public class WorkspaceChip extends JPanel {
         if (fragment == null) {
             return;
         }
-        // Ensure a single preview window that starts with "Loading..." and updates in-place.
-        try {
-            var panel = chrome.getContextPanel();
-            panel.showFragmentPreview(fragment);
-        } catch (Exception ex) {
-            logger.error("Failed to open preview via WorkspacePanel; falling back to Chrome", ex);
-            // Fallback (should not normally be needed)
-            chrome.openFragmentPreview(fragment);
-        }
+        // Open unified preview via Chrome for consistent behavior across all entry points
+        chrome.openFragmentPreview(fragment);
     }
 
     protected void onCloseClick() {
@@ -378,9 +371,10 @@ public class WorkspaceChip extends JPanel {
                 if (parentPanel.isReadOnlyMode()) {
                     alpha = Math.min(alpha, 0.6f);
                 }
-                Set<ContextFragment> hovered = parentPanel.getHoveredFragments();
-                if (!hovered.isEmpty() && !fragments.isEmpty()) {
-                    boolean isHovered = !Collections.disjoint(fragments, hovered);
+                var hoveredIds = parentPanel.getHoveredFragmentIds();
+                if (!hoveredIds.isEmpty() && !fragments.isEmpty()) {
+                    boolean isHovered =
+                            fragments.stream().map(ContextFragment::id).anyMatch(hoveredIds::contains);
                     boolean isDimmed = !isHovered;
                     if (isDimmed) {
                         alpha = Math.min(alpha, 0.5f);
@@ -474,6 +468,16 @@ public class WorkspaceChip extends JPanel {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_FOREGROUND);
                 border = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BORDER);
+            }
+        }
+
+        // Special styling for Task List: dedicated color scheme
+        ContextFragment fragment = getPrimaryFragment();
+        if (fragment instanceof ContextFragment.StringFragment sf) {
+            if (SpecialTextType.TASK_LIST.description().equals(sf.description())) {
+                bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
             }
         }
 

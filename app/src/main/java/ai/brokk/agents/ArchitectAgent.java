@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
@@ -272,7 +273,7 @@ public class ArchitectAgent {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
-        searchAgent.scanInitialContext();
+        context = searchAgent.scanInitialContext();
 
         // Run Architect proper
         var archResult = this.execute();
@@ -321,7 +322,8 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(context));
+            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
+                    context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings

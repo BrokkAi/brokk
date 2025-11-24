@@ -25,6 +25,7 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -370,8 +371,9 @@ public class BuildAgent {
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            Set<String> excludedDirectories,
-            @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
+            @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
+            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Map<String, String> environmentVariables) {
 
         @VisibleForTesting
         BuildDetails(
