@@ -70,10 +70,10 @@
         class="summary-toggle-btn"
         on:click|stopPropagation|preventDefault={handleToggleSummary}
         on:keydown|stopPropagation={() => {}}
-        aria-label={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
-        title={showSummaryOnly ? 'Show full messages' : 'Show AI summary'}
+        aria-label={showSummaryOnly ? 'Show full messages' : 'Show summarized view'}
+        title={showSummaryOnly ? 'Show full messages' : 'Show summarized view'}
       >
-        <span class="badge">{showSummaryOnly ? 'Full messages' : 'AI summary'}</span>
+        <span class="badge">{showSummaryOnly ? 'All messages' : 'Summarized'}</span>
       </button>
     {/if}
     <button

@@ -36,7 +36,7 @@
 
 <header
   class="header-preview"
-  style={`border-left-color: var(${compressed ? '--summary-border-color' : '--border-color-hex'});`}
+  style={`border-left-color: ${compressed || showSummary ? 'var(--summary-border-color, #9b59b6)' : 'var(--border-color-hex)'};`}
   on:click={handleToggle}
   on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleToggle()}
   tabindex="0"
@@ -141,5 +141,17 @@
     padding: 0;
     margin: 0;
     font-weight: normal;
+  }
+
+  /* Hide copy/delete by default; show on hover/focus of the collapsed header */
+  .header-preview :global(.delete-btn) {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease-in-out;
+  }
+  .header-preview:hover :global(.delete-btn),
+  .header-preview:focus-within :global(.delete-btn) {
+    opacity: 1;
+    pointer-events: auto;
   }
 </style>
