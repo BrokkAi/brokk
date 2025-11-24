@@ -34,7 +34,7 @@
 
     // Handlers
     export let onToggleCollapse: () => void;
-    export let onToggleSummary: () => void;
+    export let onSetViewMode: ((mode: 'messages' | 'summary') => void) | undefined;
     export let onCopy: () => void;
     export let onDelete: (threadId: number) => void;
 
@@ -94,7 +94,7 @@
                 showSummaryOnly={showSummary}
                 onCopy={onCopy}
                 onDelete={onDelete}
-                onToggleSummary={onToggleSummary}
+                onSetViewMode={onSetViewMode}
         />
     </div>
 </div>

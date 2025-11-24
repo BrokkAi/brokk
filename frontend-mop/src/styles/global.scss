@@ -3,11 +3,15 @@
 
 body {
   background: white;
-  font-family: 'Segoe UI', system-ui, sans-serif;
   line-height: 1.5;
   font-size: 14px;
   background: var(--chat-background);
 }
+
+* {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
 
 #mop-root {
   position: absolute;
