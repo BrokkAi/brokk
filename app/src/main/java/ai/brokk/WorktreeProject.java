@@ -6,7 +6,6 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
