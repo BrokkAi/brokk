@@ -167,27 +167,7 @@ public class ContextHistory {
      * Push {@code ctx}, select it, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
-        history.addLast(ctx);
-        // Snapshot the new live context immediately to capture its state as of now.
-        // This ensures undo/redo restores content from when the context became live, not from a later mutation.
-        ctx.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
-        truncateHistory();
-        redo.clear();
-        selected = ctx;
-    }
-
-    /**
-     * Replaces the most recent context in history with the provided live and frozen contexts. This is useful for
-     * coalescing rapid changes into a single history entry.
-     */
-    public synchronized void replaceTop(Context newLive) {
-        assert !history.isEmpty() : "Cannot replace top context in empty history";
-        history.removeLast();
-        history.addLast(newLive);
-        // Snapshot the new live context immediately to capture its state for future undo/redo.
-        newLive.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
-        redo.clear();
-        selected = newLive;
+        pushContextInternal(ctx, true);
     }
 
     @Blocking
@@ -255,9 +235,9 @@ public class ContextHistory {
         var updatedLive = merged.withAction(CompletableFuture.completedFuture(newAction));
 
         if (isContinuation) {
-            replaceTop(updatedLive);
+            replaceTopInternal(updatedLive);
         } else {
-            pushContext(updatedLive);
+            pushContextInternal(updatedLive, false);
         }
         return updatedLive;
     }
@@ -434,6 +414,43 @@ public class ContextHistory {
         }
     }
 
+    /**
+     * Internal helper to push a context with control over whether to capture a snapshot immediately.
+     */
+    private synchronized void pushContextInternal(Context ctx, boolean snapshotNow) {
+        history.addLast(ctx);
+        if (snapshotNow) {
+            snapshotContext(ctx);
+        }
+        truncateHistory();
+        redo.clear();
+        selected = ctx;
+    }
+
+    /**
+     * Internal helper to replace the top of the history with control over immediate snapshotting.
+     */
+    private synchronized void replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newLive);
+        redo.clear();
+        selected = newLive;
+    }
+
+    /**
+     * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
+     */
+    private void snapshotContext(Context ctx) {
+        for (var fragment : ctx.allFragments().toList()) {
+            try {
+                fragment.snapshot(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (Exception e) {
+                logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
+            }
+        }
+    }
+
     private Set<UUID> getContextIds() {
         return history.stream().map(Context::id).collect(Collectors.toSet());
     }
@@ -503,7 +520,6 @@ public class ContextHistory {
                     var filesOpt = fragment.files().await(SNAPSHOT_AWAIT_TIMEOUT);
 
                     if (filesOpt.isEmpty()) {
-                        // Abort to keep this quick
                         materializationWarnings.add(fragment.toString());
                         return;
                     }
@@ -513,21 +529,26 @@ public class ContextHistory {
                     var pf = files.iterator().next();
 
                     try {
-                        String newContent;
+                        // Prefer frozen snapshot strictly when available to ensure historical restoration
+                        var snap = fragment.getSnapshotTextOrNull();
+                        if (snap != null) {
+                            desiredContents.put(pf, snap);
+                            return;
+                        }
+
+                        // Fallback to computed text only if no snapshot is present
                         var tryNow = fragment.text().tryGet();
                         if (tryNow.isPresent()) {
-                            newContent = tryNow.get();
-                        } else {
-                            var awaited = fragment.text().await(SNAPSHOT_AWAIT_TIMEOUT);
-                            if (awaited.isPresent()) {
-                                newContent = awaited.get();
-                            } else {
-                                // Do not fall back to reading current disk state; we want the snapshot value
-                                materializationWarnings.add(fragment.toString());
-                                return;
-                            }
+                            desiredContents.put(pf, tryNow.get());
+                            return;
                         }
-                        desiredContents.put(pf, newContent);
+
+                        var awaited = fragment.text().await(SNAPSHOT_AWAIT_TIMEOUT);
+                        if (awaited.isPresent()) {
+                            desiredContents.put(pf, awaited.get());
+                        } else {
+                            materializationWarnings.add(fragment.toString());
+                        }
                     } catch (Exception e) {
                         logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
                         materializationWarnings.add(fragment.toString());
