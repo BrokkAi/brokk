@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
