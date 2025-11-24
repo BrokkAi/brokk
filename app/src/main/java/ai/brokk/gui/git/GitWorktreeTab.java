@@ -479,19 +479,7 @@ public class GitWorktreeTab extends JPanel {
                 }
 
                 // Determine the path to open: worktree root or corresponding subdirectory
-                final Path pathToOpen;
-                if (relativeSubdir != null) {
-                    Path subdirPath = worktreePath.resolve(relativeSubdir);
-                    if (Files.exists(subdirPath)) {
-                        pathToOpen = subdirPath;
-                        logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
-                    } else {
-                        logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
-                        pathToOpen = worktreePath;
-                    }
-                } else {
-                    pathToOpen = worktreePath;
-                }
+                final Path pathToOpen = resolveWorktreeOpenPath(worktreePath, relativeSubdir);
 
                 try {
                     if (Brokk.isProjectOpen(pathToOpen)) {
@@ -792,22 +780,10 @@ public class GitWorktreeTab extends JPanel {
                 Path newWorktreePath = setupResult.worktreePath();
 
                 // If the current project is a subdirectory of the git repo, open the same subdirectory in the worktree
-                final Path pathToOpen;
-                if (gitRepo.getGitTopLevel().equals(project.getRoot())) {
-                    // Current project is at git root, open worktree at root
-                    pathToOpen = newWorktreePath;
-                } else {
-                    // Current project is a subdirectory, calculate relative path and resolve in worktree
-                    Path relativeSubdir = gitRepo.getGitTopLevel().relativize(project.getRoot());
-                    Path subdirPath = newWorktreePath.resolve(relativeSubdir);
-                    if (Files.exists(subdirPath)) {
-                        pathToOpen = subdirPath;
-                        logger.debug("Opening worktree subdirectory: {} (relative: {})", pathToOpen, relativeSubdir);
-                    } else {
-                        logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
-                        pathToOpen = newWorktreePath;
-                    }
-                }
+                Path relativeSubdir = gitRepo.getGitTopLevel().equals(project.getRoot())
+                        ? null
+                        : gitRepo.getGitTopLevel().relativize(project.getRoot());
+                final Path pathToOpen = resolveWorktreeOpenPath(newWorktreePath, relativeSubdir);
 
                 Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(pathToOpen).parent(project);
                 if (copyWorkspace) {
@@ -822,8 +798,7 @@ public class GitWorktreeTab extends JPanel {
                                 IConsoleIO.NotificationRole.INFO,
                                 "Successfully opened worktree: " + pathToOpen.getFileName());
                     } else {
-                        chrome.toolError("Error opening worktree " + pathToOpen.getFileName(),
-                                         "Worktree Open Error");
+                        chrome.toolError("Error opening worktree " + pathToOpen.getFileName(), "Worktree Open Error");
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
@@ -1288,5 +1263,28 @@ public class GitWorktreeTab extends JPanel {
             }
             return null;
         });
+    }
+
+    /**
+     * Resolves the path to open in a worktree, accounting for subdirectory projects.
+     * If relativeSubdir is non-null, attempts to resolve that subdirectory in the worktree.
+     * Falls back to worktree root if the subdirectory doesn't exist.
+     *
+     * @param worktreePath The root path of the worktree
+     * @param relativeSubdir The relative subdirectory path, or null if project is at git root
+     * @return The path to open (either worktree root or subdirectory within it)
+     */
+    private Path resolveWorktreeOpenPath(Path worktreePath, @Nullable Path relativeSubdir) {
+        if (relativeSubdir == null) {
+            return worktreePath;
+        }
+        Path subdirPath = worktreePath.resolve(relativeSubdir);
+        if (Files.exists(subdirPath)) {
+            logger.debug("Opening worktree subdirectory: {} (relative: {})", subdirPath, relativeSubdir);
+            return subdirPath;
+        } else {
+            logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
+            return worktreePath;
+        }
     }
 }
