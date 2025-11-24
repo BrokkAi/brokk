@@ -454,9 +454,6 @@ public class AttachContextDialog extends JDialog {
 
         var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
 
-        // Publish immediately so chips show "Loading..." and update automatically.
-        cm.addPathFragmentAsync(frag);
-
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
     }
@@ -491,12 +488,6 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        // Build PathFragments and publish immediately for instant chips.
-        var pathFrags = selected.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
-                .collect(Collectors.toList());
-        cm.addPathFragments(pathFrags);
-
         Set<ContextFragment> fragments = selected.stream()
                 .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -512,7 +503,9 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isClass);
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isClass)
@@ -527,9 +520,6 @@ public class AttachContextDialog extends JDialog {
 
         var cu = opt.get();
 
-        // Publish immediately (ComputedFragment => "Loading..." chip).
-        cm.sourceCodeForCodeUnit(cu);
-
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
         dispose();
@@ -543,7 +533,9 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
@@ -557,9 +549,6 @@ public class AttachContextDialog extends JDialog {
         }
 
         var cu = opt.get();
-
-        // Publish immediately (ComputedFragment => "Loading..." chip).
-        cm.sourceCodeForCodeUnit(cu);
 
         var frag = new ContextFragment.CodeFragment(cm, cu);
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());
@@ -575,10 +564,13 @@ public class AttachContextDialog extends JDialog {
         }
 
         // Find best matching symbol (class or method). Prefer method if exact.
-        Optional<CodeUnit> exactMethod = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
         Optional<CodeUnit> any = exactMethod.isPresent()
                 ? exactMethod
-                : analyzer.getDefinition(input)
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
@@ -591,9 +583,6 @@ public class AttachContextDialog extends JDialog {
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
-
-        // Publish immediately so WorkspaceItemsChipPanel can render a "Loading..." chip and update automatically
-        cm.usageForIdentifier(target, includeTestFilesCheck.isSelected());
 
         var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
         selection = new Result(Set.of(frag), summarizeCheck.isSelected());

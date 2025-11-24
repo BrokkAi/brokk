@@ -12,6 +12,8 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -28,6 +30,9 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -1067,25 +1072,25 @@ public class ContextSerializationTest {
         // The IDs will be 3, 4, 5, 6, 7 based on current setup
         var vf1 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for uniqueText1 (first)",
                 "uniqueText1",
-                "Description for uniqueText1 (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf2 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for duplicateText (first)",
                 "duplicateText",
-                "Description for duplicateText (first)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf3 = new ContextFragment.StringFragment(
-                mockContextManager, "uniqueText2", "Description for uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
+                mockContextManager, "Content for uniqueText2", "uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf4_duplicate_of_vf2 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for duplicateText (second, different desc)",
                 "duplicateText",
-                "Description for duplicateText (second, different desc)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
         var vf5_duplicate_of_vf1 = new ContextFragment.StringFragment(
                 mockContextManager,
+                "Content for uniqueText1 (second, different desc)",
                 "uniqueText1",
-                "Description for uniqueText1 (second, different desc)",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
         context = context.addVirtualFragment(vf1);
@@ -1113,29 +1118,29 @@ public class ContextSerializationTest {
         // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
         assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
 
-        Set<String> actualTexts = deduplicatedFragments.stream()
-                .map(ContextFragment.VirtualFragment::text)
+        Set<String> actualDescriptions = deduplicatedFragments.stream()
+                .map(ContextFragment.VirtualFragment::description)
                 .collect(Collectors.toSet());
         assertEquals(
                 Set.of("uniqueText1", "duplicateText", "uniqueText2"),
-                actualTexts,
+                actualDescriptions,
                 "Texts of deduplicated fragments do not match expected unique texts.");
 
         // Verify that the specific fragments kept are the first ones encountered
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText1".equals(f.text())
-                                && "Description for uniqueText1 (first)".equals(f.description())),
+                        .anyMatch(f -> "uniqueText1".equals(f.description())
+                                && "Content for uniqueText1 (first)".equals(f.text())),
                 "Expected first instance of 'uniqueText1' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "duplicateText".equals(f.text())
-                                && "Description for duplicateText (first)".equals(f.description())),
+                        .anyMatch(f -> "duplicateText".equals(f.description())
+                                && "Content for duplicateText (first)".equals(f.text())),
                 "Expected first instance of 'duplicateText' to be present.");
         assertTrue(
                 deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText2".equals(f.text())
-                                && "Description for uniqueText2".equals(f.description())),
+                        .anyMatch(f ->
+                                "uniqueText2".equals(f.description()) && "Content for uniqueText2".equals(f.text())),
                 "Expected 'uniqueText2' to be present.");
     }
 
@@ -1323,5 +1328,343 @@ public class ContextSerializationTest {
         assertEquals(
                 Service.ReasoningLevel.DEFAULT,
                 loadedEntry.meta().primaryModel().reasoning());
+    }
+
+    @Test
+    void testReadOnlyRoundTripForEditableFragments() throws Exception {
+        // Create editable ProjectPathFragment and CodeFragment, plus non-editable StringFragment
+        var projectFile = new ProjectFile(tempDir, "src/RoTest.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class RoTest {}");
+
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+
+        var codeUnit = createTestCodeUnit(
+                "com.example.CodeFragmentTarget", new ProjectFile(tempDir, "src/CodeFragmentTarget.java"));
+        var codeFrag = new ContextFragment.CodeFragment(mockContextManager, codeUnit);
+
+        var sf = new ContextFragment.StringFragment(
+                mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(mockContextManager, "ctx-ro")
+                .addPathFragments(List.of(ppf))
+                .addVirtualFragment(codeFrag)
+                .addVirtualFragment(sf);
+        // Toggle read-only via Context
+        ctx = ctx.setReadonly(ppf, true);
+        ctx = ctx.setReadonly(codeFrag, true);
+
+        ContextHistory ch = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("readonly_roundtrip.zip");
+        HistoryIo.writeZip(ch, zipFile);
+
+        // Verify serialization: contexts.jsonl contains readonly IDs for ppf and codeFrag
+        var readonlyIds = readReadonlyIdsFromZip(zipFile);
+        assertTrue(readonlyIds.contains(ppf.id()), "readonly should contain ProjectPathFragment id");
+        assertTrue(readonlyIds.contains(codeFrag.id()), "readonly should contain CodeFragment id");
+        assertFalse(readonlyIds.contains(sf.id()), "readonly should not contain non-editable StringFragment id");
+
+        // Verify deserialization preserves readOnly flags for editable fragments
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+        var loadedCtx = loaded.getHistory().getFirst();
+
+        var loadedPpf = loadedCtx
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedCtx.isReadOnly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
+
+        var loadedCode = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.CodeFragment)
+                .map(f -> (ContextFragment.CodeFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(loadedCtx.isReadOnly(loadedCode), "Loaded CodeFragment should be read-only");
+    }
+
+    // --- Integration tests for AiMessage reasoning content round-trips ---
+
+    @Test
+    void testRoundTripAiMessageWithReasoningOnly() {
+        // Serialize and deserialize an AiMessage with reasoning only
+        var originalMessage = new AiMessage("", "This is the reasoning content");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has both contentId (empty text) and reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNotNull(dto.reasoningContentId(), "reasoningContentId should be present for reasoning-only message");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("", aiMsg.text(), "Text should be empty");
+        assertEquals("This is the reasoning content", aiMsg.reasoningContent(), "Reasoning should be preserved");
+
+        // Verify Messages.isReasoningMessage detects this as a reasoning message
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true for reasoning-only message");
+    }
+
+    @Test
+    void testRoundTripAiMessageWithTextOnly() {
+        // Serialize and deserialize an AiMessage with text only
+        var originalMessage = new AiMessage("This is the text response");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has contentId but no reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNull(dto.reasoningContentId(), "reasoningContentId should be null for text-only message");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("This is the text response", aiMsg.text(), "Text should be preserved");
+        assertNull(aiMsg.reasoningContent(), "Reasoning should be null for text-only message");
+
+        // Verify Messages.isReasoningMessage returns false
+        assertFalse(Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return false for text-only message");
+    }
+
+    @Test
+    void testRoundTripAiMessageWithBothReasoningAndText() {
+        // Serialize and deserialize an AiMessage with both reasoning and text
+        var originalMessage = new AiMessage("The final answer is 42", "Let me think through this step by step...");
+        var contentWriter = new HistoryIo.ContentWriter();
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Serialize
+        var dto = DtoMapper.toChatMessageDto(originalMessage, contentWriter);
+
+        // Verify DTO has both contentId and reasoningContentId
+        assertNotNull(dto.contentId(), "contentId should be present");
+        assertNotNull(dto.reasoningContentId(), "reasoningContentId should be present for message with both");
+
+        // Deserialize
+        var deserializedMessage = DtoMapper.fromChatMessageDto(dto, contentReader);
+
+        // Verify round-trip preservation
+        assertTrue(deserializedMessage instanceof AiMessage, "Should deserialize as AiMessage");
+        var aiMsg = (AiMessage) deserializedMessage;
+        assertEquals("The final answer is 42", aiMsg.text(), "Text should be preserved");
+        assertEquals(
+                "Let me think through this step by step...", aiMsg.reasoningContent(), "Reasoning should be preserved");
+
+        // Verify Messages.isReasoningMessage returns true (reasoning is present and non-blank)
+        assertTrue(
+                Messages.isReasoningMessage(aiMsg), "isReasoningMessage should return true when reasoning is present");
+    }
+
+    @Test
+    void testTaskFragmentWithAiMessageReasoningRoundTrip() throws Exception {
+        // Integration test: round-trip a TaskFragment containing AiMessages with reasoning
+        var messages = List.of(
+                UserMessage.from("What is 2 + 2?"),
+                new AiMessage("The answer is 4", "Let me think: 2 + 2 equals 4"),
+                UserMessage.from("Verify your work"),
+                new AiMessage("Verified", "2 + 2 = 4 by basic arithmetic"));
+
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Math Task");
+
+        var contentWriter = new HistoryIo.ContentWriter();
+        var taskDto = DtoMapper.toTaskFragmentDto(taskFragment, contentWriter);
+
+        var contentReader = new HistoryIo.ContentReader(contentWriter.getContentBytes());
+        contentReader.setContentMetadata(contentWriter.getContentMetadata());
+
+        // Rebuild the task fragment from DTO
+        var rebuiltMessages = taskDto.messages().stream()
+                .map(msgDto -> DtoMapper.fromChatMessageDto(msgDto, contentReader))
+                .toList();
+
+        // Verify original and rebuilt messages match
+        assertEquals(messages.size(), rebuiltMessages.size(), "Message count should match");
+
+        for (int i = 0; i < messages.size(); i++) {
+            var originalMsg = messages.get(i);
+            var rebuiltMsg = rebuiltMessages.get(i);
+
+            assertEquals(originalMsg.type(), rebuiltMsg.type(), "Message type at index " + i + " should match");
+            assertEquals(
+                    Messages.getRepr(originalMsg),
+                    Messages.getRepr(rebuiltMsg),
+                    "Message repr at index " + i + " should match");
+
+            // For AiMessages, verify reasoning is preserved
+            if (originalMsg instanceof AiMessage originalAi && rebuiltMsg instanceof AiMessage rebuiltAi) {
+                assertEquals(
+                        originalAi.reasoningContent(),
+                        rebuiltAi.reasoningContent(),
+                        "Reasoning content at index " + i + " should match");
+                assertEquals(
+                        Messages.isReasoningMessage(originalAi),
+                        Messages.isReasoningMessage(rebuiltAi),
+                        "isReasoningMessage result at index " + i + " should match");
+            }
+        }
+    }
+
+    @Test
+    void testReadOnlyBackwardCompatibilityLongerAndShorterLists() throws Exception {
+        // Build a simple context with one editable and one non-editable fragment
+        var projectFile = new ProjectFile(tempDir, "src/BC.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class BC {}");
+
+        var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        var sf = new ContextFragment.StringFragment(mockContextManager, "s", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(mockContextManager, "ctx-bc")
+                .addPathFragments(List.of(ppf))
+                .addVirtualFragment(sf);
+
+        ContextHistory ch = new ContextHistory(ctx);
+        Path original = tempDir.resolve("bc_original.zip");
+        HistoryIo.writeZip(ch, original);
+
+        // Case 1: Longer list (add unknown id and non-editable id)
+        Path longerZip = tempDir.resolve("bc_longer.zip");
+        rewriteContextsInZip(original, longerZip, line -> {
+            try {
+                var mapper = new ObjectMapper();
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
+                @SuppressWarnings("unchecked")
+                List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
+                readonly = new ArrayList<>(readonly);
+                readonly.add("bogus-id-not-present");
+                readonly.add(sf.id()); // include non-editable fragment ID
+                obj.put("readonly", readonly);
+                return mapper.writeValueAsString(obj);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ContextHistory loadedLonger = HistoryIo.readZip(longerZip, mockContextManager);
+        var loadedPpf = loadedLonger
+                .getHistory()
+                .getFirst()
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        // Since original readonly list was empty, and we only added ids (including non-editable), ProjectPath remains
+        // not read-only
+        assertFalse(
+                loadedLonger.getHistory().getFirst().isReadOnly(loadedPpf),
+                "Editable fragment should remain not read-only when list contains unknown/non-editable ids only");
+
+        // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
+        // Set readOnly via Context and serialize
+        var ctx2 = new Context(mockContextManager, "ctx-bc2").addPathFragments(List.of(ppf));
+        ctx2 = ctx2.setReadonly(ppf, true);
+        ContextHistory ch2 = new ContextHistory(ctx2);
+        Path marked = tempDir.resolve("bc_marked.zip");
+        HistoryIo.writeZip(ch2, marked);
+
+        // Now remove ID from readonly to simulate shorter list
+        Path shorterZip = tempDir.resolve("bc_shorter.zip");
+        rewriteContextsInZip(marked, shorterZip, line -> {
+            try {
+                var mapper = new ObjectMapper();
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
+                obj.put("readonly", new ArrayList<>()); // clear readonly list
+                return mapper.writeValueAsString(obj);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ContextHistory loadedShorter = HistoryIo.readZip(shorterZip, mockContextManager);
+        var loadedPpf2 = loadedShorter
+                .getHistory()
+                .getFirst()
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .findFirst()
+                .orElseThrow();
+        assertFalse(
+                loadedShorter.getHistory().getFirst().isReadOnly(loadedPpf2),
+                "Editable fragment should default to not read-only when id absent");
+    }
+
+    // Helper: read readonly IDs from contexts.jsonl inside zip
+    @SuppressWarnings("unchecked")
+    private Set<String> readReadonlyIdsFromZip(Path zip) throws IOException {
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if ("contexts.jsonl".equals(entry.getName())) {
+                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String firstLine = content.lines()
+                            .filter(s -> !s.isBlank())
+                            .findFirst()
+                            .orElse("");
+                    if (firstLine.isEmpty()) return Set.of();
+                    var mapper = new ObjectMapper();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
+                    @SuppressWarnings("unchecked")
+                    List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
+                    return new java.util.HashSet<>(readonly);
+                }
+            }
+        }
+        return Set.of();
+    }
+
+    // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
+    @SuppressWarnings("unchecked")
+    private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
+            throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (var zis = new ZipInputStream(Files.newInputStream(source))) {
+            ZipEntry e;
+            while ((e = zis.getNextEntry()) != null) {
+                if (e.getName().equals("contexts.jsonl")) {
+                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    List<String> lines = content.lines().toList();
+                    List<String> transformed = lines.stream()
+                            .filter(s -> !s.isBlank())
+                            .map(transform)
+                            .toList();
+                    String newContent = String.join("\n", transformed) + "\n";
+                    entries.put(e.getName(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } else {
+                    @SuppressWarnings("null")
+                    byte[] bytes = zis.readAllBytes();
+                    entries.put(e.getName(), bytes);
+                }
+            }
+        }
+        try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
+            for (var en : entries.entrySet()) {
+                zos.putNextEntry(new ZipEntry(en.getKey()));
+                zos.write(en.getValue());
+                zos.closeEntry();
+            }
+        }
     }
 }

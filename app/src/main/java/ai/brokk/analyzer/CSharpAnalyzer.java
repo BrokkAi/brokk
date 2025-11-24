@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -51,6 +51,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.C_SHARP, prebuiltState);
     }
 
+    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new CSharpAnalyzer(project, state);
+    }
+
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state) {
         return new CSharpAnalyzer(getProject(), state);
@@ -71,48 +75,35 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        CodeUnit result;
-        try {
-            result = switch (captureName) {
-                case CaptureNames.CLASS_DEFINITION -> {
-                    String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
-                    yield CodeUnit.cls(file, packageName, finalShortName);
-                }
-                case CaptureNames.FUNCTION_DEFINITION -> {
-                    String finalShortName = classChain + "." + simpleName;
-                    yield CodeUnit.fn(file, packageName, finalShortName);
-                }
-                case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                    String finalShortName = classChain + ".<init>";
-                    yield CodeUnit.fn(file, packageName, finalShortName);
-                }
-                case CaptureNames.FIELD_DEFINITION -> {
-                    String finalShortName = classChain + "." + simpleName;
-                    yield CodeUnit.field(file, packageName, finalShortName);
-                }
-                default -> {
-                    log.warn(
-                            "Unhandled capture name in CSharpAnalyzer.createCodeUnit: '{}' for simple name '{}', package '{}', classChain '{}' in file {}. Returning null.",
-                            captureName,
-                            simpleName,
-                            packageName,
-                            classChain,
-                            file);
-                    yield null;
-                }
-            };
-        } catch (Exception e) {
-            log.warn(
-                    "Exception in CSharpAnalyzer.createCodeUnit for capture '{}', name '{}', file '{}', package '{}', classChain '{}': {}",
-                    captureName,
-                    simpleName,
-                    file,
-                    packageName,
-                    classChain,
-                    e.getMessage(),
-                    e);
-            return null;
-        }
+        CodeUnit result =
+                switch (captureName) {
+                    case CaptureNames.CLASS_DEFINITION -> {
+                        String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
+                        yield CodeUnit.cls(file, packageName, finalShortName);
+                    }
+                    case CaptureNames.FUNCTION_DEFINITION -> {
+                        String finalShortName = classChain + "." + simpleName;
+                        yield CodeUnit.fn(file, packageName, finalShortName);
+                    }
+                    case CaptureNames.CONSTRUCTOR_DEFINITION -> {
+                        String finalShortName = classChain + ".<init>";
+                        yield CodeUnit.fn(file, packageName, finalShortName);
+                    }
+                    case CaptureNames.FIELD_DEFINITION -> {
+                        String finalShortName = classChain + "." + simpleName;
+                        yield CodeUnit.field(file, packageName, finalShortName);
+                    }
+                    default -> {
+                        log.warn(
+                                "Unhandled capture name in CSharpAnalyzer.createCodeUnit: '{}' for simple name '{}', package '{}', classChain '{}' in file {}. Returning null.",
+                                captureName,
+                                simpleName,
+                                packageName,
+                                classChain,
+                                file);
+                        yield null;
+                    }
+                };
         log.trace("CSharpAnalyzer.createCodeUnit: returning {}", result);
         return result;
     }

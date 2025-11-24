@@ -53,7 +53,10 @@ public final class GlobalUiSettings {
     private static final String KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS =
             "notifications.cost.geminiFlashLite.enabled";
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
+    private static final String KEY_UI_VERTICAL_ACTIVITY_LAYOUT = "ui.verticalActivityLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
+    private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
+    private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -92,6 +95,47 @@ public final class GlobalUiSettings {
         } catch (IOException e) {
             logger.warn("Failed to save global UI settings: {}", e.getMessage());
         }
+    }
+
+    // Grouped settings records for atomic batch saving
+    public record NotificationSettings(
+            boolean showCost,
+            boolean showFreeInternalLLMCost,
+            boolean showError,
+            boolean showConfirm,
+            boolean showInfo) {
+        public void applyTo(Properties props) {
+            props.setProperty(KEY_SHOW_COST_NOTIFICATIONS, Boolean.toString(showCost));
+            props.setProperty(KEY_SHOW_FREE_INTERNAL_LLM_COST_NOTIFICATIONS, Boolean.toString(showFreeInternalLLMCost));
+            props.setProperty(KEY_SHOW_ERROR_NOTIFICATIONS, Boolean.toString(showError));
+            props.setProperty(KEY_SHOW_CONFIRM_NOTIFICATIONS, Boolean.toString(showConfirm));
+            props.setProperty(KEY_SHOW_INFO_NOTIFICATIONS, Boolean.toString(showInfo));
+        }
+    }
+
+    public record UiPreferences(
+            boolean advancedMode,
+            boolean verticalActivityLayout,
+            boolean persistPerProjectBounds,
+            boolean instructionsTabInsertIndentation,
+            boolean diffUnifiedView) {
+        public void applyTo(Properties props) {
+            props.setProperty(KEY_UI_ADVANCED_MODE, Boolean.toString(advancedMode));
+            props.setProperty(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, Boolean.toString(verticalActivityLayout));
+            props.setProperty(KEY_PERSIST_PER_PROJECT_BOUNDS, Boolean.toString(persistPerProjectBounds));
+            props.setProperty(
+                    KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, Boolean.toString(instructionsTabInsertIndentation));
+            props.setProperty(KEY_DIFF_UNIFIED_VIEW, Boolean.toString(diffUnifiedView));
+        }
+    }
+
+    public static void saveAllUiSettings(NotificationSettings notifications, UiPreferences preferences) {
+        var props = loadProps();
+        notifications.applyTo(props);
+        preferences.applyTo(props);
+        cachedProps = props;
+        saveProps(props);
+        logger.debug("Saved all UI settings atomically");
     }
 
     // --- Keybinding persistence ---
@@ -366,6 +410,14 @@ public final class GlobalUiSettings {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
     }
 
+    public static boolean isVerticalActivityLayout() {
+        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, true);
+    }
+
+    public static void saveVerticalActivityLayout(boolean enabled) {
+        setBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, enabled);
+    }
+
     // Instructions panel preferences
     public static boolean isInstructionsTabInsertIndentation() {
         return getBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, false);
@@ -373,6 +425,23 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
+
+    // Vertical layout split positions (pixels)
+    public static int getVerticalLayoutLeftSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT);
+    }
+
+    public static void saveVerticalLayoutLeftSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_LEFT_SPLIT, px);
+    }
+
+    public static int getVerticalLayoutHorizontalSplitPosition() {
+        return getInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT);
+    }
+
+    public static void saveVerticalLayoutHorizontalSplitPosition(int px) {
+        setInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT, px);
     }
 
     private static int getInt(String key) {

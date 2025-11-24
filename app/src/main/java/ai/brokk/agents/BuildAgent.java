@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -13,6 +12,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.IProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -24,6 +24,7 @@ import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -368,8 +369,9 @@ public class BuildAgent {
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            Set<String> excludedDirectories,
-            @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
+            @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
+            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Map<String, String> environmentVariables) {
 
         @VisibleForTesting
         BuildDetails(
@@ -398,7 +400,9 @@ public class BuildAgent {
         // Check project setting for test scope
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
-            String cmd = details.testAllCommand();
+            String cmd = System.getenv("BRK_TESTALL_CMD") != null
+                    ? System.getenv("BRK_TESTALL_CMD")
+                    : details.testAllCommand();
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
@@ -466,7 +470,9 @@ public class BuildAgent {
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
 
-        String testSomeTemplate = details.testSomeCommand();
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
+                ? System.getenv("BRK_TESTSOME_CMD")
+                : details.testSomeCommand();
 
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
@@ -664,6 +670,10 @@ public class BuildAgent {
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
         if (command.isEmpty()) {
             return command;
+        }
+        // Allow override via environment variable
+        if (System.getenv("BRK_TESTALL_CMD") != null) {
+            command = System.getenv("BRK_TESTALL_CMD");
         }
         String pythonVersion = getPythonVersionForProject(projectRoot);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);

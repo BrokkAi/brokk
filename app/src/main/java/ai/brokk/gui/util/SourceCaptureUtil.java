@@ -22,8 +22,14 @@ public class SourceCaptureUtil {
      * @param contextManager The context manager to submit the task to
      */
     public static void captureSourceForCodeUnit(CodeUnit codeUnit, ContextManager contextManager) {
-        contextManager.submitBackgroundTask(
-                "Capture Source Code", () -> contextManager.sourceCodeForCodeUnit(codeUnit));
+        contextManager.submitBackgroundTask("Capture Source Code", () -> {
+            try {
+                var analyzer = contextManager.getAnalyzer();
+                contextManager.sourceCodeForCodeUnit(analyzer, codeUnit);
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while capturing code unit", e);
+            }
+        });
     }
 
     /**

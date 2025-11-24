@@ -3,7 +3,7 @@ package ai.brokk.github;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;

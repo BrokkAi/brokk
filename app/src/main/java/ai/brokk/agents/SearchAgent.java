@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -200,7 +201,12 @@ public class SearchAgent {
 
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context));
+            // Determine viewing policy based on search objective
+            boolean isLutz = objective == Objective.LUTZ;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            // Build workspace messages in insertion order with viewing policy applied
+            var workspaceMessages =
+                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -232,7 +238,8 @@ public class SearchAgent {
             // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
             var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                globalTerminals.add("createTaskList");
+                globalTerminals.add("createOrReplaceTaskList");
+                globalTerminals.add("appendTaskList");
             }
 
             // Merge allowed names with agent terminals and global terminals
@@ -442,7 +449,7 @@ public class SearchAgent {
             messages.add(new SystemMessage(mcpToolPrompt));
         }
 
-        // Current Workspace contents
+        // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
 
         // Related identifiers from nearby files
@@ -499,8 +506,9 @@ public class SearchAgent {
         if (allowedTerminals.contains(Terminal.TASK_LIST)) {
             finals.add(
                     """
-                    - Use createTaskList(List<String>) when the request involves code changes; produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
-                      Guidance:
+                    - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
+                    - Use appendTaskList(String explanation, List<String> tasks) to add new tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Use this when you want to extend the current task list incrementally.
+                      Guidance for both:
                         - Each task should be self-contained and verifiable via code review or automated tests.
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
@@ -562,7 +570,7 @@ public class SearchAgent {
 
                         You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
                         each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
+                        Final actions (answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
                         If you include a final together with other tools, the final will be ignored for this turn.
                         It is NOT your objective to write code.
 
@@ -584,7 +592,8 @@ public class SearchAgent {
                     <beast-mode>
                     The Workspace is full or execution was interrupted.
                     Finalize now using the best available information.
-                    Prefer answer(String) for informational requests; for code-change requests, provide a concise createTaskList(List<String>) if feasible; otherwise use abortSearch with reasons.
+                    Prefer answer(String) when no code changes are needed.
+                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) when replacing the entire list (completed tasks will be dropped), or appendTaskList(String explanation, List<String> tasks) to add tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
         }
@@ -641,6 +650,9 @@ public class SearchAgent {
             names.add("callMcpTool");
         }
 
+        // Task list tools are exposed only when the objective allows TASK_LIST via globalTerminals.
+        // Do not add them here to avoid exposing them for other objectives.
+
         logger.debug("Allowed tool names: {}", names);
         return names;
     }
@@ -659,7 +671,7 @@ public class SearchAgent {
                 new TerminalObjective(
                         "instructions",
                         """
-                    Deliver a task list using the createTaskList(List<String>) tool.
+                    Deliver a task list using the createOrReplaceTaskList(List<String>) or appendTaskList(List<String>) tool.
                     """);
             case WORKSPACE_ONLY ->
                 new TerminalObjective(
@@ -676,13 +688,13 @@ public class SearchAgent {
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
                       - Prefer callCodeAgent(String) if the requested change is small.
-                      - Otherwise, decompose the problem with createTaskList(List<String>); do not attempt to write code yet.
+                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks) or appendTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """);
         };
     }
 
     private enum ToolCategory {
-        TERMINAL, // answer, createTaskList, workspaceComplete, abortSearch
+        TERMINAL, // answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch
         WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
         RESEARCH // everything else (blocks terminals)
     }
@@ -692,7 +704,8 @@ public class SearchAgent {
             case "answer",
                     "askForClarification",
                     "callCodeAgent",
-                    "createTaskList",
+                    "createOrReplaceTaskList",
+                    "appendTaskList",
                     "workspaceComplete",
                     "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
@@ -727,7 +740,7 @@ public class SearchAgent {
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "callCodeAgent" -> 99;
-            case "createTaskList" -> 100;
+            case "createOrReplaceTaskList", "appendTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;
@@ -779,8 +792,9 @@ public class SearchAgent {
                 """);
         messages.add(sys);
 
-        // Current Workspace contents
-        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(context));
+        // Current Workspace contents (use default viewing policy)
+        messages.addAll(
+                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -802,7 +816,7 @@ public class SearchAgent {
      * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      */
-    public void scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
@@ -816,11 +830,11 @@ public class SearchAgent {
         var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
 
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.CUSTOM);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
             context = scope.append(contextAgentResult);
-            return;
+            return context;
         }
 
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -830,8 +844,9 @@ public class SearchAgent {
             var summaries = ContextFragment.describe(recommendation.fragments());
             context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
                     cm,
-                    summaries,
-                    "Summary of Scan Results",
+                    "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
+                            + summaries,
+                    "Summary of ContextAgent Findings",
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
@@ -853,10 +868,11 @@ public class SearchAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = scope.append(contextAgentResult);
+        return context;
     }
 
-    public void scanInitialContext() throws InterruptedException {
-        scanInitialContext(cm.getService().getScanModel());
+    public Context scanInitialContext() throws InterruptedException {
+        return scanInitialContext(cm.getService().getScanModel());
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {

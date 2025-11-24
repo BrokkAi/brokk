@@ -2,13 +2,13 @@ package ai.brokk.testutil;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.IProject;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;

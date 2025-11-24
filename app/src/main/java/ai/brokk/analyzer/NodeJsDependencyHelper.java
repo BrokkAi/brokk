@@ -2,11 +2,11 @@ package ai.brokk.analyzer;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -164,7 +164,7 @@ public final class NodeJsDependencyHelper {
                             "NPM package copied to " + targetRoot + ". Reopen project to incorporate the new files.");
                     if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (Exception ex) {
+            } catch (IOException ex) {
                 logger.error(
                         "Error copying NPM package {} from {} to {}", pkg.displayName(), sourceRoot, targetRoot, ex);
                 SwingUtilities.invokeLater(
@@ -316,7 +316,7 @@ public final class NodeJsDependencyHelper {
         try {
             if (!Files.isRegularFile(pkgJsonPath)) return null;
             return MAPPER.readValue(Files.readString(pkgJsonPath), NodePackage.class);
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.debug("Failed to read package.json at {}: {}", pkgJsonPath, e.toString());
             return null;
         }

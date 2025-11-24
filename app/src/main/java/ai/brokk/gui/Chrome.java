@@ -4,13 +4,10 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
-import ai.brokk.AbstractProject;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ExternalFile;
@@ -25,7 +22,6 @@ import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
-import ai.brokk.gui.git.*;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
@@ -49,6 +45,8 @@ import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -271,6 +269,8 @@ public class Chrome
     // Reference to the small header panel placed above the right tab stack (holds branch selector).
     // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
     private @Nullable JPanel rightTabbedHeader = null;
+    // Combined panel used when Vertical Activity Layout is enabled (Activity above Instructions | Output on the right)
+    private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
     /**
      * Default constructor sets up the UI.
@@ -707,10 +707,14 @@ public class Chrome
 
         // Listen for focus changes to update action states and track relevant focus
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
+            Component oldFocusOwner = (Component) evt.getOldValue();
             Component newFocusOwner = (Component) evt.getNewValue();
+
+            // Apply global focus highlighting
+            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
+
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
-                historyOutputPanel.getLlmStreamArea();
                 if (historyOutputPanel.getHistoryTable() != null) {
                     if (newFocusOwner == instructionsPanel.getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
@@ -733,7 +737,6 @@ public class Chrome
 
         // Listen for context changes and analyzer events
         contextManager.addContextListener(this);
-        contextManager.addAnalyzerCallback(this);
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
@@ -741,8 +744,31 @@ public class Chrome
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
 
+        // Set up focus traversal with individual components for granular navigation
+        var focusOrder = List.<Component>of(
+                instructionsPanel.getInstructionsArea(),
+                instructionsPanel.getModelSelectorComponent(),
+                instructionsPanel.getMicButton(),
+                instructionsPanel.getWandButton(),
+                instructionsPanel.getHistoryDropdown(),
+                taskListPanel.getGoStopButton(),
+                taskListPanel.getTaskInput(),
+                taskListPanel.getTaskList(),
+                projectFilesPanel.getSearchField(),
+                projectFilesPanel.getRefreshButton(),
+                projectFilesPanel.getProjectTree(),
+                dependenciesPanel.getDependencyTable(),
+                dependenciesPanel.getAddButton(),
+                dependenciesPanel.getRemoveButton(),
+                historyOutputPanel.getHistoryTable(),
+                historyOutputPanel.getLlmStreamArea());
+        frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
+        frame.setFocusCycleRoot(true);
+        frame.setFocusTraversalPolicyProvider(true);
+
         // Complete all layout operations synchronously before showing window
         completeLayoutSynchronously();
+        applyVerticalActivityLayout();
 
         // Final validation and repaint before making window visible
         frame.validate();
@@ -751,6 +777,7 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
+            instructionsPanel.applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
@@ -964,6 +991,7 @@ public class Chrome
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
+            taskListPanel.contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
@@ -1161,6 +1189,14 @@ public class Chrome
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.updatePanel();
+
+        // Ensure the Changes tab reflects the current repo/branch state
+        try {
+            historyOutputPanel.refreshBranchDiffPanel();
+        } catch (Exception ex) {
+            logger.debug("Unable to refresh Changes tab after repo update", ex);
+        }
+
         logger.trace("updateGitRepo: finished");
     }
 
@@ -1270,23 +1306,29 @@ public class Chrome
             }
         });
 
-        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable)
-        KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
-                "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
-        bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
-        rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
+        // Cmd/Ctrl+M => toggle Code/Answer mode (configurable; only in Advanced Mode)
+        if (GlobalUiSettings.isAdvancedMode()) {
+            KeyStroke toggleModeKeyStroke = GlobalUiSettings.getKeybinding(
+                    "instructions.toggleMode", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M));
+            bindKey(rootPane, toggleModeKeyStroke, "toggleCodeAnswer");
+            rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    // Defensive guard: protects against race conditions during live mode switching.
+                    // Even though this binding is only registered in Advanced Mode, refreshKeybindings()
+                    // might have a timing window where the old binding is still active after switching to EZ mode.
+                    if (!GlobalUiSettings.isAdvancedMode()) {
+                        return;
+                    }
                     try {
                         instructionsPanel.toggleCodeAnswerMode();
                         showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
                     }
-                });
-            }
-        });
+                }
+            });
+        }
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
         KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1459,6 +1501,29 @@ public class Chrome
             }
         });
 
+        // Workspace actions
+        // Ctrl/Cmd+Shift+I => attach context (add content to workspace)
+        KeyStroke attachContextKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachContext", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I));
+        bindKey(rootPane, attachContextKeyStroke, "attachContext");
+        rootPane.getActionMap().put("attachContext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+            }
+        });
+
+        // Ctrl+I => attach files and summarize
+        KeyStroke attachFilesAndSummarizeKeyStroke = GlobalUiSettings.getKeybinding(
+                "workspace.attachFilesAndSummarize", KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK));
+        bindKey(rootPane, attachFilesAndSummarizeKeyStroke, "attachFilesAndSummarize");
+        rootPane.getActionMap().put("attachFilesAndSummarize", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog(true));
+            }
+        });
+
         // Zoom shortcuts: read from global settings (defaults preserved)
         KeyStroke zoomInKeyStroke = GlobalUiSettings.getKeybinding(
                 "view.zoomIn",
@@ -1521,8 +1586,18 @@ public class Chrome
     }
 
     /**
-     * Re-registers global keyboard shortcuts from current GlobalUiSettings.
+     * Applies advanced mode to the instructions panel with consistent error handling.
+     * Centralized helper to avoid duplication and ensure uniform logging.
      */
+    private void applyAdvancedModeToInstructionsSafely(boolean advanced) {
+        try {
+            instructionsPanel.applyAdvancedModeForInstructions(advanced);
+        } catch (Exception ex) {
+            logger.warn("Failed to apply advanced mode to instructions panel", ex);
+        }
+    }
+
+    /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
     public void refreshKeybindings() {
         // Unregister and re-register by rebuilding the maps for the keys we manage
         var rootPane = frame.getRootPane();
@@ -1636,6 +1711,9 @@ public class Chrome
         if (!openPreviewFiles.isEmpty()) {
             refreshPreviewsForFiles(openPreviewFiles);
         }
+
+        // Also refresh the Review tab to show updated changes
+        historyOutputPanel.refreshBranchDiffPanel();
     }
 
     /**
@@ -1925,16 +2003,17 @@ public class Chrome
      * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
      */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
+        // Prefer stable file-based keys when a ProjectFile is present on the preview component
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
-            // For file previews with an actual file, use file-based key
-            if (title.startsWith("Preview: ")) {
-                return "file:" + title.substring(9); // Remove "Preview: " prefix
-            } else {
-                return "file:" + title;
+            return "file:" + textPanel.getFile().toString();
+        }
+        if (contentComponent instanceof PreviewImagePanel imagePanel) {
+            var bf = imagePanel.getFile();
+            if (bf instanceof ProjectFile pf) {
+                return "file:" + pf.toString();
             }
         }
-        // For fragment previews (no file) or other content types, use title-based key
-        // This ensures placeholder and final content generate the same key for window reuse
+        // Fallback: title-based key for non-file content
         return "preview:" + title;
     }
 
@@ -1978,7 +2057,7 @@ public class Chrome
         int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         if (projectFilesTabIndex != -1) {
             leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
-            SwingUtilities.invokeLater(() -> projectFilesPanel.toggleDependencies());
+            SwingUtilities.invokeLater(projectFilesPanel::toggleDependencies);
         }
     }
 
@@ -2120,6 +2199,10 @@ public class Chrome
      * Opens an in-place preview of a context fragment without blocking on the EDT.
      * Uses non-blocking computed accessors when available; otherwise renders placeholders and
      * loads the actual values off-EDT, then updates the UI on the EDT.
+     *
+     * <p><b>Unified Entry Point:</b> This is the single entry point for all fragment preview operations
+     * across the application. All preview requests—whether from WorkspacePanel chips, TokenUsageBar segments,
+     * or other UI components—must route through this method to ensure consistent behavior, titles, and content.
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
@@ -2181,8 +2264,31 @@ public class Chrome
                 return;
             }
 
-            // Non-computed virtual fragment: show placeholder and load in background
-            previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            // 6. Everything else (virtual fragments, skeletons, etc.)
+            if (fragment instanceof ContextFragment.StringFragment sf) {
+                String previewText = sf.previewText();
+                String previewStyle = sf.previewSyntaxStyle();
+
+                if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(previewStyle)) {
+                    var markdownPanel = MarkdownOutputPool.instance().borrow();
+                    markdownPanel.updateTheme(MainProject.getTheme());
+                    markdownPanel.setText(List.of(Messages.customSystem(previewText)));
+
+                    // Use shared utility method to create searchable content panel without scroll pane
+                    JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+
+                    showPreviewFrame(contextManager, initialTitle, previewContentPanel);
+                } else {
+                    var previewPanel =
+                            new PreviewTextPanel(contextManager, null, previewText, previewStyle, themeManager, sf);
+                    showPreviewFrame(contextManager, initialTitle, previewPanel);
+                }
+                // Update title asynchronously if needed (for computed descriptions)
+                updateDescriptionAsync(initialTitle, null, computedDescNow, sf);
+            } else {
+                // Non-computed virtual fragment: show placeholder and load in background
+                previewVirtualFragment(fragment, initialTitle, computedDescNow);
+            }
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
@@ -2292,8 +2398,20 @@ public class Chrome
     private void previewPathFragment(
             ContextFragment.PathFragment pf, String initialTitle, @Nullable String computedDescNow) {
         var brokkFile = pf.file();
-        var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, pf);
+
+        // Use the same ProjectFile for the placeholder panel to ensure the same reuse key
+        ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p) ? p : null;
+
+        // Use the best-available syntax style even for the placeholder (helps early highlight)
+        String placeholderStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+        if (brokkFile instanceof ProjectFile p) {
+            placeholderStyle = p.getSyntaxStyle();
+        } else if (brokkFile instanceof ExternalFile ef) {
+            placeholderStyle = ef.getSyntaxStyle();
+        }
+
+        var placeholder =
+                new PreviewTextPanel(contextManager, placeholderFile, "Loading...", placeholderStyle, themeManager, pf);
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {
@@ -2536,7 +2654,7 @@ public class Chrome
             var globalBounds = GlobalUiSettings.getMainWindowBounds();
             if (globalBounds.width > 0 && globalBounds.height > 0) {
                 // Calculate progressive DPI-aware offset based on number of open instances
-                int instanceCount = Math.max(0, openInstances.size()); // this instance not yet added
+                int instanceCount = openInstances.size(); // this instance not yet added
                 int step = UIScale.scale(20); // gentle, DPI-aware cascade step
                 int offsetX = globalBounds.x + (step * instanceCount);
                 int offsetY = globalBounds.y + (step * instanceCount);
@@ -3094,16 +3212,26 @@ public class Chrome
         return terminalDrawer;
     }
 
+    public JTabbedPane getRightTabbedPanel() {
+        return rightTabbedPanel;
+    }
+
     public void updateTerminalFontSize() {}
 
     /**
      * Hook to apply Advanced Mode UI visibility without restart.
      * Shows/hides tabs that are considered "advanced": Pull Requests, Issues, Log, Worktrees.
+     * Centralizes calls to update Instructions panel mode UI and refresh keybindings to avoid duplication.
      * Safe to call from any thread.
      */
     public void applyAdvancedModeVisibility() {
         Runnable r = () -> {
             boolean advanced = GlobalUiSettings.isAdvancedMode();
+
+            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
+            // Centralized here to avoid duplication in settings dialog and elsewhere
+            applyAdvancedModeToInstructionsSafely(advanced);
+
             // Ensure the small header above the right tab stack is updated immediately.
             try {
                 if (rightTabbedHeader != null) {
@@ -3306,6 +3434,14 @@ public class Chrome
             } catch (Exception ex) {
                 logger.debug("Failed to update rightTabbedHeader visibility", ex);
             }
+
+            // Refresh keybindings once after all UI updates to update toggle-mode shortcut
+            // Centralized here to ensure consistency and avoid duplicate calls
+            try {
+                refreshKeybindings();
+            } catch (Exception ex) {
+                logger.debug("Failed to refresh keybindings after advanced-mode toggle", ex);
+            }
         };
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -3315,15 +3451,149 @@ public class Chrome
         }
     }
 
-    /**
-     * Brings the Task List to the front and triggers a refresh via its SHOWING listener. Safe to call from any thread.
-     */
-    public void refreshTaskListUI() {
-        refreshTaskListUI(true, Set.of());
-    }
+    public void applyVerticalActivityLayout() {
+        Runnable task = () -> {
+            if (rightTabbedContainer == null) {
+                return;
+            }
 
-    public void refreshTaskListUI(boolean triggerAutoPlay) {
-        refreshTaskListUI(triggerAutoPlay, Set.of());
+            boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
+            var activityTabs = historyOutputPanel.getActivityTabs();
+            var outputTabs = historyOutputPanel.getOutputTabs();
+            var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
+            var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
+            outputTabsContainer.setVisible(!enabled);
+
+            if (enabled) {
+                if (verticalActivityCombinedPanel != null
+                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
+                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
+                } else {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+
+                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(null);
+                    }
+
+                    // Create top-left composite: Session header above Activity tabs
+                    var leftTopPanel = new JPanel(new BorderLayout());
+                    leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
+                    leftTopPanel.add(activityTabs, BorderLayout.CENTER);
+
+                    // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
+                    var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+                    leftSplitPane.setTopComponent(leftTopPanel);
+                    leftSplitPane.setBottomComponent(rightTabbedContainer);
+                    leftSplitPane.setResizeWeight(0.4);
+
+                    // Restore saved position or use default
+                    int savedLeftPos = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+                    if (savedLeftPos > 0) {
+                        leftSplitPane.setDividerLocation(savedLeftPos);
+                    } else {
+                        leftSplitPane.setDividerLocation(0.4);
+                    }
+
+                    // Add listener to save position changes
+                    leftSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (leftSplitPane.isShowing()) {
+                            int newPos = leftSplitPane.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    // Create horizontal split: left split pane | output tabs
+                    var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+                    verticalSplit.setLeftComponent(leftSplitPane);
+                    if (outputTabs != null) {
+                        verticalSplit.setRightComponent(outputTabs);
+                    }
+                    verticalSplit.setResizeWeight(0.5);
+
+                    // Restore saved position or use default
+                    int savedHorizPos = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+                    if (savedHorizPos > 0) {
+                        verticalSplit.setDividerLocation(savedHorizPos);
+                    } else {
+                        verticalSplit.setDividerLocation(0.5);
+                    }
+
+                    // Add listener to save position changes
+                    verticalSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                        if (verticalSplit.isShowing()) {
+                            int newPos = verticalSplit.getDividerLocation();
+                            if (newPos > 0) {
+                                GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
+                            }
+                        }
+                    });
+
+                    verticalActivityCombinedPanel = verticalSplit;
+                    bottomSplitPane.setRightComponent(verticalSplit);
+
+                    // Ensure the capture/notification bar under Output maintains fixed sizing in vertical layout
+                    historyOutputPanel.applyFixedCaptureBarSizing(true);
+
+                    verticalSplit.revalidate();
+                    verticalSplit.repaint();
+                }
+            } else {
+                if (verticalActivityCombinedPanel != null) {
+                    detachFromParent(activityTabs);
+                    if (outputTabs != null) {
+                        detachFromParent(outputTabs);
+                    }
+                    detachFromParent(rightTabbedContainer);
+
+                    // Return to standard layout; the bar sizing is already correct there.
+                    historyOutputPanel.applyFixedCaptureBarSizing(false);
+
+                    if (activityTabs.getParent() != activityTabsContainer) {
+                        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
+                    }
+                    if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
+                        outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
+                    }
+                    if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
+                        topSplitPane.setBottomComponent(rightTabbedContainer);
+                    }
+                    // Restore session header back to HistoryOutputPanel's top
+                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
+                    detachFromParent(sessionHeader);
+                    historyOutputPanel.add(sessionHeader, BorderLayout.NORTH);
+
+                    verticalActivityCombinedPanel = null;
+                }
+                bottomSplitPane.setRightComponent(mainVerticalSplitPane);
+            }
+
+            activityTabsContainer.revalidate();
+            activityTabsContainer.repaint();
+            outputTabsContainer.revalidate();
+            outputTabsContainer.repaint();
+            topSplitPane.revalidate();
+            topSplitPane.repaint();
+            mainVerticalSplitPane.revalidate();
+            mainVerticalSplitPane.repaint();
+            bottomSplitPane.revalidate();
+            bottomSplitPane.repaint();
+            frame.revalidate();
+            frame.repaint();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     public void refreshTaskListUI(boolean triggerAutoPlay, Set<String> preExistingIncompleteTasks) {
@@ -3605,16 +3875,14 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
-            VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
@@ -4129,10 +4397,191 @@ public class Chrome
         return analyzerStatusStrip;
     }
 
+    private static void detachFromParent(Component component) {
+        Container parent = component.getParent();
+        if (parent != null) {
+            parent.remove(component);
+            parent.revalidate();
+            parent.repaint();
+        }
+    }
+
     @Override
     public BlitzForge.Listener getBlitzForgeListener(Runnable cancelCallback) {
         var dialog = requireNonNull(SwingUtil.runOnEdt(() -> new BlitzForgeProgressDialog(this, cancelCallback), null));
         SwingUtilities.invokeLater(() -> dialog.setVisible(true));
         return dialog;
+    }
+
+    private static class ChromeFocusTraversalPolicy extends java.awt.FocusTraversalPolicy {
+        private final java.util.List<java.awt.Component> order;
+
+        public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
+            this.order = order.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toList());
+        }
+
+        private int getIndex(java.awt.Component c) {
+            // Find component or one of its ancestors in the order list
+            for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
+                int i = order.indexOf(comp);
+                if (i != -1) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * Returns true if the component should be included in focus traversal.
+         * The Instructions area is skipped when "tab inserts indentation" is enabled,
+         * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
+         */
+        private boolean shouldIncludeInTraversal(java.awt.Component comp) {
+            if (!comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
+                return false;
+            }
+            // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
+            if (comp instanceof javax.swing.JTextArea textArea) {
+                // Check if this is the instructions area by name or other property
+                if ("instructionsArea".equals(textArea.getName())
+                        && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            if (order.isEmpty()) return aComponent;
+            int idx = getIndex(aComponent);
+            if (idx == -1) {
+                return getFirstComponent(focusCycleRoot);
+            }
+            for (int i = 1; i <= order.size(); i++) {
+                int nextIdx = (idx + i) % order.size();
+                java.awt.Component nextComp = order.get(nextIdx);
+                if (shouldIncludeInTraversal(nextComp)) {
+                    return nextComp;
+                }
+            }
+            return aComponent;
+        }
+
+        @Override
+        public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+            if (order.isEmpty()) return aComponent;
+            int idx = getIndex(aComponent);
+            if (idx == -1) {
+                return getLastComponent(focusCycleRoot);
+            }
+            for (int i = 1; i <= order.size(); i++) {
+                int prevIdx = (idx - i + order.size()) % order.size();
+                java.awt.Component prevComp = order.get(prevIdx);
+                if (shouldIncludeInTraversal(prevComp)) {
+                    return prevComp;
+                }
+            }
+            return aComponent;
+        }
+
+        @Override
+        public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
+            if (order.isEmpty()) return focusCycleRoot;
+            for (int i = 0; i < order.size(); i++) {
+                java.awt.Component comp = order.get(i);
+                if (shouldIncludeInTraversal(comp)) {
+                    return comp;
+                }
+            }
+            return focusCycleRoot;
+        }
+
+        @Override
+        public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
+            if (order.isEmpty()) return focusCycleRoot;
+            for (int i = order.size() - 1; i >= 0; i--) {
+                java.awt.Component comp = order.get(i);
+                if (shouldIncludeInTraversal(comp)) {
+                    return comp;
+                }
+            }
+            return focusCycleRoot;
+        }
+
+        @Override
+        public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
+            return getFirstComponent(focusCycleRoot);
+        }
+    }
+
+    // Global focus highlighting mechanism
+    private static final Color FOCUS_BORDER_COLOR = new Color(0x1F6FEB); // Blue focus color
+
+    private void applyFocusHighlighting(@Nullable Component oldFocus, @Nullable Component newFocus) {
+        // Remove highlighting from old component
+        if (oldFocus != null && oldFocus != newFocus) {
+            removeFocusHighlight(oldFocus);
+        }
+
+        // Apply highlighting to new component
+        if (newFocus != null && shouldHighlightComponent(newFocus)) {
+            applyFocusHighlight(newFocus);
+        }
+    }
+
+    private boolean shouldHighlightComponent(Component component) {
+        // Only highlight components that are part of our focus traversal policy
+        if (!component.isFocusable()) {
+            return false;
+        }
+
+        // Check if component is one of our main navigable components
+        return component == instructionsPanel.getInstructionsArea()
+                || component == instructionsPanel.getMicButton()
+                || component == instructionsPanel.getWandButton()
+                || component == instructionsPanel.getHistoryDropdown()
+                || component == instructionsPanel.getModelSelectorComponent()
+                || component == projectFilesPanel.getSearchField()
+                || component == projectFilesPanel.getRefreshButton()
+                || component == projectFilesPanel.getProjectTree()
+                || component == dependenciesPanel.getDependencyTable()
+                || component == dependenciesPanel.getAddButton()
+                || component == dependenciesPanel.getRemoveButton()
+                || component == taskListPanel.getTaskInput()
+                || component == taskListPanel.getGoStopButton()
+                || component == taskListPanel.getTaskList()
+                || component == historyOutputPanel.getHistoryTable()
+                || component == historyOutputPanel.getLlmStreamArea();
+    }
+
+    private void applyFocusHighlight(Component component) {
+        if (component instanceof JComponent jcomp) {
+            // Store original border if not already stored
+            if (jcomp.getClientProperty("originalBorder") == null) {
+                jcomp.putClientProperty("originalBorder", jcomp.getBorder());
+            }
+
+            // Apply focus border
+            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var focusBorder = BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2);
+
+            if (originalBorder != null) {
+                jcomp.setBorder(BorderFactory.createCompoundBorder(focusBorder, originalBorder));
+            } else {
+                jcomp.setBorder(focusBorder);
+            }
+
+            jcomp.repaint();
+        }
+    }
+
+    private void removeFocusHighlight(Component component) {
+        if (component instanceof JComponent jcomp) {
+            // Restore original border
+            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            jcomp.setBorder(originalBorder);
+            jcomp.repaint();
+        }
     }
 }

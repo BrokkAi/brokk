@@ -561,6 +561,66 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testGetDefinitionUsesSignatureForOverloads() {
+        var duplicatesFile = testProject.getAllFiles().stream()
+                .filter(file -> file.absPath().toString().endsWith("simple_overloads.h"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("simple_overloads.h not found"));
+
+        var declarations = analyzer.getDeclarations(duplicatesFile);
+        var overloads = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("overloadedFunction"))
+                .collect(Collectors.toList());
+
+        assertEquals(3, overloads.size(), "Precondition: expected 3 overloadedFunction declarations");
+
+        // getDefinitions returns all overloads from all files; filter to just this file
+        var allDefs = analyzer.getDefinitions("overloadedFunction").stream()
+                .filter(cu -> cu.source().equals(duplicatesFile))
+                .toList();
+        assertEquals(3, allDefs.size(), "Should return all 3 overloads from simple_overloads.h");
+
+        var intDef =
+                allDefs.stream().filter(cu -> "(int)".equals(cu.signature())).findFirst();
+        assertTrue(intDef.isPresent(), "Should find (int) overload");
+        assertEquals("overloadedFunction", intDef.get().fqName());
+
+        var doubleDef =
+                allDefs.stream().filter(cu -> "(double)".equals(cu.signature())).findFirst();
+        assertTrue(doubleDef.isPresent(), "Should find (double) overload");
+
+        var twoIntsDef = allDefs.stream()
+                .filter(cu -> "(int,int)".equals(cu.signature()))
+                .findFirst();
+        assertTrue(twoIntsDef.isPresent(), "Should find (int,int) overload");
+    }
+
+    @Test
+    public void testAutocompleteDefinitionsPreservesOverloads() {
+        var results = analyzer.autocompleteDefinitions("overloadedFunction");
+
+        var overloads = results.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> getBaseFunctionName(cu).equals("overloadedFunction"))
+                .collect(Collectors.toList());
+
+        logger.debug("autocompleteDefinitions returned {} overloads", overloads.size());
+        overloads.forEach(cu -> logger.debug("  - {} signature={} file={}", cu.fqName(), cu.signature(), cu.source()));
+
+        // 6 overloads: 3 in simple_overloads.h + 3 in duplicates.h
+        assertEquals(6, overloads.size(), "autocompleteDefinitions should return all 6 overloads from both files");
+
+        var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
+
+        // Should have 3 unique signatures
+        assertEquals(3, signatures.size(), "Should have 3 unique signatures");
+        assertTrue(signatures.contains("(int)"), "Should include (int) overload");
+        assertTrue(signatures.contains("(double)"), "Should include (double) overload");
+        assertTrue(signatures.contains("(int,int)"), "Should include (int,int) overload");
+    }
+
+    @Test
     public void testAnonymousStructHandling() {
         // Test that anonymous structs/classes don't generate warnings
         var advancedFile = testProject.getAllFiles().stream()

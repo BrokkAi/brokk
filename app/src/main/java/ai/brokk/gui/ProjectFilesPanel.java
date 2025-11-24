@@ -2,13 +2,13 @@ package ai.brokk.gui;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.IProject;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -370,6 +370,19 @@ public class ProjectFilesPanel extends JPanel {
     /** Updates the panel to reflect the current project state, including branch name in title. */
     public void updatePanel() {
         refreshProjectFiles();
+    }
+
+    // Public getters for focus traversal policy
+    public JTextField getSearchField() {
+        return searchField;
+    }
+
+    public MaterialButton getRefreshButton() {
+        return refreshButton;
+    }
+
+    public ProjectTree getProjectTree() {
+        return projectTree;
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {

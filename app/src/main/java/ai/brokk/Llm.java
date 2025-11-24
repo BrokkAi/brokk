@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.project.AbstractProject;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;

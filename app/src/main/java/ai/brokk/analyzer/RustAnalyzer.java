@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -46,6 +46,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     private RustAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.RUST, state);
+    }
+
+    public static RustAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new RustAnalyzer(project, state);
     }
 
     @Override

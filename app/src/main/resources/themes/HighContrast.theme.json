@@ -772,6 +772,7 @@
       "diff_deleted_fg": "#FF3633",
 
       "search_highlight": "#FFD333",
+      "search_highlight_text": "#000000",
       "search_current": "#F58231",
 
       "chip_edit_bg": "#1AEBFF",
@@ -786,10 +787,13 @@
       "chip_other_bg": "#0066FF",
       "chip_other_fg": "#FFFFFF",
       "chip_other_border": "#00FFFF",
+      "chip_tasklist_bg": "#004D66",
+      "chip_tasklist_fg": "#00EAFF",
+      "chip_tasklist_border": "#00FFFF",
 
       "action_button_bg_default": "#3333FF",
       "action_button_bg_stop": "#FF3633",
-      
+
       "windowBorder": {
         "enabled": true,
         "color": "#E6E6E6",

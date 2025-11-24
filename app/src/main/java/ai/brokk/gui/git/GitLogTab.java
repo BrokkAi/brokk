@@ -1001,6 +1001,13 @@ public class GitLogTab extends JPanel implements ThemeAware {
     private void refreshAllGitUi(String branchName) {
         chrome.updateGitRepo();
         chrome.getInstructionsPanel().refreshBranchUi(branchName);
+
+        // Also refresh the Changes tab to reflect the new branch's diff
+        try {
+            chrome.getHistoryOutputPanel().refreshBranchDiffPanel();
+        } catch (Exception ex) {
+            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
+        }
     }
 
     private GitRepo getRepo() {

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -17,6 +17,10 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     private ScalaAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.SCALA, state);
+    }
+
+    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new ScalaAnalyzer(project, state);
     }
 
     @Override

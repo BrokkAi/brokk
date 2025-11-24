@@ -4,12 +4,13 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
@@ -358,6 +360,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             needsRebuild = false;
         }
 
+        // Persist analyzer snapshots by language (best-effort)
+        try {
+            persistAnalyzerState(analyzer);
+        } catch (Throwable t) {
+            logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
+        }
+
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
             logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
@@ -477,6 +486,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             }
             // The function is supplied the current analyzer (may be null).
             currentAnalyzer = fn.apply(currentAnalyzer);
+
+            // Persist analyzer snapshots by language (best-effort)
+            try {
+                persistAnalyzerState(currentAnalyzer);
+            } catch (Throwable t) {
+                logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
+            }
+
             logger.debug("Analyzer refresh completed.");
             if (listener != null) {
                 boolean isNowReady = (currentAnalyzer != null);
@@ -497,6 +514,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     /** Get the analyzer, showing a spinner UI while waiting if requested. */
     @Override
+    @Blocking
     public IAnalyzer get() throws InterruptedException {
         // Prevent calling blocking get() from the EDT.
         if (SwingUtilities.isEventDispatchThread()) {
@@ -570,6 +588,29 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
         } catch (Throwable th) {
             logger.debug("Exception while shutting down analyzerExecutor: {}", th.getMessage());
+        }
+    }
+
+    /**
+     * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
+     */
+    private void persistAnalyzerState(IAnalyzer analyzer) {
+
+        var langs = analyzer.languages();
+        if (langs.isEmpty()) {
+            logger.trace(
+                    "No languages to persist for analyzer: {}",
+                    analyzer.getClass().getSimpleName());
+            return;
+        }
+
+        for (var lang : langs) {
+            try {
+                var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
+                lang.saveAnalyzer(sub, project);
+            } catch (Throwable t) {
+                logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
+            }
         }
     }
 }

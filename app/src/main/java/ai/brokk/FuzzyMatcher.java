@@ -4,7 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.util.FList;
 import ai.brokk.util.FuzzyMatcherUtil;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -207,6 +209,22 @@ public class FuzzyMatcher {
         // Invert the score: Higher internal degree means better match, so return a smaller number.
         // Use negative degree for simplicity and clarity that lower is better, matching test expectations.
         return -degree;
+    }
+
+    /**
+     * Returns the matching fragments (text ranges) for highlighting purposes.
+     * Returns null if no match, empty list for empty pattern matching empty string.
+     *
+     * @param name The text to find matches in.
+     * @return List of TextRange objects indicating matched portions, or null if no match.
+     */
+    @Nullable
+    public List<TextRange> getMatchingFragments(String name) {
+        var fragments = matchingFragments(name);
+        if (fragments == null) {
+            return null;
+        }
+        return new ArrayList<>(fragments);
     }
 
     /**

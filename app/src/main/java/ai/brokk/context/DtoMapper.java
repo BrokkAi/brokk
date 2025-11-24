@@ -60,7 +60,7 @@ public class DtoMapper {
         var readonlyFragments = dto.readonly().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toSet());
 
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
@@ -119,19 +119,65 @@ public class DtoMapper {
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
-                        Streams.concat(editableFragments.stream(), readonlyFragments.stream()),
-                        virtualFragments.stream().map(v -> (ContextFragment) v))
+                        editableFragments.stream(), virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
         UUID groupUuid = null;
         if (dto.groupId() != null && !dto.groupId().isEmpty()) {
             groupUuid = UUID.fromString(dto.groupId());
         }
+
         return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, groupUuid, dto.groupLabel());
+                ctxId,
+                mgr,
+                combined,
+                taskHistory,
+                parsedOutputFragment,
+                actionFuture,
+                groupUuid,
+                dto.groupLabel(),
+                readonlyFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
+
+    /**
+     * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
+     */
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+        var taskEntryRefs = ctx.getTaskHistory().stream()
+                .map(te -> {
+                    String type = te.meta() != null ? te.meta().type().name() : null;
+                    String pmName = te.meta() != null ? te.meta().primaryModel().name() : null;
+                    String pmReason = te.meta() != null
+                            ? te.meta().primaryModel().reasoning().name()
+                            : null;
+                    return new TaskEntryRefDto(
+                            te.sequence(),
+                            te.log() != null ? te.log().id() : null,
+                            te.summary() != null ? writer.writeContent(te.summary(), null) : null,
+                            type,
+                            pmName,
+                            pmReason);
+                })
+                .toList();
+
+        var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
+        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
+        var readonlyIds =
+                ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+
+        return new CompactContextDto(
+                ctx.id().toString(),
+                editableIds,
+                readonlyIds,
+                virtualIds,
+                taskEntryRefs,
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
+                action,
+                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
+                ctx.getGroupLabel());
+    }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
     public static @Nullable ContextFragment resolveAndBuildFragment(
@@ -335,8 +381,8 @@ public class DtoMapper {
                         bfDto.id(),
                         mgr,
                         text,
-                        ContextFragment.BUILD_RESULTS.description(),
-                        ContextFragment.BUILD_RESULTS.syntaxStyle());
+                        SpecialTextType.BUILD_RESULTS.description(),
+                        SpecialTextType.BUILD_RESULTS.syntaxStyle());
             }
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
@@ -512,9 +558,27 @@ public class DtoMapper {
         return new TaskFragmentDto(fragment.id(), messagesDto, fragment.description());
     }
 
-    private static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
-        String contentId = writer.writeContent(Messages.getRepr(message), null);
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
+    static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
+        String reasoningContentId = null;
+        String contentId;
+
+        if (message instanceof AiMessage aiMessage) {
+            // For AiMessage, store text and reasoning separately
+            String text = aiMessage.text();
+            String reasoning = aiMessage.reasoningContent();
+
+            contentId = writer.writeContent(text != null ? text : "", null);
+
+            if (reasoning != null && !reasoning.isBlank()) {
+                reasoningContentId = writer.writeContent(reasoning, null);
+            }
+        } else {
+            // For other message types, use the display representation
+            contentId = writer.writeContent(Messages.getRepr(message), null);
+        }
+
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -523,11 +587,20 @@ public class DtoMapper {
         return mgr.toFile(dto.relPath());
     }
 
-    private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+    static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
         String content = reader.readContent(dto.contentId());
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
-            case "ai" -> AiMessage.from(content);
+            case "ai" -> {
+                // Prefer structured reasoningContentId if available
+                if (dto.reasoningContentId() != null) {
+                    String reasoning = reader.readContent(dto.reasoningContentId());
+                    yield new AiMessage(content, reasoning);
+                }
+                // Graceful degrade: treat entire content as text when reasoningContentId is absent
+                yield new AiMessage(content);
+            }
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };

@@ -39,8 +39,8 @@ class RustAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinition("foo").isPresent());
-        assertTrue(analyzer.getDefinition("bar").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("bar").stream().findFirst().isEmpty());
 
         new ProjectFile(project.getRoot(), "lib.rs")
                 .write(
@@ -52,7 +52,7 @@ class RustAnalyzerUpdateTest {
         var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         analyzer = analyzer.update(Set.of(file));
 
-        assertTrue(analyzer.getDefinition("bar").isPresent());
+        assertTrue(analyzer.getDefinitions("bar").stream().findFirst().isPresent());
     }
 
     @Test
@@ -64,11 +64,11 @@ class RustAnalyzerUpdateTest {
                 pub fn baz() -> i32 { 3 }
                 """);
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("baz").isPresent());
+        assertTrue(analyzer.getDefinitions("baz").stream().findFirst().isPresent());
 
         var file = AnalyzerUtil.getFileFor(analyzer, "foo").orElseThrow();
         Files.deleteIfExists(file.absPath());
         analyzer = analyzer.update();
-        assertTrue(analyzer.getDefinition("foo").isEmpty());
+        assertTrue(analyzer.getDefinitions("foo").stream().findFirst().isEmpty());
     }
 }

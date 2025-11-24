@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -50,6 +50,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     private PythonAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.PYTHON, state);
+    }
+
+    public static PythonAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new PythonAnalyzer(project, state);
     }
 
     @Override

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;

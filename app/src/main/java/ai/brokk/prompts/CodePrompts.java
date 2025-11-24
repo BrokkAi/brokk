@@ -5,11 +5,13 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
@@ -22,14 +24,18 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
+    private static final Pattern BRK_MARKER_PATTERN =
+            Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     public static final String LAZY_REMINDER =
             """
@@ -89,32 +95,41 @@ public abstract class CodePrompts {
 
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(
-                ctx.getContextManager().getProject(),
                 ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
-    public static Set<InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+    public static Set<InstructionsFlags> instructionsFlags(Set<ProjectFile> editableFiles) {
         var flags = new HashSet<InstructionsFlags>();
-        var languages = project.getAnalyzerLanguages();
 
         // we'll inefficiently read the files every time this method is called but at least we won't do it twice
         var fileContents = editableFiles.stream()
                 .collect(Collectors.toMap(f -> f, f -> f.read().orElse("")));
 
-        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
-        var unsupported = fileContents.keySet().stream()
-                .filter(f -> {
-                    var ext = f.extension();
-                    return ext.isEmpty()
-                            || languages.stream()
-                                    .noneMatch(lang -> lang.getExtensions().contains(ext));
-                })
+        // Enable SYNTAX_AWARE only if:
+        // (a) editable set is non-empty AND
+        // (b) every editable file's extension is in SYNTAX_AWARE_EXTENSIONS (case-insensitive)
+        var nonEmpty = !editableFiles.isEmpty();
+        var editableExtensions = fileContents.keySet().stream()
+                .map(f -> f.extension().toLowerCase(Locale.ROOT))
                 .collect(Collectors.toSet());
-        // temporarily disabled, see https://github.com/BrokkAi/brokk/issues/1250
-        if (false) {
+        var allEditableAreAllowed = editableExtensions.stream().allMatch(SyntaxAwareConfig::isSyntaxAwareExtension);
+
+        if (nonEmpty && allEditableAreAllowed) {
             flags.add(InstructionsFlags.SYNTAX_AWARE);
+            logger.debug(
+                    "Syntax-aware edits enabled for extensions {} ({} editable file(s), workspace extensions: {}).",
+                    SyntaxAwareConfig.syntaxAwareExtensions(),
+                    fileContents.size(),
+                    editableExtensions);
         } else {
-            IContextManager.logger.debug("Syntax-unsupported files are {}", unsupported);
+            if (!nonEmpty) {
+                logger.debug("Syntax-aware edits disabled: editable set is empty.");
+            } else {
+                logger.debug(
+                        "Syntax-aware edits disabled: editable set contains extensions {} not in SYNTAX_AWARE_EXTENSIONS {}.",
+                        editableExtensions,
+                        SyntaxAwareConfig.syntaxAwareExtensions());
+            }
         }
 
         // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN_ and BRK_CONFLICT_END_
@@ -187,7 +202,8 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles)
+            Set<ProjectFile> changedFiles,
+            ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
@@ -196,9 +212,9 @@ public abstract class CodePrompts {
         messages.add(systemMessage(cm, ctx, reminder));
         // FIXME we're supposed to leave the unchanged files in their original position
         if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx, true));
+            messages.addAll(getWorkspaceContentsMessages(ctx, true, viewingPolicy));
         } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true));
+            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
         }
         messages.addAll(prologue);
 
@@ -248,53 +264,56 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input, StreamingChatModel model)
-            throws InterruptedException {
+    /**
+     * Collects chat messages for an "ask" request, using the ASK viewing policy.
+     * <p>
+     * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
+     * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
+     *
+     * @param cm    The context manager for the current project/session.
+     * @param input The user's question or request.
+     * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
+     * @throws InterruptedException if interrupted while collecting messages.
+     */
+    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
+        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
         return messages;
     }
 
-    /**
-     * Generates a concise description of the workspace contents.
-     *
-     * @param cm The ContextManager.
-     * @return A string summarizing editable files, read-only snippets, etc.
-     */
-    public static String formatWorkspaceToc(IContextManager cm) {
-        var ctx = cm.liveContext();
+    public static String formatWorkspaceToc(Context ctx) {
         var editableContents = ctx.getEditableToc();
         var readOnlyContents = ctx.getReadOnlyToc();
         var workspaceBuilder = new StringBuilder();
         if (!editableContents.isBlank()) {
-            workspaceBuilder.append("<editable-toc>\n%s\n</editable-toc>".formatted(editableContents));
+            workspaceBuilder.append(
+                    """
+                                    <editable-toc>
+                                    The following fragments MAY BE EDITED:
+                                    %s
+                                    </editable-toc>"""
+                            .formatted(editableContents));
         }
         if (!readOnlyContents.isBlank()) {
-            workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
-        }
-        return workspaceBuilder.toString();
-    }
-
-    public static String formatWorkspaceToc(IContextManager cm, Context ctx) {
-        var editableContents = ctx.getEditableToc();
-        var readOnlyContents = ctx.getReadOnlyToc();
-        var workspaceBuilder = new StringBuilder();
-        if (!editableContents.isBlank()) {
-            workspaceBuilder.append("<editable-toc>\n%s\n</editable-toc>".formatted(editableContents));
-        }
-        if (!readOnlyContents.isBlank()) {
-            workspaceBuilder.append("<readonly-toc>\n%s\n</readonly-toc>".formatted(readOnlyContents));
+            workspaceBuilder.append(
+                    """
+                                    <readonly-toc>
+                                    The following fragments MAY NOT BE EDITED:
+                                    %s
+                                    </readonly-toc>"""
+                            .formatted(readOnlyContents));
         }
         return workspaceBuilder.toString();
     }
 
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm, ctx);
+        var workspaceSummary = formatWorkspaceToc(ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
@@ -324,13 +343,14 @@ public abstract class CodePrompts {
     }
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm);
+        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
 
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.
-        var topCtx = cm.liveContext();
-        var projectFiles =
-                topCtx.fileFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toList());
+        var projectFiles = cm.liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().stream())
+                .collect(Collectors.toList());
 
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
         var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
@@ -465,14 +485,15 @@ public abstract class CodePrompts {
 
                     String failedBlocksXml = fileFailures.stream()
                             .map(f -> {
-                                var commentaryText = f.commentary().isBlank()
+                                var enriched = enrichSemanticCommentary(f);
+                                var commentaryText = enriched.isBlank()
                                         ? ""
                                         : """
                                                        <commentary>
                                                        %s
                                                        </commentary>
                                                        """
-                                                .formatted(f.commentary());
+                                                .formatted(enriched);
                                 return """
                                        <failed_block reason="%s">
                                        <block>
@@ -522,18 +543,87 @@ public abstract class CodePrompts {
     }
 
     /**
+     * Enrich commentary for semantic-aware failures (BRK_CLASS / BRK_FUNCTION).
+     * Preserves existing analyzer commentary (which may already include "Did you mean ..." suggestions),
+     * and appends actionable guidance depending on failure reason and marker type.
+     */
+    private static String enrichSemanticCommentary(EditBlock.FailedBlock f) {
+        var base = f.commentary().trim();
+
+        // Try to detect semantic markers in the original SEARCH block
+        var before = f.block().beforeText().strip();
+        var m = BRK_MARKER_PATTERN.matcher(before);
+        if (!m.find()) {
+            // Not a semantic marker; return original commentary
+            return base;
+        }
+
+        var kind = m.group(1); // "CLASS" or "FUNCTION"
+
+        var hints = new ArrayList<String>();
+
+        switch (f.reason()) {
+            case NO_MATCH -> {
+                if ("CLASS".equals(kind)) {
+                    hints.add("- Verify the fully qualified class name (package.ClassName).");
+                    hints.add("- Ensure the class exists in the workspace and the file path is correct.");
+                    hints.add("- If in doubt, open the file and copy the exact class declaration's package and name.");
+                    hints.add(
+                            "- As a fallback, use a line-based SEARCH for the specific class body you want to replace.");
+                } else { // FUNCTION
+                    hints.add("- Verify the fully qualified method name (package.ClassName.method).");
+                    hints.add("- Ensure the owning class exists and is spelled correctly.");
+                    hints.add("- Consider copying the exact method you want to change and using a line-based SEARCH.");
+                }
+            }
+            case AMBIGUOUS_MATCH -> {
+                if ("FUNCTION".equals(kind)) {
+                    hints.add("- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
+                    hints.add(
+                            "- Use a line-based SEARCH that includes enough unique lines from the target method body.");
+                    hints.add(
+                            "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
+                }
+                // For BRK_CLASS ambiguity we don't add extra guidance (not a typical case).
+            }
+            default -> {
+                // No extra guidance for other reasons
+            }
+        }
+
+        if (hints.isEmpty()) {
+            return base;
+        }
+
+        var guidance = ("Suggestions:\n" + String.join("\n", hints)).trim();
+        if (base.isBlank()) {
+            return guidance;
+        }
+        // Append guidance after existing commentary
+        return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
+    }
+
+    /**
      * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
      * include editable content or related classes.
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
      * @return A collection of ChatMessages (empty if no content).
      */
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx, boolean combineSummaries) {
-        var allContents = new ArrayList<Content>();
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
+    }
 
+    /**
+     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
+     */
+    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadOnlyFragments().toList();
+        var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
                         .filter(ContextFragment.SummaryFragment.class::isInstance)
@@ -546,61 +636,32 @@ public abstract class CodePrompts {
                         .toList()
                 : readOnlyFragments;
 
-        // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
-        var readOnlyTextFragments = new StringBuilder();
-        var readOnlyImageFragments = new ArrayList<ImageContent>();
+        // --- Format non-summary fragments using the policy ---
+        var rendered = formatWithPolicy(otherFragments, vp);
+        var combinedText = new StringBuilder(rendered.text);
 
-        // Process non-summary fragments
-        otherFragments.forEach(fragment -> {
-            if (fragment.isText()) {
-                // Handle text-based fragments
-                String formatted = fragment.format(); // No analyzer
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                // Handle image fragments - explicitly check for known image fragment types
-                try {
-                    // Convert AWT Image to LangChain4j ImageContent
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    readOnlyImageFragments.add(ImageContent.from(l4jImage));
-                    // Add a placeholder in the text part for reference
-                    readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    // Add a placeholder indicating the error, do not call removeBadFragment from here
-                    readOnlyTextFragments.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
-                }
-            } else {
-                // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
-                // Just add their formatted representation as text
-                String formatted = fragment.format(); // No analyzer
-                if (!formatted.isBlank()) {
-                    readOnlyTextFragments.append(formatted).append("\n\n");
-                }
-            }
-        });
-
-        // Process and aggregate SummaryFragments
+        // --- Append summary fragments if present ---
         if (!summaryFragments.isEmpty()) {
-            var combinedText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
                     <api_summaries fragmentid="api_summaries">
                     %s
                     </api_summaries>
                     """
-                            .formatted(combinedText);
-            readOnlyTextFragments.append(combinedBlock).append("\n\n");
+                            .formatted(summaryText);
+            if (!rendered.text.isEmpty()) {
+                combinedText.append("\n\n");
+            }
+            combinedText.append(combinedBlock).append("\n\n");
         }
 
-        if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
+        // --- Return early if nothing to show ---
+        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
 
-        // Add the combined text content for read-only items if any exists
+        // --- Compose final workspace_readonly message ---
         String readOnlyText =
                 """
                               <workspace_readonly>
@@ -610,13 +671,12 @@ public abstract class CodePrompts {
                               %s
                               </workspace_readonly>
                               """
-                        .formatted(readOnlyTextFragments.toString().trim());
+                        .formatted(combinedText.toString().trim());
 
-        // text and image content must be distinct
+        var allContents = new ArrayList<Content>();
         allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(readOnlyImageFragments);
+        allContents.addAll(rendered.images);
 
-        // Create the main UserMessage
         var readOnlyUserMessage = UserMessage.from(allContents);
         return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
     }
@@ -663,18 +723,27 @@ public abstract class CodePrompts {
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
+     * @param vp The viewing policy to apply for content visibility; uses default if null.
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
      *     empty if no content.
      */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, boolean combineSummaries) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries);
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
     }
 
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
-        return getWorkspaceContentsMessages(ctx, false);
+    /**
+     * Convenience overload for getWorkspaceContentsMessages with a viewing policy.
+     *
+     * @param ctx The context to process.
+     * @param vp The viewing policy to apply for content visibility.
+     * @return A collection containing workspace messages with applied viewing policy.
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
+        return getWorkspaceContentsMessages(ctx, false, vp);
     }
 
     /**
@@ -693,16 +762,28 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Renders fragments in the given order without reordering or splitting.
-     * Builds combined text from all fragment formats and collects images separately.
+     * Formats fragments according to a viewing policy, rendering text and collecting images.
+     * Applies ViewingPolicy to StringFragments when provided (vp != null).
      */
-    private RenderedContent renderFragments(List<ContextFragment> fragments) {
+    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
         for (var fragment : fragments) {
             if (fragment.isText()) {
-                String formatted = fragment.format();
+                String formatted;
+                if (vp != null && fragment instanceof ContextFragment.StringFragment sf) {
+                    var visibleText = sf.textForAgent(vp);
+                    formatted =
+                            """
+                            <fragment description="%s" fragmentid="%s">
+                            %s
+                            </fragment>
+                            """
+                                    .formatted(sf.description(), sf.id(), visibleText);
+                } else {
+                    formatted = fragment.format();
+                }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
@@ -790,21 +871,17 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Returns messages containing the current workspace context in insertion order (the order fragments were added).
-     * Does not split by read-only/editable or reorder by modification time.
-     * Suitable for agents (e.g., SearchAgent) that need a flat, chronological view of the workspace.
-     *
-     * @param ctx The context to process.
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment,
-     *     or empty if no content.
+     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
+     * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
+     * - Preserves insertion order and multimodal content.
      */
-    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx) {
+    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
         var allFragments = ctx.allFragments().toList();
         if (allFragments.isEmpty()) {
             return List.of();
         }
 
-        var rendered = renderFragments(allFragments);
+        var rendered = formatWithPolicy(allFragments, vp);
         if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
@@ -931,6 +1008,10 @@ public abstract class CodePrompts {
                 ? ""
                 : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
 
+        var brkRestriction = flags.contains(InstructionsFlags.SYNTAX_AWARE)
+                ? "Do not generate more than one BRK_CLASS or BRK_FUNCTION edit for the same fully qualified symbol in a single response;\ncombine all changes for that symbol into a single block.\n\n"
+                : "";
+
         return """
 <rules>
 # EXTENDED *SEARCH/REPLACE block* Rules:
@@ -961,8 +1042,7 @@ Keep *SEARCH/REPLACE* blocks concise.
 Break large changes into a series of smaller blocks that each change a small portion.
 
 Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-
-If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+%sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
 and one to insert in the new location.
 
 Pay attention to which filenames the user wants you to edit, especially if they are asking
@@ -988,7 +1068,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
 %s
 </goal>
 """
-                .formatted(intro, searchContents, hints, examples, reminder, input);
+                .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
     }
 
     /**

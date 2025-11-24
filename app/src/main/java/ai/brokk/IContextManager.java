@@ -8,6 +8,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -131,7 +133,11 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default void appendTasksToTaskList(List<String> tasks) {
+    default Context appendTasksToTaskList(Context context, List<String> tasks) {
+        throw new UnsupportedOperationException();
+    }
+
+    default Context createOrReplaceTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 

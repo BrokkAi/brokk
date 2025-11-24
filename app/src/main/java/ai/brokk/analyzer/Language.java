@@ -1,9 +1,9 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.AbstractProject;
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -14,8 +14,7 @@ import org.jetbrains.annotations.Nullable;
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
-    // TODO make this a Set
-    List<String> getExtensions();
+    Set<String> getExtensions();
 
     String name(); // Human-friendly
 
@@ -37,9 +36,29 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use oldName for storage path to ensure stable and filesystem-safe names
+        // Persist snapshots compressed with GZIP to reduce size
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
+    }
+
+    /**
+     * Persist the analyzer state for this language, when possible.
+     * Default implementation saves TreeSitterAnalyzer snapshots to the per-language storage path.
+     * Implementations may override to customize or disable saving.
+     */
+    default void saveAnalyzer(IAnalyzer analyzer, IProject project) {
+        try {
+            if (analyzer instanceof TreeSitterAnalyzer tsa) {
+                Path file = getStoragePath(project);
+                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                logger.debug("Saved analyzer state for {} to {}", name(), file);
+            } else {
+                logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to save analyzer state for {}: {}", name(), t.toString());
+        }
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -150,11 +169,11 @@ public interface Language {
         }
 
         @Override
-        public List<String> getExtensions() {
+        public Set<String> getExtensions() {
             return languages.stream()
                     .flatMap(l -> l.getExtensions().stream())
-                    .distinct()
-                    .toList();
+                    .map(ext -> ext.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
         }
 
         @Override
@@ -176,12 +195,8 @@ public interface Language {
         public IAnalyzer createAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.createAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error creating analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.createAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
@@ -190,12 +205,8 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                try {
-                    var analyzer = lang.loadAnalyzer(project);
-                    if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
-                } catch (Throwable t) {
-                    logger.error("Error loading analyzer for {}", lang.name(), t);
-                }
+                var analyzer = lang.loadAnalyzer(project);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
@@ -213,6 +224,10 @@ public interface Language {
         @Override
         public boolean isAnalyzed(IProject project, Path path) {
             return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
+        }
+
+        public Set<Language> getLanguages() {
+            return Set.copyOf(languages);
         }
 
         @Override

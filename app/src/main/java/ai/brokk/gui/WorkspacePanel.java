@@ -15,10 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
-import ai.brokk.gui.dialogs.AttachContextDialog;
-import ai.brokk.gui.dialogs.CallGraphDialog;
-import ai.brokk.gui.dialogs.DropActionDialog;
-import ai.brokk.gui.dialogs.SymbolSelectionDialog;
+import ai.brokk.gui.dialogs.*;
 import ai.brokk.gui.util.ContextMenuUtils;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.prompts.CopyExternalPrompts;
@@ -358,7 +355,7 @@ public class WorkspacePanel extends JPanel {
                         case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
                         case VIEW_FILE -> {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
-                            panel.showFragmentPreview(fragment);
+                            panel.chrome.openFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
                         default ->
@@ -416,7 +413,7 @@ public class WorkspacePanel extends JPanel {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     switch (WorkspaceAction.this) {
-                        case VIEW_FILE, SHOW_CONTENTS -> panel.showFragmentPreview(fragment);
+                        case VIEW_FILE, SHOW_CONTENTS -> panel.chrome.openFragmentPreview(fragment);
                         default ->
                             throw new UnsupportedOperationException(
                                     "Fragment action not implemented: " + WorkspaceAction.this);
@@ -898,7 +895,7 @@ public class WorkspacePanel extends JPanel {
                     if (row >= 0) {
                         var fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
                         if (fragment != null) {
-                            showFragmentPreview(fragment);
+                            chrome.openFragmentPreview(fragment);
                         }
                     }
                 }
@@ -1558,11 +1555,6 @@ public class WorkspacePanel extends JPanel {
         textArea.setToolTipText(tooltip);
         textArea.setBorder(null);
         return textArea;
-    }
-
-    /** Shows a preview of the fragment contents */
-    private void showFragmentPreview(ContextFragment fragment) {
-        chrome.openFragmentPreview(fragment);
     }
 
     // ------------------------------------------------------------------

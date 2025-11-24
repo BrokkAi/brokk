@@ -27,6 +27,9 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
@@ -67,6 +70,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -101,6 +105,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
+    // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
+    private static final long TASKLIST_MIGRATION_CUTOFF_MS =
+            Instant.parse("2025-11-30T00:00:00Z").toEpochMilli();
 
     public static boolean isTestFile(ProjectFile file) {
 
@@ -146,9 +153,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Current session tracking
     private UUID currentSessionId;
-
-    // Domain model task list for the current session (non-null)
-    private volatile TaskList.TaskListData taskList = new TaskList.TaskListData(List.of());
 
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
@@ -302,18 +306,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // make it official
         updateActiveSession(currentSessionId);
 
-        // Load task list for the current session
-        loadTaskListForSession(currentSessionId);
-
-        // Notify listeners and UI on EDT
-        SwingUtilities.invokeLater(() -> {
-            var tc = liveContext();
-            notifyContextListeners(tc);
-            if (io instanceof Chrome) { // Check if UI is ready
-                io.enableActionButtons();
-            }
-        });
-
+        finalizeSessionActivation(currentSessionId);
         migrateToSessionsV3IfNeeded();
     }
 
@@ -824,8 +817,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        var ids = fragments.stream().map(ContextFragment::id).toList();
-        pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
+        pushContext(currentLiveCtx -> currentLiveCtx.removeFragments(fragments));
         String message = "Remove " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
@@ -1074,7 +1066,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         null,
                         CompletableFuture.completedFuture(actionMessage),
                         currentLiveCtx.getGroupId(),
-                        currentLiveCtx.getGroupLabel());
+                        currentLiveCtx.getGroupLabel(),
+                        currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()));
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
@@ -1188,16 +1181,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
-    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
-        String sourceCode = null;
-        try {
-            sourceCode = getAnalyzer()
-                    .as(SourceCodeProvider.class)
-                    .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
-                    .orElse(null);
-        } catch (InterruptedException e) {
-            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
-        }
+    public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
+        String sourceCode = analyzer.as(SourceCodeProvider.class)
+                .flatMap(provider -> provider.getSourceForCodeUnit(codeUnit, true))
+                .orElse(null);
 
         if (sourceCode != null) {
             var fragment = new ContextFragment.StringFragment(
@@ -1257,15 +1244,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
-                localAnalyzer
-                        .getDefinition(methodFullName)
+                localAnalyzer.getDefinitions(methodFullName).stream()
+                        .findFirst()
                         .filter(CodeUnit::isFunction)
                         .ifPresent(methodCu -> {
                             var methodSource = sourceCodeProvider.getMethodSource(methodCu, true);
                             if (methodSource.isPresent()) {
                                 String className = CodeUnit.toClassname(methodFullName);
-                                localAnalyzer
-                                        .getDefinition(className)
+                                localAnalyzer.getDefinitions(className).stream()
+                                        .findFirst()
                                         .filter(CodeUnit::isClass)
                                         .ifPresent(sources::add);
                                 content.append(methodFullName).append(":\n");
@@ -1437,80 +1424,154 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns the current session's domain-model task list. Always non-null. */
     public TaskList.TaskListData getTaskList() {
-        return taskList;
+        return liveContext().getTaskListDataOrEmpty();
     }
 
-    /**
-     * Appends the given tasks (non-blank lines) to the current session's task list and persists it. Each appended task
-     * is created with done=false.
-     */
-    @Override
-    public void appendTasksToTaskList(List<String> tasks) {
-        var additions = tasks.stream()
-                .map(String::strip)
-                .filter(s -> !s.isEmpty())
-                .map(s -> new TaskList.TaskItem(s, false))
+    @Blocking
+    private List<TaskList.TaskItem> summarizeTaskList(List<String> texts) {
+        var cleanedTexts =
+                texts.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleanedTexts.isEmpty()) {
+            return List.of();
+        }
+
+        // Kick off title summarizations in parallel for all additions.
+        // Each future completes on Swing EDT (SwingWorker.done). This method is @Blocking,
+        // so it must not be invoked from the EDT to avoid deadlock.
+        var futures = cleanedTexts.stream()
+                .map(text -> Map.entry(text, summarizeTaskForConversation(text)))
                 .toList();
-        if (additions.isEmpty()) {
-            return;
+
+        // Resolve each future with timeout; fallback to title=text on any failure.
+        List<TaskList.TaskItem> items = new ArrayList<>(futures.size());
+        for (var entry : futures) {
+            String text = entry.getKey();
+            String title;
+            try {
+                String summarized =
+                        entry.getValue().get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                title = (summarized == null || summarized.isBlank()) ? text : summarized.strip();
+            } catch (Exception e) {
+                // Timeout, interruption, or execution error: fallback to original text as title
+                title = text;
+            }
+            items.add(new TaskList.TaskItem(title, text, false));
         }
 
-        // Load current state from storage to avoid using stale in-memory copy
-        TaskList.TaskListData currentData;
-        try {
-            currentData =
-                    project.getSessionManager().readTaskList(currentSessionId).get();
-        } catch (Exception ex) {
-            logger.debug("Unable to read current task list, using in-memory copy", ex);
-            currentData = taskList;
-        }
-        var currentTasks = currentData != null ? currentData.tasks() : List.<TaskList.TaskItem>of();
+        return items;
+    }
 
-        // Collect pre-existing incomplete task texts to pass to UI
-        var preExistingIncompleteTasks = currentTasks.stream()
-                .filter(t -> !t.done())
-                .map(t -> t.text().strip())
-                .filter(s -> !s.isEmpty())
-                .collect(java.util.stream.Collectors.toSet());
-
-        var combined = new ArrayList<TaskList.TaskItem>();
-        combined.addAll(currentTasks);
-        combined.addAll(additions);
-
-        var newData = new TaskList.TaskListData(List.copyOf(combined));
-        this.taskList = newData;
-
-        // Persist via existing SessionManager API (UI DTO)
-        project.getSessionManager().writeTaskList(currentSessionId, newData);
-        if (io instanceof Chrome chrome) {
-            // Pass pre-existing incomplete tasks so dialog shows only those, not newly added ones
-            chrome.refreshTaskListUI(true, preExistingIncompleteTasks);
+    @Blocking
+    @Override
+    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        var items = summarizeTaskList(tasks);
+        if (items.isEmpty()) {
+            // If no valid tasks provided, clear the task list
+            var newData = new TaskList.TaskListData(List.of());
+            return setTaskList(context, newData, "Task list cleared", false);
         }
 
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Added " + tasks.size() + " task" + (tasks.size() == 1 ? "" : "s") + " to Task List");
+        var newData = new TaskList.TaskListData(List.copyOf(items));
+        return setTaskList(context, newData, "Task list replaced", true);
+    }
+
+    @Blocking
+    @Override
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
+        var newItems = summarizeTaskList(tasks);
+        if (newItems.isEmpty()) {
+            return context; // No-op if no valid tasks
+        }
+
+        // Merge with existing tasks
+        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
+        existing.addAll(newItems);
+        var newData = new TaskList.TaskListData(List.copyOf(existing));
+        return setTaskList(context, newData, "Task list updated", true);
     }
 
     /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public void setTaskList(TaskList.TaskListData data) {
-        this.taskList = data;
-        project.getSessionManager().writeTaskList(currentSessionId, data).exceptionally(ex -> {
-            logger.warn("Failed to persist updated task list for session {}: {}", currentSessionId, ex.getMessage());
-            return null;
+    public Context setTaskList(TaskList.TaskListData data, String action) {
+        // Track the change in history by pushing a new context with the Task List fragment
+        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        // Centralized UI refresh after persistence
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(false, Set.of()));
+        }
+
+        return updated;
+    }
+
+    public Context setTaskList(Context context, TaskList.TaskListData data, String action, boolean triggerAutoPlay) {
+        // Capture pre-existing incomplete tasks (for potential EZ-mode guard)
+        var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
+
+        var updated = context.withTaskList(data, action);
+        // Centralized UI refresh after persistence
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(triggerAutoPlay, preExistingIncompleteTasks));
+        }
+
+        return updated;
+    }
+
+    private void finalizeSessionActivation(UUID sessionId) {
+        // Always migrate legacy Task List for the active session first, then notify UI.
+        migrateLegacyTaskLists(sessionId);
+
+        // Notify listeners and UI on the EDT
+        SwingUtilities.invokeLater(() -> {
+            notifyContextListeners(liveContext());
+            io.updateContextHistoryTable(liveContext());
+            if (io instanceof Chrome) {
+                io.enableActionButtons();
+            }
         });
     }
 
-    // Load and cache the task list for a specific session ID; on error, set to empty
-    private void loadTaskListForSession(UUID sessionId) {
+    @SuppressWarnings("deprecation")
+    private void migrateLegacyTaskLists(UUID sessionId) {
         try {
-            this.taskList = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+            // Prefer fragment-backed Task List if present
+            var maybeFragment = liveContext().getTaskListFragment();
+            if (maybeFragment.isPresent()) {
+                return;
+            }
+
+            // Gate migration by session modified time against a fixed release cutoff
+            var infoOpt = project.getSessionManager().listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst();
+            if (infoOpt.isEmpty()) {
+                logger.debug("Skipping task list migration: no SessionInfo found for session {}", sessionId);
+                return;
+            }
+            long modified = infoOpt.get().modified();
+            if (modified >= TASKLIST_MIGRATION_CUTOFF_MS) {
+                logger.debug(
+                        "Skipping task list migration for session {} (modified {} >= cutoff {})",
+                        sessionId,
+                        modified,
+                        TASKLIST_MIGRATION_CUTOFF_MS);
+                return;
+            }
+
+            // if not, migrate from legacy tasklist.json
+            var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
+            if (!legacy.tasks().isEmpty()) {
+                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy, "Task list migrated"));
+                // Migration succeeded: drop legacy tasklist.json and log
+                logger.debug("Migrated task list from legacy storage for session {}", sessionId);
+                project.getSessionManager().deleteTaskList(sessionId);
+            }
         } catch (Exception e) {
             logger.error("Unable to load task list for session {}", sessionId, e);
-            this.taskList = new TaskList.TaskListData(List.of());
         }
     }
 
@@ -1536,6 +1597,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             boolean autoCommit,
             boolean autoCompress)
             throws InterruptedException {
+        // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
+        // The title is UI-only metadata for display/organization; the text is the actual task body.
         var prompt = task.text().strip();
         if (prompt.isEmpty()) {
             throw new IllegalArgumentException("Task text must be non-blank");
@@ -1566,7 +1629,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
     private void markTaskDoneAndPersist(TaskList.TaskItem task) {
-        var existing = new ArrayList<>(taskList.tasks());
+        var existing = new ArrayList<>(getTaskList().tasks());
         int idx = existing.indexOf(task);
         if (idx < 0) {
             // Fallback: find first matching by text (not done) if equals() does not match
@@ -1579,17 +1642,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         if (idx >= 0) {
-            existing.set(idx, new TaskList.TaskItem(task.text(), true));
-            this.taskList = new TaskList.TaskListData(List.copyOf(existing));
-            project.getSessionManager()
-                    .writeTaskList(currentSessionId, this.taskList)
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Failed to persist updated task list for session {}: {}",
-                                currentSessionId,
-                                ex.getMessage());
-                        return null;
-                    });
+            existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
+            var newData = new TaskList.TaskListData(List.copyOf(existing));
+            setTaskList(newData, "Task list marked task done");
         }
     }
 
@@ -1604,6 +1659,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String diff = repo.diff();
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
+            logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
             contextHistory.addGitState(frozenContext.id(), gitState);
         } catch (Exception e) {
             logger.error("Failed to capture git state", e);
@@ -1960,11 +2016,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
-                var topClasses =
-                        GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), Context.MAX_AUTO_CONTEXT_FILES)
-                                .stream()
-                                .limit(10)
-                                .toList();
+                var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), 10);
 
                 if (topClasses.isEmpty()) {
                     io.showNotification(
@@ -2291,10 +2343,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
-            // initialize empty task list and persist
-            this.taskList = new TaskList.TaskListData(List.of());
-            project.getSessionManager().writeTaskList(currentSessionId, this.taskList);
-
             // notifications
             notifyContextListeners(liveContext());
             io.updateContextHistoryTable(liveContext());
@@ -2338,9 +2386,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // later
         var ch = new ContextHistory(ctx);
         sessionManager.saveHistory(ch, newSessionInfo.id());
-        // Initialize empty task list for the new session and persist
-        this.taskList = new TaskList.TaskListData(List.of());
-        sessionManager.writeTaskList(newSessionInfo.id(), this.taskList);
     }
 
     /**
@@ -2378,11 +2423,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // ensureFilesSnapshot() is called internally by ContextHistory.pushLive()
                     sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
 
-                    // Initialize empty task list for the new session and persist
-                    this.taskList = new TaskList.TaskListData(List.of());
-                    sessionManager.writeTaskList(this.currentSessionId, this.taskList);
-
-                    // 5. Notify UI about the context change.
                     notifyContextListeners(liveContext());
                 })
                 .exceptionally(e -> {
@@ -2459,11 +2499,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
 
-            // Load task list for the switched session
-            loadTaskListForSession(sessionId);
+            // Activate session: migrate legacy tasks then notify UI on EDT
+            finalizeSessionActivation(sessionId);
         }
-        notifyContextListeners(liveContext());
-        io.updateContextHistoryTable(liveContext());
     }
 
     /**
@@ -2554,8 +2592,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     this.contextHistory = nnLoadedCh;
                     updateActiveSession(copiedSessionInfo.id());
 
-                    notifyContextListeners(liveContext());
-                    io.updateContextHistoryTable(liveContext());
+                    finalizeSessionActivation(copiedSessionInfo.id());
                 })
                 .exceptionally(e -> {
                     logger.error("Failed to copy session {}", originalSessionId, e);
@@ -2717,23 +2754,45 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
-            // TODO: Get off common FJP
-            List<TaskEntry> compressedTaskEntries = taskHistoryToCompress.parallelStream()
-                    .map(this::compressHistory)
-                    .collect(Collectors.toCollection(() -> new ArrayList<>(taskHistoryToCompress.size())));
+            // Use bounded-concurrency executor to avoid overwhelming the LLM provider
+            int concurrency = MainProject.getHistoryCompressionConcurrency();
+            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
+            List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
+            try {
+                // Submit all compression tasks
+                for (TaskEntry entry : taskHistoryToCompress) {
+                    futures.add(exec.submit(() -> compressHistory(entry)));
+                }
 
-            boolean changed = IntStream.range(0, taskHistoryToCompress.size())
-                    .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+                // Collect results in order, with fallback to original on failure
+                List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                for (int i = 0; i < futures.size(); i++) {
+                    try {
+                        compressedTaskEntries.add(futures.get(i).get());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    } catch (ExecutionException ee) {
+                        logger.warn("History compression task failed", ee);
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    }
+                }
 
-            if (!changed) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
-                return;
+                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                        .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+
+                if (!changed) {
+                    io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
+                    return;
+                }
+
+                // pushContext will update liveContext with the compressed history
+                // and add a frozen version to contextHistory.
+                pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+            } finally {
+                exec.shutdownNow();
             }
-
-            // pushContext will update liveContext with the compressed history
-            // and add a frozen version to contextHistory.
-            pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
         }

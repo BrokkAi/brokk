@@ -2,21 +2,13 @@ package ai.brokk;
 
 import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.analyzer.*;
+import ai.brokk.context.Context;
+import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -24,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /** Utility for extracting and applying before/after search-replace blocks in content. */
 public class EditBlock {
@@ -109,8 +102,9 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
-    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+    public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
+        IContextManager contextManager = ctx.getContextManager();
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
@@ -125,7 +119,7 @@ public class EditBlock {
             final var rawFileName = block.rawFileName();
             ProjectFile file;
             try {
-                file = resolveProjectFile(contextManager, rawFileName);
+                file = resolveProjectFile(ctx, rawFileName);
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
                 failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
@@ -149,7 +143,8 @@ public class EditBlock {
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
             try {
-                var maybeResolved = resolveBrkSnippet(contextManager, effectiveBefore.strip());
+                var analyzer = ctx.getContextManager().getAnalyzer();
+                var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
                     logger.debug("Pre-resolved BRK target snippet for {}:\n{}", rawFileName, effectiveBefore);
@@ -159,7 +154,20 @@ public class EditBlock {
                 var reason = (ex instanceof NoMatchException)
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
-                failed.add(new FailedBlock(block, reason, ""));
+
+                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent prelint
+                // style.
+                if (ex instanceof NoMatchException) {
+                    var marker = effectiveBefore.strip();
+                    var message = "Failed to resolve BRK snippet in edit block for "
+                            + rawFileName + ": "
+                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                    contextManager.reportException(
+                            new BrkSnippetNoMatchException(message, ex),
+                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                }
+
+                failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
                 continue;
             }
 
@@ -178,20 +186,22 @@ public class EditBlock {
                             file, file.exists() ? file.read().orElse("") : "");
                 }
 
-                replaceInFile(file, effectiveBefore, block.afterText(), contextManager);
+                replaceInFile(file, effectiveBefore, block.afterText(), ctx);
                 succeeded.put(block, file);
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
+                // check to see if the new contents are already in the file
+                // by calling replaceMostSimilarChunk without saving the result
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText(), "");
+                    replaceMostSimilarChunk(originalContent, block.afterText(), "");
                     commentary =
                             """
                     The replacement text is already present in the file. If we no longer need to apply
                     this block, omit it from your reply.
                     """;
-                } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
+                } catch (NoMatchException | AmbiguousMatchException e2) {
                     commentary = "";
                 }
 
@@ -225,6 +235,12 @@ public class EditBlock {
 
         originalContentsThisBatch.keySet().retainAll(succeeded.values());
         return new EditResult(originalContentsThisBatch, failed);
+    }
+
+    @TestOnly
+    public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
+            throws IOException, InterruptedException {
+        return apply(contextManager.liveContext(), io, blocks);
     }
 
     /**
@@ -301,11 +317,11 @@ public class EditBlock {
      * via the contextManager. Throws NoMatchException if `beforeText` is not found in the file content. Throws
      * AmbiguousMatchException if more than one match is found.
      */
-    public static void replaceInFile(
-            ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
+    public static void replaceInFile(ProjectFile file, String beforeText, String afterText, Context ctx)
             throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException, InterruptedException {
+        IContextManager contextManager = ctx.getContextManager();
         String original = file.exists() ? file.read().orElse("") : "";
-        String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -331,6 +347,13 @@ public class EditBlock {
         }
     }
 
+    /** Exception type used to report BRK snippet NoMatch telemetry with context. */
+    static class BrkSnippetNoMatchException extends RuntimeException {
+        BrkSnippetNoMatchException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     /**
      * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content.
      * Also supports special *marker* search targets: - BRK_CONFLICT_$n (new single-line syntax; replaces
@@ -341,8 +364,8 @@ public class EditBlock {
      * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
      * edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
-            throws AmbiguousMatchException, NoMatchException, InterruptedException {
+    static String replaceMostSimilarChunk(String content, String target, String replace)
+            throws AmbiguousMatchException, NoMatchException {
         // -----------------------------
         // 0) BRK_CONFLICT block special-cases
         // -----------------------------
@@ -379,19 +402,9 @@ public class EditBlock {
             return replace;
         }
 
-        // -----------------------------
-        // 2) BRK_CLASS / BRK_FUNCTION special search syntax
-        // -----------------------------
-        var resolved = resolveBrkSnippet(contextManager, trimmedTarget);
-        if (resolved != null) {
-            target = resolved;
-            // resolveBrkSnippet already validated and gathered suggestions on error
-            logger.debug("BRK target snippet resolved:\n{}", target);
-        }
-
-        // -----------------------------
-        // 3) Normal search/replace (existing behavior)
-        // -----------------------------
+        // -------------------------
+        // 2) Normal search/replace (existing behavior)
+        // -------------------------
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);
         ContentLines replaceCL = prep(replace);
@@ -452,19 +465,6 @@ public class EditBlock {
         }
 
         throw new NoMatchException("No matching oldLines found in content");
-    }
-
-    /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
-    static int countLeadingBlankLines(String[] lines) {
-        int c = 0;
-        for (String ln : lines) {
-            if (ln.trim().isEmpty()) {
-                c++;
-            } else {
-                break;
-            }
-        }
-        return c;
     }
 
     /**
@@ -629,12 +629,33 @@ public class EditBlock {
 
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            String leadingWhitespace = getLeadingWhitespace(originalLines[matchStart]);
-            // Add the first replacement line with adjusted leading whitespace
-            resultLines.add(leadingWhitespace + truncatedReplace[0].stripLeading());
-            // Add subsequent replacement lines, also with adjusted leading whitespace
-            for (int i = 1; i < truncatedReplace.length; i++) {
-                resultLines.add(leadingWhitespace + truncatedReplace[i].stripLeading());
+            String baseIndent = getLeadingWhitespace(originalLines[matchStart]);
+            int baseTargetIndent = IndentUtil.countLeadingWhitespace(truncatedTarget[0]);
+            int baseReplaceIndent = IndentUtil.countLeadingWhitespace(truncatedReplace[0]);
+
+            // Compute a scaling factor using shared utility to keep logic consistent across prod and tests.
+            int targetIndentStep = IndentUtil.findFirstIndentStep(truncatedTarget, baseTargetIndent);
+            int replaceIndentStep = IndentUtil.findFirstIndentStep(truncatedReplace, baseReplaceIndent);
+            double scale = IndentUtil.computeIndentScale(targetIndentStep, replaceIndentStep);
+
+            for (String replLine : truncatedReplace) {
+                if (replLine.trim().isEmpty()) {
+                    // Preserve blank line (no trailing spaces)
+                    resultLines.add("");
+                    continue;
+                }
+                int replaceRelativeIndent = IndentUtil.countLeadingWhitespace(replLine) - baseReplaceIndent;
+                int rawAdjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
+                int adjustedRelativeIndent = Math.max(0, rawAdjustedRelativeIndent);
+                if (rawAdjustedRelativeIndent < 0) {
+                    logger.warn(
+                            "Negative indentation detected in replace block: rawAdjustedRelativeIndent={}, replaceRelativeIndent={}, scale={}",
+                            rawAdjustedRelativeIndent,
+                            replaceRelativeIndent,
+                            scale);
+                }
+                String adjusted = baseIndent + " ".repeat(adjustedRelativeIndent) + replLine.stripLeading();
+                resultLines.add(adjusted);
             }
         }
         resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
@@ -714,46 +735,79 @@ public class EditBlock {
     private record ContentLines(String original, List<String> lines, boolean originalEndsWithNewline) {}
 
     /**
-     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets via the analyzer without mutating files. Returns null
-     * if the target is not a BRK marker. Throws on not found or ambiguous cases.
+     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets. Returns null if the target is not a BRK marker.
+     * Throws on not found or ambiguous cases.
+     *
+     * @param identifier The identifier string (e.g., "BRK_CLASS com.example.Foo" or "BRK_FUNCTION com.example.Foo.bar")
+     * @param target The ProjectFile where the resolution is happening (used to check syntax support)
+     * @param analyzer The analyzer to use for resolution
+     * @return The resolved source code, or null if not a BRK marker
      */
-    private static @Nullable String resolveBrkSnippet(IContextManager contextManager, String trimmedTarget)
+    private static @Nullable String resolveBrkSnippet(String identifier, ProjectFile target, IAnalyzer analyzer)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
-        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
+        identifier = identifier.strip();
+        // Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets
+        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;
         }
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-
-        var analyzer = contextManager.getAnalyzer();
         var scpOpt = analyzer.as(SourceCodeProvider.class);
         if (scpOpt.isEmpty()) {
             throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
         }
+        var scp = scpOpt.get();
 
+        // Check if the file extension is allowed by configuration and supported by the analyzer
+        var fileExt = target.extension().toLowerCase(Locale.ROOT);
+
+        if (!SyntaxAwareConfig.isSyntaxAwareExtension(fileExt)) {
+            throw new NoMatchException("BRK markers are disabled for file type '" + target.extension()
+                    + "' in this workspace (check BRK_SYNTAX_EXTENSIONS). Use a line-based SEARCH instead.");
+        }
+
+        var supportedLanguages = analyzer.languages();
+        var isSupportedFile = supportedLanguages.stream()
+                .flatMap(lang -> lang.getExtensions().stream())
+                .anyMatch(ext -> ext.toLowerCase(Locale.ROOT).equals(fileExt));
+
+        if (!isSupportedFile) {
+            throw new NoMatchException("BRK markers are not supported for file type '" + target.extension()
+                    + "' in this workspace. Use a line-based SEARCH instead.");
+        }
+
+        String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
-            Optional<String> opt = AnalyzerUtil.getClassSource(analyzer, fqName, true);
-            if (opt.isEmpty()) {
-                var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
-                var suggestions = analyzer.searchDefinitions(shortName).stream()
-                        .map(CodeUnit::fqName)
-                        .filter(n -> {
-                            int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
-                            return n.substring(idx + 1).equals(shortName);
-                        })
-                        .limit(3)
-                        .toList();
-                var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
-                throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+            // Prefer exact definition lookup
+            var def = analyzer.getDefinitions(fqName).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (def.isPresent()) {
+                var cu = def.get();
+                var src = scp.getClassSource(cu, true);
+                if (src.isEmpty()) {
+                    throw new NoMatchException("No class source found for '" + fqName + "'.");
+                }
+                return src.get();
             }
-            return opt.get();
+
+            // No exact match; suggest up to 3 similarly named identifiers
+            var suggestions = analyzer.searchDefinitions(shortName).stream()
+                    .map(CodeUnit::fqName)
+                    .filter(n -> {
+                        int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
+                        return n.substring(idx + 1).equals(shortName);
+                    })
+                    .limit(3)
+                    .toList();
+            var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+            throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
             Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
             if (sources.isEmpty()) {
-                var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
-                var suggestions = analyzer.searchDefinitions(methodKey).stream()
+                var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)
                         .limit(3)
                         .toList();
@@ -772,15 +826,16 @@ public class EditBlock {
      * Resolves a filename string to a ProjectFile. Handles partial paths, checks against editable files, tracked files,
      * and project files.
      *
-     * @param cm The context manager.
+     * @param ctx The context.
      * @param filename The filename string to resolve (potentially partial).
      * @return The resolved ProjectFile.
      * @throws SymbolNotFoundException if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
      */
-    static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
+    static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename)
             throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
+        IContextManager cm = ctx.getContextManager();
         if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
             throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
@@ -804,7 +859,8 @@ public class EditBlock {
         }
 
         // 2. Check editable files (case-insensitive basename match)
-        var editableMatches = cm.getFilesInContext().stream()
+        var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
+                .flatMap(f -> f.files().stream())
                 .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {

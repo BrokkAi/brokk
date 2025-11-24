@@ -4,13 +4,14 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
+import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -613,6 +614,17 @@ public final class MOPBridge {
         } catch (JsonProcessingException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    public void openExternalLink(String url) {
+        logger.info("Opening external link in browser: {}", url);
+        SwingUtilities.invokeLater(() -> {
+            if (hostComponent != null) {
+                Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(hostComponent));
+            } else {
+                Environment.openInBrowser(url, null);
+            }
+        });
     }
 
     public void onBridgeReady() {

@@ -1,8 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.TestProject.*;
-import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -10,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -87,7 +85,7 @@ class SqlAnalyzerTest {
         assertTrue(pfOpt.isPresent());
         assertEquals(projectFile, pfOpt.get());
 
-        Optional<CodeUnit> defOpt = analyzer.getDefinition("my_table");
+        Optional<CodeUnit> defOpt = analyzer.getDefinitions("my_table").stream().findFirst();
         assertTrue(defOpt.isPresent());
         assertEquals(tableCu, defOpt.get());
 
@@ -145,17 +143,18 @@ class SqlAnalyzerTest {
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         assertEquals(3, allDecls.size());
 
-        Optional<CodeUnit> t1Opt = analyzer.getDefinition("t1");
+        Optional<CodeUnit> t1Opt = analyzer.getDefinitions("t1").stream().findFirst();
         assertTrue(t1Opt.isPresent());
         assertEquals("t1", t1Opt.get().shortName());
         assertEquals("", t1Opt.get().packageName());
 
-        Optional<CodeUnit> v1Opt = analyzer.getDefinition("v_schema.v1");
+        Optional<CodeUnit> v1Opt =
+                analyzer.getDefinitions("v_schema.v1").stream().findFirst();
         assertTrue(v1Opt.isPresent());
         assertEquals("v1", v1Opt.get().shortName());
         assertEquals("v_schema", v1Opt.get().packageName());
 
-        Optional<CodeUnit> t2Opt = analyzer.getDefinition("t2");
+        Optional<CodeUnit> t2Opt = analyzer.getDefinitions("t2").stream().findFirst();
         assertTrue(t2Opt.isPresent());
         assertEquals("t2", t2Opt.get().shortName());
 
@@ -174,7 +173,8 @@ class SqlAnalyzerTest {
         var testProject = createTestProject(Set.of(projectFile));
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
-        Optional<CodeUnit> tblOneOpt = analyzer.getDefinition("tbl_one");
+        Optional<CodeUnit> tblOneOpt =
+                analyzer.getDefinitions("tbl_one").stream().findFirst();
         assertTrue(tblOneOpt.isPresent());
         CodeUnit tblOne = tblOneOpt.get();
 
@@ -189,7 +189,7 @@ class SqlAnalyzerTest {
         assertEquals(0, r1.startByte(), "tbl_one start byte");
         assertEquals(line1.getBytes(StandardCharsets.UTF_8).length, r1.endByte(), "tbl_one end byte");
 
-        Optional<CodeUnit> vTwoOpt = analyzer.getDefinition("v_two");
+        Optional<CodeUnit> vTwoOpt = analyzer.getDefinitions("v_two").stream().findFirst();
         assertTrue(vTwoOpt.isPresent());
         CodeUnit vTwo = vTwoOpt.get();
 
@@ -265,7 +265,8 @@ class SqlAnalyzerTest {
         assertEquals("tbl_included", allDecls.get(0).shortName());
 
         assertTrue(
-                analyzer.getDefinition("tbl_excluded").isEmpty(), "Definition from excluded file should not be found.");
+                analyzer.getDefinitions("tbl_excluded").stream().findFirst().isEmpty(),
+                "Definition from excluded file should not be found.");
     }
 
     @Test

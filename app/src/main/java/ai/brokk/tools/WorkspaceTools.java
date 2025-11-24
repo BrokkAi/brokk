@@ -1,17 +1,18 @@
 package ai.brokk.tools;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.SpecialTextType;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -24,8 +25,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.nullness.util.NullnessUtil;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
@@ -196,45 +199,27 @@ public class WorkspaceTools {
             return "Fragment map cannot be empty.";
         }
 
-        var allFragments = context.getAllFragmentsInDisplayOrder();
-
-        // Get existing DISCARDED_CONTEXT map (we find this first so we can protect it
-        // from being removed by a caller attempting to drop it).
-        var existingDiscardedMap = context.getDiscardedFragmentsNote();
-        var existingDiscarded = context.virtualFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                .filter(vf -> vf instanceof ContextFragment.StringFragment)
-                .map(vf -> (ContextFragment.StringFragment) vf)
-                .filter(sf -> ContextFragment.DISCARDED_CONTEXT.description().equals(sf.description()))
-                .findFirst();
+        // Operate on actual stored fragments only
+        var allFragments = context.allFragments().toList();
+        var byId = allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
 
         var idsToDropSet = new HashSet<>(idToExplanation.keySet());
 
-        // Compute the list of fragments to drop, but explicitly exclude the existing DISCARDED_CONTEXT fragment
-        // so callers cannot remove it via this API.
-        List<ContextFragment> toDrop;
-        if (existingDiscarded.isPresent()) {
-            var protectedId = existingDiscarded.get().id();
-            toDrop = allFragments.stream()
-                    .filter(f -> idsToDropSet.contains(f.id()))
-                    .filter(f -> !protectedId.equals(f.id()))
-                    .toList();
-        } else {
-            toDrop = allFragments.stream()
-                    .filter(f -> idsToDropSet.contains(f.id()))
-                    .toList();
-        }
+        // Separate found vs unknown IDs
+        var foundFragments =
+                idsToDropSet.stream().filter(byId::containsKey).map(byId::get).toList();
+        var unknownIds =
+                idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
 
-        var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
-
-        // Record if the caller attempted to drop the protected DISCARDED_CONTEXT (so we can mention it in the result)
-        var attemptedProtected = existingDiscarded.isPresent()
-                && idsToDropSet.contains(existingDiscarded.get().id());
-
-        var mapper = Json.getMapper();
-        Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
+        // Partition found into droppable vs protected based on SpecialTextType policy
+        var partitioned =
+                foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
+        var toDrop = NullnessUtil.castNonNull(partitioned.get(true));
+        var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
         // Merge explanations for successfully dropped fragments (new overwrites old)
+        var existingDiscardedMap = context.getDiscardedFragmentsNote();
+        Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var explanation = idToExplanation.getOrDefault(f.id(), "");
             mergedDiscarded.put(f.description(), explanation);
@@ -243,35 +228,25 @@ public class WorkspaceTools {
         // Serialize updated JSON
         String discardedJson;
         try {
-            discardedJson = mapper.writeValueAsString(mergedDiscarded);
+            discardedJson = Json.getMapper().writeValueAsString(mergedDiscarded);
         } catch (Exception e) {
             logger.error("Failed to serialize DISCARDED_CONTEXT JSON", e);
             context.getContextManager().reportException(e);
             return "Error: Failed to serialize DISCARDED_CONTEXT JSON: " + e.getMessage();
         }
 
-        // Apply removal and update DISCARDED_CONTEXT in the local context
-        var next = context.removeFragmentsByIds(droppedIds);
-        if (existingDiscarded.isPresent()) {
-            next = next.removeFragmentsByIds(List.of(existingDiscarded.get().id()));
-        }
-        var fragment = new ContextFragment.StringFragment(
-                context.getContextManager(),
-                discardedJson,
-                ContextFragment.DISCARDED_CONTEXT.description(),
-                ContextFragment.DISCARDED_CONTEXT.syntaxStyle());
-
-        next = next.addVirtualFragment(fragment);
+        // Apply removal and upsert DISCARDED_CONTEXT in the local context
+        var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
+        var next =
+                context.removeFragmentsByIds(droppedIds).putSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
         context = next;
 
-        var unknownIds =
-                idsToDropSet.stream().filter(id -> !droppedIds.contains(id)).collect(Collectors.toList());
         logger.debug(
-                "dropWorkspaceFragments: dropped={}, unknown={}, updatedDiscardedEntries={}, attemptedProtected={}",
+                "dropWorkspaceFragments: dropped={}, protected={}, unknown={}, updatedDiscardedEntries={}",
                 droppedIds.size(),
+                protectedFragments.size(),
                 unknownIds.size(),
-                mergedDiscarded.size(),
-                attemptedProtected);
+                mergedDiscarded.size());
 
         var droppedReprs = toDrop.stream().map(ContextFragment::repr).collect(Collectors.joining(", "));
         var baseMsg = "Dropped %d fragment(s): [%s]. Updated DISCARDED_CONTEXT with %d entr%s."
@@ -281,14 +256,15 @@ public class WorkspaceTools {
                         mergedDiscarded.size(),
                         mergedDiscarded.size() == 1 ? "y" : "ies");
 
-        // If the caller attempted to drop the protected DISCARDED_CONTEXT, mention that it was protected and not
-        // removed.
-        if (attemptedProtected) {
-            baseMsg += " Note: the DISCARDED_CONTEXT fragment is protected and was not dropped.";
+        if (!protectedFragments.isEmpty()) {
+            var protectedDescriptions = protectedFragments.stream()
+                    .map(ContextFragment::description)
+                    .collect(Collectors.joining(", "));
+            baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
         }
 
         if (!unknownIds.isEmpty()) {
-            return baseMsg + " Unknown fragment IDs: " + String.join(", ", unknownIds);
+            baseMsg += " Unknown fragment IDs: " + String.join(", ", unknownIds);
         }
         return baseMsg;
     }
@@ -402,35 +378,113 @@ public class WorkspaceTools {
             return "Ignoring empty Note";
         }
 
-        final var description = ContextFragment.SEARCH_NOTES.description();
-        final var syntax = ContextFragment.SEARCH_NOTES.syntaxStyle();
+        var existed =
+                context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
 
-        var existing = context.virtualFragments()
-                .filter(vf -> vf.getType() == ContextFragment.FragmentType.STRING)
-                .filter(vf -> description.equals(vf.description()))
-                .findFirst();
+        context = context.updateSpecial(
+                SpecialTextType.SEARCH_NOTES, prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
 
-        if (existing.isPresent()) {
-            var prev = existing.get();
-            String prevText = prev.text();
-            String combined = prevText.isBlank() ? markdown : prevText + "\n\n" + markdown;
+        logger.debug(
+                "appendNote: {} Task Notes fragment ({} chars).",
+                existed ? "updated existing" : "created new",
+                markdown.length());
 
-            var next = context.removeFragmentsByIds(List.of(prev.id()));
-            var newFrag =
-                    new ContextFragment.StringFragment(context.getContextManager(), combined, description, syntax);
-            logger.debug(
-                    "appendNote: replaced existing Task Notes fragment {} with updated content ({} chars).",
-                    prev.id(),
-                    combined.length());
-            context = next.addVirtualFragment(newFrag);
-            return "Appended note to Task Notes.";
-        } else {
-            var newFrag =
-                    new ContextFragment.StringFragment(context.getContextManager(), markdown, description, syntax);
-            logger.debug("appendNote: created new Task Notes fragment ({} chars).", markdown.length());
-            context = context.addVirtualFragment(newFrag);
-            return "Created Task Notes and added the note.";
+        return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
+    }
+
+    /**
+     * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
+     * Used in @Tool parameter descriptions to keep guidance synchronized.
+     */
+    public static final String TASK_LIST_GUIDANCE =
+            """
+            Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
+
+            Requirements (apply to EACH task):
+            - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
+            - Size target: ~2 hours for an experienced contributor across < 10 files.
+            - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior;
+              if automation is not a good fit, you may omit tests rather than prescribe manual steps. Tests should
+              be completed as part of each task, not bolted on separately at the end.
+            - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
+            - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
+            - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
+
+
+            Rubric for slicing:
+            - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
+            - TOO SMALL if it lacks a distinct, reviewable outcome (or test) - merge into its nearest parent goal.
+            - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+
+            Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
+            """;
+
+    @Tool(
+            value =
+                    "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")
+    public String createOrReplaceTaskList(
+            @P(
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                    String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
         }
+
+        var cm = context.getContextManager();
+        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
+        context = cm.createOrReplaceTaskList(context, tasks);
+
+        var lines = IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+
+        var io = cm.getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
+
+        return formattedTaskList;
+    }
+
+    @Tool(
+            value =
+                    "Append new tasks to the existing task list without modifying or removing existing tasks. Use this when you want to extend the current task list incrementally.")
+    public String appendTaskList(
+            @P("Explanation of why these tasks are being added, formatted in Markdown.") String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("appendTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var cm = context.getContextManager();
+        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
+        context = cm.appendTasksToTaskList(context, tasks);
+
+        var lines = IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+
+        var io = cm.getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Added** %d task%s to the list. Review them in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
+
+        return formattedTaskList;
     }
 
     // --- Helper Methods ---
@@ -465,5 +519,13 @@ public class WorkspaceTools {
 
     private IAnalyzer getAnalyzer() {
         return context.getContextManager().getAnalyzerUninterrupted();
+    }
+
+    // Helper: determine if a fragment can be dropped per SpecialTextType policy.
+    private static boolean isDroppableFragment(ContextFragment fragment) {
+        if (fragment instanceof ContextFragment.StringFragment sf) {
+            return sf.droppable();
+        }
+        return true;
     }
 }

@@ -9,10 +9,13 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.git.TestRepo;
+import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;
@@ -55,7 +58,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
-        this.liveContext = new Context(this, "Test context");
+        this.liveContext = new Context(this, "Test context").addPathFragments(toPathFragments(editableFiles));
 
         this.analyzerWrapper = new IAnalyzerWrapper() {
             @Override
@@ -182,6 +185,34 @@ public final class TestContextManager implements IContextManager {
         }
 
         return new ProjectFile(project.getRoot(), trimmed);
+    }
+
+    @Override
+    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        // Strip whitespace-only entries
+        var cleaned =
+                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleaned.isEmpty()) {
+            // Clear task list when nothing valid is provided
+            return context.withTaskList(new TaskList.TaskListData(List.of()), "Task list cleared");
+        }
+        var items = cleaned.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
+                .toList();
+        return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
+    }
+
+    @Override
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
+        var cleaned =
+                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleaned.isEmpty()) {
+            return context; // no-op
+        }
+        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
+        existing.addAll(
+                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
+        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
     }
 
     private String buildFragmentContent = "";

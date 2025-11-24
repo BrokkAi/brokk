@@ -4,7 +4,6 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
@@ -19,6 +18,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -157,6 +157,26 @@ public class SessionsDialog extends JDialog {
         activityTable.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         activityTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         activityTable.setTableHeader(null);
+        // Allow Tab/Shift+Tab to exit the activity table instead of trapping focus
+        activityTable.setFocusTraversalKeysEnabled(false);
+        activityTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "sessActNext");
+        activityTable.getActionMap().put("sessActNext", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                activityTable.transferFocus();
+            }
+        });
+        activityTable
+                .getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "sessActPrev");
+        activityTable.getActionMap().put("sessActPrev", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                activityTable.transferFocusBackward();
+            }
+        });
 
         // Set up custom renderers for activity table columns
         activityTable

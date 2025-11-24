@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
@@ -53,14 +53,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private ThreadLocal<TSQuery> createPhpNamespaceQuery() {
         // Initialize the ThreadLocal for the PHP namespace query.
         // getTSLanguage() is safe to call here.
-        return ThreadLocal.withInitial(() -> {
-            try {
-                return new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
-            } catch (Exception e) { // TSQuery constructor can throw various exceptions
-                log.error("Failed to compile phpNamespaceQuery for PhpAnalyzer ThreadLocal", e);
-                throw e; // Re-throw to indicate critical setup error for this thread's query
-            }
-        });
+        return ThreadLocal.withInitial(
+                () -> new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)"));
     }
 
     public PhpAnalyzer(IProject project) {
@@ -71,6 +65,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
         super(project, language, state);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
+    }
+
+    public static PhpAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new PhpAnalyzer(project, Languages.PHP, state);
     }
 
     @Override

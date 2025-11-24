@@ -2,8 +2,8 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -27,6 +27,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
     private JavaAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.JAVA, state);
+    }
+
+    public static JavaAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new JavaAnalyzer(project, state);
     }
 
     @Override
@@ -241,10 +245,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
-        return super.getDefinition(normalized);
+        return super.getDefinitions(normalized);
     }
 
     /**
@@ -308,13 +312,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         if (LAMBDA_EXPRESSION.equals(decl.getType())) {
             var enclosingMethod = findEnclosingJavaMethodOrClassName(decl, src).orElse("lambda");
             int line = decl.getStartPoint().getRow();
-            int col = 0;
-            try {
-                // Some bindings may not expose column; defensively handle absence
-                col = decl.getStartPoint().getColumn();
-            } catch (Throwable ignored) {
-                // default to 0
-            }
+            int col = decl.getStartPoint().getColumn();
             String synthesized = enclosingMethod + "$anon$" + line + ":" + col;
             return Optional.of(synthesized);
         }
@@ -392,8 +390,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         normalized.substring(0, normalized.length() - 2).trim();
 
                 // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
-                Optional<CodeUnit> pkgModule = getDefinition(packageName);
-                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
+                Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+                        .filter(CodeUnit::isModule)
+                        .findFirst();
+                if (pkgModule.isPresent()) {
                     for (CodeUnit child : getDirectChildren(pkgModule.get())) {
                         if (child.isClass() && packageName.equals(child.packageName())) {
                             resolved.add(child);
@@ -402,10 +402,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 }
             } else if (!normalized.isEmpty()) {
                 // Explicit import: try to find the exact class
-                Optional<CodeUnit> found = getDefinition(normalized);
-                if (found.isPresent() && found.get().isClass()) {
-                    resolved.add(found.get());
-                }
+                getDefinitions(normalized).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .ifPresent(resolved::add);
             }
         }
 
@@ -429,7 +429,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+                rawNames, cu.packageName(), resolvedImports, this::getDefinitions, (s) -> searchDefinitions(s, false));
     }
 
     @Override
@@ -537,66 +537,58 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             CodeUnit cu, TSNode classNode, String signature, String src) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
         // Previously only the first match was considered, which dropped additional interfaces.
-        try {
-            var query = getThreadLocalQuery();
+        var query = getThreadLocalQuery();
 
-            // Ascend to the root node for matching
-            TSNode root = classNode;
-            while (root.getParent() != null && !root.getParent().isNull()) {
-                root = root.getParent();
-            }
-
-            var cursor = new TSQueryCursor();
-            cursor.exec(query, root);
-
-            TSQueryMatch match = new TSQueryMatch();
-            List<TSNode> aggregateSuperNodes = new ArrayList<>();
-
-            final int targetStart = classNode.getStartByte();
-            final int targetEnd = classNode.getEndByte();
-
-            while (cursor.nextMatch(match)) {
-                TSNode declNode = null;
-                List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(cap.getIndex());
-                    TSNode n = cap.getNode();
-                    if (n == null || n.isNull()) continue;
-
-                    if ("type.decl".equals(capName)) {
-                        declNode = n;
-                    } else if ("type.super".equals(capName)) {
-                        superCapturesThisMatch.add(n);
-                    }
-                }
-
-                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                    // Accumulate all type.super nodes for this declaration; do not break after first match.
-                    aggregateSuperNodes.addAll(superCapturesThisMatch);
-                }
-            }
-
-            // Sort once to preserve source order: superclass first, then interfaces in declaration order
-            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-            for (TSNode s : aggregateSuperNodes) {
-                String text = textSlice(s, src).strip();
-                if (!text.isEmpty()) {
-                    supers.add(text);
-                }
-            }
-
-            // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
-            LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
-            return List.copyOf(unique);
-        } catch (Throwable t) {
-            log.debug(
-                    "JavaAnalyzer.extractRawSupertypesForClassLike: error extracting supertypes for {} via query: {}",
-                    cu.fqName(),
-                    t.toString());
-            return List.of();
+        // Ascend to the root node for matching
+        TSNode root = classNode;
+        while (root.getParent() != null && !root.getParent().isNull()) {
+            root = root.getParent();
         }
+
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, root);
+
+        TSQueryMatch match = new TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+
+        final int targetStart = classNode.getStartByte();
+        final int targetEnd = classNode.getEndByte();
+
+        while (cursor.nextMatch(match)) {
+            TSNode declNode = null;
+            List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+            for (TSQueryCapture cap : match.getCaptures()) {
+                String capName = query.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+
+                if ("type.decl".equals(capName)) {
+                    declNode = n;
+                } else if ("type.super".equals(capName)) {
+                    superCapturesThisMatch.add(n);
+                }
+            }
+
+            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                // Accumulate all type.super nodes for this declaration; do not break after first match.
+                aggregateSuperNodes.addAll(superCapturesThisMatch);
+            }
+        }
+
+        // Sort once to preserve source order: superclass first, then interfaces in declaration order
+        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+        for (TSNode s : aggregateSuperNodes) {
+            String text = textSlice(s, src).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+
+        // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
+        LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+        return List.copyOf(unique);
     }
 }

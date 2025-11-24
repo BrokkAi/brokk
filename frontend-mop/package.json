@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite build -c vite.worker.config.mjs && vite dev",
+    "patch-deps": "node ./scripts/patch-deps.js",
+    "dev": "npm run patch-deps && vite build -c vite.worker.config.mjs && vite dev",
     "build": "vite build --logLevel error -c vite.worker.config.mjs && vite build --logLevel error",
     "preview": "vite preview"
   },
@@ -36,11 +37,13 @@
     "svelte-exmarkdown": "^5.0.1"
   },
   "overrides": {
-    "mdast-util-gfm-autolink-literal": "2.0.0"
+    "mdast-util-gfm-autolink-literal": "2.0.0",
+    "micromark-util-subtokenize": "2.1.0"
   },
   "pnpm": {
     "overrides": {
-      "mdast-util-gfm-autolink-literal": "2.0.0"
+      "mdast-util-gfm-autolink-literal": "2.0.0",
+      "micromark-util-subtokenize": "2.1.0"
     }
   }
 }

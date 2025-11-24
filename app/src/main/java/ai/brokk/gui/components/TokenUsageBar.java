@@ -10,15 +10,13 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.ComputedValue;
+import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
-import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -69,11 +67,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile List<ContextFragment> fragments = List.of();
     private volatile List<Segment> segments = List.of();
     private final ConcurrentHashMap<String, Integer> tokenCache = new ConcurrentHashMap<>();
-    private volatile Set<ContextFragment> hoveredFragments = Set.of();
+    private volatile Set<String> hoveredFragmentIds = Set.of();
     private volatile boolean readOnly = false;
-
-    // Subscriptions to ComputedValue completions so we can repaint when values become available
-    private final List<ComputedValue.Subscription> cvSubscriptions = Collections.synchronizedList(new ArrayList<>());
 
     // Tooltip for unfilled part (model/max/cost)
     @Nullable
@@ -254,7 +249,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
-        this.hoveredFragments = targets;
+        this.hoveredFragmentIds =
+                Set.copyOf(targets.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
         repaint();
     }
 
@@ -272,29 +268,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
      * Provide the current fragments so the bar can paint per-fragment segments and compute tooltips.
      */
     public void setFragments(List<ContextFragment> fragments) {
-        // Dispose prior subscriptions
-        clearCvSubscriptions();
+        // Dispose prior subscriptions bound to this component before rebinding
+        ComputedSubscription.disposeAll(this);
 
         this.fragments = List.copyOf(fragments);
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
 
-        // Dispose any previous owner-level ComputedFragment bindings to avoid accumulation
-        var subsObj = getClientProperty("brokk.cv.subs");
-        if (subsObj instanceof java.util.List<?> subs) {
-            for (var sObj : subs) {
-                if (sObj instanceof ComputedValue.Subscription sub) {
-                    sub.dispose();
-                }
-            }
-            putClientProperty("brokk.cv.subs", null);
-        }
-
         // Bind fragments to a single repaint/token-cache invalidation runnable
         for (var f : this.fragments) {
             if (f instanceof ContextFragment.ComputedFragment cf) {
-                cf.bind(TokenUsageBar.this, () -> {
+                ComputedSubscription.bind(cf, this, () -> {
                     tokenCache.remove(f.id());
                     repaint();
                 });
@@ -538,8 +523,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             for (var s : segs) {
                 if (s.widthPx <= 0) continue;
 
-                boolean isHovered = !hoveredFragments.isEmpty() && !Collections.disjoint(s.fragments, hoveredFragments);
-                boolean isDimmed = !hoveredFragments.isEmpty() && !isHovered;
+                boolean hasGlobalHover = !hoveredFragmentIds.isEmpty();
+                boolean isHovered = hasGlobalHover
+                        && s.fragments.stream().map(ContextFragment::id).anyMatch(hoveredFragmentIds::contains);
+                boolean isDimmed = hasGlobalHover && !isHovered;
                 Composite originalComposite = g2d.getComposite();
                 if (isDimmed) {
                     g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
@@ -998,19 +985,6 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private Color getOkColor(boolean dark) {
         return dark ? new Color(0x2EA043) : new Color(0x1F883D);
-    }
-
-    private void clearCvSubscriptions() {
-        synchronized (cvSubscriptions) {
-            for (var s : cvSubscriptions) {
-                try {
-                    s.dispose();
-                } catch (CancellationException executionException) {
-                    logger.warn("Failed to cancel the ComputedValue subscription", executionException);
-                }
-            }
-            cvSubscriptions.clear();
-        }
     }
 
     @Override

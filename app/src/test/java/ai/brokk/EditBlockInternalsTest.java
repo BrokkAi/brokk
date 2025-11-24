@@ -20,19 +20,7 @@ class EditBlockInternalsTest {
     String replaceMostSimilarChunk(String content, String target, String replace)
             throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         var tcm = new TestContextManager(Path.of("."), new TestConsoleIO());
-        return EditBlock.replaceMostSimilarChunk(tcm, content, target, replace);
-    }
-
-    @Test
-    void testCountLeadingBlankLines() {
-        // 1. No blank lines at start
-        String[] lines1 = {"line1", "line2", ""};
-        assertEquals(0, EditBlock.countLeadingBlankLines(lines1));
-
-        // 2. Some blank lines at start
-        String[] lines2 = {"", "  ", "lineA", "lineB"};
-        // Two blank lines at start
-        assertEquals(2, EditBlock.countLeadingBlankLines(lines2));
+        return EditBlock.replaceMostSimilarChunk(content, target, replace);
     }
 
     @Test
@@ -184,7 +172,7 @@ class EditBlockInternalsTest {
                 """
                 line1
                     new_line2
-                    new_line3
+                        new_line3
                 """;
 
         String updated = replaceMostSimilarChunk(original, search, replace);
@@ -275,7 +263,7 @@ class EditBlockInternalsTest {
                 """
                 line1
                     NEW_line2
-                    NEW_line3
+                        NEW_line3
                 line4
                 """;
 

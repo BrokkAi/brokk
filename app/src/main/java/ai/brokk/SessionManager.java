@@ -5,6 +5,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.SerialByKeyExecutor;
@@ -87,7 +88,9 @@ public class SessionManager implements AutoCloseable {
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
-        this.sessionExecutor = Executors.newFixedThreadPool(3, new SessionExecutorThreadFactory());
+        // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
+        int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
+        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
     }
@@ -418,37 +421,12 @@ public class SessionManager implements AutoCloseable {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
 
-                // Snapshot current tasklist.json (if present) before we rewrite the zip
-                String taskListJsonSnapshot = null;
-                if (Files.exists(sessionHistoryPath)) {
-                    try {
-                        taskListJsonSnapshot = readTaskListJson(sessionHistoryPath);
-                    } catch (IOException ioe) {
-                        logger.warn(
-                                "Could not snapshot existing tasklist.json for session {}: {}",
-                                sessionId,
-                                ioe.getMessage());
-                    }
-                }
-
                 // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
 
                 // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
                     writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
-                }
-
-                // Restore tasklist.json if we had one
-                if (taskListJsonSnapshot != null) {
-                    try {
-                        writeTaskListJson(sessionHistoryPath, taskListJsonSnapshot);
-                    } catch (IOException ioe) {
-                        logger.warn(
-                                "Failed restoring tasklist.json for session {} after history save: {}",
-                                sessionId,
-                                ioe.getMessage());
-                    }
                 }
             } catch (IOException e) {
                 logger.error(
@@ -543,8 +521,13 @@ public class SessionManager implements AutoCloseable {
         return ch;
     }
 
-    // Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
-    // inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+    /**
+     * Internal helpers for synchronous tasklist read/write. These avoid re-entrancy issues when called
+     * inside the per-session serialized executor and allow saveHistory to preserve exact JSON.
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
+     **/
+    @Deprecated
     private @Nullable String readTaskListJson(Path zipPath) throws IOException {
         if (!Files.exists(zipPath)) {
             return null;
@@ -558,53 +541,10 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private void writeTaskListJson(Path zipPath, String json) throws IOException {
-        try (var fs =
-                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
-            Path taskListPath = fs.getPath("tasklist.json");
-            Files.writeString(taskListPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        }
-    }
-
     /**
-     * Asynchronously write the task list for a session, serialized per session key. Stores tasklist.json inside the
-     * session's zip file.
-     *
-     * <p>Concurrency: this uses {@link SerialByKeyExecutor} with the session UUID string as the key: calls for the same
-     * session are executed in submission order, while calls for different sessions run in parallel. This mirrors how
-     * manifest/history writes are handled elsewhere in this class.
-     *
-     * <pre>{@code
-     * // All I/O for a given sessionId runs serially with respect to that same sessionId:
-     * sessionExecutorByKey.submit(sessionId.toString(), () -> {
-     *     // ... open the session zip and write tasklist.json ...
-     *     return null;
-     * });
-     *
-     * // A different sessionId can proceed concurrently on the same underlying ExecutorService:
-     * sessionExecutorByKey.submit(otherSessionId.toString(), () -> {
-     *     // ... independent I/O for another session ...
-     *     return null;
-     * });
-     * }</pre>
-     */
-    public CompletableFuture<Void> writeTaskList(UUID sessionId, TaskList.TaskListData data) {
-        Path zipPath = getSessionHistoryPath(sessionId);
-        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                var normalized = new TaskList.TaskListData(List.copyOf(data.tasks()));
-                String json = AbstractProject.objectMapper.writeValueAsString(normalized);
-                writeTaskListJson(zipPath, json);
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to write task list for session " + sessionId, e);
-            }
-            return null;
-        });
-    }
-
-    /**
-     * Asynchronously read the task list for a session, serialized per session key. Reads tasklist.json from the
-     * session's zip file. Returns an empty list if not present.
+     * Asynchronously read the legacy task list (tasklist.json) from the session's zip.
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
      *
      * <p>Concurrency: submitted via {@link SerialByKeyExecutor} using {@code sessionId.toString()} so reads of the same
      * session are ordered with respect to writes/reads for that session, while reads on different sessions may run in
@@ -618,6 +558,7 @@ public class SessionManager implements AutoCloseable {
      * });
      * }</pre>
      */
+    @Deprecated
     public CompletableFuture<TaskList.TaskListData> readTaskList(UUID sessionId) {
         Path zipPath = getSessionHistoryPath(sessionId);
         return sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -630,11 +571,64 @@ public class SessionManager implements AutoCloseable {
                     return new TaskList.TaskListData(List.of());
                 }
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskList.TaskListData.class);
-                return new TaskList.TaskListData(List.copyOf(loaded.tasks()));
+
+                // Ensure backward compatibility: normalize any tasks that might have null/missing titles
+                // from old JSON format to use empty string
+                var normalizedTasks = loaded.tasks().stream()
+                        .map(task -> {
+                            @SuppressWarnings("NullAway") // Defensive check for deserialized data
+                            var titleValue = task.title();
+                            if (titleValue == null) {
+                                // Old JSON without title field; provide empty string default
+                                return new TaskList.TaskItem("", task.text(), task.done());
+                            }
+                            return task;
+                        })
+                        .toList();
+
+                return new TaskList.TaskListData(List.copyOf(normalizedTasks));
             } catch (IOException e) {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());
             }
+        });
+    }
+
+    /**
+     * Asynchronously deletes the legacy tasklist.json from the session's zip file.
+     * Deprecated: Only used during migration from legacy JSON to fragment-backed storage.
+     * Will be removed in a future release.
+     * This is a cleanup step after migrating to fragment-based storage, where the Task List
+     * is stored as a StringFragment in Context. If the session zip or tasklist.json does not
+     * exist, this operation is a no-op.
+     * Concurrency: Executed via SerialByKeyExecutor using the session UUID string as the key,
+     * ensuring per-session serialization and alignment with other session I/O.
+     *
+     * @param sessionId the session ID whose legacy task list is to be deleted
+     * @return a CompletableFuture that completes when the deletion attempt has finished
+     */
+    @Deprecated
+    public CompletableFuture<Void> deleteTaskList(UUID sessionId) {
+        Path zipPath = getSessionHistoryPath(sessionId);
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            if (!Files.exists(zipPath)) {
+                // No zip to clean; treat as success
+                return null;
+            }
+            try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+                Path taskListPath = fs.getPath("tasklist.json");
+                try {
+                    Files.deleteIfExists(taskListPath);
+                } catch (IOException e) {
+                    logger.warn("Error deleting tasklist.json for session {}: {}", sessionId, e.getMessage());
+                }
+            } catch (IOException e) {
+                logger.warn(
+                        "Error opening session zip {} while deleting tasklist.json: {}",
+                        zipPath.getFileName(),
+                        e.getMessage());
+            }
+            return null;
         });
     }
 

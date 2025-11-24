@@ -4,7 +4,6 @@ import ai.brokk.Brokk;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
@@ -21,6 +20,7 @@ import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -713,20 +714,89 @@ public class MenuBar {
 
         var sendFeedbackItem = new JMenuItem("Send Feedback...");
         sendFeedbackItem.addActionListener(e -> {
-            try {
-                Service.validateKey(MainProject.getBrokkKey());
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(
-                        chrome.getFrame(),
-                        "Please configure a valid Brokk API key in Settings before sending feedback.\n\nError: "
-                                + ex.getMessage(),
-                        "Invalid API Key",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+            // Validate API key in background to avoid EDT blocking
+            new SwingWorker<Boolean, Void>() {
+                private enum ValidationFailureKind {
+                    INVALID_FORMAT,
+                    NETWORK,
+                    OTHER
+                }
 
-            var dialog = new FeedbackDialog(chrome.getFrame(), chrome);
-            dialog.setVisible(true);
+                private @Nullable String errorMessage = null;
+                private @Nullable ValidationFailureKind failureKind = null;
+
+                @Override
+                protected Boolean doInBackground() {
+                    try {
+                        Service.validateKey(MainProject.getBrokkKey());
+                        return true;
+                    } catch (IllegalArgumentException ex) {
+                        failureKind = ValidationFailureKind.INVALID_FORMAT;
+                        errorMessage = ex.getMessage();
+                        return false;
+                    } catch (IOException ex) {
+                        failureKind = ValidationFailureKind.NETWORK;
+                        errorMessage = ex.getMessage();
+                        return false;
+                    }
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        if (get()) {
+                            var dialog = new FeedbackDialog(chrome.getFrame(), chrome);
+                            dialog.setVisible(true);
+                        } else {
+                            var errorInfo = buildErrorDialog();
+                            JOptionPane.showMessageDialog(
+                                    chrome.getFrame(),
+                                    errorInfo.message(),
+                                    errorInfo.title(),
+                                    JOptionPane.ERROR_MESSAGE);
+                        }
+                    } catch (Exception ex) {
+                        failureKind = ValidationFailureKind.OTHER;
+                        errorMessage = ex.getMessage();
+                        var errorInfo = buildErrorDialog();
+                        JOptionPane.showMessageDialog(
+                                chrome.getFrame(), errorInfo.message(), errorInfo.title(), JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+
+                private record ErrorInfo(String title, String message) {}
+
+                private ErrorInfo buildErrorDialog() {
+                    var kind = failureKind;
+                    ErrorInfo result;
+
+                    if (kind == null) {
+                        result = new ErrorInfo(
+                                "Error", "An unknown error occurred during API key validation. Please try again.");
+                    } else {
+                        result = switch (kind) {
+                            case INVALID_FORMAT ->
+                                new ErrorInfo(
+                                        "Invalid API Key",
+                                        "The Brokk API key appears to be invalid. Please check the key format and try again.");
+                            case NETWORK ->
+                                new ErrorInfo(
+                                        "API Key Validation Failed",
+                                        "Could not validate the Brokk API key due to a network or server error. Please check your connection and try again.");
+                            case OTHER ->
+                                new ErrorInfo(
+                                        "Error",
+                                        "An unexpected error occurred during API key validation. Please try again.");
+                        };
+                    }
+
+                    if (errorMessage != null && !errorMessage.isBlank()) {
+                        return new ErrorInfo(result.title(), result.message() + "\n\nError: " + errorMessage);
+                    }
+
+                    return result;
+                }
+            }.execute();
         });
         helpMenu.add(sendFeedbackItem);
 
@@ -755,6 +825,7 @@ public class MenuBar {
      * @param chrome the Chrome instance
      */
     static void openSettingsDialog(Chrome chrome) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         var dialog = new SettingsDialog(chrome.frame, chrome);
         dialog.setVisible(true);
     }
@@ -790,38 +861,63 @@ public class MenuBar {
 
     /**
      * Rebuilds the Recent Projects submenu using up to 5 from Project.loadRecentProjects(), sorted by lastOpened
-     * descending.
+     * descending. Loads in background to avoid EDT blocking.
      */
     private static void rebuildRecentProjectsMenu(JMenu recentMenu) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
         recentMenu.removeAll();
+        var loadingItem = new JMenuItem("Loading...");
+        loadingItem.setEnabled(false);
+        recentMenu.add(loadingItem);
 
-        var map = MainProject.loadRecentProjects();
-        if (map.isEmpty()) {
-            var emptyItem = new JMenuItem("(No Recent Projects)");
-            emptyItem.setEnabled(false);
-            recentMenu.add(emptyItem);
-            return;
-        }
+        // Load recent projects in background
+        new SwingWorker<Map<Path, MainProject.ProjectPersistentInfo>, Void>() {
+            @Override
+            protected Map<Path, MainProject.ProjectPersistentInfo> doInBackground() {
+                return MainProject.loadRecentProjects();
+            }
 
-        var sorted = map.entrySet().stream()
-                .sorted((a, b) ->
-                        Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
-                .limit(5)
-                .toList();
+            @Override
+            protected void done() {
+                try {
+                    var map = get();
+                    recentMenu.removeAll();
 
-        for (var entry : sorted) {
-            var projectPath = entry.getKey();
-            var pathString = projectPath.toString();
-            var item = new JMenuItem(pathString);
-            item.addActionListener(e -> {
-                if (Brokk.isProjectOpen(projectPath)) {
-                    Brokk.focusProjectWindow(projectPath);
-                } else {
-                    // Reopening from recent menu is a user action, not internal, no explicit parent.
-                    new Brokk.OpenProjectBuilder(projectPath).open();
+                    if (map.isEmpty()) {
+                        var emptyItem = new JMenuItem("(No Recent Projects)");
+                        emptyItem.setEnabled(false);
+                        recentMenu.add(emptyItem);
+                        return;
+                    }
+
+                    var sorted = map.entrySet().stream()
+                            .sorted((a, b) -> Long.compare(
+                                    b.getValue().lastOpened(), a.getValue().lastOpened()))
+                            .limit(5)
+                            .toList();
+
+                    for (var entry : sorted) {
+                        var projectPath = entry.getKey();
+                        var pathString = projectPath.toString();
+                        var item = new JMenuItem(pathString);
+                        item.addActionListener(e -> {
+                            if (Brokk.isProjectOpen(projectPath)) {
+                                Brokk.focusProjectWindow(projectPath);
+                            } else {
+                                // Reopening from recent menu is a user action, not internal, no explicit parent.
+                                new Brokk.OpenProjectBuilder(projectPath).open();
+                            }
+                        });
+                        recentMenu.add(item);
+                    }
+                } catch (Exception e) {
+                    recentMenu.removeAll();
+                    var errorItem = new JMenuItem("Error loading recent projects");
+                    errorItem.setEnabled(false);
+                    recentMenu.add(errorItem);
                 }
-            });
-            recentMenu.add(item);
-        }
+            }
+        }.execute();
     }
 }

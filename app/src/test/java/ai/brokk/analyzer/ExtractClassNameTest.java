@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;

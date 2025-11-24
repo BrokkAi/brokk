@@ -37,6 +37,25 @@
   --message-border-ai-reasoning: #8c52c9;
 }
 
+/* Shiki CSS variables for light plus theme */
+.theme-light-plus {
+  --shiki-foreground: #131313;
+  --shiki-background: #ffffff;
+  --shiki-token-constant: #3a7d7e;
+  --shiki-token-string: #d248ae;
+  --shiki-token-comment: #438c2e;
+  --shiki-token-keyword: #3200f9;
+  --shiki-token-parameter: #24292e;
+  --shiki-token-function: #131313;
+  --shiki-token-string-expression: #d248ae;
+  --shiki-token-punctuation: #131313;
+  --shiki-token-link: #3200f9;
+  --code-block-font-weight: 700;
+  --ai-reasoning-header-foreground: #333333;
+  --message-border-ai-reasoning: #8c52c9;
+}
+
+
 /* Shiki CSS variables for high-contrast theme */
 .theme-high-contrast {
   --shiki-foreground: #ffffff;
