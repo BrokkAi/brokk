@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
@@ -1480,15 +1481,18 @@ public class CodeAgent {
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
+
+        // If any fragments need to be computed, we'll wait a bit
+        ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         var readonlyPaths = ctx.getReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var editableAll = ctx.getEditableFragments()
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var readonly = ctx.getReadonlyFragments()
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());

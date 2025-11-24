@@ -11,6 +11,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
@@ -720,9 +721,11 @@ public class MergeAgent {
         // Build resulting context that contains all conflict files
         var top = cm.liveContext();
         var conflictFiles = allConflictFilesInWorkspace();
+        // Give fragments time to compute if necessary
+        top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         var existingEditableFiles = top.fileFragments()
                 .filter(cf -> cf.getType().isEditable())
-                .flatMap(cf -> cf.files().join().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var fragmentsToAdd = conflictFiles.stream()
                 .filter(pf -> !existingEditableFiles.contains(pf))

@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
@@ -54,6 +55,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -855,7 +857,7 @@ public class SearchAgent {
                             .findFirst()
                             .orElseThrow()
                             .syntaxStyle()
-                            .join())));
+                            .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
@@ -928,7 +930,8 @@ public class SearchAgent {
         if (!skeletonFragments.isEmpty()) {
             var skeletonNames = skeletonFragments.stream()
                     .map(ContextFragment::description)
-                    .map(ComputedValue::join)
+                    .map(ComputedValue::renderNowOrNull)
+                    .filter(Objects::nonNull)
                     .sorted()
                     .toList();
             details.put("skeletonFragments", skeletonNames);
@@ -1141,9 +1144,11 @@ public class SearchAgent {
 
     @Blocking
     private Set<ProjectFile> getWorkspaceFileSet() {
+        // Allow time to compute
+        context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
-                .flatMap(f -> f.files().join().stream())
+                .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1153,13 +1158,15 @@ public class SearchAgent {
 
     @Blocking
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+        // Allow time to compute
+        context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
-                        f.description().join(),
-                        f.files().join().stream()
+                        f.description().renderNowOr("(empty)"),
+                        f.files().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))

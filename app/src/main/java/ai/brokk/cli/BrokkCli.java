@@ -492,7 +492,7 @@ public final class BrokkCli implements Callable<Integer> {
                             cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files().join(), Set.of());
+                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
                     }
                 }
             } else {
