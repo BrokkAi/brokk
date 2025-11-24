@@ -1444,22 +1444,22 @@ public class ContextSerializationTest {
         var logOnly = new TaskEntry(1, taskFragment, null);
         assertTrue(logOnly.hasLog());
         assertFalse(logOnly.hasSummary());
-        assertFalse(logOnly.isSummarized());
+        assertFalse(logOnly.isCompressed());
         assertFalse(logOnly.isCompressed());
 
         // Summary only
         var summaryOnly = new TaskEntry(2, null, "Summary text");
         assertFalse(summaryOnly.hasLog());
         assertTrue(summaryOnly.hasSummary());
-        assertTrue(summaryOnly.isSummarized());
+        assertTrue(summaryOnly.isCompressed());
         assertTrue(summaryOnly.isCompressed());
 
         // Both
         var both = new TaskEntry(3, taskFragment, "Summary text");
         assertTrue(both.hasLog());
         assertTrue(both.hasSummary());
-        assertTrue(both.isSummarized());
-        assertFalse(both.isCompressed());
+        assertTrue(both.isCompressed());
+        assertTrue(both.isCompressed());
     }
 
     @Test

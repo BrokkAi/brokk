@@ -54,18 +54,9 @@ public record TaskEntry(
 
     /**
      * Returns true if this TaskEntry has a summary that the AI should use.
-     * This is equivalent to `hasSummary()` and indicates the AI will process a compressed version.
-     */
-    public boolean isSummarized() {
-        return hasSummary();
-    }
-
-    /**
-     * Returns true only when this TaskEntry is summary-only (i.e., the original log is not available).
-     * This indicates a legacy compressed entry where only the summary is kept.
      */
     public boolean isCompressed() {
-        return hasSummary() && !hasLog();
+        return hasSummary();
     }
 
     /**

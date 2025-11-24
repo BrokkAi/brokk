@@ -2154,7 +2154,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public TaskEntry compressHistory(TaskEntry entry) {
         // If already has a summary, return as is (already compressed or marked for AI summary)
-        if (entry.isSummarized()) {
+        if (entry.isCompressed()) {
             return entry;
         }
 
@@ -2817,7 +2817,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             TaskEntry original = taskHistoryToCompress.get(i);
                             TaskEntry compressed = compressedTaskEntries.get(i);
                             // Entry changed if it now has a summary when it didn't before
-                            return compressed.isSummarized() && !original.isSummarized();
+                            return compressed.isCompressed() && !original.isCompressed();
                         });
 
                 if (!changed) {
