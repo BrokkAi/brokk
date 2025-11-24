@@ -159,8 +159,9 @@ public class ArchitectAgent {
             return resultString;
         }
 
-        // For non-SUCCESS outcomes:
-        // throw errors that should halt the architect
+        // For non-SUCCESS outcomes, format error feedback appropriately
+
+        // Throw errors that should halt the architect
         if (reason == StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
@@ -169,17 +170,94 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
-        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.), explain how to recover
-        this.offerUndoToolNext = true;
-        var resultString =
-                """
-                        CodeAgent was not able to get to a clean build. Details are in the Workspace.
-                        Changes were made but can be undone with 'undoLastChanges'
-                        if CodeAgent made negative progress; you will have to determine this from the messages history and the
-                        current Workspace contents.
-                        """;
-        logger.debug("failed callCodeAgent");
+        // Format recoverable errors with clear guidance for the LLM
+        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
+        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
+
+        // Offer undo tool for constraint violations and edit failures (recoverable)
+        if (reason == StopReason.READ_ONLY_EDIT || reason == StopReason.APPLY_ERROR) {
+            this.offerUndoToolNext = true;
+        }
+
         return resultString;
+    }
+
+    /**
+     * Formats CodeAgent failure messages with clear, structured guidance for the LLM.
+     * Each failure type includes actionable next steps.
+     */
+    private String formatCodeAgentFailure(StopReason reason, String explanation) {
+        return switch (reason) {
+            case READ_ONLY_EDIT ->
+                """
+                    **Constraint Violation: Read-Only File**
+
+                    Your instructions asked to modify a file marked read-only in the Workspace:
+                    %s
+
+                    **Why this happened**: Read-only files are protected from accidental modification.
+
+                    **To fix this, you can**:
+                    1. Modify your approach to work on different files instead
+                    2. Ask me to clarify which files should be editable
+
+                    No changes were applied. You can retry with adjusted instructions.
+                    """
+                        .formatted(explanation);
+            case PARSE_ERROR ->
+                """
+                    **Parse Error: Invalid Response Format**
+
+                    The Code Agent couldn't parse the response after multiple attempts:
+                    %s
+
+                    Details are in the Workspace. Review the SEARCH/REPLACE block format and try again with clearer instructions.
+                    """
+                        .formatted(explanation);
+            case APPLY_ERROR ->
+                """
+                    **Apply Error: Edit Blocks Failed**
+
+                    The Code Agent couldn't apply edits after multiple attempts:
+                    %s
+
+                    This may indicate ambiguous search patterns or outdated file content. Details are in the Workspace.
+                    You can retry with more specific instructions, or undo with 'undoLastChanges'.
+                    """
+                        .formatted(explanation);
+            case BUILD_ERROR ->
+                """
+                    **Build Error: Failed to Compile/Test**
+
+                    Build/test verification failed after multiple attempts:
+                    %s
+
+                    Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
+                    You can retry with different instructions, or undo with 'undoLastChanges'.
+                    """
+                        .formatted(explanation);
+            case IO_ERROR ->
+                """
+                    **IO Error: File System Issue**
+
+                    An error occurred while reading or writing files:
+                    %s
+
+                    This may be a transient issue. Details are in the Workspace. You can retry.
+                    """
+                        .formatted(explanation);
+            default ->
+                """
+                    **Code Agent Failed**
+
+                    Reason: %s
+                    Details: %s
+
+                    Changes were made but may not be complete. Details are in the Workspace.
+                    You can undo with 'undoLastChanges' or retry with different instructions.
+                    """
+                        .formatted(reason, explanation);
+        };
     }
 
     private void addPlanningToHistory() {
