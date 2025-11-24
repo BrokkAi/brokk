@@ -55,19 +55,6 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     });
                 });
 
-                // Add summary bubble if available and compressed
-                if (evt.compressed && evt.summary) {
-                    entries.push({
-                        seq: nextHistoryBubbleSeq++,
-                        threadId: threadId,
-                        type: 'SYSTEM',
-                        markdown: evt.summary,
-                        streaming: false,
-                        reasoning: false,
-                        isSummary: true,
-                    });
-                }
-
                 const newTask: HistoryTask = {
                     threadId: threadId,
                     taskSequence: evt.taskSequence,
