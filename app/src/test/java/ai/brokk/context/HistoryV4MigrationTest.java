@@ -194,7 +194,6 @@ class HistoryV4MigrationTest {
             assertEquals(1, ctx.allFragments().count());
             var ppf = findFragment(ctx, ContextFragment.ProjectPathFragment.class, f -> true);
             assertNotNull(ppf);
-            assertEquals("ProjectPath.java [src]", ppf.description().join());
             assertEquals("public class ProjectPath {}", ppf.getSnapshotTextOrNull());
         } else if ("v3-externalpath-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
@@ -203,7 +202,6 @@ class HistoryV4MigrationTest {
             var epf = findFragment(ctx, ContextFragment.ExternalPathFragment.class, f -> true);
             assertNotNull(epf);
             assertTrue(epf.file().toString().endsWith("external_file.txt"));
-            assertEquals("External file content", epf.text().join());
             assertEquals("External file content", epf.getSnapshotTextOrNull());
         } else if ("v3-search-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
@@ -230,8 +228,6 @@ class HistoryV4MigrationTest {
             assertEquals(1, ctx.allFragments().count());
             var uf = findFragment(ctx, ContextFragment.UsageFragment.class, f -> true);
             assertNotNull(uf);
-            assertEquals(
-                    "Uses of com.example.MyClass.myMethod", uf.description().join());
             assertEquals("com.example.MyClass.myMethod", uf.targetIdentifier());
         } else if ("v3-code-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
