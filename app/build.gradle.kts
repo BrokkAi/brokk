@@ -140,6 +140,7 @@ dependencies {
     "errorprone"(libs.dataflow.errorprone)
     "errorprone"(project(":errorprone-checks"))
     compileOnly(libs.checker.qual)
+    compileOnly(libs.errorprone.annotations)
 }
 
 // Force version computation at configuration time

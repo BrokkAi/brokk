@@ -23,6 +23,7 @@ public final class ModelProperties {
     private static final Logger logger = LogManager.getLogger(ModelProperties.class);
 
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private ModelProperties() {}
 
@@ -38,7 +39,7 @@ public final class ModelProperties {
      * Reads a ModelConfig for the given modelType from props, with fallback to preferred defaults.
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
-    static ModelConfig getModelConfig(Properties props, ObjectMapper objectMapper, ModelType modelType) {
+    static ModelConfig getModelConfig(Properties props, ModelType modelType) {
         String jsonString = props.getProperty(modelType.propertyKey());
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -64,8 +65,7 @@ public final class ModelProperties {
      * Writes the ModelConfig for the given modelType into props.
      * The caller is responsible for persisting the mutated Properties.
      */
-    static void setModelConfig(
-            Properties props, ObjectMapper objectMapper, ModelType modelType, ModelConfig config) {
+    static void setModelConfig(Properties props, ModelType modelType, ModelConfig config) {
         try {
             String jsonString = objectMapper.writeValueAsString(config);
             props.setProperty(modelType.propertyKey(), jsonString);
@@ -77,7 +77,7 @@ public final class ModelProperties {
     /**
      * Loads favorite models from props. Returns defaults on missing/invalid JSON.
      */
-    static List<Service.FavoriteModel> loadFavoriteModels(Properties props, ObjectMapper objectMapper) {
+    static List<Service.FavoriteModel> loadFavoriteModels(Properties props) {
         String json = props.getProperty(FAVORITE_MODELS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
@@ -95,8 +95,7 @@ public final class ModelProperties {
      * Saves favorite models to props if changed. Returns true if the value changed.
      * The caller is responsible for persisting the mutated Properties.
      */
-    static boolean saveFavoriteModels(
-            Properties props, ObjectMapper objectMapper, List<Service.FavoriteModel> favorites) {
+    static boolean saveFavoriteModels(Properties props, List<Service.FavoriteModel> favorites) {
         String newJson;
         try {
             newJson = objectMapper.writeValueAsString(favorites);
@@ -114,8 +113,8 @@ public final class ModelProperties {
     /**
      * Looks up a favorite model by alias (case-insensitive).
      */
-    static Service.FavoriteModel getFavoriteModel(Properties props, ObjectMapper objectMapper, String alias) {
-        return loadFavoriteModels(props, objectMapper).stream()
+    static Service.FavoriteModel getFavoriteModel(Properties props, String alias) {
+        return loadFavoriteModels(props).stream()
                 .filter(fm -> fm.alias().equalsIgnoreCase(alias))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
@@ -162,7 +161,8 @@ public final class ModelProperties {
             String s = name().toLowerCase(Locale.ROOT).replace('_', ' ');
             StringBuilder out = new StringBuilder();
             boolean cap = true;
-            for (char c : s.toCharArray()) {
+            for (int i = 0, len = s.length(); i < len; i++) {
+                char c = s.charAt(i);
                 if (cap && Character.isLetter(c)) {
                     out.append(Character.toUpperCase(c));
                     cap = false;

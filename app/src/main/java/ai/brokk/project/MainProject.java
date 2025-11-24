@@ -123,7 +123,7 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     @VisibleForTesting
-    static Properties globalPropertiesCache = null; // protected by synchronized
+    public static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -149,7 +149,6 @@ public final class MainProject extends AbstractProject {
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
-    private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
     public static final String DEFAULT_REVIEW_GUIDE =
             """
@@ -405,12 +404,12 @@ public final class MainProject extends AbstractProject {
 
     private ModelConfig getModelConfigInternal(ModelType modelType) {
         var props = loadGlobalProperties();
-        return ModelProperties.getModelConfig(props, objectMapper, modelType);
+        return ModelProperties.getModelConfig(props, modelType);
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
-        ModelProperties.setModelConfig(props, objectMapper, modelType, config);
+        ModelProperties.setModelConfig(props, modelType, config);
         saveGlobalProperties(props);
     }
 
@@ -1719,7 +1718,7 @@ public final class MainProject extends AbstractProject {
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
-        var list = ModelProperties.loadFavoriteModels(props, objectMapper);
+        var list = ModelProperties.loadFavoriteModels(props);
         logger.debug("Loaded {} favorite models from global properties.", list.size());
         return list;
     }
@@ -1733,12 +1732,12 @@ public final class MainProject extends AbstractProject {
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
         var props = loadGlobalProperties();
-        return ModelProperties.getFavoriteModel(props, objectMapper, alias);
+        return ModelProperties.getFavoriteModel(props, alias);
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
         var props = loadGlobalProperties();
-        boolean changed = ModelProperties.saveFavoriteModels(props, objectMapper, favorites);
+        boolean changed = ModelProperties.saveFavoriteModels(props, favorites);
         if (changed) {
             saveGlobalProperties(props);
             logger.debug("Saved {} favorite models to global properties.", favorites.size());

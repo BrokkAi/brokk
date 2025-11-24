@@ -642,7 +642,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return fileFilteringService.filterFiles(files, rawExclusions);
     }
 
-    public final synchronized void invalidateAllFiles() {
+    @Override
+    public synchronized void invalidateAllFiles() {
         allFilesCache = null;
         try {
             fileFilteringService.invalidateCaches();
@@ -651,6 +652,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public boolean isDirectoryIgnored(Path directoryRelPath) {
         if (!(repo instanceof GitRepo)) {
             return false; // No git repo = nothing is ignored
