@@ -267,7 +267,11 @@ public class GitRepo implements Closeable, IGitRepo {
     Optional<ProjectFile> toProjectFile(String gitPath) {
         try {
             Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
-            Path absolutePath = workingTreeRoot.resolve(gitPath);
+            Path absolutePath = workingTreeRoot.resolve(gitPath).normalize();
+            // Filter out files not under projectRoot (important for subdirectory projects)
+            if (!absolutePath.startsWith(projectRoot)) {
+                return Optional.empty();
+            }
             Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
             return Optional.of(new ProjectFile(projectRoot, pathRelativeToProjectRoot));
         } catch (InvalidPathException e) {
