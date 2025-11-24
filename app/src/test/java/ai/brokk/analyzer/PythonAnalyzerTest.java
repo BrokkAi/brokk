@@ -1138,4 +1138,85 @@ public final class PythonAnalyzerTest {
 
         testProject.close();
     }
+
+    @Test
+    void testRelativeImportSameDirectory() {
+        // Test: from . import sibling_module
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile siblingPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/sibling.py");
+        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(siblingPy);
+
+        // Should resolve to relative_imports.subdir.ChildClass (not .child.ChildClass)
+        // In Python, modules don't add a level to the FQN
+        assertTrue(
+                imports.stream()
+                        .anyMatch(cu -> cu.fqName().equals("relative_imports.subdir.ChildClass")),
+                "Should resolve 'from .child import ChildClass' to relative_imports.subdir.ChildClass");
+
+        testProject.close();
+    }
+
+    @Test
+    void testRelativeImportParentDirectory() {
+        // Test: from .. import base
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/child.py");
+        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(childPy);
+
+        // Should resolve to relative_imports.BaseClass (not .base.BaseClass)
+        assertTrue(
+                imports.stream()
+                        .anyMatch(cu -> cu.fqName().equals("relative_imports.BaseClass")),
+                "Should resolve 'from ..base import BaseClass' to relative_imports.BaseClass");
+
+        testProject.close();
+    }
+
+    @Test
+    void testRelativeImportGrandparentDirectory() {
+        // Test: from ... import base (from nested.py)
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile nestedPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/deep/nested.py");
+        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(nestedPy);
+
+        // Should resolve to relative_imports.BaseClass (not .base.BaseClass)
+        assertTrue(
+                imports.stream()
+                        .anyMatch(cu -> cu.fqName().equals("relative_imports.BaseClass")),
+                "Should resolve 'from ...base import BaseClass' to relative_imports.BaseClass");
+
+        testProject.close();
+    }
+
+    @Test
+    void testRelativeImportInheritance() {
+        // Test that classes using relative imports show proper inheritance
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        // ChildClass extends BaseClass via relative import
+        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/child.py");
+        Set<CodeUnit> childDecls = testAnalyzer.getDeclarations(childPy);
+
+        var childClass = childDecls.stream()
+                .filter(cu -> cu.identifier().equals("ChildClass"))
+                .findFirst();
+        assertTrue(childClass.isPresent(), "ChildClass should be found");
+
+        // Check that ChildClass has BaseClass as ancestor
+        var ancestors = testAnalyzer.getDirectAncestors(childClass.get());
+        assertEquals(1, ancestors.size(), "ChildClass should have exactly 1 direct ancestor (BaseClass)");
+        assertTrue(
+                ancestors.stream()
+                        .anyMatch(cu -> cu.identifier().equals("BaseClass")),
+                "ChildClass should have BaseClass as ancestor");
+
+        testProject.close();
+    }
 }

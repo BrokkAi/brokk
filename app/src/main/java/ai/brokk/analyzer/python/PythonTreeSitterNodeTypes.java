@@ -37,6 +37,7 @@ public final class PythonTreeSitterNodeTypes {
     public static final String IMPORT_MODULE = "import.module";
     public static final String IMPORT_NAME = "import.name";
     public static final String IMPORT_ALIAS = "import.alias";
+    public static final String IMPORT_RELATIVE = "import.relative";
 
     private PythonTreeSitterNodeTypes() {}
 }

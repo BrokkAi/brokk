@@ -17,6 +17,17 @@
     name: (dotted_name) @import.name
     alias: (identifier) @import.alias))
 
+; Relative imports: from . import X, from ..parent import Y
+(import_from_statement
+  module_name: (relative_import) @import.relative
+  name: (dotted_name) @import.name)
+
+(import_from_statement
+  module_name: (relative_import) @import.relative
+  name: (aliased_import
+    name: (dotted_name) @import.name
+    alias: (identifier) @import.alias))
+
 ; Captures: import <module>
 (import_statement
   name: (dotted_name) @import.name)
