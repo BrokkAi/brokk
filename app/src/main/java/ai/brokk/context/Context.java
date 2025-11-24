@@ -1269,13 +1269,20 @@ public class Context {
     }
 
     /**
-     * Kicks off asynchronous computation of all computed values in this context's fragments. This is intended to
-     * "snapshot" the state of a context before it becomes historical, without blocking. The values will be computed in
-     * the background and cached.
+     * Kicks off asynchronous snapshotting of all fragments in this context using a given timeout.
+     * This is intended to capture the state of a context before it becomes historical, without blocking the caller.
+     * Snapshotting runs in the background on the ContextFragment executor and captures text and/or image bytes
+     * for each fragment where possible.
      */
-    public void startSnapshotting() {
+    public void startSnapshotting(Duration timeout) {
         for (var fragment : this.allFragments().toList()) {
-            fragment.startAll();
+            ContextFragment.getFragmentExecutor().submit(() -> {
+                try {
+                    fragment.snapshot(timeout);
+                } catch (Exception e) {
+                    logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
+                }
+            });
         }
     }
 

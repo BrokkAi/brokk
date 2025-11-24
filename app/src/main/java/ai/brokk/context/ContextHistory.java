@@ -170,7 +170,7 @@ public class ContextHistory {
         history.addLast(ctx);
         // Snapshot the new live context immediately to capture its state as of now.
         // This ensures undo/redo restores content from when the context became live, not from a later mutation.
-        ctx.startSnapshotting();
+        ctx.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
         truncateHistory();
         redo.clear();
         selected = ctx;
@@ -185,7 +185,7 @@ public class ContextHistory {
         history.removeLast();
         history.addLast(newLive);
         // Snapshot the new live context immediately to capture its state for future undo/redo.
-        newLive.startSnapshotting();
+        newLive.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
         redo.clear();
         selected = newLive;
     }
@@ -305,7 +305,7 @@ public class ContextHistory {
             var popped = history.removeLast();
             // Snapshot the context before moving it to redo stack, as it was the live context
             // and its content might not be cached yet.
-            popped.startSnapshotting();
+            popped.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
             resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
