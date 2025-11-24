@@ -27,7 +27,7 @@ public final class ModelProperties {
     private ModelProperties() {}
 
     // Default favorite models (moved from MainProject)
-    public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
+    static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
             new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
@@ -38,7 +38,7 @@ public final class ModelProperties {
      * Reads a ModelConfig for the given modelType from props, with fallback to preferred defaults.
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
-    public static ModelConfig getModelConfig(Properties props, ObjectMapper objectMapper, ModelType modelType) {
+    static ModelConfig getModelConfig(Properties props, ObjectMapper objectMapper, ModelType modelType) {
         String jsonString = props.getProperty(modelType.propertyKey());
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -64,7 +64,7 @@ public final class ModelProperties {
      * Writes the ModelConfig for the given modelType into props.
      * The caller is responsible for persisting the mutated Properties.
      */
-    public static void setModelConfig(
+    static void setModelConfig(
             Properties props, ObjectMapper objectMapper, ModelType modelType, ModelConfig config) {
         try {
             String jsonString = objectMapper.writeValueAsString(config);
@@ -77,7 +77,7 @@ public final class ModelProperties {
     /**
      * Loads favorite models from props. Returns defaults on missing/invalid JSON.
      */
-    public static List<Service.FavoriteModel> loadFavoriteModels(Properties props, ObjectMapper objectMapper) {
+    static List<Service.FavoriteModel> loadFavoriteModels(Properties props, ObjectMapper objectMapper) {
         String json = props.getProperty(FAVORITE_MODELS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
@@ -95,7 +95,7 @@ public final class ModelProperties {
      * Saves favorite models to props if changed. Returns true if the value changed.
      * The caller is responsible for persisting the mutated Properties.
      */
-    public static boolean saveFavoriteModels(
+    static boolean saveFavoriteModels(
             Properties props, ObjectMapper objectMapper, List<Service.FavoriteModel> favorites) {
         String newJson;
         try {
@@ -114,7 +114,7 @@ public final class ModelProperties {
     /**
      * Looks up a favorite model by alias (case-insensitive).
      */
-    public static Service.FavoriteModel getFavoriteModel(Properties props, ObjectMapper objectMapper, String alias) {
+    static Service.FavoriteModel getFavoriteModel(Properties props, ObjectMapper objectMapper, String alias) {
         return loadFavoriteModels(props, objectMapper).stream()
                 .filter(fm -> fm.alias().equalsIgnoreCase(alias))
                 .findFirst()
@@ -125,7 +125,7 @@ public final class ModelProperties {
      * Enum representing the different model configuration slots persisted in global properties.
      * Each enum constant owns its properties key and preferred default ModelConfig.
      */
-    protected enum ModelType {
+    enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
         ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
