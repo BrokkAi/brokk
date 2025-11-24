@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
@@ -303,6 +304,29 @@ public interface ContextFragment {
     }
 
     /**
+     * Explicitly capture a snapshot of this fragment's content within the provided timeout.
+     * For image fragments, captures image bytes; otherwise captures text as UTF-8 bytes.
+     *
+     * Best-effort; timeouts or failures are logged and do not throw.
+     */
+    @Blocking
+    default void snapshot(Duration timeout) {
+        try {
+            if (isText()) {
+                text().await(timeout).ifPresent(value -> {
+                    setFrozenContentBytes(value.getBytes(StandardCharsets.UTF_8));
+                });
+            }
+            var ib = imageBytes();
+            if (ib != null) {
+                ib.await(timeout).ifPresent(this::setFrozenContentBytes);
+            }
+        } catch (Exception e) {
+            logger.warn("Snapshot failed for fragment {}: {}", id(), e.toString());
+        }
+    }
+
+    /**
      * Return a string that can be provided to the appropriate WorkspaceTools method to recreate this fragment. Returns
      * an empty string for fragments that cannot be re-added without serializing their entire contents.
      */
@@ -532,27 +556,20 @@ public interface ContextFragment {
 
         // Primary constructor for new dynamic fragments (no snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
         // Primary constructor for new dynamic fragments (with optional snapshot)
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, true);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
         }
 
         private ProjectPathFragment(
-                ProjectFile file,
-                String id,
-                IContextManager contextManager,
-                @Nullable String snapshotText,
-                boolean eagerPrime) {
+                ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
             this.file = file;
             this.id = id;
             this.contextManager = contextManager;
             this.frozenContent = snapshotText;
-            if (eagerPrime) {
-                this.primeComputations();
-            }
         }
 
         @Override
@@ -587,7 +604,7 @@ public interface ContextFragment {
             } catch (NumberFormatException e) {
                 throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
             }
-            return new ProjectPathFragment(file, existingId, contextManager, snapshotText, true);
+            return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
         @Override
@@ -650,7 +667,7 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             // Generate a new dynamic fragment with no eager priming to avoid populating snapshot during refresh.
             return new ProjectPathFragment(
-                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
         @Override
@@ -662,16 +679,7 @@ public interface ContextFragment {
                     textCv,
                     () -> textCv,
                     () -> new ComputedValue<>(
-                            "ppf-text-" + id(),
-                            () -> {
-                                String s = file.read().orElse("");
-                                // capture snapshot bytes so serialization can persist stable content
-                                if (this.frozenContent == null) {
-                                    this.frozenContent = s;
-                                }
-                                return s;
-                            },
-                            getFragmentExecutor()),
+                            "ppf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
                     v -> textCv = v);
         }
 
@@ -950,16 +958,7 @@ public interface ContextFragment {
                     textCv,
                     () -> textCv,
                     () -> new ComputedValue<>(
-                            "epf-text-" + id(),
-                            () -> {
-                                String s = file.read().orElse("");
-                                // capture snapshot bytes so serialization can persist stable content
-                                if (this.frozenContent == null) {
-                                    this.frozenContent = s;
-                                }
-                                return s;
-                            },
-                            getFragmentExecutor()),
+                            "epf-text-" + id(), () -> file.read().orElse(""), getFragmentExecutor()),
                     v -> textCv = v);
         }
 
@@ -1230,11 +1229,7 @@ public interface ContextFragment {
                             "iff-image-" + id(),
                             () -> {
                                 try {
-                                    byte[] data = ImageUtil.imageToBytes(readImage());
-                                    if (this.frozenContent == null) {
-                                        this.frozenContent = data;
-                                    }
-                                    return data;
+                                    return ImageUtil.imageToBytes(readImage());
                                 } catch (IOException e) {
                                     throw new UncheckedIOException(e);
                                 }
@@ -1874,16 +1869,7 @@ public interface ContextFragment {
             return lazyInitCv(
                     imageBytesCv,
                     () -> imageBytesCv,
-                    () -> new ComputedValue<>(
-                            "aif-image-" + id(),
-                            () -> {
-                                byte[] data = imageToBytes(image);
-                                if (this.frozenContent == null) {
-                                    this.frozenContent = data;
-                                }
-                                return data;
-                            },
-                            getFragmentExecutor()),
+                    () -> new ComputedValue<>("aif-image-" + id(), () -> imageToBytes(image), getFragmentExecutor()),
                     v -> imageBytesCv = v);
         }
 
@@ -1901,6 +1887,7 @@ public interface ContextFragment {
                 }
                 this.imageBytesCv = ComputedValue.completed("aif-image-" + id(), bytes);
             }
+            this.frozenContent = bytes;
         }
 
         @Override
@@ -2146,9 +2133,7 @@ public interface ContextFragment {
 
                                 var either = usageResult.toEither();
                                 if (either.hasErrorMessage()) {
-                                    String err = either.getErrorMessage();
-                                    snapshotText = err;
-                                    return err;
+                                    return either.getErrorMessage();
                                 }
 
                                 List<CodeWithSource> parts = processUsages(analyzer, either);
@@ -2156,10 +2141,6 @@ public interface ContextFragment {
                                 String result = formatted.isEmpty()
                                         ? "No relevant usages found for symbol: " + targetIdentifier
                                         : formatted;
-                                // capture snapshot so serialization can persist stable content
-                                if (!result.isBlank()) {
-                                    snapshotText = result;
-                                }
                                 return result;
                             },
                             getFragmentExecutor()),
@@ -2440,10 +2421,6 @@ public interface ContextFragment {
                                             result = "No source found for class: " + fullyQualifiedName;
                                         }
                                     }
-                                }
-                                // capture snapshot so serialization can persist stable content
-                                if (!result.isBlank()) {
-                                    snapshotText = result;
                                 }
                                 return result;
                             },
