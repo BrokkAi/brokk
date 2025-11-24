@@ -1,6 +1,6 @@
 package ai.brokk.git;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

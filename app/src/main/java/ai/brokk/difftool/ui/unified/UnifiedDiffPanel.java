@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui.unified;
 
-import ai.brokk.MainProject;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BlameService.BlameInfo;
@@ -13,6 +12,7 @@ import ai.brokk.difftool.ui.JMHighlighter;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.MainProject;
 import java.awt.BorderLayout;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;

@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import java.nio.file.Files;
 import java.nio.file.Path;

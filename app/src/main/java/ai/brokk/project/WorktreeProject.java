@@ -1,12 +1,14 @@
-package ai.brokk;
+package ai.brokk.project;
 
-import ai.brokk.MainProject.DataRetentionPolicy;
+import ai.brokk.AbstractService;
+import ai.brokk.IssueProvider;
+import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -96,22 +98,22 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public Service.ModelConfig getCodeModelConfig() {
+    public AbstractService.ModelConfig getCodeModelConfig() {
         return parent.getCodeModelConfig();
     }
 
     @Override
-    public void setCodeModelConfig(Service.ModelConfig config) {
+    public void setCodeModelConfig(AbstractService.ModelConfig config) {
         parent.setCodeModelConfig(config);
     }
 
     @Override
-    public Service.ModelConfig getArchitectModelConfig() {
+    public AbstractService.ModelConfig getArchitectModelConfig() {
         return parent.getArchitectModelConfig();
     }
 
     @Override
-    public void setArchitectModelConfig(Service.ModelConfig config) {
+    public void setArchitectModelConfig(AbstractService.ModelConfig config) {
         parent.setArchitectModelConfig(config);
     }
 
@@ -172,53 +174,21 @@ public final class WorktreeProject extends AbstractProject {
 
     @Override
     public Set<Dependency> getLiveDependencies() {
-        // Available dependencies (shared): derive from master root
-        var allDeps = getAllOnDiskDependencies();
-        if (allDeps.isEmpty()) {
-            return Set.of();
-        }
-
         String liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
         if (liveDepsNames == null) {
             // First access in this worktree: copy parent's current effective active set into this worktree
-            try {
-                var parentDeps = parent.getLiveDependencies(); // effective set from parent
-                String names = parentDeps.stream()
-                        .map(d -> d.root().getRelPath().getName(2).toString())
-                        .collect(Collectors.joining(","));
-                // Persist the copied list so future accesses are worktree-local
-                workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
-                saveWorkspaceProperties();
-                liveDepsNames = names;
-            } catch (Exception e) {
-                // If any error copying from parent, fall back to no active dependencies (safe default)
-                logger.error("Error copying live dependencies from parent for {}: {}", getRoot(), e.getMessage());
-                return Set.of();
-            }
+            var parentDeps = parent.getLiveDependencies(); // effective set from parent
+            String names = parentDeps.stream()
+                    .map(d -> d.root().getRelPath().getName(2).toString())
+                    .collect(Collectors.joining(","));
+            // Persist the copied list so future accesses are worktree-local
+            workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
+            saveWorkspaceProperties();
+            liveDepsNames = names;
         }
 
-        if (liveDepsNames.isBlank()) {
-            // Explicitly set to empty -> no active dependencies
-            return Set.of();
-        }
-
-        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        var selected = allDeps.stream()
-                .filter(dep -> {
-                    if (dep.getRelPath().getNameCount() < 3) return false;
-                    var depName = dep.getRelPath().getName(2).toString();
-                    return liveNamesSet.contains(depName);
-                })
-                .collect(Collectors.toSet());
-
-        return selected.stream()
-                .map(dep -> new Dependency(dep, AbstractProject.detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
+        return namesToDependencies(liveDepsNames);
     }
 
     @Override

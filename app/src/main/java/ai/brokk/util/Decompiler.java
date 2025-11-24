@@ -1,9 +1,9 @@
 package ai.brokk.util;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
+import ai.brokk.project.AbstractProject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;

@@ -2,8 +2,8 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -245,10 +245,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
-        return super.getDefinition(normalized);
+        return super.getDefinitions(normalized);
     }
 
     /**
@@ -390,8 +390,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         normalized.substring(0, normalized.length() - 2).trim();
 
                 // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
-                Optional<CodeUnit> pkgModule = getDefinition(packageName);
-                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
+                Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+                        .filter(CodeUnit::isModule)
+                        .findFirst();
+                if (pkgModule.isPresent()) {
                     for (CodeUnit child : getDirectChildren(pkgModule.get())) {
                         if (child.isClass() && packageName.equals(child.packageName())) {
                             resolved.add(child);
@@ -400,10 +402,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 }
             } else if (!normalized.isEmpty()) {
                 // Explicit import: try to find the exact class
-                Optional<CodeUnit> found = getDefinition(normalized);
-                if (found.isPresent() && found.get().isClass()) {
-                    resolved.add(found.get());
-                }
+                getDefinitions(normalized).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .ifPresent(resolved::add);
             }
         }
 
@@ -427,7 +429,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+                rawNames, cu.packageName(), resolvedImports, this::getDefinitions, (s) -> searchDefinitions(s, false));
     }
 
     @Override

@@ -1,6 +1,6 @@
 package ai.brokk.gui.theme;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.MouseAdapter;

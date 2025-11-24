@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
@@ -15,6 +14,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.FileSelectionPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
