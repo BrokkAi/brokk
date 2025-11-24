@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { BubbleState } from '../types';
     import { threadStore } from '../stores/threadStore';
+    import { summaryViewStore } from '../stores/summaryViewStore';
     import MessageBubble from './MessageBubble.svelte';
     import AIReasoningBubble from './AIReasoningBubble.svelte';
     import Icon from '@iconify/svelte';
@@ -18,16 +19,14 @@
     // Optional, indicates if this task has been compressed (summary available)
     export let compressed: boolean = false;
 
-    let showSummaryOnly = false;
-
     $: collapsed = $threadStore[threadId] ?? false;
+    $: showSummaryOnly = $summaryViewStore[threadId] === 'summary';
 
     $: firstBubble = bubbles[0];
     $: remainingBubbles = bubbles.slice(1);
 
-    // Separate summary bubble from message bubbles
-    $: summaryBubble = bubbles.find(b => b.isSummary);
-    $: messageBubbles = bubbles.filter(b => !b.isSummary);
+    // All bubbles are message bubbles (summary is on the task, not in entries)
+    $: messageBubbles = bubbles;
     $: firstMessageBubble = messageBubbles[0];
     $: remainingMessageBubbles = messageBubbles.slice(1);
 
@@ -39,7 +38,7 @@
     // Allow delete for history tasks, or for current task once it is not streaming
     $: allowDelete = (taskSequence !== undefined) || !hasStreaming;
 
-    // Aggregate diff metrics across all bubbles in this thread (excluding summary)
+    // Aggregate diff metrics across all bubbles in this thread
     $: threadTotals = messageBubbles.reduce(
         (acc, b) => {
             const s = (b.hast as any)?.data?.diffSummary;
@@ -52,10 +51,10 @@
         { adds: 0, dels: 0 }
     );
 
-    // Lines count: total lines across all messages in this thread (excluding summary)
+    // Lines count: total lines across all messages in this thread
     $: totalLinesAll = messageBubbles.reduce((acc, b) => acc + ((b.markdown ?? '').split(/\r?\n/).length), 0);
 
-    // Message count label (excluding summary)
+    // Message count label
     $: msgLabel = messageBubbles.length === 1 ? '1 msg' : `${messageBubbles.length} msgs`;
 
     // Show edits only if any adds/dels present
@@ -66,7 +65,7 @@
     }
 
     function toggleSummaryView() {
-        showSummaryOnly = !showSummaryOnly;
+        summaryViewStore.toggleViewMode(threadId);
     }
 
     function handleDelete(threadIdParam: number) {
@@ -146,132 +145,74 @@
 
     <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
     <div class="thread-body" id={"thread-body-" + threadId}>
-        {#if showSummaryOnly && summaryBubble}
-            <!-- Summary-only view -->
-            <div class="first-bubble-wrapper">
-                <button
-                    type="button"
-                    class="toggle-arrow-btn"
-                    on:click={toggle}
-                    on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                    aria-expanded={collapsed ? 'false' : 'true'}
-                    aria-controls={"thread-body-" + threadId}
-                    aria-label="Collapse thread"
-                >
-                    <Icon
-                        icon="mdi:chevron-down"
-                        class="toggle-arrow"
-                        style="color: var(--chat-text);"
-                    />
-                </button>
-                <div class="bubble-container">
-                    {#if !collapsed}
-                        <div class="thread-meta-inline">
-                            <div class="meta-actions">
-                                <ThreadMeta
-                                    adds={threadTotals.adds}
-                                    dels={threadTotals.dels}
-                                    showEdits={showEdits}
-                                    msgLabel={msgLabel}
-                                    totalLines={totalLinesAll}
-                                    threadId={threadId}
-                                    taskSequence={taskSequence}
-                                    allowDelete={allowDelete}
-                                    compressed={compressed}
-                                    showSummaryOnly={showSummaryOnly}
-                                    onCopy={handleCopy}
-                                    onDelete={handleDelete}
-                                    onToggleSummary={toggleSummaryView}
-                                />
-                            </div>
+        <div class="first-bubble-wrapper">
+            <button
+                type="button"
+                class="toggle-arrow-btn"
+                on:click={toggle}
+                on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+                aria-expanded={collapsed ? 'false' : 'true'}
+                aria-controls={"thread-body-" + threadId}
+                aria-label="Collapse thread"
+            >
+                <Icon
+                    icon="mdi:chevron-down"
+                    class="toggle-arrow"
+                    style="color: var(--chat-text);"
+                />
+            </button>
+            <div class="bubble-container">
+                {#if !collapsed}
+                    <div class="thread-meta-inline">
+                        <div class="meta-actions">
+                            <ThreadMeta
+                                adds={threadTotals.adds}
+                                dels={threadTotals.dels}
+                                showEdits={showEdits}
+                                msgLabel={msgLabel}
+                                totalLines={totalLinesAll}
+                                threadId={threadId}
+                                taskSequence={taskSequence}
+                                allowDelete={allowDelete}
+                                compressed={compressed}
+                                showSummaryOnly={showSummaryOnly}
+                                onCopy={handleCopy}
+                                onDelete={handleDelete}
+                                onToggleSummary={toggleSummaryView}
+                            />
                         </div>
-                    {/if}
-                    {#if !collapsed}
-                        <div
-                            class="first-line-hit-area"
-                            on:click={toggle}
-                            on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                            tabindex="0"
-                            role="button"
-                            aria-expanded={collapsed ? 'false' : 'true'}
-                            aria-controls={"thread-body-" + threadId}
-                            aria-label="Collapse thread"
-                        ></div>
-                    {/if}
-                    <MessageBubble bubble={summaryBubble} />
-                </div>
+                    </div>
+                {/if}
+                {#if !collapsed}
+                    <div
+                        class="first-line-hit-area"
+                        on:click={toggle}
+                        on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+                        tabindex="0"
+                        role="button"
+                        aria-expanded={collapsed ? 'false' : 'true'}
+                        aria-controls={"thread-body-" + threadId}
+                        aria-label="Collapse thread"
+                    ></div>
+                {/if}
+                {#if firstMessageBubble.type === 'AI' && firstMessageBubble.reasoning}
+                    <AIReasoningBubble bubble={firstMessageBubble} />
+                {:else}
+                    <MessageBubble bubble={firstMessageBubble} />
+                {/if}
             </div>
-        {:else}
-            <!-- Full messages view -->
-            <div class="first-bubble-wrapper">
-                <button
-                    type="button"
-                    class="toggle-arrow-btn"
-                    on:click={toggle}
-                    on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                    aria-expanded={collapsed ? 'false' : 'true'}
-                    aria-controls={"thread-body-" + threadId}
-                    aria-label="Collapse thread"
-                >
-                    <Icon
-                        icon="mdi:chevron-down"
-                        class="toggle-arrow"
-                        style="color: var(--chat-text);"
-                    />
-                </button>
-                <div class="bubble-container">
-                    {#if !collapsed}
-                        <div class="thread-meta-inline">
-                            <div class="meta-actions">
-                                <ThreadMeta
-                                    adds={threadTotals.adds}
-                                    dels={threadTotals.dels}
-                                    showEdits={showEdits}
-                                    msgLabel={msgLabel}
-                                    totalLines={totalLinesAll}
-                                    threadId={threadId}
-                                    taskSequence={taskSequence}
-                                    allowDelete={allowDelete}
-                                    compressed={compressed}
-                                    showSummaryOnly={showSummaryOnly}
-                                    onCopy={handleCopy}
-                                    onDelete={handleDelete}
-                                    onToggleSummary={toggleSummaryView}
-                                />
-                            </div>
-                        </div>
-                    {/if}
-                    {#if !collapsed}
-                        <div
-                            class="first-line-hit-area"
-                            on:click={toggle}
-                            on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                            tabindex="0"
-                            role="button"
-                            aria-expanded={collapsed ? 'false' : 'true'}
-                            aria-controls={"thread-body-" + threadId}
-                            aria-label="Collapse thread"
-                        ></div>
-                    {/if}
-                    {#if firstMessageBubble.type === 'AI' && firstMessageBubble.reasoning}
-                        <AIReasoningBubble bubble={firstMessageBubble} />
-                    {:else}
-                        <MessageBubble bubble={firstMessageBubble} />
-                    {/if}
-                </div>
-            </div>
+        </div>
 
-            {#if remainingMessageBubbles.length > 0}
-                <div class="remaining-bubbles">
-                    {#each remainingMessageBubbles as bubble (bubble.seq)}
-                        {#if bubble.type === 'AI' && bubble.reasoning}
-                            <AIReasoningBubble {bubble} />
-                        {:else}
-                            <MessageBubble {bubble} />
-                        {/if}
-                    {/each}
-                </div>
-            {/if}
+        {#if remainingMessageBubbles.length > 0}
+            <div class="remaining-bubbles">
+                {#each remainingMessageBubbles as bubble (bubble.seq)}
+                    {#if bubble.type === 'AI' && bubble.reasoning}
+                        <AIReasoningBubble {bubble} />
+                    {:else}
+                        <MessageBubble {bubble} />
+                    {/if}
+                {/each}
+            </div>
         {/if}
     </div>
 </div>
