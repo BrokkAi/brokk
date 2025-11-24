@@ -402,12 +402,48 @@ public class Chrome
 
         // Wrap conversations list in a scroll pane
         var conversationsScrollPane = new JScrollPane(agentModeConversationsList);
-        conversationsScrollPane.setBorder(BorderFactory.createTitledBorder("Conversations"));
+        conversationsScrollPane.setBorder(BorderFactory.createEmptyBorder());
+
+        // Create header panel with "Conversations" label and "New" button
+        var conversationsPanel = new JPanel(new BorderLayout());
+        var convHeader = new JPanel(new BorderLayout(6, 0));
+        convHeader.setBorder(new EmptyBorder(4, 8, 4, 8));
+        convHeader.add(new JLabel("Conversations"), BorderLayout.WEST);
+
+        var newConvBtn = new JButton("New");
+        newConvBtn.setToolTipText("Create new conversation");
+        newConvBtn.addActionListener(e -> {
+            String defaultName = ContextManager.DEFAULT_SESSION_NAME;
+            String name = JOptionPane.showInputDialog(frame, "New conversation name:", defaultName);
+            if (name == null || name.isBlank()) {
+                return; // User cancelled or entered blank
+            }
+
+            contextManager.createSessionAsync(name).thenRun(() -> {
+                SwingUtilities.invokeLater(() -> {
+                    populateAgentModeConversationsList();
+                    if (agentModeConversationsModel.size() > 0) {
+                        agentModeConversationsList.setSelectedIndex(0);
+                    }
+                    showNotification(NotificationRole.INFO, "Session created: " + name);
+                });
+            }).exceptionally(ex -> {
+                logger.error("Failed to create session", ex);
+                SwingUtilities.invokeLater(() ->
+                    toolError("Failed to create session: " + ex.getMessage(), "Error")
+                );
+                return null;
+            });
+        });
+        convHeader.add(newConvBtn, BorderLayout.EAST);
+
+        conversationsPanel.add(convHeader, BorderLayout.NORTH);
+        conversationsPanel.add(conversationsScrollPane, BorderLayout.CENTER);
 
         // Create left split pane: Instructions (top) | Conversations (bottom)
         var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         leftSplitPane.setTopComponent(agentModeInstructionsPanel);
-        leftSplitPane.setBottomComponent(conversationsScrollPane);
+        leftSplitPane.setBottomComponent(conversationsPanel);
         leftSplitPane.setResizeWeight(0.6); // 60% to instructions, 40% to conversations
         leftSplitPane.setDividerLocation(0.6);
 
