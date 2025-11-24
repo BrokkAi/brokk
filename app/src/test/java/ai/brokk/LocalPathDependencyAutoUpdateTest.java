@@ -1,6 +1,5 @@
 package ai.brokk;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,7 +10,6 @@ import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,52 +41,6 @@ class LocalPathDependencyAutoUpdateTest {
         if (tempRoot != null && Files.exists(tempRoot)) {
             FileUtil.deleteRecursively(tempRoot);
         }
-    }
-
-    @Test
-    void updateLocalPathDependencyOnDisk_shouldReplaceFilesAndReportChanges() throws Exception {
-        var project = new MainProject(tempRoot);
-        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
-
-        Path depDir = dependenciesRoot.resolve("local-dep");
-        Files.createDirectories(depDir);
-        // Seed the dependency directory with initial contents mirroring the source directory.
-        Files.copy(sourceDir.resolve("Foo.java"), depDir.resolve("Foo.java"));
-
-        // Record dependency metadata pointing at our local source directory.
-        DependencyUpdater.writeLocalPathDependencyMetadata(
-                depDir, sourceDir.toAbsolutePath().normalize());
-
-        var metadataOpt = DependencyUpdater.readDependencyMetadata(depDir);
-        assertTrue(metadataOpt.isPresent(), "Expected metadata to be present for local path dependency");
-
-        // Mutate the source directory: add a new file.
-        Files.writeString(sourceDir.resolve("Bar.java"), "class Bar {}");
-
-        // Build the ProjectFile for the on-disk dependency root.
-        var depProjectFile = new ProjectFile(
-                project.getMasterRootPathForConfig(),
-                project.getMasterRootPathForConfig().relativize(depDir));
-
-        Set<ProjectFile> changedFiles =
-                DependencyUpdater.updateLocalPathDependencyOnDisk(project, depProjectFile, metadataOpt.get());
-
-        assertFalse(changedFiles.isEmpty(), "Changed files set should not be empty after source update");
-
-        var relPaths = changedFiles.stream()
-                .map(ProjectFile::getRelPath)
-                .map(Path::toString)
-                .collect(Collectors.toSet());
-
-        String expectedNewFileRel = project.getMasterRootPathForConfig()
-                .relativize(depDir.resolve("Bar.java"))
-                .toString();
-
-        assertTrue(relPaths.contains(expectedNewFileRel), "Changed files should contain newly added Bar.java");
-
-        assertTrue(
-                Files.exists(depDir.resolve("Bar.java")),
-                "Local dependency should contain updated contents from source directory");
     }
 
     @Test

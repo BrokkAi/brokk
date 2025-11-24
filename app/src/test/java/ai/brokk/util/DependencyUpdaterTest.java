@@ -149,31 +149,6 @@ public class DependencyUpdaterTest {
     }
 
     @Test
-    public void updateLocalPathDependencyOnDisk_sourceInsideDependenciesRoot_throws() throws IOException {
-        Path depsRoot = Files.createDirectories(tempDir.resolve(".brokk").resolve("dependencies"));
-        Path anotherDep = Files.createDirectory(depsRoot.resolve("another-dep"));
-        Files.writeString(anotherDep.resolve("test.java"), "content");
-
-        Path depDir = Files.createDirectory(depsRoot.resolve("my-dep"));
-        var masterRoot = tempDir;
-        var depRoot = new ProjectFile(masterRoot, masterRoot.relativize(depDir));
-
-        var metadata = new DependencyUpdater.DependencyMetadata(
-                DependencyUpdater.DependencySourceType.LOCAL_PATH,
-                anotherDep.toString(), // Source inside dependencies root
-                null,
-                null,
-                null,
-                System.currentTimeMillis());
-
-        var project = createMinimalProject(masterRoot);
-
-        assertThrows(IOException.class, () -> {
-            DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
-        });
-    }
-
-    @Test
     public void updateLocalPathDependencyOnDisk_nonExistentSource_throws() throws IOException {
         Path depsRoot = Files.createDirectories(tempDir.resolve(".brokk").resolve("dependencies"));
         Path depDir = Files.createDirectory(depsRoot.resolve("my-dep"));

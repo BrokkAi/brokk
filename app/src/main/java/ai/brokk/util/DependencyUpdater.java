@@ -179,6 +179,133 @@ public final class DependencyUpdater {
     }
 
     /**
+     * Functional interface for populating a temporary directory with dependency content.
+     * Returns optional extra data (e.g., commit hash for Git) to be passed to metadata writer.
+     */
+    @FunctionalInterface
+    private interface TempTreePopulator {
+        @Nullable
+        String populate(Path tempDir) throws Exception;
+    }
+
+    /**
+     * Functional interface for writing dependency metadata after a successful update.
+     */
+    @FunctionalInterface
+    private interface MetadataWriter {
+        void write(Path targetPath, @Nullable String extraData);
+    }
+
+    /**
+     * Common update logic for dependencies: populates a temp directory, computes changed files,
+     * swaps directories, and writes metadata.
+     *
+     * @param project the project containing the dependency
+     * @param dependencyRoot top-level dependency directory
+     * @param dependencyName name of the dependency (for logging and temp directory naming)
+     * @param populateTempTree callback to populate the temp directory with updated content
+     * @param writeMetadata callback to write metadata after successful swap
+     * @return set of files that changed as a result of the update
+     * @throws IOException if population, swap, or cleanup fails
+     */
+    @org.jetbrains.annotations.Blocking
+    private static Set<ProjectFile> updateDependencyOnDisk(
+            IProject project,
+            ProjectFile dependencyRoot,
+            String dependencyName,
+            TempTreePopulator populateTempTree,
+            MetadataWriter writeMetadata)
+            throws IOException {
+
+        Path targetPath = dependencyRoot.absPath();
+        Path depsParent = targetPath.getParent();
+        if (depsParent == null) {
+            throw new IOException("Dependency root has no parent: " + targetPath);
+        }
+
+        Path tempDir = Files.createTempDirectory(depsParent, dependencyName + "-update-");
+
+        // Populate temp directory with updated content
+        String extraData;
+        try {
+            extraData = populateTempTree.populate(tempDir);
+        } catch (Exception e) {
+            // Best-effort cleanup
+            try {
+                if (Files.exists(tempDir)) {
+                    FileUtil.deleteRecursively(tempDir);
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Failed to cleanup temporary directory {} after populate failure: {}",
+                        tempDir,
+                        cleanupEx.getMessage());
+            }
+            throw new IOException("Failed to populate temp directory for dependency " + dependencyName, e);
+        }
+
+        // Compute changed files and swap directories
+        try {
+            Path masterRoot = project.getMasterRootPathForConfig();
+
+            var oldFiles = new HashSet<Path>();
+            if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
+                try (var pathStream = Files.walk(targetPath)) {
+                    pathStream
+                            .filter(Files::isRegularFile)
+                            .filter(p -> !shouldExcludeFromChangeset(p))
+                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
+                }
+            }
+
+            var newFiles = new HashSet<Path>();
+            try (var pathStream = Files.walk(tempDir)) {
+                pathStream
+                        .filter(Files::isRegularFile)
+                        .filter(p -> !shouldExcludeFromChangeset(p))
+                        .forEach(p -> {
+                            Path relWithinTemp = tempDir.relativize(p);
+                            Path futureLocation = targetPath.resolve(relWithinTemp);
+                            newFiles.add(masterRoot.relativize(futureLocation));
+                        });
+            }
+
+            // Union of old and new files: all files that may have changed
+            var allAffectedPaths = new HashSet<Path>(newFiles);
+            allAffectedPaths.addAll(oldFiles);
+
+            // Swap directories
+            if (Files.exists(targetPath)) {
+                boolean deleted = FileUtil.deleteRecursively(targetPath);
+                if (!deleted && Files.exists(targetPath)) {
+                    throw new IOException("Failed to delete existing dependency directory " + targetPath);
+                }
+            }
+            Files.move(tempDir, targetPath);
+
+            // Write metadata
+            writeMetadata.write(targetPath, extraData);
+
+            return allAffectedPaths.stream()
+                    .map(rel -> new ProjectFile(masterRoot, rel))
+                    .collect(Collectors.toSet());
+        } catch (IOException e) {
+            // On failure after populate, try to cleanup tempDir but do not touch original
+            try {
+                if (Files.exists(tempDir)) {
+                    FileUtil.deleteRecursively(tempDir);
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Failed to cleanup temporary directory {} after swap failure: {}",
+                        tempDir,
+                        cleanupEx.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    /**
      * Updates a dependency imported from a Git repository on disk using the metadata recorded
      * at import time.
      *
@@ -221,18 +348,10 @@ public final class DependencyUpdater {
                     targetPath);
         }
 
-        Path depsParent = targetPath.getParent();
-        if (depsParent == null) {
-            throw new IOException("Dependency root has no parent: " + targetPath);
-        }
-
         String depName = targetPath.getFileName().toString();
-        Path tempDir = Files.createTempDirectory(depsParent, depName + "-update-");
 
-        // First, clone into an empty temporary directory. Only after a successful clone do we
-        // create clone markers and register the operation, mirroring ImportDependencyDialog.
-        String clonedCommitHash = null;
-        try {
+        // Git-specific populate: clone repo, remove .git, return commit hash
+        TempTreePopulator populateTempTree = tempDir -> {
             // Clone latest version into the temporary directory (must be empty)
             // Close GitRepo to release file handles (required for Windows)
             try (var ignored = GitRepoFactory.cloneRepo(repoUrl, tempDir, 1, ref)) {
@@ -240,7 +359,7 @@ public final class DependencyUpdater {
             }
 
             // Capture the cloned commit hash before removing .git
-            clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
+            String clonedCommitHash = GitRepoFactory.getHeadCommit(tempDir);
             if (clonedCommitHash != null) {
                 logger.info(
                         "Cloned {} at commit {}",
@@ -265,82 +384,15 @@ public final class DependencyUpdater {
             } finally {
                 CloneOperationTracker.unregisterCloneOperation(tempDir);
             }
-        } catch (Exception e) {
-            // Best-effort cleanup of the temporary clone directory; do not touch the existing dependency
-            try {
-                if (Files.exists(tempDir)) {
-                    FileUtil.deleteRecursively(tempDir);
-                }
-            } catch (Exception cleanupEx) {
-                logger.warn(
-                        "Failed to cleanup temporary clone directory {} after failure: {}",
-                        tempDir,
-                        cleanupEx.getMessage());
-            }
-            throw new IOException("Failed to clone Git dependency from " + repoUrl + " at " + ref, e);
-        }
 
-        // At this point tempDir contains the updated tree. Compute changed files and swap.
-        try {
-            Path masterRoot = project.getMasterRootPathForConfig();
+            return clonedCommitHash;
+        };
 
-            var oldFiles = new HashSet<Path>();
-            if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
-                try (var pathStream = Files.walk(targetPath)) {
-                    pathStream
-                            .filter(Files::isRegularFile)
-                            .filter(p -> !shouldExcludeFromChangeset(p))
-                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
-                }
-            }
+        // Git-specific metadata writer: write with commit hash
+        MetadataWriter writeMetadata =
+                (targetPath1, commitHash) -> writeGitDependencyMetadata(targetPath1, repoUrl, ref, commitHash);
 
-            var newFiles = new HashSet<Path>();
-            try (var pathStream = Files.walk(tempDir)) {
-                pathStream
-                        .filter(Files::isRegularFile)
-                        .filter(p -> !shouldExcludeFromChangeset(p))
-                        .forEach(p -> {
-                            // Map temporary path to its eventual location under the real dependency root
-                            Path relWithinTemp = tempDir.relativize(p);
-                            Path futureLocation = targetPath.resolve(relWithinTemp);
-                            newFiles.add(masterRoot.relativize(futureLocation));
-                        });
-            }
-
-            // Union of old and new files: include all files that may have changed (added, removed, or modified)
-            // Since we're doing a full directory swap, any file in either set should be re-indexed
-            var allAffectedPaths = new HashSet<Path>(newFiles);
-            allAffectedPaths.addAll(oldFiles);
-
-            // Swap directories: remove old dependency directory and move new clone in its place
-            if (Files.exists(targetPath)) {
-                boolean deleted = FileUtil.deleteRecursively(targetPath);
-                if (!deleted && Files.exists(targetPath)) {
-                    throw new IOException("Failed to delete existing dependency directory " + targetPath);
-                }
-            }
-            Files.move(tempDir, targetPath);
-
-            // Refresh metadata timestamp and commit hash for this dependency
-            writeGitDependencyMetadata(targetPath, repoUrl, ref, clonedCommitHash);
-
-            return allAffectedPaths.stream()
-                    .map(rel -> new ProjectFile(masterRoot, rel))
-                    .collect(Collectors.toSet());
-        } catch (IOException e) {
-            // On failure after clone, try to cleanup tempDir but do not touch the original directory
-            try {
-                if (Files.exists(tempDir)) {
-                    FileUtil.deleteRecursively(tempDir);
-                }
-            } catch (Exception cleanupEx) {
-                logger.warn(
-                        "Failed to cleanup temporary clone directory {} after swap failure: {}",
-                        tempDir,
-                        cleanupEx.getMessage());
-            }
-            throw e;
-        }
+        return updateDependencyOnDisk(project, dependencyRoot, depName, populateTempTree, writeMetadata);
     }
 
     /**
@@ -379,6 +431,7 @@ public final class DependencyUpdater {
         Path normalizedDepsRoot = dependenciesRoot.normalize();
         Path normalizedTarget = targetPath.normalize();
 
+        // Validate source is not inside dependencies root or circular with target
         if (normalizedSource.startsWith(normalizedDepsRoot)) {
             String msg = "Local dependency source "
                     + normalizedSource
@@ -396,16 +449,10 @@ public final class DependencyUpdater {
             throw new IOException(msg);
         }
 
-        Path depsParent = normalizedTarget.getParent();
-        if (depsParent == null) {
-            throw new IOException("Dependency root has no parent: " + targetPath);
-        }
-
         String depName = normalizedTarget.getFileName().toString();
-        Path tempDir = Files.createTempDirectory(depsParent, depName + "-update-");
 
-        try {
-            // Copy allowed source files into a temporary directory, mirroring import behavior
+        // Local-specific populate: copy filtered files based on allowed extensions
+        TempTreePopulator populateTempTree = tempDir -> {
             var allowedExtensions = project.getAnalyzerLanguages().stream()
                     .flatMap(lang -> lang.getExtensions().stream())
                     .map(ext -> ext.toLowerCase(Locale.ROOT))
@@ -435,59 +482,14 @@ public final class DependencyUpdater {
                 }
             });
 
-            var oldFiles = new HashSet<Path>();
-            if (Files.exists(targetPath) && Files.isDirectory(targetPath)) {
-                try (var pathStream = Files.walk(targetPath)) {
-                    pathStream
-                            .filter(Files::isRegularFile)
-                            .filter(p -> !shouldExcludeFromChangeset(p))
-                            .forEach(p -> oldFiles.add(masterRoot.relativize(p)));
-                }
-            }
+            return null; // No extra data for local path dependencies
+        };
 
-            var newFiles = new HashSet<Path>();
-            try (var pathStream = Files.walk(tempDir)) {
-                pathStream
-                        .filter(Files::isRegularFile)
-                        .filter(p -> !shouldExcludeFromChangeset(p))
-                        .forEach(p -> {
-                            Path relWithinTemp = tempDir.relativize(p);
-                            Path futureLocation = targetPath.resolve(relWithinTemp);
-                            newFiles.add(masterRoot.relativize(futureLocation));
-                        });
-            }
+        // Local-specific metadata writer: write with source path only
+        MetadataWriter writeMetadata =
+                (targetPath1, extraData) -> writeLocalPathDependencyMetadata(targetPath1, sourcePath);
 
-            // Union of old and new files: include all files that may have changed (added, removed, or modified)
-            // Since we're doing a full directory swap, any file in either set should be re-indexed
-            var allAffectedPaths = new HashSet<Path>(newFiles);
-            allAffectedPaths.addAll(oldFiles);
-
-            if (Files.exists(targetPath)) {
-                boolean deleted = FileUtil.deleteRecursively(targetPath);
-                if (!deleted && Files.exists(targetPath)) {
-                    throw new IOException("Failed to delete existing dependency directory " + targetPath);
-                }
-            }
-            Files.move(tempDir, targetPath);
-
-            writeLocalPathDependencyMetadata(targetPath, sourcePath);
-
-            return allAffectedPaths.stream()
-                    .map(rel -> new ProjectFile(masterRoot, rel))
-                    .collect(Collectors.toSet());
-        } catch (IOException e) {
-            try {
-                if (Files.exists(tempDir)) {
-                    FileUtil.deleteRecursively(tempDir);
-                }
-            } catch (Exception cleanupEx) {
-                logger.warn(
-                        "Failed to cleanup temporary local dependency directory {} after swap failure: {}",
-                        tempDir,
-                        cleanupEx.getMessage());
-            }
-            throw e;
-        }
+        return updateDependencyOnDisk(project, dependencyRoot, depName, populateTempTree, writeMetadata);
     }
 
     /**
