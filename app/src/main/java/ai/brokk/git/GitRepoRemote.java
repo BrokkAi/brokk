@@ -1,6 +1,6 @@
 package ai.brokk.git;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.util.*;

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
@@ -100,6 +102,9 @@ class DependencyAutoUpdateCoordinatorTest {
         Path localDepDir = dependenciesRoot.resolve("local-dep");
         seedLocalDependency(localDepDir);
 
+        // Enable the dependency
+        project.saveLiveDependencies(Set.of(localDepDir));
+
         // Read metadata to get the exact lastUpdatedMillis timestamp
         var metadata = DependencyUpdater.readDependencyMetadata(
                         new ProjectFile(project.getRoot(), project.getRoot().relativize(localDepDir)))
@@ -136,6 +141,9 @@ class DependencyAutoUpdateCoordinatorTest {
 
         Path gitDepDir = dependenciesRoot.resolve("git-dep");
         seedGitDependency(gitDepDir);
+
+        // Enable both dependencies
+        project.saveLiveDependencies(Set.of(localDepDir, gitDepDir));
 
         // Read metadata to get the exact lastUpdatedMillis timestamp
         var metadata = DependencyUpdater.readDependencyMetadata(
@@ -197,6 +205,9 @@ class DependencyAutoUpdateCoordinatorTest {
 
         Path gitDepDir = dependenciesRoot.resolve("git-dep");
         seedGitDependency(gitDepDir);
+
+        // Enable both dependencies
+        project.saveLiveDependencies(Set.of(localDepDir, gitDepDir));
 
         // Read metadata to get the exact lastUpdatedMillis timestamp
         var metadata = DependencyUpdater.readDependencyMetadata(
@@ -260,6 +271,9 @@ class DependencyAutoUpdateCoordinatorTest {
         Path noMetaDepDir = dependenciesRoot.resolve("no-meta-dep");
         Files.createDirectories(noMetaDepDir);
         Files.writeString(noMetaDepDir.resolve("Orphan.java"), "class Orphan {}");
+
+        // Enable both dependencies (even though one lacks metadata)
+        project.saveLiveDependencies(Set.of(localDepDir, noMetaDepDir));
 
         // Read metadata to get the exact lastUpdatedMillis timestamp
         var metadata = DependencyUpdater.readDependencyMetadata(

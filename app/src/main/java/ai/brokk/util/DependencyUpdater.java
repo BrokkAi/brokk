@@ -1,8 +1,8 @@
 package ai.brokk.util;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;

@@ -1,9 +1,9 @@
 package ai.brokk.gui.dependencies;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.project.IProject;
 import ai.brokk.util.DependencyUpdater;
 import java.io.IOException;
 import java.util.Collections;

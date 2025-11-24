@@ -3,10 +3,10 @@ package ai.brokk.util;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependencyUpdateHelper;
+import ai.brokk.project.MainProject;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
