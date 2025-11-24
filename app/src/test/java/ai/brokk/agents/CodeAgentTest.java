@@ -923,6 +923,12 @@ class CodeAgentTest {
                 result.stopDetails().explanation().contains(roFile.toString()),
                 "Error message should include the read-only file path");
         assertEquals("hello", roFile.read().orElseThrow().strip(), "Read-only file content must remain unchanged");
+
+        // Assert: No disruptive io.toolError() was called
+        assertEquals(
+                0,
+                consoleIO.getErrorCount(),
+                "io.toolError() should not have been called for READ_ONLY_EDIT in standalone CodeAgent mode");
     }
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment

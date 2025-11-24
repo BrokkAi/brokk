@@ -748,9 +748,9 @@ public class CodeAgent {
                 .filter(readOnlyPaths::contains)
                 .collect(Collectors.toSet());
         if (!violating.isEmpty()) {
-            var message = "Task aborted; agent attempted to modify read-only file(s):\n"
+            var message = "Agent attempted to modify read-only file(s):\n"
                     + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
-            io.toolError(message);
+            report("Read-only file constraint violation: " + String.join(", ", violating));
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
         }
 

@@ -13,6 +13,7 @@ public class TestConsoleIO implements IConsoleIO {
     private final StringBuilder errorLog = new StringBuilder();
     private final List<ChatMessage> llmRawMessages = new ArrayList<>();
     private final StringBuilder streamingAiMessage = new StringBuilder();
+    private int errorCount = 0;
 
     public void actionOutput(String text) {
         outputLog.append(text).append("\n");
@@ -20,6 +21,7 @@ public class TestConsoleIO implements IConsoleIO {
 
     @Override
     public void toolError(String msg, String title) {
+        errorCount++;
         errorLog.append(msg).append("\n");
     }
 
@@ -71,5 +73,9 @@ public class TestConsoleIO implements IConsoleIO {
 
     public String getErrorLog() {
         return errorLog.toString();
+    }
+
+    public int getErrorCount() {
+        return errorCount;
     }
 }
