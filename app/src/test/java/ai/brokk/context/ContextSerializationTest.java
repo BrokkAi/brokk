@@ -10,6 +10,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ComputedValue;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
@@ -47,6 +48,8 @@ public class ContextSerializationTest {
     @BeforeEach
     void setup() throws IOException {
         // Mock project components
+        var project = new TestProject(tempDir, Languages.JAVA);
+
         var dummyCodeFragmentTarget = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
         var codeFragmentTargetCu = CodeUnit.cls(dummyCodeFragmentTarget, "com.example", "CodeFragmentTarget");
 
@@ -55,7 +58,8 @@ public class ContextSerializationTest {
 
         var testAnalyzer = new TestAnalyzer(
                 List.of(codeFragmentTargetCu, codeFragmentTargetMthd),
-                Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)));
+                Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)),
+                project);
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
         // Reset fragment ID counter for test isolation
         ContextFragment.setMinimumId(1);
