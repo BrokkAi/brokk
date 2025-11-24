@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,11 +61,7 @@ public final class ComputedSubscription {
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
     public static void bind(ContextFragment fragment, JComponent owner, Runnable uiUpdate) {
-        fragment.text().start();
-        fragment.description().start();
-        fragment.files().start();
-
-        // Helper to run UI update, coalesced onto EDT
+        // Subscribe first so we don't miss an immediate completion.
         final boolean[] scheduled = {false};
         Runnable scheduleUpdate = () -> {
             if (!scheduled[0]) {
@@ -87,6 +84,25 @@ public final class ComputedSubscription {
         // Subscribe to files completion
         var s3 = fragment.files().onComplete((v, ex) -> scheduleUpdate.run());
         register(owner, s3);
+
+        // Start computations off the EDT so that, even if the fragment executor is saturated and falls back
+        // to CallerRunsPolicy, the supplier won't execute on the EDT and won't call blocking methods on it.
+        Runnable startTask = fragment::startAll;
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            var cm = fragment.getContextManager();
+            if (cm instanceof ContextManager ctx) {
+                ctx.submitBackgroundTask("Starting context fragment processing" + fragment.id(), () -> {
+                    startTask.run();
+                    return null;
+                });
+            } else {
+                Thread.ofPlatform().name("start-computed-" + fragment.id()).start(startTask);
+            }
+        } else {
+            // Already off-EDT, safe to start directly
+            startTask.run();
+        }
     }
 
     /**

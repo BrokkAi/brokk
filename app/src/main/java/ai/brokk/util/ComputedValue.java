@@ -198,7 +198,7 @@ public final class ComputedValue<T> {
 
     /**
      * Await the value with a bounded timeout. If called on the Swing EDT, returns Optional.empty() immediately.
-     * Never blocks the EDT.
+     * May block the EDT.
      */
     public Optional<T> await(Duration timeout) {
         if (SwingUtilities.isEventDispatchThread()) {
