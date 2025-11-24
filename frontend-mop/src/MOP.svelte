@@ -203,7 +203,7 @@
       {#if !$historyCollapsedStore}
         {#each $historyStore as task (task.threadId)}
           {#if task.entries.length > 0}
-            <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} />
+            <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} summary={task.summary} />
           {/if}
         {/each}
       {:else}
