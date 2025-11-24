@@ -96,16 +96,6 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_API_TOKEN_KEY = "jiraProjectApiToken";
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
-    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
-
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
-            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
-            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
-            "Scan", new ModelTypeInfo("scanConfig", new ModelConfig(Service.GPT_5_MINI)));
-
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
@@ -405,109 +395,99 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(String modelTypeKey) {
-        var props = loadGlobalProperties();
-        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
+    private ModelConfig getModelConfigInternal(ModelType modelType) {
+            var props = loadGlobalProperties();
 
-        // read user-specified value
-        String jsonString = props.getProperty(typeInfo.configKey());
-        if (jsonString != null && !jsonString.isBlank()) {
-            try {
-                var mc = objectMapper.readValue(jsonString, ModelConfig.class);
-                // Null Away doesn't prevent Jackson from reading a null via reflection. All the
-                // "official" Jackson ways to fix this are horrible.
-                @SuppressWarnings("RedundantNullCheck")
-                ModelConfig checkedMc = (mc.tier() == null)
-                        ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
-                        : mc;
-                return checkedMc;
-            } catch (JsonProcessingException e) {
-                logger.warn(
-                        "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
-                        modelTypeKey,
-                        typeInfo.configKey(),
-                        e.getMessage(),
-                        jsonString);
+            // Read user-specified value
+            String jsonString = props.getProperty(modelType.propertyKey());
+            if (jsonString != null && !jsonString.isBlank()) {
+                    try {
+                            var mc = objectMapper.readValue(jsonString, ModelConfig.class);
+                            // Null Away doesn't prevent Jackson from reading a null via reflection. All the
+                            // "official" Jackson ways to fix this are horrible.
+                            @SuppressWarnings("RedundantNullCheck")
+                            ModelConfig checkedMc = (mc.tier() == null)
+                                            ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
+                                            : mc;
+                            return checkedMc;
+                    } catch (JsonProcessingException e) {
+                            logger.warn(
+                                            "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
+                                            modelType,
+                                            modelType.propertyKey(),
+                                            e.getMessage(),
+                                            jsonString);
+                    }
             }
-        }
 
-        // fallback to hardcoded default
-        return typeInfo.preferredConfig();
+            // fallback to hardcoded default
+            return modelType.preferredConfig();
     }
 
-    private void setModelConfigInternal(String modelTypeKey, ModelConfig config) {
-        var props = loadGlobalProperties();
-        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
+    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
+            var props = loadGlobalProperties();
 
-        try {
-            String jsonString = objectMapper.writeValueAsString(config);
-            props.setProperty(typeInfo.configKey(), jsonString);
-            saveGlobalProperties(props);
-        } catch (JsonProcessingException e) {
-            logger.error(
-                    "Error serializing ModelConfig for {} (key '{}'): {}",
-                    modelTypeKey,
-                    typeInfo.configKey(),
-                    config,
-                    e);
-            throw new RuntimeException("Failed to serialize ModelConfig for " + modelTypeKey, e);
-        }
+            try {
+                    String jsonString = objectMapper.writeValueAsString(config);
+                    props.setProperty(modelType.propertyKey(), jsonString);
+                    saveGlobalProperties(props);
+            } catch (JsonProcessingException e) {
+                    throw new RuntimeException("Failed to serialize ModelConfig for " + modelType, e);
+            }
     }
 
     @Override
     public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal("Quick");
+        return getModelConfigInternal(ModelType.QUICK);
     }
 
     @Override
     public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal("Quick", config);
+        setModelConfigInternal(ModelType.QUICK, config);
     }
 
     @Override
     public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal("Code");
+        return getModelConfigInternal(ModelType.CODE);
     }
 
     @Override
     public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal("Code", config);
+        setModelConfigInternal(ModelType.CODE, config);
     }
 
     @Override
     public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal("Architect");
+        return getModelConfigInternal(ModelType.ARCHITECT);
     }
 
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal("Architect", config);
+        setModelConfigInternal(ModelType.ARCHITECT, config);
     }
 
     public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal("QuickEdit");
+            return getModelConfigInternal(ModelType.QUICK_EDIT);
     }
 
     public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal("QuickEdit", config);
+            setModelConfigInternal(ModelType.QUICK_EDIT, config);
     }
 
     public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal("Quickest");
+            return getModelConfigInternal(ModelType.QUICKEST);
     }
 
     public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal("Quickest", config);
+            setModelConfigInternal(ModelType.QUICKEST, config);
     }
 
     public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal("Scan");
+            return getModelConfigInternal(ModelType.SCAN);
     }
 
     public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal("Scan", config);
+            setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override
