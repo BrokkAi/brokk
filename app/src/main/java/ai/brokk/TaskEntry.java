@@ -46,17 +46,10 @@ public record TaskEntry(
     }
 
     /**
-     * Returns true if this TaskEntry holds a compressed summary.
-     */
-    public boolean hasSummary() {
-        return summary != null;
-    }
-
-    /**
      * Returns true if this TaskEntry has a summary that the AI should use.
      */
     public boolean isCompressed() {
-        return hasSummary();
+        return summary != null;
     }
 
     /**
@@ -82,7 +75,7 @@ public record TaskEntry(
         if (hasLog()) {
             // Prefer full messages if available, note if a summary also exists
             var logText = formatMessages(castNonNull(log).messages());
-            if (hasSummary()) {
+            if (isCompressed()) {
                 return """
                   <task sequence=%s summarized=true>
                   %s
