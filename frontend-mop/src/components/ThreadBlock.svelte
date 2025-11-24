@@ -2,6 +2,7 @@
     import type { BubbleState } from '../types';
     import { threadStore } from '../stores/threadStore';
     import { summaryViewStore } from '../stores/summaryViewStore';
+    import { summaryParseStore, getSummaryParseEntry } from '../stores/summaryParseStore';
     import MessageBubble from './MessageBubble.svelte';
     import AIReasoningBubble from './AIReasoningBubble.svelte';
     import Icon from '@iconify/svelte';
@@ -18,19 +19,18 @@
     export let taskSequence: number | undefined;
     // Optional, indicates if this task has been compressed (summary available)
     export let compressed: boolean = false;
+    // Optional, the summary text for compressed history tasks
+    export let summary: string | undefined = undefined;
 
     $: collapsed = $threadStore[threadId] ?? false;
-    $: showSummaryOnly = $summaryViewStore[threadId] === 'summary';
+    $: showSummary = compressed && !!summary && $summaryViewStore[threadId] === 'summary';
 
-    $: firstBubble = bubbles[0];
-    $: remainingBubbles = bubbles.slice(1);
-
-    // All bubbles are message bubbles (summary is on the task, not in entries)
+    // Message bubbles are the conversation entries (no synthetic summary bubble)
     $: messageBubbles = bubbles;
     $: firstMessageBubble = messageBubbles[0];
     $: remainingMessageBubbles = messageBubbles.slice(1);
 
-    $: defaults = getBubbleDisplayDefaults(firstMessageBubble?.type ?? firstBubble.type);
+    $: defaults = getBubbleDisplayDefaults(firstMessageBubble?.type ?? 'USER');
     $: bubbleDisplay = { tag: defaults.title, hlVar: defaults.hlVar };
 
     // Determine if any bubble is currently streaming
@@ -38,7 +38,7 @@
     // Allow delete for history tasks, or for current task once it is not streaming
     $: allowDelete = (taskSequence !== undefined) || !hasStreaming;
 
-    // Aggregate diff metrics across all bubbles in this thread
+    // Aggregate diff metrics from message bubbles only (exclude summary)
     $: threadTotals = messageBubbles.reduce(
         (acc, b) => {
             const s = (b.hast as any)?.data?.diffSummary;
@@ -54,11 +54,16 @@
     // Lines count: total lines across all messages in this thread
     $: totalLinesAll = messageBubbles.reduce((acc, b) => acc + ((b.markdown ?? '').split(/\r?\n/).length), 0);
 
-    // Message count label
+    // Message count label (message bubbles only)
     $: msgLabel = messageBubbles.length === 1 ? '1 msg' : `${messageBubbles.length} msgs`;
 
     // Show edits only if any adds/dels present
     $: showEdits = threadTotals.adds > 0 || threadTotals.dels > 0;
+
+    // Get the preview HAST: summary if in summary view, else first message
+    $: previewHast = showSummary
+        ? $summaryParseStore[threadId]?.tree
+        : firstMessageBubble?.hast;
 
     function toggle() {
         threadStore.toggleThread(threadId);
@@ -74,14 +79,14 @@
     }
 
     async function handleCopy() {
-        const bubblesToCopy = (showSummaryOnly && summaryBubble) ? [summaryBubble] : messageBubbles;
-        const xml = bubblesToCopy
-            .map(b => {
-                const t = b.type.toLowerCase();
-                return `<message type="${t}">\n${b.markdown}\n</message>`;
-            })
-            .join('\n\n');
-
+        const xml = showSummary
+            ? `<message type="system">\n${summary}\n</message>`
+            : messageBubbles
+                .map(b => {
+                    const t = b.type.toLowerCase();
+                    return `<message type="${t}">\n${b.markdown}\n</message>`;
+                })
+                .join('\n\n');
 
         try {
             await navigator.clipboard.writeText(xml);
@@ -118,10 +123,8 @@
         <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
         <span class="tag">{bubbleDisplay.tag}: </span>
         <div class="content-preview search-exclude">
-            {#if showSummaryOnly && summaryBubble?.hast}
-                <HastRenderer tree={summaryBubble.hast} plugins={rendererPlugins} />
-            {:else if firstMessageBubble?.hast}
-                <HastRenderer tree={firstMessageBubble.hast} plugins={rendererPlugins} />
+            {#if previewHast}
+                <HastRenderer tree={previewHast} plugins={rendererPlugins} />
             {:else}
                 <span>...</span>
             {/if}
@@ -136,14 +139,15 @@
             taskSequence={taskSequence}
             allowDelete={allowDelete}
             compressed={compressed}
-            showSummaryOnly={showSummaryOnly}
+            showSummaryOnly={showSummary}
             onCopy={handleCopy}
             onDelete={handleDelete}
             onToggleSummary={toggleSummaryView}
         />
     </header>
 
-    <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
+    <!-- Thread body (NOT mounted when collapsed to avoid unnecessary DOM) -->
+    {#if !collapsed}
     <div class="thread-body" id={"thread-body-" + threadId}>
         <div class="first-bubble-wrapper">
             <button
@@ -151,7 +155,7 @@
                 class="toggle-arrow-btn"
                 on:click={toggle}
                 on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                aria-expanded={collapsed ? 'false' : 'true'}
+                aria-expanded="true"
                 aria-controls={"thread-body-" + threadId}
                 aria-label="Collapse thread"
             >
@@ -162,48 +166,58 @@
                 />
             </button>
             <div class="bubble-container">
-                {#if !collapsed}
-                    <div class="thread-meta-inline">
-                        <div class="meta-actions">
-                            <ThreadMeta
-                                adds={threadTotals.adds}
-                                dels={threadTotals.dels}
-                                showEdits={showEdits}
-                                msgLabel={msgLabel}
-                                totalLines={totalLinesAll}
-                                threadId={threadId}
-                                taskSequence={taskSequence}
-                                allowDelete={allowDelete}
-                                compressed={compressed}
-                                showSummaryOnly={showSummaryOnly}
-                                onCopy={handleCopy}
-                                onDelete={handleDelete}
-                                onToggleSummary={toggleSummaryView}
-                            />
-                        </div>
+                <div class="thread-meta-inline">
+                    <div class="meta-actions">
+                        <ThreadMeta
+                            adds={threadTotals.adds}
+                            dels={threadTotals.dels}
+                            showEdits={showEdits}
+                            msgLabel={msgLabel}
+                            totalLines={totalLinesAll}
+                            threadId={threadId}
+                            taskSequence={taskSequence}
+                            allowDelete={allowDelete}
+                            compressed={compressed}
+                            showSummaryOnly={showSummary}
+                            onCopy={handleCopy}
+                            onDelete={handleDelete}
+                            onToggleSummary={toggleSummaryView}
+                        />
                     </div>
-                {/if}
-                {#if !collapsed}
-                    <div
-                        class="first-line-hit-area"
-                        on:click={toggle}
-                        on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-                        tabindex="0"
-                        role="button"
-                        aria-expanded={collapsed ? 'false' : 'true'}
-                        aria-controls={"thread-body-" + threadId}
-                        aria-label="Collapse thread"
-                    ></div>
-                {/if}
-                {#if firstMessageBubble.type === 'AI' && firstMessageBubble.reasoning}
-                    <AIReasoningBubble bubble={firstMessageBubble} />
+                </div>
+
+                <div
+                    class="first-line-hit-area"
+                    on:click={toggle}
+                    on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+                    tabindex="0"
+                    role="button"
+                    aria-expanded="true"
+                    aria-controls={"thread-body-" + threadId}
+                    aria-label="Collapse thread"
+                ></div>
+
+                {#if showSummary}
+                    <!-- Render summary as a system message -->
+                    <div class="summary-renderer">
+                        {#if $summaryParseStore[threadId]?.tree}
+                            <HastRenderer tree={$summaryParseStore[threadId].tree} plugins={rendererPlugins} />
+                        {:else}
+                            <p>{summary}</p>
+                        {/if}
+                    </div>
                 {:else}
-                    <MessageBubble bubble={firstMessageBubble} />
+                    <!-- Render message bubbles -->
+                    {#if firstMessageBubble.type === 'AI' && firstMessageBubble.reasoning}
+                        <AIReasoningBubble bubble={firstMessageBubble} />
+                    {:else}
+                        <MessageBubble bubble={firstMessageBubble} />
+                    {/if}
                 {/if}
             </div>
         </div>
 
-        {#if remainingMessageBubbles.length > 0}
+        {#if !showSummary && remainingMessageBubbles.length > 0}
             <div class="remaining-bubbles">
                 {#each remainingMessageBubbles as bubble (bubble.seq)}
                     {#if bubble.type === 'AI' && bubble.reasoning}
@@ -215,6 +229,7 @@
             </div>
         {/if}
     </div>
+    {/if}
 </div>
 
 <style>
@@ -331,15 +346,9 @@
         padding-left: 1.7em; /* Indent to align with first bubble content */
     }
 
-    /* Visibility rules to keep DOM mounted while preserving visuals */
+    /* Visibility rules: header shown when collapsed, body only mounted when expanded */
     .thread-block[data-collapsed="false"] .header-preview {
         display: none;
-    }
-    .thread-block[data-collapsed="true"] .thread-body {
-        max-height: 0;
-        overflow: hidden;
-        padding: 0;
-        margin: 0;
     }
 
     /* Expanded inline metadata overlay aligned with the first line (tag row) */
@@ -368,5 +377,13 @@
     /* Apply distinct border color for compressed threads */
     .thread-block[data-compressed="true"] .header-preview {
         border-left-color: var(--summary-border-color, #9b59b6);
+    }
+
+    /* Summary renderer styling */
+    .summary-renderer {
+        padding: 1em;
+        background-color: var(--message-background);
+        border-radius: 0.9em;
+        border-left: 4px solid var(--summary-border-color, #9b59b6);
     }
 </style>
