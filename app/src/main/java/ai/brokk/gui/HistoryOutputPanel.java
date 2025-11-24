@@ -2477,11 +2477,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
                                     Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks:List<String>) with your final list. Do not include any explanation outside the tool call.
-                                    
+
         Guidance:
     %s
     """
-                                .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
+                                    .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
 
                     // Register tool providers
                     var ws = new WorkspaceTools(contextManager.liveContext());
@@ -2496,8 +2496,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
                     if (toolSpecs.isEmpty()) {
                         chrome.toolError(
-                            "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
-                            "Task List");
+                                "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
+                                "Task List");
                         return;
                     }
 
