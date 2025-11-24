@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
+import ai.brokk.git.IGitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -678,5 +679,37 @@ public class MonorepoSubdirectoryTest {
         } finally {
             closeable1.close();
         }
+    }
+
+    /**
+     * Tests that getModifiedFiles() only returns files within the subdirectory scope.
+     * Regression test for bug where modified files outside projectRoot were incorrectly included.
+     */
+    @Test
+    void testSubdirectoryProject_ModifiedFilesFiltering() throws Exception {
+        Path subdirPath = repoRoot.resolve("subproject");
+        subdirProject = AbstractProject.createProject(subdirPath, null);
+        var gitRepo = (GitRepo) subdirProject.getRepo();
+
+        // Modify a file inside the subdirectory
+        Path insideFile = subdirPath.resolve("sub-file1.txt");
+        Files.writeString(insideFile, "modified content inside");
+
+        // Modify a file outside the subdirectory (at git root)
+        Path outsideFile = repoRoot.resolve("root-file.txt");
+        Files.writeString(outsideFile, "modified content outside");
+
+        // Get modified files from subdirectory project
+        var modifiedFiles = gitRepo.getModifiedFiles();
+        var modifiedPaths = modifiedFiles.stream()
+                .map(mf -> mf.file().getRelPath().toString())
+                .collect(Collectors.toSet());
+
+        // Should only contain the file inside the subdirectory
+        assertTrue(modifiedPaths.contains("sub-file1.txt"), "Should contain modified file inside subdirectory");
+        assertFalse(
+                modifiedPaths.stream().anyMatch(p -> p.contains("root-file")),
+                "Should NOT contain modified file outside subdirectory");
+        assertEquals(1, modifiedPaths.size(), "Should have exactly 1 modified file");
     }
 }
