@@ -17,6 +17,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
@@ -404,43 +405,13 @@ public final class MainProject extends AbstractProject {
 
     private ModelConfig getModelConfigInternal(ModelType modelType) {
             var props = loadGlobalProperties();
-
-            // Read user-specified value
-            String jsonString = props.getProperty(modelType.propertyKey());
-            if (jsonString != null && !jsonString.isBlank()) {
-                    try {
-                            var mc = objectMapper.readValue(jsonString, ModelConfig.class);
-                            // Null Away doesn't prevent Jackson from reading a null via reflection. All the
-                            // "official" Jackson ways to fix this are horrible.
-                            @SuppressWarnings("RedundantNullCheck")
-                            ModelConfig checkedMc = (mc.tier() == null)
-                                            ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
-                                            : mc;
-                            return checkedMc;
-                    } catch (JsonProcessingException e) {
-                            logger.warn(
-                                            "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
-                                            modelType,
-                                            modelType.propertyKey(),
-                                            e.getMessage(),
-                                            jsonString);
-                    }
-            }
-
-            // fallback to hardcoded default
-            return modelType.preferredConfig();
+            return ModelProperties.getModelConfig(props, objectMapper, modelType);
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
             var props = loadGlobalProperties();
-
-            try {
-                    String jsonString = objectMapper.writeValueAsString(config);
-                    props.setProperty(modelType.propertyKey(), jsonString);
-                    saveGlobalProperties(props);
-            } catch (JsonProcessingException e) {
-                    throw new RuntimeException("Failed to serialize ModelConfig for " + modelType, e);
-            }
+            ModelProperties.setModelConfig(props, objectMapper, modelType, config);
+            saveGlobalProperties(props);
     }
 
     @Override
@@ -1743,29 +1714,14 @@ public final class MainProject extends AbstractProject {
         logger.info("Set Data Retention Policy to {} for project {}", policy, root.getFileName());
     }
 
-    public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
-            new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
+    // Backward-compatible alias for UI code expecting MainProject.DEFAULT_FAVORITE_MODELS
+    public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = ModelProperties.DEFAULT_FAVORITE_MODELS;
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
-        String json = props.getProperty(FAVORITE_MODELS_KEY);
-        if (json != null && !json.isEmpty()) {
-            try {
-                var typeFactory = objectMapper.getTypeFactory();
-                var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
-                List<Service.FavoriteModel> loadedList = objectMapper.readValue(json, listType);
-                logger.debug("Loaded {} favorite models from global properties.", loadedList.size());
-                return loadedList;
-            } catch (JsonProcessingException | ClassCastException e) {
-                logger.error("Error loading/casting favorite models from JSON: {}", json, e);
-            }
-        }
-        logger.debug("No favorite models found or error loading, returning defaults.");
-        return new ArrayList<>(DEFAULT_FAVORITE_MODELS);
+        var list = ModelProperties.loadFavoriteModels(props, objectMapper);
+        logger.debug("Loaded {} favorite models from global properties.", list.size());
+        return list;
     }
 
     /**
@@ -1776,24 +1732,14 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalArgumentException if no favourite model with the given alias exists
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
-        return loadFavoriteModels().stream()
-                .filter(fm -> fm.alias().equalsIgnoreCase(alias))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
+        var props = loadGlobalProperties();
+        return ModelProperties.getFavoriteModel(props, objectMapper, alias);
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
         var props = loadGlobalProperties();
-        String newJson;
-        try {
-            newJson = objectMapper.writeValueAsString(favorites);
-        } catch (JsonProcessingException e) {
-            logger.error("Error serializing favorite models to JSON", e);
-            return;
-        }
-        String oldJson = props.getProperty(FAVORITE_MODELS_KEY, "");
-        if (!newJson.equals(oldJson)) {
-            props.setProperty(FAVORITE_MODELS_KEY, newJson);
+        boolean changed = ModelProperties.saveFavoriteModels(props, objectMapper, favorites);
+        if (changed) {
             saveGlobalProperties(props);
             logger.debug("Saved {} favorite models to global properties.", favorites.size());
         } else {
