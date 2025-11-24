@@ -247,11 +247,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return ""; // Python uses indentation, no explicit closer for classes/functions
     }
-
-    @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    /**
+     * Determines the package name for a Python file based on its directory structure
+     * and __init__.py markers.
+     *
+     * @param file The Python file
+     * @return The package name (dot-separated), or empty string if at root
+     */
+    private String getPackageNameForFile(ProjectFile file) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        // The definitionNode, rootNode, and src parameters are not used for Python package determination.
         var absPath = file.absPath();
         var projectRoot = getProject().getRoot();
         var parentDir = absPath.getParent();
@@ -290,6 +294,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         // Convert path separators to dots for package name
         return relPath.toString().replace('/', '.').replace('\\', '.');
+    }
+
+    @Override
+    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+        // Python's package naming is directory-based, relative to project root or __init__.py markers.
+        // The definitionNode, rootNode, and src parameters are not used for Python package determination.
+        return getPackageNameForFile(file);
     }
 
     @Override
@@ -470,7 +481,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         String relativeModule = relativeImportText.substring(dotCount);
 
         // Get the current file's package
-        String currentPackage = determinePackageName(file, null, null, null);
+        String currentPackage = getPackageNameForFile(file);
 
         // Navigate up dotCount-1 levels (1 dot = current package, 2 dots = parent, etc.)
         String[] packageParts = currentPackage.isEmpty() ? new String[0] : currentPackage.split("\\.");
