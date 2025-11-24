@@ -3,7 +3,6 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
 import ai.brokk.IProject;
-import com.google.common.base.Splitter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -14,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -27,13 +25,7 @@ import org.treesitter.TreeSitterPython;
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
-    // Regex patterns for import parsing
-    // Matches: from module.path import Name1, Name2 as Alias
-    private static final Pattern FROM_IMPORT_PATTERN = Pattern.compile("from\\s+([\\w.]+)\\s+import\\s+(.+)");
-    // Matches: import module.path as alias
-    private static final Pattern IMPORT_PATTERN = Pattern.compile("import\\s+([\\w.]+)(?:\\s+as\\s+\\w+)?");
-    // Matches: Name as Alias (to extract the original name)
-    private static final Pattern AS_ALIAS_PATTERN = Pattern.compile("([\\w.]+)\\s+as\\s+\\w+");
+    // Import resolution using TreeSitter queries instead of regex
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -467,45 +459,49 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
-            var normalized = importLine.strip();
+            // Parse the import statement with TreeSitter
+            // Note: We parse it as a complete module (TreeSitter expects valid Python)
+            var parser = getTSParser();
+            var tree = parser.parseString(null, importLine);
+            var rootNode = tree.getRootNode();
 
-            // Handle "from X import Y" style
-            var fromMatcher = FROM_IMPORT_PATTERN.matcher(normalized);
-            if (fromMatcher.matches()) {
-                var modulePath = fromMatcher.group(1);
-                var imports = fromMatcher.group(2);
+            var query = getThreadLocalQuery();
+            var cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
 
-                // Split multiple imports: "Class1, Class2"
-                for (String importName : Splitter.on(',').split(imports)) {
-                    importName = importName.strip();
+            var match = new TSQueryMatch();
+            String currentModule = null;
 
-                    // Handle "as" alias: "Class as Alias"
-                    var aliasMatcher = AS_ALIAS_PATTERN.matcher(importName);
-                    if (aliasMatcher.matches()) {
-                        importName = aliasMatcher.group(1);
-                    }
+            // Collect all captures from this import statement
+            while (cursor.nextMatch(match)) {
+                for (var cap : match.getCaptures()) {
+                    var capName = query.getCaptureNameForId(cap.getIndex());
+                    var node = cap.getNode();
+                    if (node == null || node.isNull()) continue;
 
-                    if (!importName.isEmpty() && !importName.equals("*")) {
-                        // Try to find the imported class
-                        var fqn = modulePath + "." + importName;
-                        var found = getDefinition(fqn);
-                        if (found.isPresent() && found.get().isClass()) {
-                            resolved.add(found.get());
+                    var text = textSlice(node, importLine);
+
+                    switch (capName) {
+                        case IMPORT_MODULE -> currentModule = text;
+                        case IMPORT_NAME -> {
+                            // For "from X import Y" style, we need the module
+                            if (currentModule != null && !text.equals("*")) {
+                                var fqn = currentModule + "." + text;
+                                var found = getDefinition(fqn);
+                                if (found.isPresent() && found.get().isClass()) {
+                                    resolved.add(found.get());
+                                }
+                            } else if (currentModule == null) {
+                                // For "import X" style
+                                var found = getDefinition(text);
+                                if (found.isPresent() && found.get().isClass()) {
+                                    resolved.add(found.get());
+                                }
+                            }
                         }
+                            // Note: IMPORT_ALIAS captures the alias name, but we don't need it
+                            // for resolution - we only care about the original name
                     }
-                }
-                continue;
-            }
-
-            // Handle "import X" style (less common for class imports)
-            var importMatcher = IMPORT_PATTERN.matcher(normalized);
-            if (importMatcher.matches()) {
-                var moduleName = importMatcher.group(1);
-
-                // Try to find it as a class
-                var found = getDefinition(moduleName);
-                if (found.isPresent() && found.get().isClass()) {
-                    resolved.add(found.get());
                 }
             }
         }
