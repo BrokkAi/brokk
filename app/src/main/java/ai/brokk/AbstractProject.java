@@ -79,22 +79,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         // Determine masterRootPathForConfig based on this.root and this.repo
         if (this.repo instanceof GitRepo gitRepoInstance) {
-            Path workTreeRoot = gitRepoInstance.getWorkTreeRoot();
-            boolean isSubdirectory = isSubdirectoryProject(this.root, workTreeRoot);
-            boolean isWorktree = gitRepoInstance.isWorktree();
-
-            if (isWorktree && !isSubdirectory) {
-                // Worktree opened at root → share config with main repo
-                this.masterRootPathForConfig =
-                        gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
-            } else {
-                // All other cases: use project root for config
-                // - Regular projects (worktree or not)
-                // - Worktrees opened at subdirectory
-                this.masterRootPathForConfig = this.root;
-            }
+            this.masterRootPathForConfig = determineMasterRootPath(this.root, gitRepoInstance);
         } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
+            this.masterRootPathForConfig = this.root;
         }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
@@ -1120,6 +1107,35 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     .toAbsolutePath()
                     .normalize()
                     .equals(workTreeRoot.toAbsolutePath().normalize());
+        }
+    }
+
+    /**
+     * Determines the master root path for configuration based on project root and git repository.
+     * This is the canonical location for .brokk config, sessions, and llm-history.
+     *
+     * <p>Rules:
+     * <ul>
+     *   <li>Worktree opened at root → share config with main repo (returns gitTopLevel)</li>
+     *   <li>All other cases → use projectRoot for config</li>
+     * </ul>
+     *
+     * @param projectRoot The project root path (must be absolute and normalized)
+     * @param gitRepo The git repository instance
+     * @return The path where config should be stored
+     */
+    public static Path determineMasterRootPath(Path projectRoot, GitRepo gitRepo) {
+        Path workTreeRoot = gitRepo.getWorkTreeRoot();
+        boolean isSubdirectory = isSubdirectoryProject(projectRoot, workTreeRoot);
+
+        if (gitRepo.isWorktree() && !isSubdirectory) {
+            // Worktree opened at root → share config with main repo
+            return gitRepo.getGitTopLevel().toAbsolutePath().normalize();
+        } else {
+            // All other cases: use project root for config
+            // - Regular projects (worktree or not)
+            // - Worktrees opened at subdirectory
+            return projectRoot;
         }
     }
 }
