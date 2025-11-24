@@ -2,7 +2,7 @@ package ai.brokk.gui.util;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;

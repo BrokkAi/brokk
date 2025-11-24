@@ -7,7 +7,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.AnalyzerUtil.CodeWithSource;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;

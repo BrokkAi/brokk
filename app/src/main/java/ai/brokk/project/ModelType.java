@@ -1,6 +1,8 @@
-package ai.brokk;
+package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.Service;
+
 import java.util.Locale;
 
 /**

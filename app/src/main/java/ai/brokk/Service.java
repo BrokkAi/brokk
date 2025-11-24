@@ -1,5 +1,8 @@
 package ai.brokk;
 
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

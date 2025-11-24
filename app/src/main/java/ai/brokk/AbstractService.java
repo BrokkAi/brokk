@@ -3,6 +3,8 @@ package ai.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;

@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;

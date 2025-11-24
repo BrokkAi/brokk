@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import java.util.*;
 import java.util.Optional;

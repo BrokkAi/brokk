@@ -3,7 +3,7 @@ package ai.brokk.context;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;

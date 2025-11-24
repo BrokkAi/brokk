@@ -3,7 +3,7 @@ package ai.brokk.issues;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
 import java.io.IOException;
 import java.nio.file.Path;

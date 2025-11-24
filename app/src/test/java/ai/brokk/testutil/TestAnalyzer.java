@@ -1,6 +1,6 @@
 package ai.brokk.testutil;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;

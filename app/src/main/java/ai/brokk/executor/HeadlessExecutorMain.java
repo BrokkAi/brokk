@@ -4,7 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;

@@ -1,7 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.AbstractService;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;

@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;

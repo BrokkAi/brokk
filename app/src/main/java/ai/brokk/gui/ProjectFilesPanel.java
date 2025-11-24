@@ -2,7 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;

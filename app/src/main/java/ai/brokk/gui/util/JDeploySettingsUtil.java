@@ -1,6 +1,6 @@
 package ai.brokk.gui.util;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;

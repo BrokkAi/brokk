@@ -1,7 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.Brokk;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.BrowserLabel;

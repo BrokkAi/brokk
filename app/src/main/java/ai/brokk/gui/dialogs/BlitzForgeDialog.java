@@ -3,7 +3,7 @@ package ai.brokk.gui.dialogs;
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;

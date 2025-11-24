@@ -3,7 +3,7 @@ package ai.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;

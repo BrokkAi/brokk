@@ -2,7 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.Llm;
 import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.agents.RelevanceTask;

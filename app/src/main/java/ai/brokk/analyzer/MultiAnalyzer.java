@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;

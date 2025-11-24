@@ -4,7 +4,7 @@ import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.FileSystemEventListener;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;

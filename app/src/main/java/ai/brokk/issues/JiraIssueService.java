@@ -2,7 +2,7 @@ package ai.brokk.issues;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;

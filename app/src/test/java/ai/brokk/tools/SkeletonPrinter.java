@@ -1,7 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.IProject;
-import ai.brokk.analyzer.*;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CppAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;

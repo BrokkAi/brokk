@@ -1,6 +1,6 @@
 package ai.brokk.util;
 
-import ai.brokk.AbstractProject;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;

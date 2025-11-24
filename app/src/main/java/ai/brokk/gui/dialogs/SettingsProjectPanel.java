@@ -1,11 +1,11 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.AbstractProject;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
-import ai.brokk.MainProject;
-import ai.brokk.MainProject.DataRetentionPolicy;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;

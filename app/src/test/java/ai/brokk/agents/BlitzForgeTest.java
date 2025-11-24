@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;

@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.project;
 
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;

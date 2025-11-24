@@ -3,7 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.FuzzyMatcher;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;

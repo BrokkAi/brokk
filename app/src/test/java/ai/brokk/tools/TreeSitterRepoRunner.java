@@ -2,7 +2,7 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;

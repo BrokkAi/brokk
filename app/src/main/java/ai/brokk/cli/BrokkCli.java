@@ -3,13 +3,13 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractProject;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.WorktreeProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;

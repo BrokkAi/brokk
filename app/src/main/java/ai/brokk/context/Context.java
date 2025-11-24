@@ -1,6 +1,6 @@
 package ai.brokk.context;
 
-import ai.brokk.AbstractProject;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;

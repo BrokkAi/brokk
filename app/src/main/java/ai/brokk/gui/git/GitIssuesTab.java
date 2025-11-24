@@ -1,13 +1,11 @@
 package ai.brokk.gui.git;
 
-import ai.brokk.*;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.gui.*;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -22,7 +20,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.issues.*;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.GitHubFilterOptions;

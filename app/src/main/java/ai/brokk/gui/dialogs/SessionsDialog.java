@@ -4,7 +4,7 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;

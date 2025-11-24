@@ -1,7 +1,7 @@
 package ai.brokk.gui.mop;
 
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.gui.mop.FilePathResult.*;
 import java.nio.file.Files;
 import java.nio.file.Path;

@@ -3,7 +3,7 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;

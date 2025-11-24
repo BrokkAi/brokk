@@ -1,6 +1,6 @@
 package ai.brokk.issues;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.IssueProvider;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;

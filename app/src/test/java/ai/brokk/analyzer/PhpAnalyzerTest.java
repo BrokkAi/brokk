@@ -5,7 +5,7 @@ import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;

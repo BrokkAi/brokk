@@ -1,6 +1,6 @@
 package ai.brokk.difftool.ui.unified;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BlameService.BlameInfo;

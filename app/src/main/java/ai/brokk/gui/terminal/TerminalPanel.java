@@ -1,7 +1,7 @@
 package ai.brokk.gui.terminal;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;

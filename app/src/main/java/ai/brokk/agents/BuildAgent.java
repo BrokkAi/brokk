@@ -5,7 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;

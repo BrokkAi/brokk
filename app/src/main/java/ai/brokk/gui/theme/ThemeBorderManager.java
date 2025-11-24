@@ -1,7 +1,7 @@
 package ai.brokk.gui.theme;
 
 import ai.brokk.Brokk;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.gui.highcontrast.SwingExternalBorderDecorator;
 import java.awt.*;
 import java.awt.event.AWTEventListener;

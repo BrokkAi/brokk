@@ -1,6 +1,9 @@
-package ai.brokk;
+package ai.brokk.project;
 
-import ai.brokk.MainProject.DataRetentionPolicy;
+import ai.brokk.AbstractService;
+import ai.brokk.IssueProvider;
+import ai.brokk.SessionManager;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
@@ -95,22 +98,22 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public Service.ModelConfig getCodeModelConfig() {
+    public AbstractService.ModelConfig getCodeModelConfig() {
         return parent.getCodeModelConfig();
     }
 
     @Override
-    public void setCodeModelConfig(Service.ModelConfig config) {
+    public void setCodeModelConfig(AbstractService.ModelConfig config) {
         parent.setCodeModelConfig(config);
     }
 
     @Override
-    public Service.ModelConfig getArchitectModelConfig() {
+    public AbstractService.ModelConfig getArchitectModelConfig() {
         return parent.getArchitectModelConfig();
     }
 
     @Override
-    public void setArchitectModelConfig(Service.ModelConfig config) {
+    public void setArchitectModelConfig(AbstractService.ModelConfig config) {
         parent.setArchitectModelConfig(config);
     }
 

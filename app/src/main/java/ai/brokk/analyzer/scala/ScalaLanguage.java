@@ -1,6 +1,6 @@
 package ai.brokk.analyzer.scala;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ScalaAnalyzer;

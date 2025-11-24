@@ -1,6 +1,6 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.doc.JMDocumentEvent;

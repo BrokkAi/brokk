@@ -4,7 +4,7 @@ import ai.brokk.Brokk;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;

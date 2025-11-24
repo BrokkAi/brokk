@@ -4,7 +4,7 @@ import static ai.brokk.agents.MergeAgent.FileConflict;
 import static ai.brokk.agents.MergeAgent.NonTextMetadata;
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;

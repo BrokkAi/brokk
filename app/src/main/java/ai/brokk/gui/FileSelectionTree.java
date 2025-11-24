@@ -2,7 +2,7 @@ package ai.brokk.gui;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import java.awt.*;
 import java.io.File;

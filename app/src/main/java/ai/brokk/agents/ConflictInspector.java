@@ -2,7 +2,7 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;

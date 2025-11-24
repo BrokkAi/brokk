@@ -1,8 +1,8 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
-import ai.brokk.WorktreeProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.MergeDialogUtil;

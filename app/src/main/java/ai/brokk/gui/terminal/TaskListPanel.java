@@ -5,7 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;

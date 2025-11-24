@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;

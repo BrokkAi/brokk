@@ -2,7 +2,7 @@ package ai.brokk.testutil;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;

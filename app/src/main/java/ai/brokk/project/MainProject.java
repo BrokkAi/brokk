@@ -1,6 +1,13 @@
-package ai.brokk;
+package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.Brokk;
+import ai.brokk.IConsoleIO;
+import ai.brokk.IssueProvider;
+import ai.brokk.Service;
+import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
+import ai.brokk.SettingsChangeListener;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;

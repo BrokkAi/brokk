@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.scala.ScalaLanguage;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;

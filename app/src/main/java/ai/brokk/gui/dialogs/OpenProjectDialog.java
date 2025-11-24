@@ -3,7 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.Brokk;
 import ai.brokk.BuildInfo;
 import ai.brokk.GitHubAuth;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;

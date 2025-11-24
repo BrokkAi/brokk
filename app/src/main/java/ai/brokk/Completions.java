@@ -1,6 +1,5 @@
 package ai.brokk;
 
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
@@ -15,6 +14,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
+
+import ai.brokk.project.IProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;

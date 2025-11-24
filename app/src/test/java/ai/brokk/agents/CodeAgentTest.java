@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.EditBlock;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
