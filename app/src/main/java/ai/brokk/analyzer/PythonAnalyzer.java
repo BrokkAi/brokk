@@ -573,10 +573,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 }
                             } else if (currentModule == null) {
                                 // For "import X" style
-                                var found = getDefinition(text);
-                                if (found.isPresent() && found.get().isClass()) {
-                                    resolved.add(found.get());
-                                }
+                                var definitions = getDefinitions(text);
+                                definitions.stream()
+                                        .filter(CodeUnit::isClass)
+                                        .findFirst()
+                                        .ifPresent(resolved::add);
                             }
                         }
                             // Note: IMPORT_ALIAS captures the alias name, but we don't need it
@@ -620,8 +621,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             // Then try same package (same file or same directory)
             String packageName = cu.packageName();
             String fqnInPackage = packageName.isEmpty() ? rawName : packageName + "." + rawName;
-            Optional<CodeUnit> inPackage = getDefinition(fqnInPackage);
-            if (inPackage.isPresent() && inPackage.get().isClass()) {
+            var inPackageSet = getDefinitions(fqnInPackage);
+            var inPackage = inPackageSet.stream().filter(CodeUnit::isClass).findFirst();
+            if (inPackage.isPresent()) {
                 result.add(inPackage.get());
                 continue;
             }
