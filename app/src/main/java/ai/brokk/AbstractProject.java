@@ -1102,7 +1102,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             return !projectRoot.toRealPath().equals(workTreeRoot.toRealPath());
         } catch (IOException e) {
-            logger.trace("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
+            logger.debug("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
             return !projectRoot
                     .toAbsolutePath()
                     .normalize()
