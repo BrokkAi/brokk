@@ -1,9 +1,11 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
@@ -70,8 +72,8 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return Optional.empty();
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        return new LinkedHashSet<>();
     }
 
     @Override

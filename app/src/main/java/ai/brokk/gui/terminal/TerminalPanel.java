@@ -1,12 +1,12 @@
 package ai.brokk.gui.terminal;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import com.jediterm.pty.PtyProcessTtyConnector;
 import com.jediterm.terminal.CursorShape;

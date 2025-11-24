@@ -3,6 +3,8 @@ package ai.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -90,6 +92,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     // Helper record to store model name and reasoning level for checking
+    @com.google.errorprone.annotations.Immutable
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
             this(name, reasoning, ProcessingTier.DEFAULT);

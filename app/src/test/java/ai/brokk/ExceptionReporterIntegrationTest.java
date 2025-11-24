@@ -2,6 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;

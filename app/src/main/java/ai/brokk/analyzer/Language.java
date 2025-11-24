@@ -1,9 +1,9 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.AbstractProject;
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;

@@ -3,13 +3,10 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.WorktreeProject;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
@@ -25,6 +22,9 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
@@ -227,9 +227,10 @@ public final class BrokkCli implements Callable<Integer> {
                     "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
+        if (deepScan) actionCount++;
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) or --worktree is required.");
+                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
             return 1;
         }
 
@@ -295,12 +296,14 @@ public final class BrokkCli implements Callable<Integer> {
             if (actionCount == 0) {
                 return 0; // successfully created worktree and no other action was requested
             }
+            // If deepscan is the only action, continue to execute it below
             projectPath = worktreePath;
         }
 
         // Create Project + ContextManager
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
+        logger.debug("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
 
         // Build BuildDetails from environment variables
@@ -457,6 +460,17 @@ public final class BrokkCli implements Callable<Integer> {
         cm.pushContext(ctx -> finalContext);
 
         // --- Deep Scan ------------------------------------------------------
+        boolean isStandaloneDeepScan = deepScan
+                && architectPrompt == null
+                && codePrompt == null
+                && askPrompt == null
+                && searchAnswerPrompt == null
+                && lutzPrompt == null
+                && lutzLitePrompt == null
+                && !merge
+                && !build
+                && searchWorkspace == null;
+
         if (deepScan) {
             if (planModel == null) {
                 System.err.println("Deep Scan requires --planmodel to be specified.");
@@ -468,10 +482,12 @@ public final class BrokkCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                    .filter(s -> s != null && !s.isBlank())
-                    .findFirst()
-                    .orElseThrow();
+            String goalForScan = isStandaloneDeepScan
+                    ? "Analyze the workspace and suggest relevant context"
+                    : Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+                            .filter(s -> s != null && !s.isBlank())
+                            .findFirst()
+                            .orElseThrow();
             var agent = new ContextAgent(cm, planModel, goalForScan);
             var recommendations = agent.getRecommendations(cm.liveContext());
             io.showNotification(
@@ -495,6 +511,11 @@ public final class BrokkCli implements Callable<Integer> {
                 }
             } else {
                 io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+            }
+
+            // If deepscan is standalone, exit here with success
+            if (isStandaloneDeepScan) {
+                return 0;
             }
         }
 

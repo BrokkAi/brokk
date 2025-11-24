@@ -1,7 +1,7 @@
 package ai.brokk.issues;
 
 import ai.brokk.GitHubAuth;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.MarkdownImageParser;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
