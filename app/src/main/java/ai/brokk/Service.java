@@ -97,7 +97,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var qeCfg = project.getMainProject().getQuickEditModelConfig();
             var qe = getModel(qeCfg);
             if (qe == null) {
-                qe = getModel(new ModelConfig("cerebras/gpt-oss-120b", ReasoningLevel.DEFAULT));
+                qe = getModel(new ModelConfig(CEREBRAS_GPT_OSS_120B, ReasoningLevel.DEFAULT));
             }
             quickEditModel = (qe == null) ? quickModel : qe;
         }
@@ -107,7 +107,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
         if (qqm == null) {
             qqm = getModel(
-                    new ModelConfig("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT),
+                    new ModelConfig(GEMINI_2_0_FLASH_LITE, ReasoningLevel.DEFAULT),
                     OpenAiChatRequestParameters.builder().temperature(0.0));
         }
         quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
