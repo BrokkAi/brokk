@@ -591,9 +591,27 @@ public class DtoMapper {
                 fragment.id(), messagesDto, fragment.description().join());
     }
 
-    private static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
-        String contentId = writer.writeContent(Messages.getRepr(message), null);
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId);
+    static ChatMessageDto toChatMessageDto(ChatMessage message, ContentWriter writer) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
+        String reasoningContentId = null;
+        String contentId;
+
+        if (message instanceof AiMessage aiMessage) {
+            // For AiMessage, store text and reasoning separately
+            String text = aiMessage.text();
+            String reasoning = aiMessage.reasoningContent();
+
+            contentId = writer.writeContent(text != null ? text : "", null);
+
+            if (reasoning != null && !reasoning.isBlank()) {
+                reasoningContentId = writer.writeContent(reasoning, null);
+            }
+        } else {
+            // For other message types, use the display representation
+            contentId = writer.writeContent(Messages.getRepr(message), null);
+        }
+
+        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -602,11 +620,20 @@ public class DtoMapper {
         return mgr.toFile(dto.relPath());
     }
 
-    private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+    static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
+        // Package-private for tests in ai.brokk.context and internal mapping use.
         String content = reader.readContent(dto.contentId());
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
-            case "ai" -> AiMessage.from(content);
+            case "ai" -> {
+                // Prefer structured reasoningContentId if available
+                if (dto.reasoningContentId() != null) {
+                    String reasoning = reader.readContent(dto.reasoningContentId());
+                    yield new AiMessage(content, reasoning);
+                }
+                // Graceful degrade: treat entire content as text when reasoningContentId is absent
+                yield new AiMessage(content);
+            }
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
