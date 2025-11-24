@@ -2,7 +2,6 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -44,7 +43,7 @@ public class ContextCompressionTest {
 
         // Verify initial state: has log, no summary
         assertTrue(originalEntry.hasLog(), "Original entry should have log");
-        assertFalse(originalEntry.hasSummary(), "Original entry should not have summary");
+        assertFalse(originalEntry.isCompressed(), "Original entry should not have summary");
         assertFalse(originalEntry.isCompressed(), "Original entry should not be summarized");
 
         // Create a compressed entry (simulating what compressHistory does)
@@ -57,7 +56,7 @@ public class ContextCompressionTest {
         assertEquals(messages.size(), compressedEntry.log().messages().size(), 
                 "Log should have same number of messages");
 
-        assertTrue(compressedEntry.hasSummary(), "Compressed entry should now have summary");
+        assertTrue(compressedEntry.isCompressed(), "Compressed entry should now have summary");
         assertEquals(compressedSummary, compressedEntry.summary(), "Summary should match");
 
         assertTrue(compressedEntry.isCompressed(), "Compressed entry should be marked as compressed (summary present)");
@@ -92,7 +91,7 @@ public class ContextCompressionTest {
         var alreadyCompressed = new TaskEntry(1, taskFragment, summary);
         assertTrue(alreadyCompressed.isCompressed(), "Entry should be marked as compressed");
         assertTrue(alreadyCompressed.hasLog(), "Entry should have log");
-        assertTrue(alreadyCompressed.hasSummary(), "Entry should have summary");
+        assertTrue(alreadyCompressed.isCompressed(), "Entry should have summary");
 
         // A second compression should return the same entry unchanged
         // (In real usage, ContextManager.compressHistory checks isSummarized() and returns early)
@@ -110,7 +109,7 @@ public class ContextCompressionTest {
         var logOnlyEntry = new TaskEntry(1, taskFragment, null);
 
         assertTrue(logOnlyEntry.hasLog(), "Should have log");
-        assertFalse(logOnlyEntry.hasSummary(), "Should not have summary");
+        assertFalse(logOnlyEntry.isCompressed(), "Should not have summary");
         assertFalse(logOnlyEntry.isCompressed(), "Should not be marked as compressed (log is present)");
 
         // This entry needs compression
@@ -124,7 +123,7 @@ public class ContextCompressionTest {
         var legacyCompressed = new TaskEntry(1, null, summary);
 
         assertFalse(legacyCompressed.hasLog(), "Should not have log");
-        assertTrue(legacyCompressed.hasSummary(), "Should have summary");
+        assertTrue(legacyCompressed.isCompressed(), "Should have summary");
         assertTrue(legacyCompressed.isCompressed(), "Should be marked as compressed");
         assertTrue(legacyCompressed.isCompressed(), "Should be marked as compressed (no log)");
 

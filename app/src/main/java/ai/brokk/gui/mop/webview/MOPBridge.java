@@ -217,8 +217,8 @@ public final class MOPBridge {
 
         // Build event: compressed flag is true when summary is present (AI uses summary)
         // Include both summary and messages when available
-        var summary = entry.hasSummary() ? entry.summary() : null;
-        var compressed = entry.hasSummary();
+        var summary = entry.isCompressed() ? entry.summary() : null;
+        var compressed = entry.isCompressed();
         var messagesList = messages.isEmpty() ? null : messages;
 
         var event = new BrokkEvent.HistoryTask(e, entry.sequence(), compressed, summary, messagesList);

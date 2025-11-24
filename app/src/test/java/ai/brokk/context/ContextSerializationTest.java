@@ -1443,21 +1443,21 @@ public class ContextSerializationTest {
         // Log only
         var logOnly = new TaskEntry(1, taskFragment, null);
         assertTrue(logOnly.hasLog());
-        assertFalse(logOnly.hasSummary());
+        assertFalse(logOnly.isCompressed());
         assertFalse(logOnly.isCompressed());
         assertFalse(logOnly.isCompressed());
 
         // Summary only
         var summaryOnly = new TaskEntry(2, null, "Summary text");
         assertFalse(summaryOnly.hasLog());
-        assertTrue(summaryOnly.hasSummary());
+        assertTrue(summaryOnly.isCompressed());
         assertTrue(summaryOnly.isCompressed());
         assertTrue(summaryOnly.isCompressed());
 
         // Both
         var both = new TaskEntry(3, taskFragment, "Summary text");
         assertTrue(both.hasLog());
-        assertTrue(both.hasSummary());
+        assertTrue(both.isCompressed());
         assertTrue(both.isCompressed());
         assertTrue(both.isCompressed());
     }
@@ -1493,7 +1493,7 @@ public class ContextSerializationTest {
         assertNotNull(entry);
         assertNull(entry.meta());
         assertTrue(entry.hasLog());
-        assertFalse(entry.hasSummary());
+        assertFalse(entry.isCompressed());
     }
 
     @Test
@@ -1640,14 +1640,14 @@ public class ContextSerializationTest {
         TaskEntry loaded1 = loadedEntries.get(0);
         assertEquals(1, loaded1.sequence());
         assertTrue(loaded1.hasLog());
-        assertFalse(loaded1.hasSummary());
+        assertFalse(loaded1.isCompressed());
         assertEquals(2, loaded1.log().messages().size());
 
         // Verify Entry 2: Both log and summary
         TaskEntry loaded2 = loadedEntries.get(1);
         assertEquals(2, loaded2.sequence());
         assertTrue(loaded2.hasLog());
-        assertTrue(loaded2.hasSummary());
+        assertTrue(loaded2.isCompressed());
         assertEquals("Summary of task 2", loaded2.summary());
         assertEquals(2, loaded2.log().messages().size());
 
@@ -1655,7 +1655,7 @@ public class ContextSerializationTest {
         TaskEntry loaded3 = loadedEntries.get(2);
         assertEquals(3, loaded3.sequence());
         assertFalse(loaded3.hasLog());
-        assertTrue(loaded3.hasSummary());
+        assertTrue(loaded3.isCompressed());
         assertEquals("Summary of task 3 only", loaded3.summary());
     }
 
