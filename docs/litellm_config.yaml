@@ -488,7 +488,7 @@ model_list:
       output_cost_per_token: 1.5e-06
       mode: chat
       supports_tool_choice: true
-      uses_think_tags: true
+      uses_think_tags: false
       supports_reasoning: true
       supports_function_calling: true
       tokens_per_minute: 8000000
@@ -507,7 +507,7 @@ model_list:
       output_cost_per_token: 5e-07
       mode: chat
       supports_tool_choice: true
-      uses_think_tags: true
+      uses_think_tags: false
       supports_reasoning: true
       supports_function_calling: true
       tokens_per_minute: 4000000
@@ -526,7 +526,7 @@ model_list:
       output_cost_per_token: 5e-07
       mode: chat
       supports_tool_choice: true
-      uses_think_tags: true
+      uses_think_tags: false
       supports_reasoning: true
       supports_function_calling: true
       tokens_per_minute: 4000000
@@ -545,7 +545,7 @@ model_list:
       output_cost_per_token: 1.5e-05
       mode: chat
       supports_tool_choice: true
-      uses_think_tags: true
+      uses_think_tags: false
       supports_reasoning: true
       supports_function_calling: true
       tokens_per_minute: 2000000
