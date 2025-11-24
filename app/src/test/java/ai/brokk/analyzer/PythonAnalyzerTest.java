@@ -1140,83 +1140,148 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
-    void testRelativeImportSameDirectory() {
-        // Test: from . import sibling_module
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+    void testRelativeImportSameDirectory() throws Exception {
+        // Test: from .module import Class
+        // Child class in same directory as sibling
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                class ChildClass:
+                    def child_method(self):
+                        pass
+                """,
+                        "mypackage/child.py");
 
-        ProjectFile siblingPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/sibling.py");
-        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(siblingPy);
+        try (var testProject = builder.addFileContents(
+                        """
+                from .child import ChildClass
 
-        // Should resolve to relative_imports.subdir.ChildClass (not .child.ChildClass)
-        // In Python, modules don't add a level to the FQN
-        assertTrue(
-                imports.stream()
-                        .anyMatch(cu -> cu.fqName().equals("relative_imports.subdir.ChildClass")),
-                "Should resolve 'from .child import ChildClass' to relative_imports.subdir.ChildClass");
+                class SiblingClass:
+                    def __init__(self):
+                        self.child = ChildClass()
+                """,
+                        "mypackage/sibling.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var siblingFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.SiblingClass").get();
+            var imports = analyzer.importedCodeUnitsOf(siblingFile);
 
-        testProject.close();
+            // In Python, module names don't add FQN levels: package.Class, not package.module.Class
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.ChildClass")),
+                    "Should resolve 'from .child import ChildClass' to mypackage.ChildClass");
+        }
     }
 
     @Test
-    void testRelativeImportParentDirectory() {
-        // Test: from .. import base
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+    void testRelativeImportParentDirectory() throws Exception {
+        // Test: from ..module import Class
+        // Base class in parent directory
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
+                .addFileContents(
+                        """
+                class BaseClass:
+                    def base_method(self):
+                        pass
+                """,
+                        "mypackage/base.py");
 
-        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/child.py");
-        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(childPy);
+        try (var testProject = builder.addFileContents(
+                        """
+                from ..base import BaseClass
 
-        // Should resolve to relative_imports.BaseClass (not .base.BaseClass)
-        assertTrue(
-                imports.stream()
-                        .anyMatch(cu -> cu.fqName().equals("relative_imports.BaseClass")),
-                "Should resolve 'from ..base import BaseClass' to relative_imports.BaseClass");
+                class ChildClass(BaseClass):
+                    def child_method(self):
+                        pass
+                """,
+                        "mypackage/subdir/child.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.ChildClass")
+                    .get();
+            var imports = analyzer.importedCodeUnitsOf(childFile);
 
-        testProject.close();
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.BaseClass")),
+                    "Should resolve 'from ..base import BaseClass' to mypackage.BaseClass");
+        }
     }
 
     @Test
-    void testRelativeImportGrandparentDirectory() {
-        // Test: from ... import base (from nested.py)
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+    void testRelativeImportGrandparentDirectory() throws Exception {
+        // Test: from ...module import Class (two levels up)
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
+                .addFileContents("# Deep package marker\n", "mypackage/subdir/deep/__init__.py")
+                .addFileContents(
+                        """
+                class TopClass:
+                    def top_method(self):
+                        pass
+                """,
+                        "mypackage/top.py");
 
-        ProjectFile nestedPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/deep/nested.py");
-        Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(nestedPy);
+        try (var testProject = builder.addFileContents(
+                        """
+                from ...top import TopClass
 
-        // Should resolve to relative_imports.BaseClass (not .base.BaseClass)
-        assertTrue(
-                imports.stream()
-                        .anyMatch(cu -> cu.fqName().equals("relative_imports.BaseClass")),
-                "Should resolve 'from ...base import BaseClass' to relative_imports.BaseClass");
+                class DeepClass(TopClass):
+                    def deep_method(self):
+                        pass
+                """,
+                        "mypackage/subdir/deep/nested.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.DeepClass")
+                    .get();
+            var imports = analyzer.importedCodeUnitsOf(nestedFile);
 
-        testProject.close();
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.TopClass")),
+                    "Should resolve 'from ...top import TopClass' to mypackage.TopClass");
+        }
     }
 
     @Test
-    void testRelativeImportInheritance() {
+    void testRelativeImportInheritance() throws Exception {
         // Test that classes using relative imports show proper inheritance
-        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
-        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "zoo/__init__.py")
+                .addFileContents("# Subpackage marker\n", "zoo/mammals/__init__.py")
+                .addFileContents(
+                        """
+                class Animal:
+                    def speak(self):
+                        pass
+                """,
+                        "zoo/animal.py");
 
-        // ChildClass extends BaseClass via relative import
-        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "relative_imports/subdir/child.py");
-        Set<CodeUnit> childDecls = testAnalyzer.getDeclarations(childPy);
+        try (var testProject = builder.addFileContents(
+                        """
+                from ..animal import Animal
 
-        var childClass = childDecls.stream()
-                .filter(cu -> cu.identifier().equals("ChildClass"))
-                .findFirst();
-        assertTrue(childClass.isPresent(), "ChildClass should be found");
+                class Dog(Animal):
+                    def bark(self):
+                        return "woof"
+                """,
+                        "zoo/mammals/dog.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var dogFile = AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.Dog").get();
+            var dogDecls = analyzer.getDeclarations(dogFile);
 
-        // Check that ChildClass has BaseClass as ancestor
-        var ancestors = testAnalyzer.getDirectAncestors(childClass.get());
-        assertEquals(1, ancestors.size(), "ChildClass should have exactly 1 direct ancestor (BaseClass)");
-        assertTrue(
-                ancestors.stream()
-                        .anyMatch(cu -> cu.identifier().equals("BaseClass")),
-                "ChildClass should have BaseClass as ancestor");
+            var dogClass = dogDecls.stream()
+                    .filter(cu -> cu.identifier().equals("Dog"))
+                    .findFirst();
+            assertTrue(dogClass.isPresent(), "Dog class should be found");
 
-        testProject.close();
+            // Verify inheritance through relative import
+            var ancestors = analyzer.getDirectAncestors(dogClass.get());
+            assertEquals(1, ancestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
+            assertTrue(
+                    ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+                    "Dog should extend Animal via relative import");
+        }
     }
 }
