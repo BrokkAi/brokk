@@ -335,7 +335,7 @@ public class GitRepoRemote {
         var lsRemote = Git.lsRemoteRepository().setHeads(true).setTags(true).setRemote(url);
 
         // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
-        if (url.startsWith("https://") && url.contains("github.com")) {
+        if (GitRepoFactory.isGitHubHttpsUrl(url)) {
             var token = tokenSupplier.get();
             if (!token.trim().isEmpty()) {
                 logger.debug("Using GitHub token authentication for ls-remote: {}", url);

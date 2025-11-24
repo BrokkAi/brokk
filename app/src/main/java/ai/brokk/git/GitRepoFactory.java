@@ -116,7 +116,7 @@ public class GitRepoFactory {
                     .setCloneAllBranches(depth <= 0);
 
             // Apply GitHub authentication if needed
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+            if (isGitHubHttpsUrl(effectiveUrl)) {
                 var token = tokenSupplier.get();
                 if (!token.trim().isEmpty()) {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
@@ -175,7 +175,7 @@ public class GitRepoFactory {
                     .setCloneAllBranches(depth <= 0);
 
             // Apply GitHub authentication if needed
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
+            if (isGitHubHttpsUrl(effectiveUrl)) {
                 var token = tokenSupplier.get();
                 if (!token.trim().isEmpty()) {
                     cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
@@ -217,6 +217,16 @@ public class GitRepoFactory {
     }
 
     /**
+     * Checks if a URL is a GitHub HTTPS URL that requires token authentication.
+     *
+     * @param url The URL to check (may be null)
+     * @return true if the URL is a non-null HTTPS URL containing "github.com"
+     */
+    public static boolean isGitHubHttpsUrl(@Nullable String url) {
+        return url != null && url.startsWith("https://") && url.contains("github.com");
+    }
+
+    /**
      * Gets the HEAD commit hash from a local Git repository.
      *
      * @param repoDir path to the repository directory
@@ -250,7 +260,7 @@ public class GitRepoFactory {
                     Git.lsRemoteRepository().setRemote(remoteUrl).setHeads(true).setTags(true);
 
             // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
-            if (remoteUrl.startsWith("https://") && remoteUrl.contains("github.com")) {
+            if (isGitHubHttpsUrl(remoteUrl)) {
                 var token = tokenSupplier.get();
                 if (!token.trim().isEmpty()) {
                     logger.debug("Using GitHub token authentication for ls-remote: {}", remoteUrl);
