@@ -68,8 +68,8 @@
         threadStore.toggleThread(threadId);
     }
 
-    function toggleSummaryView() {
-        summaryViewStore.toggleViewMode(threadId);
+    function setSummaryViewMode(mode: 'messages' | 'summary') {
+        summaryViewStore.setViewMode(threadId, mode);
     }
 
     function handleDelete(threadIdParam: number) {
@@ -123,7 +123,7 @@
         allowDelete={allowDelete}
         showSummary={showSummary}
         onToggleCollapse={toggle}
-        onToggleSummary={toggleSummaryView}
+        onSetViewMode={setSummaryViewMode}
         onCopy={handleCopy}
         onDelete={handleDelete}
     />
@@ -146,7 +146,7 @@
             msgLabel={msgLabel}
             totalLines={totalLinesAll}
             onToggleCollapse={toggle}
-            onToggleSummary={toggleSummaryView}
+            onSetViewMode={setSummaryViewMode}
             onCopy={handleCopy}
             onDelete={handleDelete}
         />
