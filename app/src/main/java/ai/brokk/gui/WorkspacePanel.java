@@ -2048,10 +2048,29 @@ public class WorkspacePanel extends JPanel {
 
     @Blocking
     private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
-        var testFiles = selectedFragments.stream()
-                .flatMap(frag -> frag.files().join().stream())
-                .filter(ContextManager::isTestFile)
-                .collect(Collectors.toSet());
+        // Collect futures for associated project files for each fragment to avoid per-fragment blocking
+        List<CompletableFuture<Set<ProjectFile>>> fileFutures =
+                selectedFragments.stream().map(f -> f.files().future()).toList();
+
+        Set<ProjectFile> testFiles = new HashSet<>();
+
+        if (!fileFutures.isEmpty()) {
+            CompletableFuture<Void> all = CompletableFuture.allOf(fileFutures.toArray(new CompletableFuture[0]));
+            try {
+                // Wait for all file computations to finish; remain interruptible
+                all.get();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            } catch (Exception ex) {
+                logger.warn("Error awaiting fragment files for test execution", ex);
+            }
+
+            testFiles.addAll(fileFutures.stream()
+                    .flatMap(cf -> cf.getNow(Set.of()).stream())
+                    .filter(ContextManager::isTestFile)
+                    .collect(Collectors.toSet()));
+        }
 
         if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
             chrome.toolError("No test files found in the selection to run.");
