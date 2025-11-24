@@ -241,9 +241,23 @@ public class GitRepoFactory {
      * @return the full commit hash, or null if the ref cannot be found
      */
     public static @Nullable String getRemoteRefCommit(String remoteUrl, String ref) {
+        return getRemoteRefCommit(MainProject::getGitHubToken, remoteUrl, ref);
+    }
+
+    static @Nullable String getRemoteRefCommit(Supplier<String> tokenSupplier, String remoteUrl, String ref) {
         try {
             var lsRemote =
                     Git.lsRemoteRepository().setRemote(remoteUrl).setHeads(true).setTags(true);
+
+            // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
+            if (remoteUrl.startsWith("https://") && remoteUrl.contains("github.com")) {
+                var token = tokenSupplier.get();
+                if (!token.trim().isEmpty()) {
+                    logger.debug("Using GitHub token authentication for ls-remote: {}", remoteUrl);
+                    lsRemote.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+                }
+                // Don't throw if token is empty - allow graceful failure for public repos
+            }
 
             var refs = lsRemote.call();
 
