@@ -117,6 +117,7 @@ public class Chrome
     private final HeadlessExecutorService headlessExecutorService;
     private final Map<UUID, AgentModeExecutorInfo> agentExecutorMap = new ConcurrentHashMap<>();
     private final Map<UUID, String> sessionToJobId = new ConcurrentHashMap<>();
+    private final Map<UUID, String> sessionToExecutorSessionId = new ConcurrentHashMap<>();
 
     /**
      * Stores information about a headless executor instance for an Agent Mode session.
@@ -337,8 +338,14 @@ public class Chrome
             }
         });
 
-        // Add action listener to the instructions panel's action button
-        agentModeInstructionsPanel.getActionButton().addActionListener(e -> {
+        // Remove any existing action listeners to prevent IDE Mode submit from firing
+        var actionBtn = agentModeInstructionsPanel.getActionButton();
+        for (var listener : actionBtn.getActionListeners()) {
+            actionBtn.removeActionListener(listener);
+        }
+
+        // Add ONLY the Agent Mode action listener
+        actionBtn.addActionListener(e -> {
             String text = agentModeInstructionsPanel.getInstructions();
             if (text.isBlank()) {
                 toolError("Please enter a prompt", "Empty Prompt");
@@ -348,56 +355,116 @@ public class Chrome
             // Clear the input area
             agentModeInstructionsPanel.clearCommandInput();
 
-            // Summarize the prompt to get a session name
-            contextManager.summarizeTaskForConversation(text).thenAccept(sessionName -> {
-                // Create a new session with the summarized name
-                contextManager.createSessionAsync(sessionName).thenRun(() -> {
-                    // Refresh the conversations list to include the new session
-                    populateAgentModeConversationsList();
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            // Get the newly created session (should be at index 0 after sort by modification time)
-                            if (agentModeConversationsModel.size() > 0) {
-                                agentModeConversationsList.setSelectedIndex(0);
-                                var newSession = agentModeConversationsModel.getElementAt(0);
+            // Show initial progress in Agent Mode output
+            if (agentModeOutputPanel != null) {
+                agentModeOutputPanel.clear();
+                agentModeOutputPanel.showSpinner("Processing prompt...");
+                agentModeOutputPanel.append("Processing prompt...", ChatMessageType.SYSTEM, true);
+            }
 
-                                // Create worktree for the new session and submit the prompt
-                                createWorktreeForSession(newSession, text);
+            // Check if a conversation is selected
+            int selectedIdx = agentModeConversationsList.getSelectedIndex();
+            if (selectedIdx >= 0 && selectedIdx < agentModeConversationsModel.size()) {
+                // Reuse the selected session
+                var selectedSession = agentModeConversationsModel.getElementAt(selectedIdx);
+                UUID sessionId = selectedSession.id();
 
-                                // Submit the prompt to the executor after a short delay to allow initialization
-                                Thread submissionThread = new Thread(() -> {
-                                    try {
-                                        // Wait for executor to be fully initialized
-                                        Thread.sleep(1000);
-                                        submitJobToExecutor(newSession.id(), text, newSession);
-                                    } catch (InterruptedException ex) {
-                                        Thread.currentThread().interrupt();
-                                        logger.debug("Prompt submission thread interrupted");
-                                    }
-                                });
-                                submissionThread.setDaemon(true);
-                                submissionThread.start();
-                            }
-                            showNotification(NotificationRole.INFO, "Session created: " + sessionName);
-                        } catch (Exception ex) {
-                            logger.error("Failed to handle new session", ex);
-                            toolError("Failed to process new session: " + ex.getMessage(), "Error");
+                // Check if executor is already running for this session
+                var executorInfo = agentExecutorMap.get(sessionId);
+                if (executorInfo != null && executorInfo.process().isAlive()) {
+                    // Executor is running; check if we need to create executor session
+                    var executorSessionId = sessionToExecutorSessionId.get(sessionId);
+                    if (executorSessionId != null && !executorSessionId.isBlank()) {
+                        // Executor session already mapped; submit directly
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.showSpinner("Submitting job...");
+                            agentModeOutputPanel.append("Submitting job to existing executor...", ChatMessageType.SYSTEM, true);
                         }
+                        submitJobToExecutor(sessionId, text, selectedSession);
+                    } else {
+                        // Executor running but no session mapping; create executor session first
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.showSpinner("Creating executor session...");
+                            agentModeOutputPanel.append("Creating executor session for reuse...", ChatMessageType.SYSTEM, true);
+                        }
+                        var startResult = new HeadlessExecutorService.StartResult(
+                            executorInfo.process(), executorInfo.port(), executorInfo.authToken());
+                        createExecutorSession(sessionId, selectedSession.name(), startResult, text, selectedSession);
+                    }
+                } else {
+                    // No executor running; start a new one for this session
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.showSpinner("Setting up worktree and starting executor...");
+                        agentModeOutputPanel.append("Starting executor for selected conversation...", ChatMessageType.SYSTEM, true);
+                    }
+                    createWorktreeForSession(selectedSession, text);
+                }
+            } else {
+                // No selection; create a new session
+                if (agentModeOutputPanel != null) {
+                    agentModeOutputPanel.hideSpinner();
+                    agentModeOutputPanel.showSpinner("Creating session...");
+                    agentModeOutputPanel.append("Creating session...", ChatMessageType.SYSTEM, true);
+                }
+
+                // Summarize the prompt to get a session name
+                contextManager.summarizeTaskForConversation(text).thenAccept(sessionName -> {
+                    // Create a new session with the summarized name
+                    contextManager.createSessionAsync(sessionName).thenRun(() -> {
+                        // Refresh the conversations list to include the new session
+                        populateAgentModeConversationsList();
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                // Get the newly created session (should be at index 0 after sort by modification time)
+                                if (agentModeConversationsModel.size() > 0) {
+                                    agentModeConversationsList.setSelectedIndex(0);
+                                    var newSession = agentModeConversationsModel.getElementAt(0);
+
+                                    // Append session creation success and update spinner
+                                    if (agentModeOutputPanel != null) {
+                                        agentModeOutputPanel.append("Session created: " + sessionName, ChatMessageType.SYSTEM, true);
+                                        agentModeOutputPanel.hideSpinner();
+                                        agentModeOutputPanel.showSpinner("Setting up worktree and starting executor...");
+                                    }
+
+                                    // Create worktree for the new session and submit the prompt
+                                    createWorktreeForSession(newSession, text);
+                                }
+                            } catch (Exception ex) {
+                                logger.error("Failed to handle new session", ex);
+                                if (agentModeOutputPanel != null) {
+                                    agentModeOutputPanel.hideSpinner();
+                                    agentModeOutputPanel.append("Error: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                                }
+                                toolError("Failed to process new session: " + ex.getMessage(), "Error");
+                            }
+                        });
+                    }).exceptionally(ex -> {
+                        logger.error("Failed to create session", ex);
+                        SwingUtilities.invokeLater(() -> {
+                            if (agentModeOutputPanel != null) {
+                                agentModeOutputPanel.hideSpinner();
+                                agentModeOutputPanel.append("Error creating session: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                            }
+                            toolError("Failed to create session: " + ex.getMessage(), "Error");
+                        });
+                        return null;
                     });
                 }).exceptionally(ex -> {
-                    logger.error("Failed to create session", ex);
-                    SwingUtilities.invokeLater(() -> 
-                        toolError("Failed to create session: " + ex.getMessage(), "Error")
-                    );
+                    logger.error("Failed to summarize prompt", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.append("Error summarizing prompt: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                        }
+                        toolError("Failed to summarize prompt: " + ex.getMessage(), "Error");
+                    });
                     return null;
                 });
-            }).exceptionally(ex -> {
-                logger.error("Failed to summarize prompt", ex);
-                SwingUtilities.invokeLater(() -> 
-                    toolError("Failed to summarize prompt: " + ex.getMessage(), "Error")
-                );
-                return null;
-            });
+            }
         });
 
         // Wrap conversations list in a scroll pane
@@ -555,25 +622,118 @@ public class Chrome
     }
 
     /**
+     * Creates an executor-side session for the given GUI session.
+     * Posts to /v1/sessions and stores the returned executor sessionId.
+     * After successful creation, submits the job using the provided prompt.
+     */
+    private void createExecutorSession(UUID guiSessionId, String sessionName, HeadlessExecutorService.StartResult executorInfo, @Nullable String prompt, @Nullable SessionManager.SessionInfo sessionInfo) {
+        contextManager.submitBackgroundTask("Create executor session", () -> {
+            try {
+                var client = new OkHttpClient();
+                var mapper = new ObjectMapper();
+
+                // Build request to create session on executor
+                var sessionCreateRequest = new java.util.LinkedHashMap<String, String>();
+                sessionCreateRequest.put("name", sessionName);
+                var jsonBody = mapper.writeValueAsString(sessionCreateRequest);
+
+                var request = new Request.Builder()
+                    .url("http://127.0.0.1:" + executorInfo.port() + "/v1/sessions")
+                    .addHeader("Authorization", "Bearer " + executorInfo.authToken())
+                    .addHeader("Content-Type", "application/json")
+                    .post(RequestBody.create(jsonBody, MediaType.get("application/json")))
+                    .build();
+
+                try (var response = client.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        var errorBody = response.body() != null ? response.body().string() : "Unknown error";
+                        logger.error("Failed to create executor session: {} - {}", response.code(), errorBody);
+                        SwingUtilities.invokeLater(() -> {
+                            if (agentModeOutputPanel != null) {
+                                agentModeOutputPanel.hideSpinner();
+                                agentModeOutputPanel.append("Error creating executor session: HTTP " + response.code() + "\n" + errorBody, ChatMessageType.SYSTEM, true);
+                            }
+                            toolError("Failed to create executor session: " + response.code(), "Session Creation Error");
+                        });
+                        return null;
+                    }
+
+                    var responseBody = response.body() != null ? response.body().string() : "{}";
+                    var responseObj = mapper.readTree(responseBody);
+                    var executorSessionId = responseObj.get("sessionId").asText();
+                    
+                    logger.info("Executor session created: {}", executorSessionId);
+                    sessionToExecutorSessionId.put(guiSessionId, executorSessionId);
+
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.append("Executor session created. Submitting job...", ChatMessageType.SYSTEM, true);
+                        }
+                    });
+
+                    // Submit the job using the executor session with the original prompt
+                    submitJobToExecutor(guiSessionId, prompt, sessionInfo);
+                }
+            } catch (Exception ex) {
+                logger.error("Error creating executor session", ex);
+                SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.append("Error creating executor session: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                    }
+                    toolError("Error creating executor session: " + ex.getMessage(), "Session Creation Error");
+                });
+            }
+
+            return null;
+        });
+    }
+
+    /**
      * Submits a job to the headless executor for a given session.
      * Sends the prompt via HTTP POST to the executor's /v1/jobs endpoint.
      */
-    private void submitJobToExecutor(UUID sessionId, String prompt, SessionManager.SessionInfo sessionInfo) {
+    private void submitJobToExecutor(UUID sessionId, @Nullable String prompt, @Nullable SessionManager.SessionInfo sessionInfo) {
         contextManager.submitBackgroundTask("Submit job to executor", () -> {
             var executorInfo = agentExecutorMap.get(sessionId);
             if (executorInfo == null) {
                 logger.error("No executor info found for session {}", sessionId);
-                SwingUtilities.invokeLater(() ->
-                    toolError("Executor not found for session", "Submission Error")
-                );
+                SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.append("Error: Executor not found for session.", ChatMessageType.SYSTEM, true);
+                    }
+                    toolError("Executor not found for session", "Submission Error");
+                });
                 return null;
             }
 
+            // Resolve the executor session ID
+            var executorSessionId = sessionToExecutorSessionId.get(sessionId);
+            if (executorSessionId == null || executorSessionId.isBlank()) {
+                logger.error("No executor session ID found for session {}", sessionId);
+                SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.append("Error: No executor session for this conversation.", ChatMessageType.SYSTEM, true);
+                    }
+                    toolError("No executor session bound for session " + sessionId, "Submission Error");
+                });
+                return null;
+            }
+
+            // Get the prompt from the Agent Mode output panel if not provided
+            String promptToSubmit = prompt;
+            if (promptToSubmit == null && agentModeInstructionsPanel != null) {
+                // This shouldn't happen in normal flow, but provide fallback
+                promptToSubmit = "Continue previous task";
+            }
+
             try {
-                // Create the job spec request
+                // Create the job spec request using the executor session ID
                 var jobSpec = new JobSpecRequest(
-                    sessionId.toString(),
-                    prompt,
+                    executorSessionId,
+                    promptToSubmit != null ? promptToSubmit : "Continue",
                     true,  // autoCommit
                     true,  // autoCompress
                     "gpt-5",  // plannerModel (default)
@@ -594,34 +754,45 @@ public class Chrome
                     .build();
 
                 try (var response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                var errorBody = response.body() != null ? response.body().string() : "Unknown error";
-                logger.error("Failed to submit job: {} - {}", response.code(), errorBody);
-                SwingUtilities.invokeLater(() ->
-                toolError("Failed to submit job: " + response.code(), "Submission Error")
-                );
-                } else {
-                var responseBody = response.body() != null ? response.body().string() : "{}";
-                var responseObj = mapper.readTree(responseBody);
-                var jobId = responseObj.get("jobId").asText();
-                logger.info("Job submitted successfully: {}", jobId);
-                
-                // Store the session-to-job mapping for later retrieval
-                sessionToJobId.put(sessionId, jobId);
-                
-                // Start polling for job events
-                pollExecutorForJobEvents(sessionId, jobId, executorInfo);
-                
-                SwingUtilities.invokeLater(() ->
-                showNotification(NotificationRole.INFO, "Job submitted: " + jobId)
-                );
-                }
+                    if (!response.isSuccessful()) {
+                        var errorBody = response.body() != null ? response.body().string() : "Unknown error";
+                        logger.error("Failed to submit job: {} - {}", response.code(), errorBody);
+                        SwingUtilities.invokeLater(() -> {
+                            if (agentModeOutputPanel != null) {
+                                agentModeOutputPanel.hideSpinner();
+                                agentModeOutputPanel.append("Error submitting job: HTTP " + response.code() + "\n" + errorBody, ChatMessageType.SYSTEM, true);
+                            }
+                            toolError("Failed to submit job: " + response.code(), "Submission Error");
+                        });
+                    } else {
+                        var responseBody = response.body() != null ? response.body().string() : "{}";
+                        var responseObj = mapper.readTree(responseBody);
+                        var jobId = responseObj.get("jobId").asText();
+                        logger.info("Job submitted successfully to executor: {}", jobId);
+                        
+                        // Store the session-to-job mapping for later retrieval
+                        sessionToJobId.put(sessionId, jobId);
+                        
+                        SwingUtilities.invokeLater(() -> {
+                            if (agentModeOutputPanel != null) {
+                                agentModeOutputPanel.hideSpinner();
+                                agentModeOutputPanel.append("Job submitted: " + jobId, ChatMessageType.SYSTEM, true);
+                            }
+                        });
+                        
+                        // Start polling for job events
+                        pollExecutorForJobEvents(sessionId, jobId, executorInfo);
+                    }
                 }
             } catch (Exception ex) {
                 logger.error("Error submitting job to executor", ex);
-                SwingUtilities.invokeLater(() ->
-                    toolError("Error submitting job: " + ex.getMessage(), "Submission Error")
-                );
+                SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.append("Error submitting job: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                    }
+                    toolError("Error submitting job: " + ex.getMessage(), "Submission Error");
+                });
             }
 
             return null;
@@ -712,6 +883,12 @@ public class Chrome
                 var project = getProject();
                 if (!(project instanceof MainProject mainProject) || !project.hasGit()) {
                     logger.debug("Project does not support git or is not a MainProject; skipping worktree creation");
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.append("Project does not support git.", ChatMessageType.SYSTEM, true);
+                        }
+                    });
                     return null;
                 }
 
@@ -720,6 +897,12 @@ public class Chrome
                 // Cast to GitRepo to access branch checking methods
                 if (!(repo instanceof GitRepo gitRepo)) {
                     logger.warn("Repository is not a GitRepo instance; cannot create worktree");
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.append("Repository is not a GitRepo instance.", ChatMessageType.SYSTEM, true);
+                        }
+                    });
                     return null;
                 }
                 
@@ -727,19 +910,7 @@ public class Chrome
                 String branchName = gitRepo.sanitizeBranchName(sessionInfo.name());
                 
                 // Check if branch already exists
-                if (gitRepo.isLocalBranch(branchName) || gitRepo.isRemoteBranch(branchName)) {
-                    SwingUtilities.invokeLater(() -> {
-                        toolError(
-                            "Branch '" + branchName + "' already exists. Cannot create worktree.",
-                            "Branch Conflict");
-                    });
-                    // Rollback: delete the session
-                    contextManager.deleteSessionAsync(sessionInfo.id()).exceptionally(ex -> {
-                        logger.warn("Failed to delete session during worktree creation rollback", ex);
-                        return null;
-                    });
-                    return null;
-                }
+                boolean branchExists = gitRepo.isLocalBranch(branchName) || gitRepo.isRemoteBranch(branchName);
 
                 // Get worktree storage path and ensure it exists
                 Path worktreeStoragePath = mainProject.getWorktreeStoragePath();
@@ -748,14 +919,46 @@ public class Chrome
                 // Get the next available worktree path
                 Path worktreePath = repo.getNextWorktreePath(worktreeStoragePath);
 
-                // Get current branch as base for new branch
-                String currentBranch = gitRepo.getCurrentBranch();
+                if (!branchExists) {
+                    // Get current branch as base for new branch
+                    String currentBranch = gitRepo.getCurrentBranch();
 
-                // Create the new branch from current branch
-                gitRepo.createBranch(branchName, currentBranch);
+                    // Create the new branch from current branch
+                    gitRepo.createBranch(branchName, currentBranch);
 
-                // Create the worktree for the new branch
-                gitRepo.addWorktree(branchName, worktreePath);
+                    // Update Agent Mode output: branch created
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.append("Branch created: " + branchName, ChatMessageType.SYSTEM, true);
+                        }
+                    });
+                } else {
+                    // Update Agent Mode output: using existing branch
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.append("Using existing branch: " + branchName, ChatMessageType.SYSTEM, true);
+                        }
+                    });
+                }
+
+                // Create the worktree for the branch
+                try {
+                    gitRepo.addWorktree(branchName, worktreePath);
+                } catch (Exception ex) {
+                    logger.warn("Failed to add worktree for branch {}; attempting to continue with existing worktree", branchName, ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.append("Using existing worktree for branch: " + branchName, ChatMessageType.SYSTEM, true);
+                        }
+                    });
+                }
+
+                // Update Agent Mode output: worktree created
+                SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.append("Worktree created. Starting executor...", ChatMessageType.SYSTEM, true);
+                    }
+                });
 
                 // Start the headless executor for this worktree
                 try {
@@ -766,25 +969,24 @@ public class Chrome
                     // Store executor info for later reference
                     agentExecutorMap.put(sessionInfo.id(), new AgentModeExecutorInfo(result.port(), result.authToken(), result.process()));
 
-                    // On success, show notification
+                    // Update Agent Mode output: executor started
                     SwingUtilities.invokeLater(() -> {
-                        showNotification(
-                            NotificationRole.INFO,
-                            "Worktree created at: " + worktreePath.getFileName());
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.append("Executor started on port " + result.port() + ". Creating executor session...", ChatMessageType.SYSTEM, true);
+                        }
                     });
 
-                    // Wait a bit for executor to initialize, then submit the prompt
-                    Thread.sleep(1000);
-                    submitJobToExecutor(sessionInfo.id(), prompt, sessionInfo);
+                    // Create an executor-side session
+                    createExecutorSession(sessionInfo.id(), sessionInfo.name(), result, prompt, sessionInfo);
                 } catch (IOException ex) {
                     logger.error("Failed to start headless executor for session {}", sessionInfo.name(), ex);
                     SwingUtilities.invokeLater(() -> {
+                        if (agentModeOutputPanel != null) {
+                            agentModeOutputPanel.hideSpinner();
+                            agentModeOutputPanel.append("Error starting executor: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                        }
                         toolError("Failed to start executor: " + ex.getMessage(), "Executor Start Error");
                     });
-                    return null;
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    logger.error("Interrupted while waiting for executor initialization", ex);
                     return null;
                 }
 
@@ -796,6 +998,10 @@ public class Chrome
                 
                 // Rollback: delete the session and show error
                 SwingUtilities.invokeLater(() -> {
+                    if (agentModeOutputPanel != null) {
+                        agentModeOutputPanel.hideSpinner();
+                        agentModeOutputPanel.append("Error creating worktree: " + ex.getMessage(), ChatMessageType.SYSTEM, true);
+                    }
                     toolError(
                         "Failed to create worktree: " + ex.getMessage(),
                         "Worktree Creation Error");
@@ -853,9 +1059,10 @@ public class Chrome
         var executorInfo = agentExecutorMap.get(sessionId);
 
         if (jobId == null || executorInfo == null) {
+            agentModeOutputPanel.clear();
             var message = Messages.customSystem(
                 "Conversation: " + sessionInfo.name() + "\n\n"
-                + "History is not available for this conversation.");
+                + "No events yet for this conversation. Submit a prompt to get started.");
             agentModeOutputPanel.setText(List.of(message));
             return;
         }
