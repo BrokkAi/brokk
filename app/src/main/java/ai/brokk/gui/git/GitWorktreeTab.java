@@ -459,11 +459,7 @@ public class GitWorktreeTab extends JPanel {
             // Calculate subdirectory path if parent project is in a subdirectory
             Path relativeSubdir = null;
             if (parentProject.getRepo() instanceof GitRepo gitRepo) {
-                Path gitTop = gitRepo.getGitTopLevel();
-                if (!gitTop.equals(parentProject.getRoot())) {
-                    relativeSubdir = gitTop.relativize(parentProject.getRoot());
-                    logger.debug("Parent project is in subdirectory: {}", relativeSubdir);
-                }
+                relativeSubdir = computeRelativeSubdir(parentProject, gitRepo);
             }
 
             for (Path worktreePath : worktreePaths) {
@@ -780,9 +776,7 @@ public class GitWorktreeTab extends JPanel {
                 Path newWorktreePath = setupResult.worktreePath();
 
                 // If the current project is a subdirectory of the git repo, open the same subdirectory in the worktree
-                Path relativeSubdir = gitRepo.getGitTopLevel().equals(project.getRoot())
-                        ? null
-                        : gitRepo.getGitTopLevel().relativize(project.getRoot());
+                Path relativeSubdir = computeRelativeSubdir(project, gitRepo);
                 final Path pathToOpen = resolveWorktreeOpenPath(newWorktreePath, relativeSubdir);
 
                 Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(pathToOpen).parent(project);
@@ -1263,6 +1257,24 @@ public class GitWorktreeTab extends JPanel {
             }
             return null;
         });
+    }
+
+    /**
+     * Computes the relative subdirectory path if the project is opened at a subdirectory of the git repo.
+     *
+     * @param project The project to check
+     * @param gitRepo The git repository
+     * @return The relative path from git root to project root, or null if project is at git root
+     */
+    @Nullable
+    private Path computeRelativeSubdir(MainProject project, GitRepo gitRepo) {
+        Path gitTop = gitRepo.getGitTopLevel();
+        if (gitTop.equals(project.getRoot())) {
+            return null;
+        }
+        Path relativeSubdir = gitTop.relativize(project.getRoot());
+        logger.debug("Project is in subdirectory: {}", relativeSubdir);
+        return relativeSubdir;
     }
 
     /**
