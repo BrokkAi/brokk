@@ -233,7 +233,6 @@ public class TreeSitterRepoRunner {
         System.out.println("Running comprehensive baselines...");
 
         var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var resultFile = outputDir.resolve("baseline-" + timestamp + ".json");
         var results = new BaselineResults();
 
         // Test each project with primary language (ordered by complexity)
@@ -251,68 +250,80 @@ public class TreeSitterRepoRunner {
         for (var entry : projectTests.entrySet()) {
             String project = entry.getKey();
             String language = entry.getValue();
-
-            System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
-
-            try {
-                System.out.println("Project path: " + getProjectPath(project));
-                var discovery = getProjectFiles(project, language, maxFiles);
-                var result = runProjectBaseline(project, language, discovery);
-                results.addResult(project, language, result);
-
-                // Write incremental reports immediately
-                try {
-                    results.saveIncrementalResult(project, language, result, outputDir, timestamp);
-                    System.out.println("📊 Incremental results saved");
-                } catch (Exception e) {
-                    System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
-                }
-
-                // Print immediate results
-                System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-                System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-                System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-                System.out.printf(
-                        "Total time: %.2f seconds%n",
-                        (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-                System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
-                System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
-
-                if (result.failed) {
-                    System.out.println("❌ Analysis failed: " + result.failureReason);
-                    results.recordFailure(project, language, result.failureReason);
-                } else {
-                    System.out.println("✓ Analysis completed successfully");
-                }
-
-            } catch (OutOfMemoryError e) {
-                System.out.println("❌ OutOfMemoryError - scalability limit reached");
-                results.recordOOM(project, language, maxFiles);
-                // Write incremental results for OOM failure
-                try {
-                    var failedResult = new BaselineResult(
-                            maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
-                    results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
-                } catch (Exception ex) {
-                    System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
-                }
-            } catch (Exception e) {
-                System.out.println("❌ Failed: " + e.getMessage());
-                results.recordError(project, language, e.getMessage());
-                // Write incremental results for general failure
-                try {
-                    var failedResult = new BaselineResult(
-                            0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
-                    results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
-                } catch (Exception ex) {
-                    System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
-                }
-            }
+            runAndRecordBaseline(project, language, results, timestamp);
         }
 
+        saveFinalReports(results, timestamp);
+    }
+
+    private void runAndRecordBaseline(String project, String language, BaselineResults results, String timestamp) {
+        System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
+
+        try {
+            System.out.println("Project path: " + getProjectPath(project));
+            var discovery = getProjectFiles(project, language, maxFiles);
+            var result = runProjectBaseline(project, language, discovery);
+            results.addResult(project, language, result);
+
+            // Write incremental reports immediately
+            try {
+                results.saveIncrementalResult(project, language, result, outputDir, timestamp);
+                System.out.println("📊 Incremental results saved");
+            } catch (Exception e) {
+                System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
+            }
+
+            // Print immediate results
+            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Total time: %.2f seconds%n",
+                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+
+            if (result.failed) {
+                System.out.println("❌ Analysis failed: " + result.failureReason);
+                results.recordFailure(project, language, result.failureReason);
+            } else {
+                System.out.println("✓ Analysis completed successfully");
+            }
+
+        } catch (OutOfMemoryError e) {
+            System.out.println("❌ OutOfMemoryError - scalability limit reached");
+            results.recordOOM(project, language, maxFiles);
+            // Write incremental results for OOM failure
+            try {
+                var failedResult = new BaselineResult(
+                        maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.out.println("❌ Failed: " + e.getMessage());
+            results.recordError(project, language, e.getMessage());
+            // Write incremental results for general failure
+            try {
+                var failedResult = new BaselineResult(
+                        0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void saveFinalReports(BaselineResults results, String timestamp) throws IOException {
         // Save comprehensive results
+        var resultFile = outputDir.resolve("baseline-" + timestamp + ".json");
         results.saveToFile(resultFile);
 
         // Save additional format files
@@ -503,13 +514,17 @@ public class TreeSitterRepoRunner {
             var target = testProject != null ? testProject : testDirectory.toString();
             System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
             System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-            System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-            System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
             System.out.printf(
+                    Locale.ROOT,
                     "Total time: %.2f seconds%n",
                     (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-            System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
-            System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
 
             // Print stage timing diagram if --stats flag is set
             if (showStats && result.stageTiming != null) {
@@ -587,11 +602,11 @@ public class TreeSitterRepoRunner {
                 // Format timing with appropriate precision
                 String timingInfo;
                 if (durationMs < 10) {
-                    timingInfo = String.format("%d ms", durationMs);
+                    timingInfo = String.format(Locale.ROOT, "%d ms", durationMs);
                 } else if (durationMs < 1000) {
-                    timingInfo = String.format("%.0f ms", (double) durationMs);
+                    timingInfo = String.format(Locale.ROOT, "%.0f ms", (double) durationMs);
                 } else {
-                    timingInfo = String.format("%.2f seconds", durationSeconds);
+                    timingInfo = String.format(Locale.ROOT, "%.2f seconds", durationSeconds);
                 }
 
                 long discoveryMs = discovery.discoveryTime().toMillis();
@@ -599,6 +614,7 @@ public class TreeSitterRepoRunner {
 
                 // Format detailed results matching baseline report
                 String detailedResults = String.format(
+                        Locale.ROOT,
                         "✓ Success: %d files (of %d) in %d ms (discovery %d ms + analysis %s), %.1f MB peak memory\n"
                                 + "  Code units found: %d (functions, classes, variables, etc.)\n"
                                 + "  Memory consumed: %.1f MB\n"
@@ -613,7 +629,7 @@ public class TreeSitterRepoRunner {
                         result.peakMemoryMB,
                         result.declarationsFound,
                         result.memoryDeltaMB,
-                        result.peakMemoryMB * 1024 / result.filesProcessed,
+                        result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0,
                         processingRate,
                         durationMs < 10 ? " (likely cached results)" : "",
                         result.gcCollections,
@@ -625,6 +641,7 @@ public class TreeSitterRepoRunner {
                 // Check for exponential growth
                 if (fileCount > 1000 && result.peakMemoryMB > fileCount * 2.0) { // >2 MB per file indicates trouble
                     String warn = String.format(
+                            Locale.ROOT,
                             "⚠ Warning: High memory usage detected (%.1f KB per file)\n",
                             result.peakMemoryMB * 1024 / fileCount);
                     System.out.print(warn);
@@ -659,28 +676,18 @@ public class TreeSitterRepoRunner {
     private void multiLanguageAnalysis() throws Exception {
         System.out.println("Running multi-language analysis...");
 
+        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        var results = new BaselineResults();
+
         // Test Chromium with multiple languages
         var project = "chromium";
         var languages = List.of("cpp", "javascript", "python");
 
         for (String language : languages) {
-            System.out.printf("\n--- Chromium %s Analysis ---\n", language.toUpperCase());
-
-            try {
-                var discovery = getProjectFiles(project, language, maxFiles);
-                var result = runProjectBaseline(project, language, discovery);
-                System.out.printf(
-                        "Files: %d of %d, Discovery: %.2fs, Analysis: %.2fs, Memory: %.1fMB\n",
-                        result.filesProcessed,
-                        result.totalMatched,
-                        result.discoveryTime.toMillis() / 1000.0,
-                        result.duration.toMillis() / 1000.0,
-                        result.peakMemoryMB);
-
-            } catch (Exception e) {
-                System.out.println("Failed: " + e.getMessage());
-            }
+            runAndRecordBaseline(project, language, results, timestamp);
         }
+
+        saveFinalReports(results, timestamp);
     }
 
     private FileDiscoveryResult getProjectFiles(String projectName, String language, int maxFiles) throws IOException {
@@ -903,7 +910,7 @@ public class TreeSitterRepoRunner {
         int remainingSpace = diagramWidth - startPos - barWidth;
         sb.append(" ".repeat(Math.max(0, remainingSpace)));
         sb.append(" │ ");
-        sb.append(String.format("%.1fs (%.1f%%)", stageDurationSecs, percentageOfTotal));
+        sb.append(String.format(Locale.ROOT, "%.1fs (%.1f%%)", stageDurationSecs, percentageOfTotal));
         sb.append("\n");
     }
 
@@ -979,7 +986,7 @@ public class TreeSitterRepoRunner {
         sb.append("│ ").append(String.format("%-15s", "Total Wall-Clock"));
         sb.append(" ".repeat(diagramWidth));
         sb.append(" │ ");
-        sb.append(String.format("%.1fs", totalWallNanos / 1_000_000_000.0));
+        sb.append(String.format(Locale.ROOT, "%.1fs", totalWallNanos / 1_000_000_000.0));
         sb.append("\n");
 
         sb.append("└").append("─".repeat(diagramWidth)).append("─┘\n");
@@ -1249,44 +1256,47 @@ public class TreeSitterRepoRunner {
                 throws IOException {
             boolean fileExists = Files.exists(file);
 
-            var header = fileExists
-                    ? ""
-                    : """
-                    TreeSitter Performance Baseline Summary (Incremental - Simplified)
-                    ==============================================================
-                    Generated: %s
-                    JVM Heap Max: %dMB
-                    Processors: %d
+            var header = "";
+            if (!fileExists) {
+                header = String.format(
+                        Locale.ROOT,
+                        """
+                        TreeSitter Performance Baseline Summary (Incremental - Simplified)
+                        ==============================================================
+                        Generated: %s
+                        JVM Heap Max: %dMB
+                        Processors: %d
 
-                    RESULTS (as completed):
-                    ======================
-                    %-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s
-                    %s
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    "PROJECT",
-                                    "LANGUAGE",
-                                    "FILES",
-                                    "TIME(sec)",
-                                    "MEMORY(MB)",
-                                    "MB/FILE",
-                                    "-".repeat(100));
+                        RESULTS (as completed):
+                        ======================
+                        %-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s
+                        %s
+                        """,
+                        LocalDateTime.now(),
+                        Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                        Runtime.getRuntime().availableProcessors(),
+                        "PROJECT",
+                        "LANGUAGE",
+                        "FILES",
+                        "TIME(sec)",
+                        "MEMORY(MB)",
+                        "MB/FILE",
+                        "-".repeat(100));
+            }
 
             var status = result.failed ? "YES" : "NO";
             var reason = result.failed && result.failureReason != null ? result.failureReason : "";
             if (reason.length() > 20) reason = reason.substring(0, 17) + "...";
 
             var resultLine = String.format(
+                    Locale.ROOT,
                     "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f %-6s %-20s\n",
                     project,
                     language,
                     result.filesProcessed,
                     result.duration.toMillis() / 1000.0,
                     result.peakMemoryMB,
-                    result.peakMemoryMB / result.filesProcessed,
+                    result.filesProcessed > 0 ? result.peakMemoryMB / result.filesProcessed : 0.0,
                     status,
                     reason);
 
@@ -1298,7 +1308,8 @@ public class TreeSitterRepoRunner {
             var resultsJson =
                     results.entrySet().stream().map(this::formatProjectJson).collect(Collectors.joining(",\n"));
 
-            var json =
+            var json = String.format(
+                    Locale.ROOT,
                     """
                     {
                       "timestamp": "%s",
@@ -1313,13 +1324,12 @@ public class TreeSitterRepoRunner {
                     %s
                       ]
                     }
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    resultsJson,
-                                    formatFailuresJson());
+                    """,
+                    LocalDateTime.now(),
+                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                    Runtime.getRuntime().availableProcessors(),
+                    resultsJson,
+                    formatFailuresJson());
             Files.writeString(file, json);
         }
 
@@ -1329,9 +1339,9 @@ public class TreeSitterRepoRunner {
                     .collect(Collectors.joining(",\n"));
 
             return """
-                      "%s": {
-                    %s
-                      }"""
+                        "%s": {
+                        %s
+                        }"""
                     .formatted(projectEntry.getKey(), languageResults);
         }
 
@@ -1341,7 +1351,9 @@ public class TreeSitterRepoRunner {
                     ? ",\n        \"failure_reason\": \"" + result.failureReason.replace("\"", "\\\"") + "\""
                     : "";
 
-            return """
+            return String.format(
+                    Locale.ROOT,
+                    """
                         "%s": {
                           "files_processed": %d,
                           "total_matched_files": %d,
@@ -1357,24 +1369,25 @@ public class TreeSitterRepoRunner {
                           "gc_collections": %d,
                           "gc_time_ms": %d,
                           "failed": %s%s
-                        }"""
-                    .formatted(
-                            langEntry.getKey(),
-                            result.filesProcessed,
-                            result.totalMatched,
-                            result.declarationsFound,
-                            result.discoveryTime.toMillis(),
-                            result.duration.toMillis(),
-                            result.duration.toMillis() / 1000.0,
-                            result.discoveryTime.toMillis() + result.duration.toMillis(),
-                            result.memoryDeltaMB,
-                            result.peakMemoryMB,
-                            result.peakMemoryMB * 1024 / result.filesProcessed,
-                            result.filesProcessed / (result.duration.toMillis() / 1000.0),
-                            result.gcCollections(),
-                            result.gcTimeMs(),
-                            result.failed,
-                            failureReason);
+                        }""",
+                    langEntry.getKey(),
+                    result.filesProcessed,
+                    result.totalMatched,
+                    result.declarationsFound,
+                    result.discoveryTime.toMillis(),
+                    result.duration.toMillis(),
+                    result.duration.toMillis() / 1000.0,
+                    result.discoveryTime.toMillis() + result.duration.toMillis(),
+                    result.memoryDeltaMB,
+                    result.peakMemoryMB,
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0,
+                    result.duration.toMillis() > 0
+                            ? result.filesProcessed / (result.duration.toMillis() / 1000.0)
+                            : 0.0,
+                    result.gcCollections(),
+                    result.gcTimeMs(),
+                    result.failed,
+                    failureReason);
         }
 
         private String formatFailuresJson() {
@@ -1407,12 +1420,23 @@ public class TreeSitterRepoRunner {
                     String.valueOf(result.filesProcessed),
                     String.valueOf(result.totalMatched),
                     String.valueOf(result.declarationsFound),
-                    String.format("%.2f", result.discoveryTime.toMillis() / 1000.0),
-                    String.format("%.2f", result.duration.toMillis() / 1000.0),
-                    String.format("%.2f", (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0),
-                    String.format("%.1f", result.peakMemoryMB),
-                    String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed),
-                    String.format("%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)),
+                    String.format(Locale.ROOT, "%.2f", result.discoveryTime.toMillis() / 1000.0),
+                    String.format(Locale.ROOT, "%.2f", result.duration.toMillis() / 1000.0),
+                    String.format(
+                            Locale.ROOT,
+                            "%.2f",
+                            (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0),
+                    String.format(Locale.ROOT, "%.1f", result.peakMemoryMB),
+                    String.format(
+                            Locale.ROOT,
+                            "%.1f",
+                            result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0),
+                    String.format(
+                            Locale.ROOT,
+                            "%.2f",
+                            result.duration.toMillis() > 0
+                                    ? result.filesProcessed / (result.duration.toMillis() / 1000.0)
+                                    : 0.0),
                     String.valueOf(result.gcCollections()),
                     String.valueOf(result.gcTimeMs()),
                     String.valueOf(result.failed),
@@ -1437,7 +1461,8 @@ public class TreeSitterRepoRunner {
                             + failures.stream().map(failure -> "❌ " + failure).collect(Collectors.joining("\n"))
                             + "\n";
 
-            var summary =
+            var summary = String.format(
+                    Locale.ROOT,
                     """
                     TreeSitter Performance Baseline Summary (Simplified)
                     ==================================================
@@ -1455,23 +1480,24 @@ public class TreeSitterRepoRunner {
                     Total successful: %d
                     Total failed: %d
                     Success rate: %.1f%%
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    "PROJECT",
-                                    "LANGUAGE",
-                                    "FILES",
-                                    "TIME(sec)",
-                                    "MEMORY(MB)",
-                                    "MB/FILE",
-                                    "-".repeat(80),
-                                    String.join("\n", successfulResults),
-                                    failedSection,
-                                    totalSuccessful,
-                                    totalFailed,
-                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed));
+                    """,
+                    LocalDateTime.now(),
+                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                    Runtime.getRuntime().availableProcessors(),
+                    "PROJECT",
+                    "LANGUAGE",
+                    "FILES",
+                    "TIME(sec)",
+                    "MEMORY(MB)",
+                    "MB/FILE",
+                    "-".repeat(80),
+                    String.join("\n", successfulResults),
+                    failedSection,
+                    totalSuccessful,
+                    totalFailed,
+                    (totalSuccessful + totalFailed) > 0
+                            ? 100.0 * totalSuccessful / (totalSuccessful + totalFailed)
+                            : 0.0);
 
             Files.writeString(file, summary);
         }
@@ -1479,13 +1505,14 @@ public class TreeSitterRepoRunner {
         private String formatSuccessfulRow(String projectName, Map.Entry<String, BaselineResult> langEntry) {
             var result = langEntry.getValue();
             return String.format(
+                    Locale.ROOT,
                     "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f",
                     projectName,
                     langEntry.getKey(),
                     result.filesProcessed,
                     result.duration.toMillis() / 1000.0,
                     result.peakMemoryMB,
-                    result.peakMemoryMB / result.filesProcessed);
+                    result.filesProcessed > 0 ? result.peakMemoryMB / result.filesProcessed : 0.0);
         }
     }
 
