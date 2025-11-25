@@ -2405,7 +2405,7 @@ public interface ContextFragment {
 
     // Stateless formatter that renders skeletons grouped by package and optionally emits a
     // "// Direct ancestors of ..." section. Output depends only on input.
-    static class SkeletonFragmentFormatter {
+    class SkeletonFragmentFormatter {
         public record Request(
                 @Nullable CodeUnit primaryTarget,
                 List<CodeUnit> ancestors,
@@ -2418,7 +2418,7 @@ public interface ContextFragment {
                     && request.primaryTarget().isClass()) {
                 return formatSummaryWithAncestors(request.primaryTarget(), request.ancestors(), request.skeletons());
             } else {
-                return formatSkeletonsByPackage(request.skeletons(), false);
+                return formatSkeletonsByPackage(request.skeletons());
             }
         }
 
@@ -2433,7 +2433,7 @@ public interface ContextFragment {
 
             var sb = new StringBuilder();
 
-            String primaryFormatted = formatSkeletonsByPackage(primary, false);
+            String primaryFormatted = formatSkeletonsByPackage(primary);
             if (!primaryFormatted.isEmpty()) {
                 sb.append(primaryFormatted).append("\n\n");
             }
@@ -2455,7 +2455,7 @@ public interface ContextFragment {
                     }
                 });
 
-                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap, false);
+                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap);
                 if (!ancestorsFormatted.isEmpty()) {
                     sb.append(ancestorsFormatted).append("\n\n");
                 }
@@ -2464,7 +2464,7 @@ public interface ContextFragment {
             return sb.toString().trim();
         }
 
-        private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons, boolean sortWithinPackage) {
+        private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) {
                 return "";
             }
@@ -2482,14 +2482,7 @@ public interface ContextFragment {
                     .map(pkgEntry -> {
                         String packageHeader = "package " + pkgEntry.getKey() + ";";
                         String pkgCode;
-                        if (sortWithinPackage) {
-                            pkgCode = pkgEntry.getValue().entrySet().stream()
-                                    .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
-                                    .map(Map.Entry::getValue)
-                                    .collect(Collectors.joining("\n\n"));
-                        } else {
-                            pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        }
+                        pkgCode = String.join("\n\n", pkgEntry.getValue().values());
                         return packageHeader + "\n\n" + pkgCode;
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -2524,179 +2517,82 @@ public interface ContextFragment {
         }
 
         private Map<CodeUnit, String> getSkeletonsWithAncestors() {
-                         if (cachedSkeletonsWithAncestors != null) {
-                                          return cachedSkeletonsWithAncestors;
-                         }
-                         IAnalyzer analyzer = getAnalyzer();
-                         Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-                         var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-                         if (skeletonProviderOpt.isEmpty()) {
-                                          cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
-                                          return cachedSkeletonsWithAncestors;
-                         }
-                         var skeletonProvider = skeletonProviderOpt.get();
+            if (cachedSkeletonsWithAncestors != null) {
+                return cachedSkeletonsWithAncestors;
+            }
+            IAnalyzer analyzer = getAnalyzer();
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+                return cachedSkeletonsWithAncestors;
+            }
+            var skeletonProvider = skeletonProviderOpt.get();
 
-                         // Resolve primary targets in stable, source-declaration order
-                         Set<CodeUnit> primaryTargets = resolvePrimaryTargets(analyzer);
+            // Resolve primary targets in stable, source-declaration order
+            Set<CodeUnit> primaryTargets = resolvePrimaryTargets(analyzer);
 
-                         // 1) Add primary target skeletons first (preserving declaration order)
-                         for (CodeUnit cu : primaryTargets) {
-                                          skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                         }
-
-                         // 2) Then collect and append unique direct ancestors (preserving discovery order)
-                         var seenAncestors = new HashSet<String>();
-                         primaryTargets.stream()
-                                                           .filter(CodeUnit::isClass)
-                                                           .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                                                           .filter(anc -> seenAncestors.add(anc.fqName()))
-                                                           .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
-
-                         cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
-                         return cachedSkeletonsWithAncestors;
-                                 }
-
-                                 private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
-                                     switch (summaryType) {
-                                         case CODEUNIT_SKELETON:
-                                             return analyzer.getDefinitions(targetIdentifier);
-                                         case FILE_SKELETONS:
-                                             IContextManager cm = getContextManager();
-                                             ProjectFile projectFile = cm.toFile(targetIdentifier);
-                                             return new LinkedHashSet<>(analyzer.getTopLevelDeclarations(projectFile));
-                                         default:
-                                             return Set.of();
-                                     }
-                                 }
-
-                                 @Override
-                                 @Blocking
-                                 public String text() {
-                                     Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
-                                     if (skeletons.isEmpty()) {
-                                         return "No summary found for: " + targetIdentifier;
-                                     }
-
-                                     var analyzer = getAnalyzer();
-                                     var formatter = new SkeletonFragmentFormatter();
-
-                                     CodeUnit primaryTarget = null;
-                                     List<CodeUnit> ancestors = List.of();
-
-                                     if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                                         var maybeClassUnit = resolvePrimaryTargets(analyzer).stream()
-                                                 .filter(CodeUnit::isClass)
-                                                 .findFirst();
-                                         if (maybeClassUnit.isPresent()) {
-                                             primaryTarget = maybeClassUnit.get();
-                                             ancestors = analyzer.getDirectAncestors(primaryTarget);
-                                         }
-                                     }
-
-                                     var request =
-                                             new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
-                                     String formatted = formatter.format(request);
-
-                                     return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
-                                 }
-
-        /**
-         * Core formatting method that groups skeletons by package and optionally sorts within packages.
-         *
-         * Ordering strategy:
-         * - Packages are always sorted alphabetically (deterministic across machines)
-         * - Within each package:
-         *   - If sortWithinPackage=true: CodeUnits sorted by FQN (deterministic for ancestors)
-         *   - If sortWithinPackage=false: CodeUnits preserve insertion order (source declaration order for TLDs)
-         *
-         * @param skeletons map of CodeUnit to skeleton string
-         * @param sortWithinPackage if true, sort by FQN within packages; if false, preserve insertion order
-         * @return formatted skeleton output grouped by package
-         */
-        private static String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons, boolean sortWithinPackage) {
-            if (skeletons.isEmpty()) {
-                return "";
+            // 1) Add primary target skeletons first (preserving declaration order)
+            for (CodeUnit cu : primaryTargets) {
+                skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
             }
 
-            var skeletonsByPackage = skeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> e.getKey().packageName().isEmpty()
-                                    ? "(default package)"
-                                    : e.getKey().packageName(),
-                            Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+            // 2) Then collect and append unique direct ancestors (preserving discovery order)
+            var seenAncestors = new HashSet<String>();
+            primaryTargets.stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> seenAncestors.add(anc.fqName()))
+                    .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
 
-            return skeletonsByPackage.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> {
-                        String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        String pkgCode;
-                        if (sortWithinPackage) {
-                            // Sort CodeUnits within package by FQN for deterministic output
-                            pkgCode = pkgEntry.getValue().entrySet().stream()
-                                    .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
-                                    .map(Map.Entry::getValue)
-                                    .collect(Collectors.joining("\n\n"));
-                        } else {
-                            // Preserve insertion order (source declaration order)
-                            pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        }
-                        return packageHeader + "\n\n" + pkgCode;
-                    })
-                    .collect(Collectors.joining("\n\n"));
+            cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+            return cachedSkeletonsWithAncestors;
         }
 
-        /**
-         * Formats the primary class skeleton and its direct ancestors into a single, deterministic output.
-         * - Partitions provided skeletons into primary and ancestors (by FQN equality with cu)
-         * - Groups by package, preserving insertion order for primary TLDs
-         * - Includes ancestor skeletons sorted by FQN within packages (deterministic)
-         * - Adds a comment header listing direct ancestors in source declaration order
-         */
-        private String formatSummaryWithAncestors(CodeUnit cu, Map<CodeUnit, String> skeletons) {
-            // Partition fetched skeletons into primary and ancestors, preserving insertion order
-            Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            List<CodeUnit> ancestorList = new ArrayList<>();
-            skeletons.forEach((k, v) -> {
-                if (k.fqName().equals(cu.fqName())) {
-                    primary.put(k, v);
-                } else {
-                    ancestorList.add(k);
+        private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
+            switch (summaryType) {
+                case CODEUNIT_SKELETON -> {
+                    return analyzer.getDefinitions(targetIdentifier);
                 }
-            });
+                case FILE_SKELETONS -> {
+                    IContextManager cm = getContextManager();
+                    ProjectFile projectFile = cm.toFile(targetIdentifier);
+                    return new LinkedHashSet<>(analyzer.getTopLevelDeclarations(projectFile));
+                }
+                default -> {
+                    return Set.of();
+                }
+            }
+        }
 
-            var sb = new StringBuilder();
-
-            // Emit primary class skeleton(s) preserving insertion order
-            String primaryFormatted = formatSkeletonsByPackage(primary, false);
-            if (!primaryFormatted.isEmpty()) {
-                sb.append(primaryFormatted).append("\n\n");
+        @Override
+        @Blocking
+        public String text() {
+            Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
+            if (skeletons.isEmpty()) {
+                return "No summary found for: " + targetIdentifier;
             }
 
-            // Emit direct ancestors comment header if any (preserving declaration order from ancestorList)
-            if (!ancestorList.isEmpty()) {
-                String ancestorNames =
-                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
-                sb.append("// Direct ancestors of ")
-                        .append(cu.shortName())
-                        .append(": ")
-                        .append(ancestorNames)
-                        .append("\n\n");
+            var analyzer = getAnalyzer();
+            var formatter = new SkeletonFragmentFormatter();
 
-                // Emit ancestor skeletons sorted by FQN within packages for deterministic output
-                Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
-                ancestorList.forEach(anc -> ancestorsMap.put(anc, skeletons.get(anc)));
-                // Preserve ancestor declaration order in the rendered skeletons for CODEUNIT_SKELETON.
-                // Package grouping is still deterministic (alphabetical), and insertion order within packages
-                // reflects the meaningful ancestor order from source: superclass first, then interfaces in order.
-                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap, false);
-                if (!ancestorsFormatted.isEmpty()) {
-                    sb.append(ancestorsFormatted).append("\n\n");
+            CodeUnit primaryTarget = null;
+            List<CodeUnit> ancestors = List.of();
+
+            if (summaryType == SummaryType.CODEUNIT_SKELETON) {
+                var maybeClassUnit = resolvePrimaryTargets(analyzer).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst();
+                if (maybeClassUnit.isPresent()) {
+                    primaryTarget = maybeClassUnit.get();
+                    ancestors = analyzer.getDirectAncestors(primaryTarget);
                 }
             }
 
-            String out = sb.toString().trim();
-            return out.isEmpty() ? "No summary found for: " + targetIdentifier : out;
+            var request = new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
+            String formatted = formatter.format(request);
+
+            return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
         }
 
         @Override
