@@ -2,12 +2,13 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -245,10 +246,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         // Normalize generics/anon/location suffixes for both class and method lookups
         var normalized = normalizeFullName(fqName);
-        return super.getDefinition(normalized);
+        return super.getDefinitions(normalized);
     }
 
     /**
@@ -362,23 +363,27 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Java-specific implementation to compute direct supertypes by traversing the cached Tree-sitter AST. Preserves
-     * Java order: superclass (if any) first, then implemented interfaces in source order. Attempts to resolve names
-     * using file imports, then package-local names, then global search. First tries a focused in-code Tree-sitter query
-     * (string literal) for fast extraction; falls back to manual field traversal if needed.
-     *
-     * fixme: This implementation does not handle the Java import precedence which is "explicit wins over wildcard".
+     * Resolves import statements into a set of {@link CodeUnit}s, respecting Java's import precedence rules.
+     * Explicit imports (e.g., {@code import com.example.MyClass;}) take priority over wildcard imports
+     * (e.g., {@code import com.example.*;}). If multiple wildcard imports could provide a class with the
+     * same simple name, the first one encountered in the source file wins. This provides deterministic
+     * behavior for ambiguous wildcard imports.
+     * <p>
+     * Static imports are ignored.
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        Set<CodeUnit> explicitImports = new LinkedHashSet<>();
+        List<String> wildcardImportPackages = new ArrayList<>();
 
+        // 1. First pass: parse all import statements, separating explicit from wildcard.
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
             String normalized = importLine.strip();
-            if (!normalized.startsWith("import ")) continue;
-            if (normalized.startsWith("import static ")) continue;
+            if (!normalized.startsWith("import ") || normalized.startsWith("import static ")) {
+                continue;
+            }
 
             if (normalized.endsWith(";")) {
                 normalized = normalized.substring(0, normalized.length() - 1).trim();
@@ -388,21 +393,38 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             if (normalized.endsWith(".*")) {
                 String packageName =
                         normalized.substring(0, normalized.length() - 2).trim();
-
-                // Resolve via MODULE CodeUnit; use its direct children as the top-level classes of the package.
-                Optional<CodeUnit> pkgModule = getDefinition(packageName);
-                if (pkgModule.isPresent() && pkgModule.get().isModule()) {
-                    for (CodeUnit child : getDirectChildren(pkgModule.get())) {
-                        if (child.isClass() && packageName.equals(child.packageName())) {
-                            resolved.add(child);
-                        }
-                    }
+                if (!packageName.isEmpty()) {
+                    wildcardImportPackages.add(packageName);
                 }
             } else if (!normalized.isEmpty()) {
-                // Explicit import: try to find the exact class
-                Optional<CodeUnit> found = getDefinition(normalized);
-                if (found.isPresent() && found.get().isClass()) {
-                    resolved.add(found.get());
+                // Explicit import: find the exact class and add it.
+                getDefinitions(normalized).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .ifPresent(explicitImports::add);
+            }
+        }
+
+        // 2. Build the final set of resolved imports, prioritizing explicit imports.
+        Set<CodeUnit> resolved = new LinkedHashSet<>(explicitImports);
+        Set<String> resolvedSimpleNames =
+                explicitImports.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+
+        // 3. Process wildcard imports. A class from a wildcard is only added if a class
+        //    with the same simple name has not already been added from an explicit import
+        //    or a preceding wildcard import. This ensures deterministic resolution.
+        for (String packageName : wildcardImportPackages) {
+            Optional<CodeUnit> pkgModule = getDefinitions(packageName).stream()
+                    .filter(CodeUnit::isModule)
+                    .findFirst();
+
+            if (pkgModule.isPresent()) {
+                for (CodeUnit child : getDirectChildren(pkgModule.get())) {
+                    if (child.isClass()
+                            && packageName.equals(child.packageName())
+                            && resolvedSimpleNames.add(child.identifier())) {
+                        resolved.add(child);
+                    }
                 }
             }
         }
@@ -427,7 +449,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         // Resolve raw names using imports, package and global search, preserving order
         return JavaTypeAnalyzer.compute(
-                rawNames, cu.packageName(), resolvedImports, this::getDefinition, (s) -> searchDefinitions(s, false));
+                rawNames, cu.packageName(), resolvedImports, this::getDefinitions, (s) -> searchDefinitions(s, false));
     }
 
     @Override

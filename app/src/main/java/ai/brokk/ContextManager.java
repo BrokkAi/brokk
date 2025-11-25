@@ -27,6 +27,9 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
@@ -1241,15 +1244,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
-                localAnalyzer
-                        .getDefinition(methodFullName)
+                localAnalyzer.getDefinitions(methodFullName).stream()
+                        .findFirst()
                         .filter(CodeUnit::isFunction)
                         .ifPresent(methodCu -> {
                             var methodSource = sourceCodeProvider.getMethodSource(methodCu, true);
                             if (methodSource.isPresent()) {
                                 String className = CodeUnit.toClassname(methodFullName);
-                                localAnalyzer
-                                        .getDefinition(className)
+                                localAnalyzer.getDefinitions(className).stream()
+                                        .findFirst()
                                         .filter(CodeUnit::isClass)
                                         .ifPresent(sources::add);
                                 content.append(methodFullName).append(":\n");

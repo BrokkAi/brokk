@@ -1,6 +1,5 @@
 package ai.brokk.testutil;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -8,9 +7,11 @@ import ai.brokk.analyzer.LintResult;
 import ai.brokk.analyzer.LintingProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -41,7 +42,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -110,8 +114,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).findFirst();
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var matches = allClasses.stream()
+                .filter(cu -> cu.fqName().equals(fqName))
+                .collect(java.util.stream.Collectors.toSet());
+        return sortDefinitions(matches);
     }
 
     @Override

@@ -4,11 +4,11 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.SessionManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;

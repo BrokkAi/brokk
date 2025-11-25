@@ -1,7 +1,7 @@
 package ai.brokk.util;
 
-import ai.brokk.IProject;
 import ai.brokk.Service;
+import ai.brokk.project.IProject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.jetbrains.annotations.Nullable;

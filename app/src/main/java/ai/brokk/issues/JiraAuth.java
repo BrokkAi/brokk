@@ -1,7 +1,7 @@
 package ai.brokk.issues;
 
-import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;

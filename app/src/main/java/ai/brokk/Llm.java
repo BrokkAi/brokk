@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.project.AbstractProject;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
@@ -17,8 +18,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
-import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -500,19 +501,19 @@ public class Llm {
         return text;
     }
 
-    private static class LitellmException extends LangChain4jException {
+    private static class LitellmException extends RetriableException {
         public LitellmException(String message) {
             super(message);
         }
     }
 
-    public static class EmptyResponseException extends LangChain4jException {
+    public static class EmptyResponseException extends RetriableException {
         public EmptyResponseException() {
             super("Empty response from LLM");
         }
     }
 
-    public static class MissingToolCallsException extends LangChain4jException {
+    public static class MissingToolCallsException extends RetriableException {
         public MissingToolCallsException(int attemptsMade) {
             super("ToolChoice.REQUIRED could not be satisfied after " + attemptsMade + " attempt(s)");
         }
@@ -616,17 +617,8 @@ public class Llm {
             }
 
             // don't retry on non-retriable errors or known bad request errors
-            if (lastError != null) {
-                if (lastError instanceof NonRetriableException) {
-                    break;
-                }
-                var msg = requireNonNull(lastError.getMessage());
-                if (msg.contains("BadRequestError")
-                        || msg.contains("UnsupportedParamsError")
-                        || msg.contains("Unable to convert openai tool calls")) {
-                    // logged by doSingleStreamingCallInternal, don't be redundant
-                    break;
-                }
+            if (lastError instanceof NonRetriableException) {
+                break;
             }
 
             logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);

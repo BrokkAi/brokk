@@ -1,11 +1,15 @@
 package ai.brokk.analyzer.types;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -17,14 +21,14 @@ public class JavaTypeHierarchyTest {
     public void directExtends_singleFile() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                public class BaseClass {}
-                class XExtendsY extends BaseClass {}
-                """,
+                                public class BaseClass {}
+                                class XExtendsY extends BaseClass {}
+                                """,
                         "BaseAndX.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeX = analyzer.getDefinition("XExtendsY");
+            var maybeX = analyzer.getDefinitions("XExtendsY").stream().findFirst();
             assertTrue(maybeX.isPresent(), "Definition for XExtendsY should be present");
             CodeUnit x = maybeX.get();
 
@@ -36,6 +40,27 @@ public class JavaTypeHierarchyTest {
             List<String> transitive =
                     analyzer.getAncestors(x).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("BaseClass"), transitive, "XExtendsY should have BaseClass as its only ancestor");
+
+            // Summary fragment should include a clearly delineated direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag =
+                    new ContextFragment.SummaryFragment(cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertCodeEquals(
+                    """
+                            package (default package);
+
+                            class XExtendsY extends BaseClass {
+                            }
+
+                            // Direct ancestors of XExtendsY: BaseClass
+
+                            package (default package);
+
+                            public class BaseClass {
+                            }
+                            """,
+                    txt);
         }
     }
 
@@ -43,14 +68,14 @@ public class JavaTypeHierarchyTest {
     public void implementsOnly_singleFile() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                interface ServiceInterface {}
-                class ServiceImpl implements ServiceInterface {}
-                """,
+                                interface ServiceInterface {}
+                                class ServiceImpl implements ServiceInterface {}
+                                """,
                         "Service.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeImpl = analyzer.getDefinition("ServiceImpl");
+            var maybeImpl = analyzer.getDefinitions("ServiceImpl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for ServiceImpl should be present");
             CodeUnit impl = maybeImpl.get();
 
@@ -62,6 +87,27 @@ public class JavaTypeHierarchyTest {
             List<String> transitive =
                     analyzer.getAncestors(impl).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("ServiceInterface"), transitive, "No transitive ancestors beyond the interface");
+
+            // Summary fragment should include a clearly delineated direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(
+                    cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertCodeEquals(
+                    """
+                            package (default package);
+
+                            class ServiceImpl implements ServiceInterface {
+                            }
+
+                            // Direct ancestors of ServiceImpl: ServiceInterface
+
+                            package (default package);
+
+                            interface ServiceInterface {
+                            }
+                            """,
+                    txt);
         }
     }
 
@@ -69,16 +115,17 @@ public class JavaTypeHierarchyTest {
     public void extendsAndImplements_orderPreserved() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                class BaseClass {}
-                interface ServiceInterface {}
-                interface Interface {}
-                class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {}
-                """,
+                                class BaseClass {}
+                                interface ServiceInterface {}
+                                interface Interface {}
+                                class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {}
+                                """,
                         "AllInOne.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeCls = analyzer.getDefinition("ExtendsAndImplements");
+            var maybeCls =
+                    analyzer.getDefinitions("ExtendsAndImplements").stream().findFirst();
             assertTrue(maybeCls.isPresent(), "Definition for ExtendsAndImplements should be present");
             CodeUnit cls = maybeCls.get();
 
@@ -96,6 +143,33 @@ public class JavaTypeHierarchyTest {
                     List.of("BaseClass", "ServiceInterface", "Interface"),
                     transitive,
                     "Transitive ancestors should maintain discovery order");
+
+            // Summary fragment should include direct ancestors, preserving order
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(
+                    cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertCodeEquals(
+                    """
+                            package (default package);
+
+                            class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
+                            }
+
+                            // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
+
+                            package (default package);
+
+                            class BaseClass {
+                            }
+
+                            interface ServiceInterface {
+                            }
+
+                            interface Interface {
+                            }
+                            """,
+                    txt);
         }
     }
 
@@ -103,17 +177,31 @@ public class JavaTypeHierarchyTest {
     public void classWithNoAncestors_returnsEmpty() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                public class Plain {}
-                """, "Plain.java")
+                                public class Plain {}
+                                """,
+                        "Plain.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybePlain = analyzer.getDefinition("Plain");
+            var maybePlain = analyzer.getDefinitions("Plain").stream().findFirst();
             assertTrue(maybePlain.isPresent(), "Definition for Plain should be present");
             CodeUnit plain = maybePlain.get();
 
             assertTrue(analyzer.getDirectAncestors(plain).isEmpty(), "Plain should have no direct ancestors");
             assertTrue(analyzer.getAncestors(plain).isEmpty(), "Plain should have no transitive ancestors");
+
+            // Summary fragment should NOT include a direct ancestors section
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+            var frag = new ContextFragment.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            String txt = frag.text();
+            assertCodeEquals(
+                    """
+                            package (default package);
+
+                            public class Plain {
+                            }
+                            """,
+                    txt);
         }
     }
 
@@ -121,20 +209,22 @@ public class JavaTypeHierarchyTest {
     public void inheritanceAcrossFiles_transitive() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                public class Base {}
-                """, "Base.java");
+                        public class Base {}
+                        """, "Base.java");
         try (var testProject = builder.addFileContents(
                         """
-                class Child extends Base {}
-                """, "Child.java")
+                                class Child extends Base {}
+                                """,
+                        "Child.java")
                 .addFileContents(
                         """
-                class GrandChild extends Child {}
-                """, "GrandChild.java")
+                                class GrandChild extends Child {}
+                                """,
+                        "GrandChild.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeGrand = analyzer.getDefinition("GrandChild");
+            var maybeGrand = analyzer.getDefinitions("GrandChild").stream().findFirst();
             assertTrue(maybeGrand.isPresent(), "Definition for GrandChild should be present");
             CodeUnit grand = maybeGrand.get();
 
@@ -153,20 +243,21 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_directImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.A;
-                public class B extends A {}
-                """,
+                                package p2;
+                                import p1.A;
+                                public class B extends A {}
+                                """,
                         "B.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeB = analyzer.getDefinition("p2.B");
+            var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
 
@@ -185,20 +276,21 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_wildcardImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class C extends A {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class C extends A {}
+                                """,
                         "C.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeC = analyzer.getDefinition("p3.C");
+            var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
 
@@ -217,37 +309,38 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_mixed_directAndWildcard() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.A;
-                public class B extends A {}
-                """,
+                                package p2;
+                                import p1.A;
+                                public class B extends A {}
+                                """,
                         "B.java")
                 .addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class C extends A {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class C extends A {}
+                                """,
                         "C.java")
                 .addFileContents(
                         """
-                package p4;
-                import p2.B;
-                import p3.C;
-                public class D extends B {}
-                public class E extends C {}
-                """,
+                                package p4;
+                                import p2.B;
+                                import p3.C;
+                                public class D extends B {}
+                                public class E extends C {}
+                                """,
                         "D_E.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
             // Verify B's hierarchy
-            var maybeB = analyzer.getDefinition("p2.B");
+            var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
             List<String> bDirect = analyzer.getDirectAncestors(b).stream()
@@ -256,7 +349,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p1.A"), bDirect, "p2.B should extend p1.A");
 
             // Verify C's hierarchy
-            var maybeC = analyzer.getDefinition("p3.C");
+            var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
             List<String> cDirect = analyzer.getDirectAncestors(c).stream()
@@ -265,7 +358,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p1.A"), cDirect, "p3.C should extend p1.A");
 
             // Verify D's hierarchy (extends B which extends A)
-            var maybeD = analyzer.getDefinition("p4.D");
+            var maybeD = analyzer.getDefinitions("p4.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p4.D should be present");
             CodeUnit d = maybeD.get();
             List<String> dDirect = analyzer.getDirectAncestors(d).stream()
@@ -278,7 +371,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p2.B", "p1.A"), dTransitive, "p4.D's transitive ancestors should be p2.B then p1.A");
 
             // Verify E's hierarchy (extends C which extends A)
-            var maybeE = analyzer.getDefinition("p4.E");
+            var maybeE = analyzer.getDefinitions("p4.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p4.E should be present");
             CodeUnit e = maybeE.get();
             List<String> eDirect = analyzer.getDirectAncestors(e).stream()
@@ -296,20 +389,21 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_directImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I {}
-                """, "I.java");
+                        package p1;
+                        public interface I {}
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.I;
-                public class D implements I {}
-                """,
+                                package p2;
+                                import p1.I;
+                                public class D implements I {}
+                                """,
                         "D.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeD = analyzer.getDefinition("p2.D");
+            var maybeD = analyzer.getDefinitions("p2.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p2.D should be present");
             CodeUnit d = maybeD.get();
 
@@ -324,20 +418,21 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_wildcardImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I {}
-                """, "I.java");
+                        package p1;
+                        public interface I {}
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class E implements I {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class E implements I {}
+                                """,
                         "E.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeE = analyzer.getDefinition("p3.E");
+            var maybeE = analyzer.getDefinitions("p3.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p3.E should be present");
             CodeUnit e = maybeE.get();
 
@@ -352,23 +447,23 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_multipleInterfaces() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I1 {}
-                public interface I2 {}
-                """,
+                        package p1;
+                        public interface I1 {}
+                        public interface I2 {}
+                        """,
                 "Interfaces.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.I1;
-                import p1.I2;
-                public class F implements I1, I2 {}
-                """,
+                                package p2;
+                                import p1.I1;
+                                import p1.I2;
+                                public class F implements I1, I2 {}
+                                """,
                         "F.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeF = analyzer.getDefinition("p2.F");
+            var maybeF = analyzer.getDefinitions("p2.F").stream().findFirst();
             assertTrue(maybeF.isPresent(), "Definition for p2.F should be present");
             CodeUnit f = maybeF.get();
 
@@ -386,22 +481,22 @@ public class JavaTypeHierarchyTest {
     public void interPackageExtendsAndImplements_crossPackage() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class Base {}
-                public interface Service {}
-                """,
+                        package p1;
+                        public class Base {}
+                        public interface Service {}
+                        """,
                 "BaseAndService.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.*;
-                public class Impl extends Base implements Service {}
-                """,
+                                package p2;
+                                import p1.*;
+                                public class Impl extends Base implements Service {}
+                                """,
                         "Impl.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeImpl = analyzer.getDefinition("p2.Impl");
+            var maybeImpl = analyzer.getDefinitions("p2.Impl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for p2.Impl should be present");
             CodeUnit impl = maybeImpl.get();
 
@@ -419,24 +514,24 @@ public class JavaTypeHierarchyTest {
     public void cyclicInterfaces_terminatesAndDeduplicates() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p;
-                public interface A extends B {}
-                """,
+                        package p;
+                        public interface A extends B {}
+                        """,
                 "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p;
-                public interface B extends A {}
-                """,
+                                package p;
+                                public interface B extends A {}
+                                """,
                         "B.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeA = analyzer.getDefinition("p.A");
+            var maybeA = analyzer.getDefinitions("p.A").stream().findFirst();
             assertTrue(maybeA.isPresent(), "Definition for p.A should be present");
             CodeUnit a = maybeA.get();
 
-            var maybeB = analyzer.getDefinition("p.B");
+            var maybeB = analyzer.getDefinitions("p.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p.B should be present");
             CodeUnit b = maybeB.get();
 
@@ -459,6 +554,46 @@ public class JavaTypeHierarchyTest {
             List<String> bTransitive =
                     analyzer.getAncestors(b).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("p.A"), bTransitive, "B's ancestors should contain A only once and terminate");
+        }
+    }
+
+    @Test
+    public void interPackageInheritance_explicitImportWinsOverWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1; // correct superclass
+                        public class Base {}
+                        """,
+                "Base1.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p2; // incorrect superclass with same name
+                                public class Base {}
+                                """,
+                        "Base2.java")
+                .addFileContents(
+                        """
+                                package p3;
+                                import p1.Base; // explicit import of correct base
+                                import p2.*;    // wildcard that could import incorrect base
+
+                                public class Child extends Base {}
+                                """,
+                        "Child.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeChild = analyzer.getDefinitions("p3.Child").stream().findFirst();
+            assertTrue(maybeChild.isPresent(), "Definition for p3.Child should be present");
+            CodeUnit child = maybeChild.get();
+
+            List<String> direct = analyzer.getDirectAncestors(child).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
+            assertEquals(
+                    List.of("p1.Base"),
+                    direct,
+                    "Child should extend p1.Base, chosen via explicit import over wildcard");
         }
     }
 }

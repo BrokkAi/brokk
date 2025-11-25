@@ -1,10 +1,10 @@
 package ai.brokk.gui.components;
 
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.dialogs.SettingsGlobalPanel;
+import ai.brokk.project.MainProject;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;

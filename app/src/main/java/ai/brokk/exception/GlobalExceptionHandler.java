@@ -1,7 +1,7 @@
 package ai.brokk.exception;
 
 import ai.brokk.ExceptionReporter;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CancellationException;
