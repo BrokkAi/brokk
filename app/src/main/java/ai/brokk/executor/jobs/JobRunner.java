@@ -244,18 +244,41 @@ public final class JobRunner {
                                                         // Non-critical: event writing failed
                                                     }
                                                 }
-                                                // Mark job as completed (no tasks to execute)
-                                                completed.incrementAndGet();
-                                                int progress = total == 0 ? 100 : (int) ((completed.get() * 100.0) / total);
-                                                try {
-                                                    JobStatus s = store.loadStatus(jobId);
-                                                    if (s != null) {
-                                                        s = s.withProgress(progress);
-                                                        store.updateStatus(jobId, s);
+                                                // No tasks generated; outer loop will handle completion/progress
+                                            } else {
+                                                // Phase 3: Execute each generated incomplete task sequentially
+                                                logger.debug(
+                                                        "LUTZ Phase 2 complete: {} task(s) to execute",
+                                                        generatedTasks.size());
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+                                                logger.debug("LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
+
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) {
+                                                        logger.info("LUTZ job {} execution cancelled during task iteration", jobId);
+                                                        return; // Exit submitLlmAction to avoid outer completion increment
                                                     }
-                                                } catch (Exception e) {
-                                                    logger.debug("Unable to update job progress for {}", jobId, e);
+
+                                                    logger.info("LUTZ job {} executing generated task: {}", jobId, generatedTask.text());
+                                                    try {
+                                                        cm.executeTask(
+                                                                generatedTask,
+                                                                architectPlannerModel,
+                                                                architectCodeModel,
+                                                                spec.autoCommit(),
+                                                                spec.autoCompress());
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Generated task execution failed for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage());
+                                                        throw e;
+                                                    }
                                                 }
+
+                                                logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
                                             }
                                         }
                                         case CODE -> {
