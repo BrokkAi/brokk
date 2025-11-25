@@ -348,21 +348,30 @@ public class HeadlessExecCli {
     }
 
     public static void main(String[] args) {
+        int exitCode = runCli(args);
+        System.exit(exitCode);
+    }
+
+    /**
+     * Testable entry point for HeadlessExecCli. Runs the CLI and returns an exit code.
+     * Does not call System.exit().
+     */
+    static int runCli(String[] args) {
         try {
             if (args.length == 0 || containsHelpFlag(args)) {
                 printUsage();
-                System.exit(0);
+                return 0;
             }
 
             var cli = new HeadlessExecCli();
             if (!cli.parseArgs(args)) {
-                System.exit(1);
+                return 1;
             }
-            System.exit(cli.run());
+            return cli.run();
         } catch (Exception e) {
             System.err.println("FATAL ERROR: " + e.getMessage());
             e.printStackTrace(System.err);
-            System.exit(1);
+            return 1;
         }
     }
 
