@@ -311,5 +311,4 @@ public class JavaImportTest {
                     "First wildcard import should win for ambiguous simple names");
         }
     }
-
 }

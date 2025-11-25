@@ -49,14 +49,14 @@ public class JavaTypeHierarchyTest {
             assertCodeEquals(
                     """
                             package (default package);
-                            
+
                             class XExtendsY extends BaseClass {
                             }
-                            
+
                             // Direct ancestors of XExtendsY: BaseClass
-                            
+
                             package (default package);
-                            
+
                             public class BaseClass {
                             }
                             """,
@@ -96,14 +96,14 @@ public class JavaTypeHierarchyTest {
             assertCodeEquals(
                     """
                             package (default package);
-                            
+
                             class ServiceImpl implements ServiceInterface {
                             }
-                            
+
                             // Direct ancestors of ServiceImpl: ServiceInterface
-                            
+
                             package (default package);
-                            
+
                             interface ServiceInterface {
                             }
                             """,
@@ -152,20 +152,20 @@ public class JavaTypeHierarchyTest {
             assertCodeEquals(
                     """
                             package (default package);
-                            
+
                             class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
                             }
-                            
+
                             // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
-                            
+
                             package (default package);
-                            
+
                             class BaseClass {
                             }
-                            
+
                             interface ServiceInterface {
                             }
-                            
+
                             interface Interface {
                             }
                             """,
@@ -178,7 +178,8 @@ public class JavaTypeHierarchyTest {
         try (var testProject = InlineTestProjectCreator.code(
                         """
                                 public class Plain {}
-                                """, "Plain.java")
+                                """,
+                        "Plain.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
@@ -196,7 +197,7 @@ public class JavaTypeHierarchyTest {
             assertCodeEquals(
                     """
                             package (default package);
-                            
+
                             public class Plain {
                             }
                             """,
@@ -213,11 +214,13 @@ public class JavaTypeHierarchyTest {
         try (var testProject = builder.addFileContents(
                         """
                                 class Child extends Base {}
-                                """, "Child.java")
+                                """,
+                        "Child.java")
                 .addFileContents(
                         """
                                 class GrandChild extends Child {}
-                                """, "GrandChild.java")
+                                """,
+                        "GrandChild.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
@@ -242,7 +245,8 @@ public class JavaTypeHierarchyTest {
                 """
                         package p1;
                         public class A {}
-                        """, "A.java");
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
                                 package p2;
@@ -274,7 +278,8 @@ public class JavaTypeHierarchyTest {
                 """
                         package p1;
                         public class A {}
-                        """, "A.java");
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
                                 package p3;
@@ -306,7 +311,8 @@ public class JavaTypeHierarchyTest {
                 """
                         package p1;
                         public class A {}
-                        """, "A.java");
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
                                 package p2;
@@ -385,7 +391,8 @@ public class JavaTypeHierarchyTest {
                 """
                         package p1;
                         public interface I {}
-                        """, "I.java");
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
                                 package p2;
@@ -413,7 +420,8 @@ public class JavaTypeHierarchyTest {
                 """
                         package p1;
                         public interface I {}
-                        """, "I.java");
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
                                 package p3;
@@ -568,7 +576,7 @@ public class JavaTypeHierarchyTest {
                                 package p3;
                                 import p1.Base; // explicit import of correct base
                                 import p2.*;    // wildcard that could import incorrect base
-                                
+
                                 public class Child extends Base {}
                                 """,
                         "Child.java")
@@ -588,5 +596,4 @@ public class JavaTypeHierarchyTest {
                     "Child should extend p1.Base, chosen via explicit import over wildcard");
         }
     }
-
 }
