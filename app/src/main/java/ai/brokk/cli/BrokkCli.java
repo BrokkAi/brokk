@@ -518,13 +518,15 @@ public final class BrokkCli implements Callable<Integer> {
 
             String cacheKey = computeCacheKey(goalForScan, project.getRepo());
             Optional<ContextAgent.RecommendationResult> cached = Optional.empty();
-            if (isContextCacheEnabled()) {
-                cached = readRecommendationFromCache(cacheKey, cm);
-            } else {
+
+            CacheMode cacheMode = getCacheMode();
+            if (cacheMode == CacheMode.WRITE) {
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Deep Scan: context cache disabled via BRK_CONTEXT_CACHE=0; skipping cache load");
+                        IConsoleIO.NotificationRole.INFO, "Deep Scan: context cache mode WRITE; skipping cache load");
+            } else {
+                cached = readRecommendationFromCache(cacheKey, cm);
             }
+
             if (cached.isPresent()) {
                 recommendations = cached.get();
                 io.showNotification(
@@ -534,7 +536,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new ContextAgent(cm, planModel, goalForScan);
                 recommendations = agent.getRecommendations(cm.liveContext());
                 // Persist successful results to cache; failures are not cached.
-                if (recommendations.success() && isContextCacheEnabled()) {
+                if (recommendations.success() && cacheMode != CacheMode.READ) {
                     writeRecommendationToCache(cacheKey, recommendations);
                 }
             }
@@ -962,15 +964,45 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     /**
-     * Returns true when the context cache is enabled. If the environment variable BRK_CONTEXT_CACHE is set to "0",
-     * the cache is considered disabled.
+     * Cache mode derived from BRK_CONTEXT_CACHE.
+     *
+     * Supported values (case-insensitive):
+     *  - "RW" (default): read from and write to the cache.
+     *  - "READ": read from cache but do not write.
+     *  - "WRITE": write to cache but do not read.
+     *  - "OFF": neither read from nor write to the cache.
      */
-    private static boolean isContextCacheEnabled() {
+    private enum CacheMode {
+        RW,
+        READ,
+        WRITE,
+        OFF
+    }
+
+    private static CacheMode getCacheMode() {
         String val = System.getenv("BRK_CONTEXT_CACHE");
-        return val == null || !(val.equals("false") || val.equals("0"));
+        if (val == null || val.isBlank()) {
+            return CacheMode.RW;
+        }
+        return switch (val.trim().toUpperCase(Locale.ROOT)) {
+            case "READ" -> CacheMode.READ;
+            case "WRITE" -> CacheMode.WRITE;
+            case "OFF" -> CacheMode.OFF;
+            case "RW" -> CacheMode.RW;
+            default -> CacheMode.RW;
+        };
     }
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(String key, IContextManager mgr) {
+        CacheMode mode = getCacheMode();
+        if (mode == CacheMode.WRITE || mode == CacheMode.OFF) {
+            logger.debug(
+                    "Context cache mode {}: skipping read for key {} (BRK_CONTEXT_CACHE={})",
+                    mode,
+                    key,
+                    System.getenv("BRK_CONTEXT_CACHE"));
+            return Optional.empty();
+        }
         var dir = getCaCacheDir();
         var fileZip = dir.resolve(key + ".zip");
         if (!Files.exists(fileZip)) {
@@ -1067,8 +1099,13 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     static void writeRecommendationToCache(String key, ContextAgent.RecommendationResult rec) throws IOException {
-        if (!isContextCacheEnabled()) {
-            logger.debug("Context cache disabled via BRK_CONTEXT_CACHE=0; skipping write for key {}", key);
+        CacheMode mode = getCacheMode();
+        if (mode == CacheMode.READ || mode == CacheMode.OFF) {
+            logger.debug(
+                    "Context cache mode {}: skipping write for key {} (BRK_CONTEXT_CACHE={})",
+                    mode,
+                    key,
+                    System.getenv("BRK_CONTEXT_CACHE"));
             return;
         }
 

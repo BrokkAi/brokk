@@ -33,6 +33,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -68,6 +70,20 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static final Logger logger = LogManager.getLogger(WorkspaceChip.class);
+
+    /**
+     * Simple value object for fragment text metrics so we can cache expensive work.
+     */
+    private record FragmentMetrics(int loc, int tokens) {}
+
+    /**
+     * Global cache mapping a ContextFragment identity to its computed metrics.
+     * This avoids re-running tokenization/line counting on every tooltip refresh.
+     *
+     * Entries are cleared when fragments are explicitly dropped or when bound
+     * computed fragments are disposed via ComputedSubscription.
+     */
+    private static final ConcurrentMap<ContextFragment, FragmentMetrics> metricsCache = new ConcurrentHashMap<>();
 
     protected final Chrome chrome;
     protected final ContextManager contextManager;
@@ -559,6 +575,9 @@ public class WorkspaceChip extends JPanel {
     protected void dropSingleFragment(ContextFragment fragment) {
         contextManager.submitContextTask(() -> {
             try {
+                // Clear any cached metrics for this fragment as it is being dropped.
+                metricsCache.remove(fragment);
+
                 if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
                     contextManager.dropWithHistorySemantics(List.of(fragment));
                 } else {
@@ -573,6 +592,8 @@ public class WorkspaceChip extends JPanel {
     protected void bindComputed() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            // ComputedSubscription.bind currently takes only (ComputedFragment, JComponent, Runnable)
+            // We still clear metrics when the fragment is explicitly dropped or replaced.
             ComputedSubscription.bind(cf, this, this::refreshLabelAndTooltip);
         }
     }
@@ -836,22 +857,27 @@ public class WorkspaceChip extends JPanel {
     }
 
     private static String buildMetricsHtml(ContextFragment fragment) {
-        try {
-            if (fragment.isText() || fragment.getType().isOutput()) {
-                String text;
-                if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                    text = cf.computedText().renderNowOr("");
-                } else {
-                    text = fragment.text();
-                }
-                int loc = text.split("\\r?\\n", -1).length;
-                int tokens = Messages.getApproximateTokens(text);
-                return String.format("<div>%s LOC \u2022 ~%s tokens</div><br/>", formatCount(loc), formatCount(tokens));
-            }
-        } catch (Exception ex) {
-            logger.trace("Failed to compute metrics for fragment {}", fragment, ex);
+        if (fragment.isText() || fragment.getType().isOutput()) {
+            FragmentMetrics metrics = getOrComputeMetrics(fragment);
+            return String.format(
+                    "<div>%s LOC \u2022 ~%s tokens</div><br/>",
+                    formatCount(metrics.loc()), formatCount(metrics.tokens()));
         }
         return "";
+    }
+
+    private static FragmentMetrics getOrComputeMetrics(ContextFragment fragment) {
+        return metricsCache.computeIfAbsent(fragment, f -> {
+            String text;
+            if (f instanceof ContextFragment.ComputedFragment cf) {
+                text = cf.computedText().renderNowOr("");
+            } else {
+                text = f.text();
+            }
+            int loc = text.split("\\r?\\n", -1).length;
+            int tokens = Messages.getApproximateTokens(text);
+            return new FragmentMetrics(loc, tokens);
+        });
     }
 
     private static String buildDefaultTooltip(ContextFragment fragment) {
@@ -949,7 +975,16 @@ public class WorkspaceChip extends JPanel {
         }
 
         public void updateSummaries(List<ContextFragment> newSummaries) {
+            // Dispose existing subscriptions and clear metrics for fragments
+            // that will no longer be represented by this chip.
+            var oldFragments = new ArrayList<>(this.summaryFragments);
             ComputedSubscription.disposeAll(this);
+            for (var f : oldFragments) {
+                if (!newSummaries.contains(f)) {
+                    metricsCache.remove(f);
+                }
+            }
+
             this.summaryFragments = new ArrayList<>(newSummaries);
             super.setFragmentsInternal(new LinkedHashSet<>(newSummaries));
             bindComputed();
@@ -1070,14 +1105,9 @@ public class WorkspaceChip extends JPanel {
             int totalTokens = 0;
             try {
                 for (var summary : summaryFragments) {
-                    String text;
-                    if (summary instanceof ContextFragment.ComputedFragment cf) {
-                        text = cf.computedText().renderNowOr("");
-                    } else {
-                        text = summary.text();
-                    }
-                    totalLoc += text.split("\\r?\\n", -1).length;
-                    totalTokens += Messages.getApproximateTokens(text);
+                    FragmentMetrics metrics = getOrComputeMetrics(summary);
+                    totalLoc += metrics.loc();
+                    totalTokens += metrics.tokens();
                 }
                 body.append("<div>")
                         .append(formatCount(totalLoc))
@@ -1231,6 +1261,10 @@ public class WorkspaceChip extends JPanel {
         private void executeSyntheticChipDrop() {
             contextManager.submitContextTask(() -> {
                 try {
+                    // Clear cached metrics for all fragments represented by this chip.
+                    for (var f : summaryFragments) {
+                        metricsCache.remove(f);
+                    }
                     contextManager.dropWithHistorySemantics(summaryFragments);
                 } catch (Exception ex) {
                     logger.error("Failed to drop summary fragments", ex);
