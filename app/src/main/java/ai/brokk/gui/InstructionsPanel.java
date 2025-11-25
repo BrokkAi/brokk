@@ -625,7 +625,31 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Submit shortcut is handled globally by Chrome.registerGlobalKeyboardShortcuts()
 
-        // Undo/Redo shortcuts are handled globally by Chrome.registerGlobalKeyboardShortcuts()
+        // Undo: Cmd/Ctrl+Z
+        var undoKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        area.getInputMap().put(undoKeyStroke, "undo");
+        area.getActionMap().put("undo", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (commandInputUndoManager.canUndo()) {
+                    commandInputUndoManager.undo();
+                }
+            }
+        });
+
+        // Redo: Cmd/Ctrl+Shift+Z
+        var redoKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        area.getInputMap().put(redoKeyStroke, "redo");
+        area.getActionMap().put("redo", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (commandInputUndoManager.canRedo()) {
+                    commandInputUndoManager.redo();
+                }
+            }
+        });
 
         // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
         // otherwise, use the default JTextArea paste behaviour.
