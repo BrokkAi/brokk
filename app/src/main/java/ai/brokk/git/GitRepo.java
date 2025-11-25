@@ -2,8 +2,8 @@ package ai.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.MainProject;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.*;
 import java.nio.charset.StandardCharsets;

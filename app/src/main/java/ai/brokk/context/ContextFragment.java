@@ -7,7 +7,6 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.AnalyzerUtil.CodeWithSource;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CallGraphProvider;
@@ -21,6 +20,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.project.IProject;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.util.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -2051,7 +2051,8 @@ public interface ContextFragment {
                                 "cf-unit-" + id(),
                                 () -> {
                                     var analyzer = getAnalyzer();
-                                    return analyzer.getDefinition(fullyQualifiedName)
+                                    return analyzer.getDefinitions(fullyQualifiedName).stream()
+                                            .findFirst()
                                             .orElseThrow(() -> new IllegalArgumentException(
                                                     "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
                                 },
@@ -2188,7 +2189,9 @@ public interface ContextFragment {
         @Blocking
         public String text() {
             var analyzer = getAnalyzer();
-            var methodCodeUnit = analyzer.getDefinition(methodName).filter(CodeUnit::isFunction);
+            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
 
             if (methodCodeUnit.isEmpty()) {
                 return "Method not found: " + methodName;
@@ -2219,7 +2222,10 @@ public interface ContextFragment {
         public Set<CodeUnit> sources() {
             // FIXME this is broken, needs to include the actual call sites as well
             IAnalyzer analyzer = getAnalyzer();
-            return analyzer.getDefinition(methodName).map(Set::of).orElse(Set.of());
+            return analyzer.getDefinitions(methodName).stream()
+                    .findFirst()
+                    .map(Set::of)
+                    .orElse(Set.of());
         }
 
         @Override
@@ -2437,7 +2443,7 @@ public interface ContextFragment {
                 analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                     switch (summaryType) {
                         case CODEUNIT_SKELETON -> {
-                            analyzer.getDefinition(targetIdentifier).ifPresent(cu -> {
+                            analyzer.getDefinitions(targetIdentifier).forEach(cu -> {
                                 // Always try to include the primary target's skeleton
                                 skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
 

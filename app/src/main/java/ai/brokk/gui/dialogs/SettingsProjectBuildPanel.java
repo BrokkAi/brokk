@@ -1,17 +1,18 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;
@@ -777,7 +778,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 var selPath = jdkSelector.getSelectedJdkPath();
                 if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", selPath);
+                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
                 }
             }
         } else if (selectedPrimaryLang == Languages.PYTHON) {

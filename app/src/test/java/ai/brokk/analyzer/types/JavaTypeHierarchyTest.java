@@ -28,7 +28,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeX = analyzer.getDefinition("XExtendsY");
+            var maybeX = analyzer.getDefinitions("XExtendsY").stream().findFirst();
             assertTrue(maybeX.isPresent(), "Definition for XExtendsY should be present");
             CodeUnit x = maybeX.get();
 
@@ -75,7 +75,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeImpl = analyzer.getDefinition("ServiceImpl");
+            var maybeImpl = analyzer.getDefinitions("ServiceImpl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for ServiceImpl should be present");
             CodeUnit impl = maybeImpl.get();
 
@@ -124,7 +124,8 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeCls = analyzer.getDefinition("ExtendsAndImplements");
+            var maybeCls =
+                    analyzer.getDefinitions("ExtendsAndImplements").stream().findFirst();
             assertTrue(maybeCls.isPresent(), "Definition for ExtendsAndImplements should be present");
             CodeUnit cls = maybeCls.get();
 
@@ -181,7 +182,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybePlain = analyzer.getDefinition("Plain");
+            var maybePlain = analyzer.getDefinitions("Plain").stream().findFirst();
             assertTrue(maybePlain.isPresent(), "Definition for Plain should be present");
             CodeUnit plain = maybePlain.get();
 
@@ -220,7 +221,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeGrand = analyzer.getDefinition("GrandChild");
+            var maybeGrand = analyzer.getDefinitions("GrandChild").stream().findFirst();
             assertTrue(maybeGrand.isPresent(), "Definition for GrandChild should be present");
             CodeUnit grand = maybeGrand.get();
 
@@ -252,7 +253,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeB = analyzer.getDefinition("p2.B");
+            var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
 
@@ -284,7 +285,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeC = analyzer.getDefinition("p3.C");
+            var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
 
@@ -333,7 +334,7 @@ public class JavaTypeHierarchyTest {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
             // Verify B's hierarchy
-            var maybeB = analyzer.getDefinition("p2.B");
+            var maybeB = analyzer.getDefinitions("p2.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p2.B should be present");
             CodeUnit b = maybeB.get();
             List<String> bDirect = analyzer.getDirectAncestors(b).stream()
@@ -342,7 +343,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p1.A"), bDirect, "p2.B should extend p1.A");
 
             // Verify C's hierarchy
-            var maybeC = analyzer.getDefinition("p3.C");
+            var maybeC = analyzer.getDefinitions("p3.C").stream().findFirst();
             assertTrue(maybeC.isPresent(), "Definition for p3.C should be present");
             CodeUnit c = maybeC.get();
             List<String> cDirect = analyzer.getDirectAncestors(c).stream()
@@ -351,7 +352,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p1.A"), cDirect, "p3.C should extend p1.A");
 
             // Verify D's hierarchy (extends B which extends A)
-            var maybeD = analyzer.getDefinition("p4.D");
+            var maybeD = analyzer.getDefinitions("p4.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p4.D should be present");
             CodeUnit d = maybeD.get();
             List<String> dDirect = analyzer.getDirectAncestors(d).stream()
@@ -364,7 +365,7 @@ public class JavaTypeHierarchyTest {
             assertEquals(List.of("p2.B", "p1.A"), dTransitive, "p4.D's transitive ancestors should be p2.B then p1.A");
 
             // Verify E's hierarchy (extends C which extends A)
-            var maybeE = analyzer.getDefinition("p4.E");
+            var maybeE = analyzer.getDefinitions("p4.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p4.E should be present");
             CodeUnit e = maybeE.get();
             List<String> eDirect = analyzer.getDirectAncestors(e).stream()
@@ -395,7 +396,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeD = analyzer.getDefinition("p2.D");
+            var maybeD = analyzer.getDefinitions("p2.D").stream().findFirst();
             assertTrue(maybeD.isPresent(), "Definition for p2.D should be present");
             CodeUnit d = maybeD.get();
 
@@ -423,7 +424,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeE = analyzer.getDefinition("p3.E");
+            var maybeE = analyzer.getDefinitions("p3.E").stream().findFirst();
             assertTrue(maybeE.isPresent(), "Definition for p3.E should be present");
             CodeUnit e = maybeE.get();
 
@@ -454,7 +455,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeF = analyzer.getDefinition("p2.F");
+            var maybeF = analyzer.getDefinitions("p2.F").stream().findFirst();
             assertTrue(maybeF.isPresent(), "Definition for p2.F should be present");
             CodeUnit f = maybeF.get();
 
@@ -487,7 +488,7 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeImpl = analyzer.getDefinition("p2.Impl");
+            var maybeImpl = analyzer.getDefinitions("p2.Impl").stream().findFirst();
             assertTrue(maybeImpl.isPresent(), "Definition for p2.Impl should be present");
             CodeUnit impl = maybeImpl.get();
 
@@ -518,11 +519,11 @@ public class JavaTypeHierarchyTest {
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeA = analyzer.getDefinition("p.A");
+            var maybeA = analyzer.getDefinitions("p.A").stream().findFirst();
             assertTrue(maybeA.isPresent(), "Definition for p.A should be present");
             CodeUnit a = maybeA.get();
 
-            var maybeB = analyzer.getDefinition("p.B");
+            var maybeB = analyzer.getDefinitions("p.B").stream().findFirst();
             assertTrue(maybeB.isPresent(), "Definition for p.B should be present");
             CodeUnit b = maybeB.get();
 

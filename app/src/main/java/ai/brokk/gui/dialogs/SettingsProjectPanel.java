@@ -1,11 +1,7 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
 import ai.brokk.IssueProvider;
-import ai.brokk.MainProject;
-import ai.brokk.MainProject.DataRetentionPolicy;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -20,17 +16,19 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.io.IOException;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
@@ -1118,17 +1116,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         try {
             var currentDetails = project.loadBuildDetails();
 
-            Set<String> excludesSet = Collections.list(excludedDirectoriesListModel.elements()).stream()
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(s -> {
-                        try {
-                            return Path.of(s).normalize().toString();
-                        } catch (InvalidPathException ex) {
-                            return s;
-                        }
-                    })
-                    .collect(Collectors.toCollection(() -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)));
+            var rawExclusions = Collections.list(excludedDirectoriesListModel.elements());
+            var canonicalized =
+                    PathNormalizer.canonicalizeAllForProject(rawExclusions, project.getMasterRootPathForConfig());
+            // Preserve case-insensitive de-duplication for stability in UI and persistence
+            Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            excludesSet.addAll(canonicalized);
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),

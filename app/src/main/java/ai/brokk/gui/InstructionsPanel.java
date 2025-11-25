@@ -10,7 +10,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
@@ -33,6 +32,7 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
@@ -2887,7 +2887,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
             cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
-            chrome.refreshTaskListUI(false);
         }
     }
 

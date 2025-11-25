@@ -91,6 +91,7 @@ dependencies {
     implementation(libs.bundles.ui)
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
+    implementation(libs.jackson.smile)
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.jediterm)
@@ -139,6 +140,7 @@ dependencies {
     "errorprone"(libs.dataflow.errorprone)
     "errorprone"(project(":errorprone-checks"))
     compileOnly(libs.checker.qual)
+    compileOnly(libs.errorprone.annotations)
 }
 
 // Force version computation at configuration time

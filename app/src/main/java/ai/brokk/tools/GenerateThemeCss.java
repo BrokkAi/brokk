@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Tiny CLI that dumps all three theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
+ * Tiny CLI that dumps all four theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
  * in JDK + Brokk classes.
  *
  * <p>Usage (manual): $ sbt "runMain io.github.jbellis.brokk.tools.GenerateThemeCss [outputPath]"
@@ -22,8 +22,9 @@ public final class GenerateThemeCss {
 
         Files.createDirectories(target.getParent());
 
-        // Generate CSS for all three themes
+        // Generate CSS for all four themes
         String darkBlock = toCssVariables(GuiTheme.THEME_DARK);
+        String darkPlusBlock = toCssVariables(GuiTheme.THEME_DARK_PLUS);
         String lightBlock = toCssVariables(GuiTheme.THEME_LIGHT);
         String highContrastBlock = toCssVariables(GuiTheme.THEME_HIGH_CONTRAST);
 
@@ -34,7 +35,8 @@ public final class GenerateThemeCss {
              */
             """;
 
-        String content = banner + "\n" + darkBlock + "\n" + lightBlock + "\n" + highContrastBlock + "\n";
+        String content =
+                banner + "\n" + darkBlock + "\n" + darkPlusBlock + "\n" + lightBlock + "\n" + highContrastBlock + "\n";
 
         Files.writeString(target, content);
         System.out.printf("Theme SCSS written to %s (%d bytes)%n", target.toAbsolutePath(), content.length());
@@ -70,9 +72,11 @@ public final class GenerateThemeCss {
             Color color = entry.getValue();
             // Convert color to hex format
             String hexColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-            // Convert camelCase or snake_case to kebab-case for CSS variables
-            String cssVarName =
-                    key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase(Locale.ROOT);
+            // Convert camelCase, snake_case, or dot.notation to kebab-case for CSS variables
+            String cssVarName = key.replaceAll("([a-z])([A-Z])", "$1-$2")
+                    .replace('_', '-')
+                    .replace('.', '-')
+                    .toLowerCase(Locale.ROOT);
             sb.append("  --").append(cssVarName).append(": ").append(hexColor).append(";\n");
         });
 

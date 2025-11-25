@@ -1,9 +1,10 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.TextCanonicalizer;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,6 +29,7 @@ import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -109,14 +111,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
      *
+     * Note: parsedTree is not persisted on disk. When loading from a saved snapshot, parsedTree will be null.
+     * This is safe and intentional; clients must not assume parsedTree is non-null.
+     *
      * @param topLevelCodeUnits the top-level code units.
-     * @param parsedTree        the corresponding parse tree.
+     * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
      * @param resolvedImports   resolved CodeUnits from import statements.
      */
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,
-            @Nullable TSTree parsedTree,
+            @JsonIgnore @Nullable TSTree parsedTree,
             List<String> importStatements,
             Set<CodeUnit> resolvedImports) {
 
@@ -169,7 +174,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    protected record AnalyzerState(
+    public record AnalyzerState(
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
@@ -466,6 +471,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
+     *
+     * Note: When constructed from a prebuilt state loaded from disk, all FileProperties.parsedTree
+     * references will be null (parsed trees are not persisted). This is safe; logic must not rely
+     * on parsedTree being non-null after load.
      */
     protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
         this.project = project;
@@ -545,6 +554,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return stageTiming;
     }
 
+    /**
+     * Exposes the current immutable AnalyzerState snapshot for persistence.
+     * Intended for use by Language.saveAnalyzer and other persistence hooks.
+     */
+    public AnalyzerState snapshotState() {
+        return this.state;
+    }
+
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return fileProperties(file).topLevelCodeUnits();
@@ -581,62 +598,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        // Normalize generics / anonymous / location suffixes as before.
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
         String normalizedFqName = normalizeFullName(fqName);
 
-        // Split out any signature suffix "(...)" from the base name used for index lookup.
-        int parenIndex = normalizedFqName.indexOf('(');
-        String baseName;
-        String searchSignature;
-        if (parenIndex >= 0) {
-            baseName = normalizedFqName.substring(0, parenIndex);
-            searchSignature = normalizedFqName.substring(parenIndex);
-        } else {
-            baseName = normalizedFqName;
-            searchSignature = null;
+        if (normalizedFqName.contains("(")) {
+            log.warn(
+                    "getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead",
+                    fqName);
         }
 
-        // Use symbolIndex to pre-filter candidates instead of scanning all CodeUnits.
-        Set<CodeUnit> candidates = lookupCandidatesByFqName(baseName);
+        Set<CodeUnit> candidates = lookupCandidatesByFqName(normalizedFqName);
         if (candidates.isEmpty()) {
-            return Optional.empty();
+            return new LinkedHashSet<>();
         }
 
-        final String finalBaseName = baseName;
-        final String finalSearchSignature = searchSignature;
-
-        List<CodeUnit> matches;
-
-        if (finalSearchSignature != null) {
-            // Caller supplied a signature: first try exact fqName + signature match.
-            matches = candidates.stream()
-                    .filter(cu -> cu.fqName().equals(finalBaseName))
-                    .filter(cu -> {
-                        String cuSig = cu.signature();
-                        return cuSig != null && cuSig.equals(finalSearchSignature);
-                    })
-                    .toList();
-
-            // If no exact signature match, fall back to base-name-only matches.
-            if (matches.isEmpty()) {
-                matches = candidates.stream()
-                        .filter(cu -> cu.fqName().equals(finalBaseName))
-                        .toList();
-            }
-        } else {
-            // No signature provided: match by base FQN only.
-            matches = candidates.stream()
-                    .filter(cu -> cu.fqName().equals(finalBaseName))
-                    .toList();
-        }
+        var matches = candidates.stream()
+                .filter(cu -> cu.fqName().equals(normalizedFqName))
+                .collect(Collectors.toSet());
 
         if (matches.isEmpty()) {
-            return Optional.empty();
+            return new LinkedHashSet<>();
         }
 
-        // Allow languages to prioritize which definition we return.
-        return matches.stream().min(prioritizingComparator().thenComparing(DEFINITION_COMPARATOR));
+        return sortDefinitions(matches);
+    }
+
+    @Override
+    public Comparator<CodeUnit> priorityComparator() {
+        return prioritizingComparator().thenComparing(DEFINITION_COMPARATOR);
     }
 
     /**

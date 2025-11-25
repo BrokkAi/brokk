@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.GitHubAuth;
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.github.DeviceFlowModels;
@@ -11,6 +10,7 @@ import ai.brokk.github.GitHubDeviceFlowService;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;

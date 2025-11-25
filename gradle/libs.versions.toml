@@ -30,6 +30,7 @@ log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", ver
 # Jackson
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+jackson-smile = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-smile", version.ref = "jackson" }
 
 # Testing
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -48,7 +49,8 @@ checker-util = "org.checkerframework:checker-util:3.49.3"
 dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
 auto-service-annotations = "com.google.auto.service:auto-service-annotations:1.1.1"
 auto-service = "com.google.auto.service:auto-service:1.1.1"
-errorprone-test-helpers = "com.google.errorprone:error_prone_test_helpers:2.27.1"
+errorprone-test-helpers = "com.google.errorprone:error_prone_test_helpers:2.44.0"
+errorprone-annotations = "com.google.errorprone:error_prone_annotations:2.44.0"
 
 # UI
 flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }

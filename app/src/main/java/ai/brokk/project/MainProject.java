@@ -1,6 +1,13 @@
-package ai.brokk;
+package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.Brokk;
+import ai.brokk.IConsoleIO;
+import ai.brokk.IssueProvider;
+import ai.brokk.Service;
+import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
+import ai.brokk.SettingsChangeListener;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -10,10 +17,12 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -25,6 +34,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -94,16 +104,6 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_API_TOKEN_KEY = "jiraProjectApiToken";
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
-    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
-
-    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Quick", new ModelTypeInfo("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GPT_5)),
-            "QuickEdit", new ModelTypeInfo("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
-            "Quickest", new ModelTypeInfo("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
-            "Scan", new ModelTypeInfo("scanConfig", new ModelConfig(Service.GPT_5_MINI)));
-
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
@@ -123,7 +123,7 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     @VisibleForTesting
-    static Properties globalPropertiesCache = null; // protected by synchronized
+    public static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = BrokkConfigPaths.getGlobalConfigDir();
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -149,7 +149,6 @@ public final class MainProject extends AbstractProject {
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
-    private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
     public static final String DEFAULT_REVIEW_GUIDE =
             """
@@ -272,7 +271,41 @@ public final class MainProject extends AbstractProject {
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
             try {
-                return objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+                var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
+                var canonicalExcludes = new LinkedHashSet<String>();
+                for (String r : details.excludedDirectories()) {
+                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExcludes.add(c);
+                    }
+                }
+
+                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                Map<String, String> envIn = details.environmentVariables();
+                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+                for (Map.Entry<String, String> e : envIn.entrySet()) {
+                    String k = e.getKey();
+                    String v = e.getValue();
+                    if (v == null) {
+                        continue;
+                    }
+                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                    } else {
+                        canonicalEnv.put(k, v);
+                    }
+                }
+
+                // Return a re-wrapped BuildDetails with canonicalized content
+                return new BuildAgent.BuildDetails(
+                        details.buildLintCommand(),
+                        details.testAllCommand(),
+                        details.testSomeCommand(),
+                        canonicalExcludes,
+                        canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
             }
@@ -287,9 +320,42 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        if (!details.equals(BuildAgent.BuildDetails.EMPTY)) {
+        // Build canonical details for stable on-disk representation
+        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
+        var canonicalExcludes = new LinkedHashSet<String>();
+        for (String r : details.excludedDirectories()) {
+            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
+            if (!c.isBlank()) {
+                canonicalExcludes.add(c);
+            }
+        }
+
+        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        Map<String, String> envIn = details.environmentVariables();
+        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+        for (Map.Entry<String, String> e : envIn.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (v == null) {
+                continue; // NullAway should avoid this, but be defensive
+            }
+            if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+            } else {
+                canonicalEnv.put(k, v);
+            }
+        }
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.testAllCommand(),
+                details.testSomeCommand(),
+                canonicalExcludes,
+                canonicalEnv);
+
+        if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
             try {
-                String json = objectMapper.writeValueAsString(details);
+                String json = objectMapper.writeValueAsString(canonicalDetails);
                 projectProps.setProperty(BUILD_DETAILS_KEY, json);
                 logger.debug("Saving build details to project properties.");
             } catch (JsonProcessingException e) {
@@ -297,7 +363,7 @@ public final class MainProject extends AbstractProject {
             }
             saveProjectProperties();
         }
-        setBuildDetails(details);
+        setBuildDetails(canonicalDetails);
         invalidateAllFiles();
     }
 
@@ -336,109 +402,69 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(String modelTypeKey) {
+    private ModelConfig getModelConfigInternal(ModelType modelType) {
         var props = loadGlobalProperties();
-        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
-
-        // read user-specified value
-        String jsonString = props.getProperty(typeInfo.configKey());
-        if (jsonString != null && !jsonString.isBlank()) {
-            try {
-                var mc = objectMapper.readValue(jsonString, ModelConfig.class);
-                // Null Away doesn't prevent Jackson from reading a null via reflection. All the
-                // "official" Jackson ways to fix this are horrible.
-                @SuppressWarnings("RedundantNullCheck")
-                ModelConfig checkedMc = (mc.tier() == null)
-                        ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
-                        : mc;
-                return checkedMc;
-            } catch (JsonProcessingException e) {
-                logger.warn(
-                        "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
-                        modelTypeKey,
-                        typeInfo.configKey(),
-                        e.getMessage(),
-                        jsonString);
-            }
-        }
-
-        // fallback to hardcoded default
-        return typeInfo.preferredConfig();
+        return ModelProperties.getModelConfig(props, modelType);
     }
 
-    private void setModelConfigInternal(String modelTypeKey, ModelConfig config) {
+    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
-        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
-
-        try {
-            String jsonString = objectMapper.writeValueAsString(config);
-            props.setProperty(typeInfo.configKey(), jsonString);
-            saveGlobalProperties(props);
-        } catch (JsonProcessingException e) {
-            logger.error(
-                    "Error serializing ModelConfig for {} (key '{}'): {}",
-                    modelTypeKey,
-                    typeInfo.configKey(),
-                    config,
-                    e);
-            throw new RuntimeException("Failed to serialize ModelConfig for " + modelTypeKey, e);
-        }
+        ModelProperties.setModelConfig(props, modelType, config);
+        saveGlobalProperties(props);
     }
 
     @Override
     public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal("Quick");
+        return getModelConfigInternal(ModelType.QUICK);
     }
 
     @Override
     public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal("Quick", config);
+        setModelConfigInternal(ModelType.QUICK, config);
     }
 
     @Override
     public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal("Code");
+        return getModelConfigInternal(ModelType.CODE);
     }
 
     @Override
     public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal("Code", config);
+        setModelConfigInternal(ModelType.CODE, config);
     }
 
     @Override
     public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal("Architect");
+        return getModelConfigInternal(ModelType.ARCHITECT);
     }
 
     @Override
     public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal("Architect", config);
+        setModelConfigInternal(ModelType.ARCHITECT, config);
     }
 
     public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal("QuickEdit");
+        return getModelConfigInternal(ModelType.QUICK_EDIT);
     }
 
     public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal("QuickEdit", config);
+        setModelConfigInternal(ModelType.QUICK_EDIT, config);
     }
 
     public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal("Quickest");
+        return getModelConfigInternal(ModelType.QUICKEST);
     }
 
     public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal("Quickest", config);
+        setModelConfigInternal(ModelType.QUICKEST, config);
     }
 
     public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal("Scan");
+        return getModelConfigInternal(ModelType.SCAN);
     }
 
     public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal("Scan", config);
+        setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override
@@ -985,39 +1011,13 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public Set<Dependency> getLiveDependencies() {
-        var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
-        Set<ProjectFile> selected;
-        if (liveDepsNames == null) {
-            // Property not set: default to all dependencies enabled
-            selected = allDeps;
-        } else if (liveDepsNames.isBlank()) {
-            // Property explicitly set but empty: user disabled all dependencies
+        if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return Set.of();
-        } else {
-            var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet());
-
-            selected = allDeps.stream()
-                    .filter(dep -> {
-                        // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-                        if (dep.getRelPath().getNameCount() < 3) {
-                            return false;
-                        }
-                        // relPath is relative to masterRootPathForConfig, so .brokk is first component
-                        var depName = dep.getRelPath().getName(2).toString();
-                        return liveNamesSet.contains(depName);
-                    })
-                    .collect(Collectors.toSet());
         }
 
-        // Wrap with detected language for each dependency root directory
-        return selected.stream()
-                .map(dep -> new Dependency(dep, detectLanguageForDependency(dep)))
-                .collect(Collectors.toSet());
+        return namesToDependencies(liveDepsNames);
     }
 
     @Override
@@ -1713,29 +1713,14 @@ public final class MainProject extends AbstractProject {
         logger.info("Set Data Retention Policy to {} for project {}", policy, root.getFileName());
     }
 
-    public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
-            new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
+    // Backward-compatible alias for UI code expecting MainProject.DEFAULT_FAVORITE_MODELS
+    public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = ModelProperties.DEFAULT_FAVORITE_MODELS;
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
-        String json = props.getProperty(FAVORITE_MODELS_KEY);
-        if (json != null && !json.isEmpty()) {
-            try {
-                var typeFactory = objectMapper.getTypeFactory();
-                var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
-                List<Service.FavoriteModel> loadedList = objectMapper.readValue(json, listType);
-                logger.debug("Loaded {} favorite models from global properties.", loadedList.size());
-                return loadedList;
-            } catch (JsonProcessingException | ClassCastException e) {
-                logger.error("Error loading/casting favorite models from JSON: {}", json, e);
-            }
-        }
-        logger.debug("No favorite models found or error loading, returning defaults.");
-        return new ArrayList<>(DEFAULT_FAVORITE_MODELS);
+        var list = ModelProperties.loadFavoriteModels(props);
+        logger.debug("Loaded {} favorite models from global properties.", list.size());
+        return list;
     }
 
     /**
@@ -1746,24 +1731,14 @@ public final class MainProject extends AbstractProject {
      * @throws IllegalArgumentException if no favourite model with the given alias exists
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
-        return loadFavoriteModels().stream()
-                .filter(fm -> fm.alias().equalsIgnoreCase(alias))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
+        var props = loadGlobalProperties();
+        return ModelProperties.getFavoriteModel(props, alias);
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
         var props = loadGlobalProperties();
-        String newJson;
-        try {
-            newJson = objectMapper.writeValueAsString(favorites);
-        } catch (JsonProcessingException e) {
-            logger.error("Error serializing favorite models to JSON", e);
-            return;
-        }
-        String oldJson = props.getProperty(FAVORITE_MODELS_KEY, "");
-        if (!newJson.equals(oldJson)) {
-            props.setProperty(FAVORITE_MODELS_KEY, newJson);
+        boolean changed = ModelProperties.saveFavoriteModels(props, favorites);
+        if (changed) {
             saveGlobalProperties(props);
             logger.debug("Saved {} favorite models to global properties.", favorites.size());
         } else {

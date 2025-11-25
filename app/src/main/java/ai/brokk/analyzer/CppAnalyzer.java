@@ -2,9 +2,9 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.cpp.NamespaceProcessor;
 import ai.brokk.analyzer.cpp.SkeletonGenerator;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
@@ -95,6 +95,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         var templateParser = parserCache.get();
         this.skeletonGenerator = new SkeletonGenerator(templateParser);
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
+    }
+
+    public static CppAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new CppAnalyzer(project, state);
     }
 
     @Override
@@ -933,35 +937,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // For other types, use default behavior
         return super.shouldIgnoreDuplicate(existing, candidate, file);
-    }
-
-    /**
-     * Backward-compatibility override for function lookup by fully qualified name.
-     *
-     * <p>This method provides transitional convenience for callers that previously looked up zero-argument
-     * functions by their simple name (without parentheses). For example, a lookup for "MyClass::myFunc"
-     * will automatically retry as "MyClass::myFunc()" if the first attempt returns empty.
-     *
-     * <p>This allows existing code that relies on simple-name lookups to continue working after the
-     * analyzer became overload-aware and began requiring parameter signatures in function FQNames.
-     *
-     * @param fqName the fully qualified name to look up
-     * @return an Optional containing the matching CodeUnit, or empty if not found
-     */
-    @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        // First, try the lookup as provided
-        var result = super.getDefinition(fqName);
-        if (result.isPresent()) {
-            return result;
-        }
-
-        // If empty and fqName doesn't already contain parentheses, retry with empty parameter list
-        if (!fqName.contains("(") && !fqName.contains(")")) {
-            return super.getDefinition(fqName + "()");
-        }
-
-        return Optional.empty();
     }
 
     @Override
