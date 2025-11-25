@@ -223,4 +223,93 @@ public class JavaImportTest {
             assertTrue(fqNames.contains("pkg2.TypeC"), "Should include wildcard import pkg2.TypeC");
         }
     }
+
+    @Test
+    public void testExplicitImportHasPrecedenceOverWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package pkg1;
+                public class Ambiguous {}
+                """,
+                "Ambiguous1.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                        package pkg2;
+                        public class Ambiguous {}
+                        """,
+                        "Ambiguous2.java")
+                .addFileContents(
+                        """
+                        package consumer;
+                        import pkg1.Ambiguous; // explicit import
+                        import pkg2.*;        // wildcard import
+
+                        public class Consumer {
+                            private Ambiguous field;
+                        }
+                        """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = analyzer.getDefinitions("consumer.Consumer").stream()
+                    .findFirst()
+                    .get()
+                    .source();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var ambiguousCUs = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("Ambiguous"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, ambiguousCUs.size(), "Should resolve only one 'Ambiguous' class");
+            assertEquals(
+                    "pkg1.Ambiguous", ambiguousCUs.getFirst().fqName(), "Explicitly imported class should be chosen");
+        }
+    }
+
+    @Test
+    public void testAmbiguousWildcardImportsAreResolvedDeterministically() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package pkg1;
+                public class Ambiguous {}
+                """,
+                "Ambiguous1.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                        package pkg2;
+                        public class Ambiguous {}
+                        """,
+                        "Ambiguous2.java")
+                .addFileContents(
+                        """
+                        package consumer;
+                        import pkg1.*; // first wildcard
+                        import pkg2.*; // second wildcard
+
+                        public class Consumer {
+                            private Ambiguous field;
+                        }
+                        """,
+                        "Consumer.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var consumerFile = analyzer.getDefinitions("consumer.Consumer").stream()
+                    .findFirst()
+                    .get()
+                    .source();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var ambiguousCUs = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("Ambiguous"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, ambiguousCUs.size(), "Should resolve only one 'Ambiguous' class from wildcards");
+            assertEquals(
+                    "pkg1.Ambiguous",
+                    ambiguousCUs.getFirst().fqName(),
+                    "First wildcard import should win for ambiguous simple names");
+        }
+    }
+
 }
