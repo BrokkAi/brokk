@@ -2075,8 +2075,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
             SwingUtilities.invokeLater(() -> {
-                instructionsArea.setText(text);
-                commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+                setTextWithUndo(text); // Use undo-preserving helper
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
             });
