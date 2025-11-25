@@ -95,27 +95,31 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
-                        "Creating class: simpleName='{}', classChain='{}', packageName='{}'",
+                        "Creating class: simpleName='{}', classChain='{}', packageName='{}', moduleName='{}'",
                         simpleName,
                         classChain,
-                        packageName);
+                        packageName,
+                        moduleName);
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    finalShortName = simpleName;
+                    // Top-level classes: "moduleName.ClassName" (consistent with functions/fields)
+                    finalShortName = moduleName + "." + simpleName;
                 } else if (!classChain.contains("$")) {
-                    // Function-local class: replace dots with $ (e.g., "func.Outer" → "func$Outer$Inner")
+                    // Function-local class: "moduleName.func$ClassName"
                     String normalizedChain = classChain.replace(".", "$");
-                    finalShortName = normalizedChain + "$" + simpleName;
+                    finalShortName = moduleName + "." + normalizedChain + "$" + simpleName;
                 } else {
-                    // Regular nested class or already processed function-local chain (contains $)
-                    finalShortName = classChain + "$" + simpleName;
+                    // Nested class inside function-local: "moduleName.chain$ClassName"
+                    finalShortName = moduleName + "." + classChain + "$" + simpleName;
                 }
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // Methods always use dot notation (parent classes use $)
-                String finalShortName =
-                        classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
+                // All functions/methods now include module prefix for consistency
+                String finalShortName = classChain.isEmpty()
+                        ? (moduleName + "." + simpleName)
+                        : (moduleName + "." + classChain + "." + simpleName);
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
             case CaptureNames.FIELD_DEFINITION -> { // For class attributes or top-level variables
@@ -124,7 +128,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     // Top-level variables use "moduleName.variableName" (consistent with functions)
                     finalShortName = moduleName + "." + simpleName;
                 } else {
-                    finalShortName = classChain + "." + simpleName;
+                    // Class attributes now include module prefix for consistency
+                    finalShortName = moduleName + "." + classChain + "." + simpleName;
                 }
 
                 // Duplicates handled by addTopLevelCodeUnit() ("last wins" for Python)
@@ -347,22 +352,35 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     return packageName.isEmpty() ? functionFqn : packageName + "." + functionFqn;
                 }
 
-                // Function-local class hierarchy: transform dots to $
-                // Don't prepend module name - only top-level functions get module prefix
+                // Function-local class hierarchy: transform dots to $ and prepend module name
+                // Class FQNs are now stored as "moduleName.func$ClassName"
                 if (!classChain.contains("$") && classChain.contains(".")) {
-                    String transformed = classChain.replace(".", "$");
+                    String transformed = moduleName + "." + classChain.replace(".", "$");
                     log.trace(
                             "Python parent lookup: classChain='{}', transformed to '{}' for function-local class lookup",
                             classChain,
                             transformed);
                     return packageName.isEmpty() ? transformed : packageName + "." + transformed;
                 }
+            } else {
+                // Non-function-local class hierarchy: prepend module name
+                // Class FQNs are now stored as "moduleName.ClassName"
+                String classParentFqn = moduleName + "." + classChain;
+                log.trace(
+                        "Python parent lookup: classChain='{}', module='{}', returning class FQN '{}'",
+                        classChain,
+                        moduleName,
+                        classParentFqn);
+                return packageName.isEmpty() ? classParentFqn : packageName + "." + classParentFqn;
             }
         }
 
         log.trace(
-                "Python parent lookup: packageName='{}', classChain='{}', using default join", packageName, classChain);
-        // Default behavior for regular nested classes
+                "Python parent lookup: packageName='{}', classChain='{}', moduleName='{}', using default join",
+                packageName,
+                classChain,
+                moduleName);
+        // Default behavior: for top-level items or empty classChain
         return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 

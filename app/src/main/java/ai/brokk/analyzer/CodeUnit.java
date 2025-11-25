@@ -79,7 +79,14 @@ public class CodeUnit implements Comparable<CodeUnit> {
      */
     public String identifier() {
         return switch (kind) {
-            case CLASS -> shortName; // Simple class name, potentially including nesting (C, C$D)
+            case CLASS -> {
+                // For classes, extract the last segment after . or $
+                // e.g., "module.Outer$Inner" -> "Inner", "module.MyClass" -> "MyClass"
+                int lastDollar = shortName.lastIndexOf('$');
+                int lastDot = shortName.lastIndexOf('.');
+                int lastSeparator = Math.max(lastDollar, lastDot);
+                yield lastSeparator >= 0 ? shortName.substring(lastSeparator + 1) : shortName;
+            }
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
