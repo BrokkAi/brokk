@@ -80,25 +80,13 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public String identifier() {
         return switch (kind) {
             case CLASS -> {
-                // For nested classes using $, extract the last segment
-                // e.g., "Outer$Inner" -> "Inner", "module.func$LocalClass" -> "LocalClass"
+                // For nested/contained classes using $, extract the last segment
+                // e.g., "Outer$Inner" -> "Inner", "module$ClassName" -> "ClassName"
                 int lastDollar = shortName.lastIndexOf('$');
                 if (lastDollar >= 0) {
                     yield shortName.substring(lastDollar + 1);
                 }
-                // For Python classes with module prefix (lowercase.ClassName), strip the module
-                // e.g., "module.MyClass" -> "MyClass"
-                // But for Java nested classes (Outer.Inner), keep the full name
-                int firstDot = shortName.indexOf('.');
-                if (firstDot > 0) {
-                    String firstSegment = shortName.substring(0, firstDot);
-                    // Python modules are lowercase; Java nested classes start with uppercase
-                    if (Character.isLowerCase(firstSegment.charAt(0))) {
-                        // Python module prefix - strip it
-                        yield shortName.substring(firstDot + 1);
-                    }
-                }
-                // No $ or module prefix - return as-is (e.g., "MyClass", "Do.Re")
+                // No $ - return as-is (e.g., "MyClass", "Do.Re")
                 yield shortName;
             }
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"

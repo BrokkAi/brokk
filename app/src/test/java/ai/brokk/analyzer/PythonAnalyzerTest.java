@@ -62,7 +62,7 @@ public final class PythonAnalyzerTest {
         ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
         // Skeletons are now reconstructed. We check CodeUnits first.
         var classesInFileA = analyzer.getDeclarations(fileA);
-        var classA_CU = CodeUnit.cls(fileA, "a", "A.A");
+        var classA_CU = CodeUnit.cls(fileA, "a", "A$A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
         var topLevelDeclsInA = analyzer.withFileProperties(tld -> tld.get(fileA))
@@ -162,8 +162,8 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (use correct FQN format)
-        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
-        assertTrue(classSourceOpt.isPresent(), "documented.DocumentedClass should be found");
+        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", true);
+        assertTrue(classSourceOpt.isPresent(), "documented$DocumentedClass should be found");
 
         String normalizedSource = normalize.apply(classSourceOpt.get());
 
@@ -175,8 +175,8 @@ public final class PythonAnalyzerTest {
 
         // Test nested class with comments (use correct FQN format)
         Optional<String> innerClassSourceOpt =
-                AnalyzerUtil.getClassSource(analyzer, "documented.OuterClass$InnerClass", true);
-        assertTrue(innerClassSourceOpt.isPresent(), "documented.OuterClass$InnerClass should be found");
+                AnalyzerUtil.getClassSource(analyzer, "documented$OuterClass$InnerClass", true);
+        assertTrue(innerClassSourceOpt.isPresent(), "documented$OuterClass$InnerClass should be found");
 
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
 
@@ -208,7 +208,7 @@ public final class PythonAnalyzerTest {
 
         // Test method with preceding comment (use correct FQN format)
         Optional<String> methodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", true);
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
@@ -223,7 +223,7 @@ public final class PythonAnalyzerTest {
 
         // Test static method with comment (use correct FQN format)
         Optional<String> staticMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.utility_method", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.utility_method", true);
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
@@ -238,7 +238,7 @@ public final class PythonAnalyzerTest {
 
         // Test class method with comment (use correct FQN format)
         Optional<String> classMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.create_default", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.create_default", true);
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
@@ -257,7 +257,7 @@ public final class PythonAnalyzerTest {
     void testPythonCommentExpansionEdgeCases() {
         // Test constructor with comment (use correct FQN format)
         Optional<String> constructorSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.__init__", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
         Function<String, String> normalize =
@@ -274,7 +274,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class method (use correct FQN format)
         Optional<String> innerMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.OuterClass.InnerClass.inner_method", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$OuterClass$InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
@@ -295,9 +295,9 @@ public final class PythonAnalyzerTest {
 
         // Test class source with and without comments
         Optional<String> classSourceWithComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+                AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", true);
         Optional<String> classSourceWithoutComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", false);
+                AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", false);
 
         assertTrue(classSourceWithComments.isPresent(), "Class source with comments should be present");
         assertTrue(classSourceWithoutComments.isPresent(), "Class source without comments should be present");
@@ -325,9 +325,9 @@ public final class PythonAnalyzerTest {
 
         // Test method source with and without comments
         Optional<String> methodSourceWithComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", true);
         Optional<String> methodSourceWithoutComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", false);
+                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", false);
 
         assertTrue(methodSourceWithComments.isPresent(), "Method source with comments should be present");
         assertTrue(methodSourceWithoutComments.isPresent(), "Method source without comments should be present");
@@ -366,7 +366,7 @@ public final class PythonAnalyzerTest {
         Set<CodeUnit> declarations = analyzer.getDeclarations(localClassesFile);
 
         // Should find the top-level class
-        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "", "local_classes.TopLevelClass");
+        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "", "local_classes$TopLevelClass");
         assertTrue(declarations.contains(topLevelClassCU), "Should find top-level class");
 
         // The fix worked! Local classes now have scoped FQNs like test_function_1$LocalClass
@@ -514,11 +514,11 @@ public final class PythonAnalyzerTest {
 
         // Should find property getters but NOT setters
         var valueGetters = declarations.stream()
-                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test.PropertyTest.value"))
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test$PropertyTest.value"))
                 .collect(Collectors.toList());
 
         var nameGetters = declarations.stream()
-                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test.PropertyTest.name"))
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test$PropertyTest.name"))
                 .collect(Collectors.toList());
 
         // Should find 1 getter each (setters skipped)
@@ -569,14 +569,14 @@ public final class PythonAnalyzerTest {
 
         // Verify we have the getters but not the setter or deleter
         assertTrue(
-                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.format")),
+                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.format")),
                 "Should find format getter");
         assertTrue(
-                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.value")),
+                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.value")),
                 "Should find value getter");
         assertTrue(
                 methods.stream()
-                        .anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.regular_method")),
+                        .anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.regular_method")),
                 "Should find regular_method");
 
         // Verify no duplicate format or value methods
@@ -798,19 +798,19 @@ public final class PythonAnalyzerTest {
 
         // Verify _PrivateClass.NestedClass (regular nested class, NOT function-local)
         var nestedClass = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions._PrivateClass$NestedClass"))
+                .filter(cu -> cu.fqName().equals("underscore_functions$_PrivateClass$NestedClass"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
-                        "NestedClass should be underscore_functions._PrivateClass$NestedClass (regular nested), found: "
+                        "NestedClass should be underscore_functions$_PrivateClass$NestedClass (regular nested), found: "
                                 + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
-                "underscore_functions._PrivateClass$NestedClass",
+                "underscore_functions$_PrivateClass$NestedClass",
                 nestedClass.fqName(),
                 "_PrivateClass should be recognized as class (PascalCase), not function");
 
         // Verify parent-child relationship for _PrivateClass
         var privateClass = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions._PrivateClass"))
+                .filter(cu -> cu.fqName().equals("underscore_functions$_PrivateClass"))
                 .findFirst()
                 .orElseThrow();
         var privateClassChildren = analyzer.getDirectChildren(privateClass);
@@ -854,7 +854,7 @@ public final class PythonAnalyzerTest {
 
         // Verify MyClass exists
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("function_redefinition.MyClass")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("function_redefinition$MyClass")),
                 "MyClass should exist");
 
         // Verify SecondLocal exists as child of second my_function
@@ -896,7 +896,7 @@ public final class PythonAnalyzerTest {
         // Find TestDuplicates class
         var testDuplicatesClass = declarations.stream()
                 .filter(CodeUnit::isClass)
-                .filter(cu -> cu.fqName().equals("duplicate_children.TestDuplicates"))
+                .filter(cu -> cu.fqName().equals("duplicate_children$TestDuplicates"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("TestDuplicates class not found. Found: "
                         + declarations.stream()
@@ -1024,13 +1024,13 @@ public final class PythonAnalyzerTest {
 
         // Verify classes inside if/else are captured
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base")),
                 "Base class inside 'if' should be captured");
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base$Config")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base$Config")),
                 "Nested Config class should be captured");
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.FallbackBase")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$FallbackBase")),
                 "FallbackBase class inside 'else' should be captured");
 
         // Test subclass resolution
@@ -1058,9 +1058,9 @@ public final class PythonAnalyzerTest {
         // Can we find Base from getAllDeclarations?
         var allDecls = testAnalyzer.getAllDeclarations();
         var baseClass = allDecls.stream()
-                .filter(cu -> cu.fqName().equals("conditional_pkg.base.Base"))
+                .filter(cu -> cu.fqName().equals("conditional_pkg.base$Base"))
                 .findFirst();
-        assertTrue(baseClass.isPresent(), "conditional_pkg.base.Base should be findable in getAllDeclarations");
+        assertTrue(baseClass.isPresent(), "conditional_pkg.base$Base should be findable in getAllDeclarations");
 
         // Test: Can we find the parent class (Base) from MySubclass?
         var ancestors = testAnalyzer.getDirectAncestors(mySubclass.get());
@@ -1068,8 +1068,8 @@ public final class PythonAnalyzerTest {
         // Parent resolution should now work
         assertEquals(1, ancestors.size(), "MySubclass should have exactly 1 direct ancestor (Base)");
         assertTrue(
-                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base")),
-                "MySubclass should have conditional_pkg.base.Base as ancestor");
+                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base")),
+                "MySubclass should have conditional_pkg.base$Base as ancestor");
 
         testProject.close();
     }
@@ -1193,14 +1193,14 @@ public final class PythonAnalyzerTest {
                         "mypackage/sibling.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var siblingFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.SiblingClass")
+            var siblingFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling$SiblingClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(siblingFile);
 
             // In Python, class FQNs include the module name
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child.ChildClass")),
-                    "Should resolve 'from .child import ChildClass' to mypackage.child.ChildClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child$ChildClass")),
+                    "Should resolve 'from .child import ChildClass' to mypackage.child$ChildClass");
         }
     }
 
@@ -1229,13 +1229,13 @@ public final class PythonAnalyzerTest {
                         "mypackage/subdir/child.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.child.ChildClass")
+            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.child$ChildClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(childFile);
 
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base.BaseClass")),
-                    "Should resolve 'from ..base import BaseClass' to mypackage.base.BaseClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base$BaseClass")),
+                    "Should resolve 'from ..base import BaseClass' to mypackage.base$BaseClass");
         }
     }
 
@@ -1264,13 +1264,13 @@ public final class PythonAnalyzerTest {
                         "mypackage/subdir/deep/nested.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.nested.DeepClass")
+            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.nested$DeepClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(nestedFile);
 
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
-                    "Should resolve 'from ...top import TopClass' to mypackage.top.TopClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top$TopClass")),
+                    "Should resolve 'from ...top import TopClass' to mypackage.top$TopClass");
         }
     }
 
@@ -1299,7 +1299,7 @@ public final class PythonAnalyzerTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var dogFile =
-                    AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.dog.Dog").get();
+                    AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.dog$Dog").get();
             var dogDecls = analyzer.getDeclarations(dogFile);
 
             var dogClass = dogDecls.stream()
