@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -806,7 +807,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         List<CodeUnit> topCUs = getTopLevelDeclarations(file);
         if (topCUs.isEmpty()) return Map.of();
 
-        Map<CodeUnit, String> resultSkeletons = new HashMap<>();
+        // Preserve deterministic iteration order
+        Map<CodeUnit, String> resultSkeletons = new LinkedHashMap<>();
         List<CodeUnit> sortedTopCUs = new ArrayList<>(topCUs);
         // Sort CUs: MODULE CUs (for imports) should ideally come first.
         // This simple sort puts them first if their fqName sorts before others.
