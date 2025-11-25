@@ -206,22 +206,34 @@ public class GitRepoRemote {
         String remoteUrl = getUrl(remoteName);
 
         // Query remote for current SHA of this branch
-        var lsRemote = Git.lsRemoteRepository()
-                .setRemote(remoteUrl)
-                .setHeads(true);
+        var lsRemote = Git.lsRemoteRepository().setRemote(remoteUrl).setHeads(true);
         repo.applyGitHubAuthentication(lsRemote, remoteUrl);
 
         var refs = lsRemote.call();
         String remoteSha = null;
         for (var ref : refs) {
             if (ref.getName().equals("refs/heads/" + branchName)) {
-                remoteSha = ref.getObjectId().getName();
+                var objectId = ref.getObjectId();
+                if (objectId != null) {
+                    remoteSha = objectId.getName();
+                }
                 break;
             }
         }
 
         if (remoteSha == null) {
-            // Branch doesn't exist on remote
+            // Branch doesn't exist on remote - check if we have a stale local ref
+            try {
+                var localRef = repository.findRef("refs/remotes/" + remoteName + "/" + branchName);
+                if (localRef != null) {
+                    logger.warn(
+                            "Branch '{}' no longer exists on remote '{}' but local tracking ref exists (may be stale)",
+                            branchName,
+                            remoteName);
+                }
+            } catch (IOException e) {
+                logger.debug("Error checking for stale local ref {}/{}: {}", remoteName, branchName, e.getMessage());
+            }
             return false;
         }
 
@@ -232,7 +244,12 @@ public class GitRepoRemote {
                 // No local ref, needs fetch
                 return true;
             }
-            String localSha = localRef.getObjectId().getName();
+            var localObjectId = localRef.getObjectId();
+            if (localObjectId == null) {
+                // No object ID, needs fetch
+                return true;
+            }
+            String localSha = localObjectId.getName();
             return !remoteSha.equals(localSha);
         } catch (IOException e) {
             // Error reading local ref, assume needs fetch

@@ -155,7 +155,8 @@ public class GitRepoFetchBranchTest {
         remoteGit.checkout().setName("master").call();
 
         // Local doesn't have this branch yet - should need fetch
-        assertTrue(localRepo.remote().branchNeedsFetch("origin", "new-branch"),
+        assertTrue(
+                localRepo.remote().branchNeedsFetch("origin", "new-branch"),
                 "Should need fetch when local ref doesn't exist");
     }
 
@@ -173,7 +174,8 @@ public class GitRepoFetchBranchTest {
         localRepo.remote().fetchBranch("origin", "synced-branch");
 
         // Now local and remote are in sync - should not need fetch
-        assertFalse(localRepo.remote().branchNeedsFetch("origin", "synced-branch"),
+        assertFalse(
+                localRepo.remote().branchNeedsFetch("origin", "synced-branch"),
                 "Should not need fetch when local ref matches remote");
     }
 
@@ -197,14 +199,43 @@ public class GitRepoFetchBranchTest {
         remoteGit.checkout().setName("master").call();
 
         // Local is now behind - should need fetch
-        assertTrue(localRepo.remote().branchNeedsFetch("origin", "outdated-branch"),
+        assertTrue(
+                localRepo.remote().branchNeedsFetch("origin", "outdated-branch"),
                 "Should need fetch when remote has new commits");
     }
 
     @Test
     void testBranchNeedsFetch_NonExistentBranch_ReturnsFalse() throws Exception {
         // Branch doesn't exist on remote - should return false (nothing to fetch)
-        assertFalse(localRepo.remote().branchNeedsFetch("origin", "non-existent-branch"),
+        assertFalse(
+                localRepo.remote().branchNeedsFetch("origin", "non-existent-branch"),
                 "Should return false for non-existent remote branch");
+    }
+
+    @Test
+    void testBranchNeedsFetch_StaleLocalRef_ReturnsFalse() throws Exception {
+        // Create and fetch a branch
+        remoteGit.checkout().setCreateBranch(true).setName("stale-branch").call();
+        Path file = remoteDir.resolve("stale.txt");
+        Files.writeString(file, "stale content\n", StandardCharsets.UTF_8);
+        remoteGit.add().addFilepattern("stale.txt").call();
+        remoteGit.commit().setMessage("Stale commit").call();
+        remoteGit.checkout().setName("master").call();
+
+        // Fetch the branch so we have a local tracking ref
+        localRepo.remote().fetchBranch("origin", "stale-branch");
+
+        // Verify local ref exists
+        var localRef = localGit.getRepository().findRef("refs/remotes/origin/stale-branch");
+        assertNotNull(localRef, "Local tracking ref should exist after fetch");
+
+        // Delete the branch on remote
+        remoteGit.branchDelete().setBranchNames("stale-branch").setForce(true).call();
+
+        // branchNeedsFetch should return false (branch doesn't exist on remote)
+        // but log a warning about the stale local ref
+        assertFalse(
+                localRepo.remote().branchNeedsFetch("origin", "stale-branch"),
+                "Should return false when branch deleted on remote (even with stale local ref)");
     }
 }

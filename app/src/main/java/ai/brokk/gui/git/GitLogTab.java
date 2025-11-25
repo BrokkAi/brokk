@@ -286,7 +286,10 @@ public class GitLogTab extends JPanel implements ThemeAware {
                     contextManager.submitBackgroundTask("Checking " + branchName, () -> {
                         try {
                             if (getRepo().remote().branchNeedsFetch(remoteName, remoteBranchOnly)) {
-                                logger.info("Fetching branch '{}' from remote '{}' (has updates)", remoteBranchOnly, remoteName);
+                                logger.info(
+                                        "Fetching branch '{}' from remote '{}' (has updates)",
+                                        remoteBranchOnly,
+                                        remoteName);
                                 getRepo().remote().fetchBranch(remoteName, remoteBranchOnly);
                                 // Refresh commits after fetch
                                 SwingUtilities.invokeLater(() -> updateCommitsForBranch(branchName));
@@ -295,6 +298,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                             }
                         } catch (Exception ex) {
                             logger.warn("Failed to check/fetch branch '{}': {}", branchName, ex.getMessage());
+                            logger.debug("Full exception for branch '{}' check/fetch failure", branchName, ex);
                         }
                         return null;
                     });
@@ -751,7 +755,10 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         localTrackingName = branchName.substring(slashIndex + 1);
                         // Fetch the branch before checkout if needed
                         if (getRepo().remote().branchNeedsFetch(remoteName, localTrackingName)) {
-                            logger.info("Fetching branch '{}' from remote '{}' (has updates)", localTrackingName, remoteName);
+                            logger.info(
+                                    "Fetching branch '{}' from remote '{}' (has updates)",
+                                    localTrackingName,
+                                    remoteName);
                             getRepo().remote().fetchBranch(remoteName, localTrackingName);
                         } else {
                             logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
