@@ -33,6 +33,76 @@ export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
 ```
 
+## ASK Mode: Read-Only Codebase Search
+
+ASK mode enables **interactive, read-only exploration** of your repository. It leverages the internal `SearchAgent` to understand your queries and automatically discover relevant code without making any modifications.
+
+### How ASK Works
+
+When you submit an ASK job, the system:
+1. Receives your natural language query
+2. Uses the SearchAgent to intelligently search the codebase
+3. Discovers relevant files, symbols, and code structures
+4. Streams results back as events (no UI prompts needed in headless mode)
+5. Provides findings without making any commits or code changes
+
+### Supported Search & Inspection Capabilities
+
+- **Symbol search**: Find class, method, and field definitions by name or pattern
+- **Class inspection**: Get full source code or skeleton views of classes
+- **Method lookup**: Retrieve specific method implementations
+- **File summaries**: Get a quick overview of class structures in files (fields, method signatures)
+- **Usages**: Discover where symbols are used throughout the codebase
+- **File search**: Search for files by name or content patterns
+- **Git history**: Search commit messages for context about changes
+- **Related code**: Automatically find related classes and dependencies
+
+### Configuration
+
+ASK mode requires:
+- `plannerModel`: The LLM model to use for understanding queries and searching
+- `autoCompress` (optional): Enable automatic context compression (recommended for large codebases)
+
+ASK mode **ignores** `codeModel` since it does not perform code generation.
+
+### Example Workflow
+
+```bash
+# 1. Create a session
+curl -sS -X POST "http://localhost:8080/v1/sessions" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "name": "Code Investigation Session"
+}
+JSON
+# Returns: { "sessionId": "<session-id>" }
+
+# 2. Submit an ASK query
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ask-query-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Where is the UserService class defined? Show me its public methods and explain what this class does.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-4",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
+
+# 3. Stream events to see the discovery process
+curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
+  -H "Authorization: Bearer my-secret-token" | tail -f
+```
+
 ## API Endpoints
 
 Once running, the executor exposes the following endpoints:
@@ -57,8 +127,11 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input
+  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, ASK, or CODE)
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
+  - **ASK mode**: Set `"tags": { "mode": "ASK" }` for read-only codebase search
+  - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
+  - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 - **`GET /v1/jobs/{jobId}`** - Get job status
   - Returns: `JobStatus` JSON with current state and metadata

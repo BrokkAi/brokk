@@ -96,7 +96,12 @@ JSON
 
 To override the code model in ARCHITECT mode, add `"codeModel": "gpt-5-mini"` (or any supported model) to the payload.
 
-### ASK Mode (read-only)
+### ASK Mode (read-only codebase search)
+
+ASK mode enables **read-only exploration** of your codebase using natural language queries.
+Under the hood, ASK uses the SearchAgent to discover and inspect code symbols, classes, methods, and file contents without making any modifications or commits.
+
+#### Example: Ask about code structure
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs" \
@@ -116,6 +121,61 @@ curl -sS -X POST "${BASE}/v1/jobs" \
 }
 JSON
 ```
+
+#### Example: Search for symbols
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Find all classes and methods related to authentication. Show me where AuthenticationManager and LoginController are defined.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+ASK will search for these symbols and return their locations and signatures without modifying any code.
+
+#### Example: Inspect file summaries
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Show me the structure of all classes in the 'src/main/java/com/example/service' directory. List their fields and method signatures.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+ASK will retrieve class skeletons with method signatures and fields, providing a high-level overview without retrieving full source code.
+
+#### Key characteristics of ASK mode
+
+- **Read-only**: No code modifications, commits, or builds
+- **Intelligent search**: Uses SearchAgent to find relevant code based on natural language queries
+- **Multiple inspection tools**: Searches symbols, classes, methods, usages, file contents, and git history
+- **Responsive**: Streams results back via `/v1/jobs/{jobId}/events` as they are discovered
+- **Requires `plannerModel`**: Specify which LLM to use for understanding your query and navigating the codebase
+- **Ignores `codeModel`**: Code model is not used in ASK mode
 
 ### CODE Mode
 
