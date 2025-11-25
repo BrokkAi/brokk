@@ -49,7 +49,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .collect(Collectors.toList());
     }
 
     @Override
