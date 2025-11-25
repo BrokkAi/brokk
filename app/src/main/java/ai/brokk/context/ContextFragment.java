@@ -2523,64 +2523,55 @@ public interface ContextFragment {
             return FragmentType.SKELETON;
         }
 
-        /**
-         * Lazily fetches and caches skeletons for the target and its ancestors.
-         * Ensures a single fetch pass regardless of how many times this method or its callers are invoked.
-         */
         private Map<CodeUnit, String> getSkeletonsWithAncestors() {
-            if (cachedSkeletonsWithAncestors != null) {
-                return cachedSkeletonsWithAncestors;
-            } else {
-                IAnalyzer analyzer = getAnalyzer();
-                Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-                analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
-                    switch (summaryType) {
-                        case CODEUNIT_SKELETON -> {
-                            analyzer.getDefinitions(targetIdentifier).forEach(cu -> {
-                                // Always try to include the primary target's skeleton
-                                skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+                         if (cachedSkeletonsWithAncestors != null) {
+                                          return cachedSkeletonsWithAncestors;
+                         }
+                         IAnalyzer analyzer = getAnalyzer();
+                         Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+                         var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+                         if (skeletonProviderOpt.isEmpty()) {
+                                          cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+                                          return cachedSkeletonsWithAncestors;
+                         }
+                         var skeletonProvider = skeletonProviderOpt.get();
 
-                                // If the target is a class, include its direct ancestors (superclass and interfaces)
-                                if (cu.isClass()) {
-                                    // Avoid duplicates and cycles; store seen FQNs
-                                    var seen = new HashSet<String>();
-                                    seen.add(cu.fqName());
-                                    analyzer.getDirectAncestors(cu).stream()
-                                            .filter(anc -> seen.add(anc.fqName()))
-                                            .forEach(anc -> skeletonProvider
-                                                    .getSkeleton(anc)
-                                                    .ifPresent(s -> skeletonsMap.put(anc, s)));
-                                }
-                            });
-                        }
-                        case FILE_SKELETONS -> {
-                            IContextManager cm = getContextManager();
-                            ProjectFile projectFile = cm.toFile(targetIdentifier);
-                            // Get all TLDs in the file
-                            Map<CodeUnit, String> tldsMap = skeletonProvider.getSkeletons(projectFile);
-                            skeletonsMap.putAll(tldsMap);
+                         // Resolve primary targets in stable, source-declaration order
+                         Set<CodeUnit> primaryTargets = resolvePrimaryTargets(analyzer);
 
-                            // For each TLD that is a class, fetch its direct ancestors
-                            var seen = new HashSet<String>();
-                            tldsMap.keySet().stream().filter(CodeUnit::isClass).forEach(classCu -> {
-                                seen.add(classCu.fqName());
-                                analyzer.getDirectAncestors(classCu).stream()
-                                        .filter(anc -> seen.add(anc.fqName()))
-                                        .forEach(anc -> skeletonProvider
-                                                .getSkeleton(anc)
-                                                .ifPresent(s -> skeletonsMap.put(anc, s)));
-                            });
-                        }
-                    }
-                });
-                cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
-                return cachedSkeletonsWithAncestors;
-            }
-        }
+                         // 1) Add primary target skeletons first (preserving declaration order)
+                         for (CodeUnit cu : primaryTargets) {
+                                          skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+                         }
 
-        @Override
-        @Blocking
-        public String text() {
+                         // 2) Then collect and append unique direct ancestors (preserving discovery order)
+                         var seenAncestors = new HashSet<String>();
+                         primaryTargets.stream()
+                                                           .filter(CodeUnit::isClass)
+                                                           .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                                                           .filter(anc -> seenAncestors.add(anc.fqName()))
+                                                           .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
+
+                         cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+                         return cachedSkeletonsWithAncestors;
+                                 }
+
+                                 private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
+                                     switch (summaryType) {
+                                         case CODEUNIT_SKELETON:
+                                             return analyzer.getDefinitions(targetIdentifier);
+                                         case FILE_SKELETONS:
+                                             IContextManager cm = getContextManager();
+                                             ProjectFile projectFile = cm.toFile(targetIdentifier);
+                                             return new LinkedHashSet<>(analyzer.getTopLevelDeclarations(projectFile));
+                                         default:
+                                             return Set.of();
+                                     }
+                                 }
+
+                                 @Override
+                                 @Blocking
+                                 public String text() {
             Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
             if (skeletons.isEmpty()) {
                 return "No summary found for: " + targetIdentifier;
