@@ -510,15 +510,25 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         return Optional.of(targetPackage);
     }
 
+    /**
+     * Resolves import statements into a set of {@link CodeUnit}s, respecting Python's import precedence rules.
+     * Explicit imports (e.g., {@code from package import MyClass}) take priority over wildcard imports
+     * (e.g., {@code from package import *}). If multiple wildcard imports could provide a class with
+     * the same simple name, the first one encountered in the source file wins. This provides deterministic
+     * behavior for ambiguous wildcard imports.
+     * <p>
+     * Wildcard imports only include public classes (those without leading underscore).
+     */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Set<CodeUnit> resolved = new LinkedHashSet<>();
+        Set<CodeUnit> explicitImports = new LinkedHashSet<>();
+        List<String> wildcardPackages = new ArrayList<>();
 
+        // 1. First pass: parse all import statements, separating explicit from wildcard.
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
             // Parse the import statement with TreeSitter
-            // Note: We parse it as a complete module (TreeSitter expects valid Python)
             var parser = getTSParser();
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
@@ -529,6 +539,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
             var match = new TSQueryMatch();
             String currentModule = null;
+            String wildcardModule = null;
 
             // Collect all captures from this import statement
             while (cursor.nextMatch(match)) {
@@ -546,9 +557,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             var absolutePath = resolveRelativeImport(file, text);
                             currentModule = absolutePath.orElse(null);
                         }
+                        case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
+                        case IMPORT_RELATIVE_WILDCARD -> {
+                            // Resolve relative wildcard import to absolute package path
+                            var absolutePath = resolveRelativeImport(file, text);
+                            wildcardModule = absolutePath.orElse(null);
+                        }
+                        case IMPORT_WILDCARD -> {
+                            // This is a wildcard import - store the package for later resolution
+                            if (wildcardModule != null && !wildcardModule.isEmpty()) {
+                                wildcardPackages.add(wildcardModule);
+                            }
+                        }
                         case IMPORT_NAME -> {
                             // For "from X import Y" style, we need the module
-                            if (currentModule != null && !text.equals("*")) {
+                            if (currentModule != null) {
                                 // In Python, modules (files) don't add a level to class FQNs
                                 // "from package.module import Class" means:
                                 //   - Look for Class in file package/module.py
@@ -563,7 +586,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                     decls.stream()
                                             .filter(cu -> cu.identifier().equals(text) && cu.isClass())
                                             .findFirst()
-                                            .ifPresent(resolved::add);
+                                            .ifPresent(explicitImports::add);
                                 } catch (Exception e) {
                                     log.warn(
                                             "Could not resolve import '{}' from module {}: {}",
@@ -571,19 +594,46 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                             currentModule,
                                             e.getMessage());
                                 }
-                            } else if (currentModule == null) {
-                                // For "import X" style
+                            } else if (wildcardModule == null) {
+                                // For "import X" style (no module context at all)
                                 var definitions = getDefinitions(text);
                                 definitions.stream()
                                         .filter(CodeUnit::isClass)
                                         .findFirst()
-                                        .ifPresent(resolved::add);
+                                        .ifPresent(explicitImports::add);
                             }
                         }
                             // Note: IMPORT_ALIAS captures the alias name, but we don't need it
                             // for resolution - we only care about the original name
                     }
                 }
+            }
+        }
+
+        // 2. Build the final set of resolved imports, prioritizing explicit imports.
+        Set<CodeUnit> resolved = new LinkedHashSet<>(explicitImports);
+        Set<String> resolvedSimpleNames =
+                explicitImports.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+
+        // 3. Process wildcard imports. A class from a wildcard is only added if a class
+        //    with the same simple name has not already been added from an explicit import
+        //    or a preceding wildcard import. This ensures deterministic resolution.
+        for (String packagePath : wildcardPackages) {
+            // Get all classes in the package/module
+            var moduleFilePath = packagePath.replace('.', '/') + ".py";
+            try {
+                var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+                var decls = getDeclarations(moduleFile);
+                for (CodeUnit child : decls) {
+                    // Only add public classes (no underscore prefix) whose name isn't already resolved
+                    if (child.isClass()
+                            && !child.identifier().startsWith("_")
+                            && resolvedSimpleNames.add(child.identifier())) {
+                        resolved.add(child);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Could not expand wildcard import from {}: {}", packagePath, e.getMessage());
             }
         }
 
