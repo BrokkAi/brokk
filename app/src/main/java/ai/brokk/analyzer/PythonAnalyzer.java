@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -511,20 +512,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Resolves import statements into a set of {@link CodeUnit}s, respecting Python's import precedence rules.
-     * Explicit imports (e.g., {@code from package import MyClass}) take priority over wildcard imports
-     * (e.g., {@code from package import *}). If multiple wildcard imports could provide a class with
-     * the same simple name, the first one encountered in the source file wins. This provides deterministic
-     * behavior for ambiguous wildcard imports.
+     * Resolves import statements into a set of {@link CodeUnit}s, matching Python's native import semantics.
+     * In Python, imports are executed in order and later imports override earlier ones with the same name.
+     * This means a wildcard import that comes after an explicit import will shadow the explicit import
+     * if both provide the same name.
      * <p>
      * Wildcard imports only include public classes (those without leading underscore).
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        Set<CodeUnit> explicitImports = new LinkedHashSet<>();
-        List<String> wildcardPackages = new ArrayList<>();
+        // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
+        Map<String, CodeUnit> resolvedByName = new LinkedHashMap<>();
 
-        // 1. First pass: parse all import statements, separating explicit from wildcard.
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
@@ -564,9 +563,26 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             wildcardModule = absolutePath.orElse(null);
                         }
                         case IMPORT_WILDCARD -> {
-                            // This is a wildcard import - store the package for later resolution
+                            // Wildcard import - expand and add all public classes (may overwrite previous imports)
                             if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                wildcardPackages.add(wildcardModule);
+                                var moduleFilePath = wildcardModule.replace('.', '/') + ".py";
+                                try {
+                                    var moduleFile =
+                                            new ProjectFile(getProject().getRoot(), moduleFilePath);
+                                    var decls = getDeclarations(moduleFile);
+                                    for (CodeUnit child : decls) {
+                                        // Only import public classes (no underscore prefix)
+                                        if (child.isClass()
+                                                && !child.identifier().startsWith("_")) {
+                                            resolvedByName.put(child.identifier(), child);
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    log.warn(
+                                            "Could not expand wildcard import from {}: {}",
+                                            wildcardModule,
+                                            e.getMessage());
+                                }
                             }
                         }
                         case IMPORT_NAME -> {
@@ -586,7 +602,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                     decls.stream()
                                             .filter(cu -> cu.identifier().equals(text) && cu.isClass())
                                             .findFirst()
-                                            .ifPresent(explicitImports::add);
+                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                 } catch (Exception e) {
                                     log.warn(
                                             "Could not resolve import '{}' from module {}: {}",
@@ -600,7 +616,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 definitions.stream()
                                         .filter(CodeUnit::isClass)
                                         .findFirst()
-                                        .ifPresent(explicitImports::add);
+                                        .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                             }
                         }
                             // Note: IMPORT_ALIAS captures the alias name, but we don't need it
@@ -610,34 +626,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        // 2. Build the final set of resolved imports, prioritizing explicit imports.
-        Set<CodeUnit> resolved = new LinkedHashSet<>(explicitImports);
-        Set<String> resolvedSimpleNames =
-                explicitImports.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
-
-        // 3. Process wildcard imports. A class from a wildcard is only added if a class
-        //    with the same simple name has not already been added from an explicit import
-        //    or a preceding wildcard import. This ensures deterministic resolution.
-        for (String packagePath : wildcardPackages) {
-            // Get all classes in the package/module
-            var moduleFilePath = packagePath.replace('.', '/') + ".py";
-            try {
-                var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
-                var decls = getDeclarations(moduleFile);
-                for (CodeUnit child : decls) {
-                    // Only add public classes (no underscore prefix) whose name isn't already resolved
-                    if (child.isClass()
-                            && !child.identifier().startsWith("_")
-                            && resolvedSimpleNames.add(child.identifier())) {
-                        resolved.add(child);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Could not expand wildcard import from {}: {}", packagePath, e.getMessage());
-            }
-        }
-
-        return Collections.unmodifiableSet(resolved);
+        return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
     }
 
     @Override
