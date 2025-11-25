@@ -292,4 +292,11 @@ public class MultiAnalyzer
                 .flatMap(analyzer -> analyzer.subAnalyzer(language).stream())
                 .findAny();
     }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
+                .toList();
+    }
 }
