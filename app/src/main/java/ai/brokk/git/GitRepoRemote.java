@@ -18,6 +18,26 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 /** Encapsulates remote-related operations for a GitRepo. Stores a reference to the owning GitRepo as `repo`. */
 public class GitRepoRemote {
+
+    /**
+     * Represents a parsed remote branch reference (e.g., "origin/feature-branch").
+     */
+    public record RemoteBranchRef(String remoteName, String branchName) {
+        /**
+         * Parses a remote branch reference like "origin/feature-branch".
+         * @param ref The full ref (must contain "/")
+         * @return RemoteBranchRef with remote and branch parts, or null if no "/" found
+         */
+        @Nullable
+        public static RemoteBranchRef parse(String ref) {
+            int slash = ref.indexOf('/');
+            if (slash <= 0) {
+                return null;
+            }
+            return new RemoteBranchRef(ref.substring(0, slash), ref.substring(slash + 1));
+        }
+    }
+
     private static final Logger logger = LogManager.getLogger(GitRepoRemote.class);
 
     private final GitRepo repo;

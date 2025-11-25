@@ -875,12 +875,8 @@ public class GitRepo implements Closeable, IGitRepo {
      * branch name)
      */
     public void checkoutRemoteBranch(String remoteBranchName) throws GitAPIException {
-        String branchName;
-        if (remoteBranchName.contains("/")) {
-            branchName = remoteBranchName.substring(remoteBranchName.indexOf('/') + 1);
-        } else {
-            branchName = remoteBranchName;
-        }
+        var ref = GitRepoRemote.RemoteBranchRef.parse(remoteBranchName);
+        var branchName = ref != null ? ref.branchName() : remoteBranchName;
         checkoutRemoteBranch(remoteBranchName, branchName);
     }
 

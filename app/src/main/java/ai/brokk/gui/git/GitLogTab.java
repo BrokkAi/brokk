@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -279,18 +280,16 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 updateCommitsForBranch(branchName);
                 gitCommitBrowserPanel.clearSearchField();
                 // Then check/fetch in background and refresh if updates found
-                if (branchName.contains("/")) {
-                    var slashIndex = branchName.indexOf('/');
-                    var remoteName = branchName.substring(0, slashIndex);
-                    var remoteBranchOnly = branchName.substring(slashIndex + 1);
+                var ref = RemoteBranchRef.parse(branchName);
+                if (ref != null) {
                     contextManager.submitBackgroundTask("Checking " + branchName, () -> {
                         try {
-                            if (getRepo().remote().branchNeedsFetch(remoteName, remoteBranchOnly)) {
+                            if (getRepo().remote().branchNeedsFetch(ref.remoteName(), ref.branchName())) {
                                 logger.info(
                                         "Fetching branch '{}' from remote '{}' (has updates)",
-                                        remoteBranchOnly,
-                                        remoteName);
-                                getRepo().remote().fetchBranch(remoteName, remoteBranchOnly);
+                                        ref.branchName(),
+                                        ref.remoteName());
+                                getRepo().remote().fetchBranch(ref.remoteName(), ref.branchName());
                                 // Refresh commits after fetch
                                 SwingUtilities.invokeLater(() -> updateCommitsForBranch(branchName));
                             } else {
@@ -749,17 +748,16 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
                 if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
-                    if (branchName.contains("/")) {
-                        var slashIndex = branchName.indexOf('/');
-                        var remoteName = branchName.substring(0, slashIndex);
-                        localTrackingName = branchName.substring(slashIndex + 1);
+                    var ref = RemoteBranchRef.parse(branchName);
+                    if (ref != null) {
+                        localTrackingName = ref.branchName();
                         // Fetch the branch before checkout if needed
-                        if (getRepo().remote().branchNeedsFetch(remoteName, localTrackingName)) {
+                        if (getRepo().remote().branchNeedsFetch(ref.remoteName(), ref.branchName())) {
                             logger.info(
                                     "Fetching branch '{}' from remote '{}' (has updates)",
-                                    localTrackingName,
-                                    remoteName);
-                            getRepo().remote().fetchBranch(remoteName, localTrackingName);
+                                    ref.branchName(),
+                                    ref.remoteName());
+                            getRepo().remote().fetchBranch(ref.remoteName(), ref.branchName());
                         } else {
                             logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
                         }
