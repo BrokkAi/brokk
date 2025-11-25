@@ -2024,6 +2024,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    /**
+     * Sets text in the instructions area while preserving undo capability.
+     * The entire text replacement is captured as a single undoable edit.
+     */
+    private void setTextWithUndo(String newText) {
+        String oldText = instructionsArea.getText();
+        if (isPlaceholderText(oldText)) {
+            oldText = "";
+        }
+
+        // Disable undo listener temporarily to avoid capturing intermediate edits
+        instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+
+        instructionsArea.setText(newText);
+
+        // Re-enable undo listener for future user typing
+        instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+
+        // Add a single edit representing the entire text replacement
+        String finalOldText = oldText;
+        commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+            @Override
+            public void undo() throws CannotUndoException {
+                super.undo();
+                instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+                instructionsArea.setText(finalOldText);
+                instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+            }
+
+            @Override
+            public void redo() throws CannotRedoException {
+                super.redo();
+                instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+                instructionsArea.setText(newText);
+                instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+            }
+
+            @Override
+            public String getPresentationName() {
+                return "Text Replacement";
+            }
+        });
+    }
+
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first
