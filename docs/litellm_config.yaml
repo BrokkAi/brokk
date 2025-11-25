@@ -309,6 +309,52 @@ model_list:
       supports_reasoning: true
       supports_computer_use: true
 
+  - model_name: claude-4-1-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-1-20250805
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      supports_reasoning_disable: true
+      is_private: true
+      max_concurrent_requests: 1
+      cache_creation_input_token_cost: 1.875e-05
+      cache_read_input_token_cost: 1.5e-06
+      litellm_provider: "anthropic"
+      mode: "chat"
+      supports_function_calling: true
+      supports_vision: true
+      tool_use_system_prompt_tokens: 159
+      supports_assistant_prefill: true
+      supports_pdf_input: true
+      supports_prompt_caching: true
+      supports_response_schema: true
+      supports_tool_choice: true
+      supports_reasoning: true
+      supports_computer_use: true
+
+  - model_name: claude-4-5-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-5-20251101
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      supports_reasoning_disable: true
+      is_private: true
+      max_concurrent_requests: 1
+      cache_creation_input_token_cost: 1.875e-05
+      cache_read_input_token_cost: 1.5e-06
+      litellm_provider: "anthropic"
+      mode: "chat"
+      supports_function_calling: true
+      supports_vision: true
+      tool_use_system_prompt_tokens: 159
+      supports_assistant_prefill: true
+      supports_pdf_input: true
+      supports_prompt_caching: true
+      supports_response_schema: true
+      supports_tool_choice: true
+      supports_reasoning: true
+      supports_computer_use: true
+
   - model_name: gpt-oss-120b
     litellm_params:
       model: openrouter/openai/gpt-oss-120b
