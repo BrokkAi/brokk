@@ -2496,9 +2496,9 @@ public interface ContextFragment {
             var analyzer = getAnalyzer();
 
             if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                var maybeCu = analyzer.getDefinition(targetIdentifier);
-                if (maybeCu.isPresent()) {
-                    var cu = maybeCu.get();
+                var maybeClassUnit = analyzer.getDefinitions(targetIdentifier).stream().filter(CodeUnit::isClass).findAny();
+                if (maybeClassUnit.isPresent()) {
+                    var cu = maybeClassUnit.get();
                     if (cu.isClass()) {
                         return formatSummaryWithAncestors(cu, skeletons);
                     }
