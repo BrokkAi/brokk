@@ -1368,10 +1368,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     historyMenuItem.setToolTipText(item);
 
                     historyMenuItem.addActionListener(ev -> {
+                        // Capture old text before any modifications
+                        String oldText = instructionsArea.getText();
+                        if (isPlaceholderText(oldText)) {
+                            oldText = "";
+                        }
+
                         commandInputOverlay.hideOverlay();
                         instructionsArea.setEnabled(true);
 
-                        setTextWithUndo(item); // Use undo-preserving helper
+                        setTextWithUndo(item, oldText); // Use undo-preserving helper
                         instructionsArea.requestFocusInWindow();
                     });
                     menu.add(historyMenuItem);
@@ -2026,13 +2032,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /**
      * Sets text in the instructions area while preserving undo capability.
      * The entire text replacement is captured as a single undoable edit.
+     *
+     * @param newText the new text to set
+     * @param oldText the original text to restore on undo (must be captured before any clearing)
      */
-    private void setTextWithUndo(String newText) {
-        String oldText = instructionsArea.getText();
-        if (isPlaceholderText(oldText)) {
-            oldText = "";
-        }
-
+    private void setTextWithUndo(String newText, String oldText) {
         // Disable undo listener temporarily to avoid capturing intermediate edits
         instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
 
@@ -2042,13 +2046,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Add a single edit representing the entire text replacement
-        String finalOldText = oldText;
         commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
             @Override
             public void undo() throws CannotUndoException {
                 super.undo();
                 instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
-                instructionsArea.setText(finalOldText);
+                instructionsArea.setText(oldText);
                 instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
             }
 
@@ -2069,12 +2072,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
+            // Capture the original text BEFORE activation clears it
+            String originalText = instructionsArea.getText();
+            if (isPlaceholderText(originalText)) {
+                originalText = "";
+            }
+            String capturedOldText = originalText;
+
             // If placeholder is active or area is disabled, activate input first
             if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
             SwingUtilities.invokeLater(() -> {
-                setTextWithUndo(text); // Use undo-preserving helper
+                setTextWithUndo(text, capturedOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
             });
