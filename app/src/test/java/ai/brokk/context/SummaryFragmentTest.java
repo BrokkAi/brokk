@@ -151,26 +151,26 @@ public class SummaryFragmentTest {
 
             assertCodeEquals(
                     """
-    package (default package);
+                    package (default package);
 
-    class Child1 extends Base implements I1 {
-    }
+                    class Child1 extends Base implements I1 {
+                    }
 
-    class Child2 extends Base implements I2 {
-    }
+                    class Child2 extends Base implements I2 {
+                    }
 
-    class Standalone {
-    }
+                    class Standalone {
+                    }
 
-    public class Base {
-    }
+                    public class Base {
+                    }
 
-    public interface I1 {
-    }
+                    public interface I1 {
+                    }
 
-    public interface I2 {
-    }
-    """,
+                    public interface I2 {
+                    }
+                    """,
                     text);
 
             // sources() should include the 3 TLDs and their ancestors (Base, I1, I2); no duplicates

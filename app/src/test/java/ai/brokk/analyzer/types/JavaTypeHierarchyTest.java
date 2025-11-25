@@ -156,17 +156,17 @@ public class JavaTypeHierarchyTest {
                     class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
                     }
 
-                    // Direct ancestors of ExtendsAndImplements: BaseClass, Interface, ServiceInterface
+                    // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
 
                     package (default package);
 
                     class BaseClass {
                     }
 
-                    interface Interface {
+                    interface ServiceInterface {
                     }
 
-                    interface ServiceInterface {
+                    interface Interface {
                     }
                     """,
                     txt);

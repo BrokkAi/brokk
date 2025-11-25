@@ -2496,7 +2496,9 @@ public interface ContextFragment {
             var analyzer = getAnalyzer();
 
             if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                var maybeClassUnit = analyzer.getDefinitions(targetIdentifier).stream().filter(CodeUnit::isClass).findAny();
+                var maybeClassUnit = analyzer.getDefinitions(targetIdentifier).stream()
+                        .filter(CodeUnit::isClass)
+                        .findAny();
                 if (maybeClassUnit.isPresent()) {
                     var cu = maybeClassUnit.get();
                     if (cu.isClass()) {
@@ -2505,16 +2507,24 @@ public interface ContextFragment {
                 }
             }
 
-            // For FILE_SKELETONS or non-class CODEUNIT_SKELETON, format by package
-            return formatSkeletonsByPackage(skeletons);
+            // For FILE_SKELETONS or non-class CODEUNIT_SKELETON, format by package preserving insertion order
+            return formatSkeletonsByPackage(skeletons, false);
         }
 
         /**
-         * Shared helper: formats skeletons grouped by package.
-         * Groups CodeUnit → skeleton pairs by package name, emits sorted package headers with skeleton bodies.
-         * Preserves insertion order of CodeUnits within each package (does not sort).
+         * Core formatting method that groups skeletons by package and optionally sorts within packages.
+         *
+         * Ordering strategy:
+         * - Packages are always sorted alphabetically (deterministic across machines)
+         * - Within each package:
+         *   - If sortWithinPackage=true: CodeUnits sorted by FQN (deterministic for ancestors)
+         *   - If sortWithinPackage=false: CodeUnits preserve insertion order (source declaration order for TLDs)
+         *
+         * @param skeletons map of CodeUnit to skeleton string
+         * @param sortWithinPackage if true, sort by FQN within packages; if false, preserve insertion order
+         * @return formatted skeleton output grouped by package
          */
-        private static String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
+        private static String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons, boolean sortWithinPackage) {
             if (skeletons.isEmpty()) {
                 return "";
             }
@@ -2531,39 +2541,17 @@ public interface ContextFragment {
                     .sorted(Map.Entry.comparingByKey())
                     .map(pkgEntry -> {
                         String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        // Preserve insertion order of CodeUnits within each package
-                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        return packageHeader + "\n\n" + pkgCode;
-                    })
-                    .collect(Collectors.joining("\n\n"));
-        }
-
-        /**
-         * Formats skeletons grouped by package, with CodeUnits sorted by fqName within each package.
-         * Used for deterministic rendering of ancestors and other sorted outputs.
-         */
-        private static String formatSkeletonsByPackageSorted(Map<CodeUnit, String> skeletons) {
-            if (skeletons.isEmpty()) {
-                return "";
-            }
-
-            var skeletonsByPackage = skeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> e.getKey().packageName().isEmpty()
-                                    ? "(default package)"
-                                    : e.getKey().packageName(),
-                            Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
-
-            return skeletonsByPackage.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> {
-                        String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        // Sort CodeUnits within each package by fqName for deterministic output
-                        String pkgCode = pkgEntry.getValue().entrySet().stream()
-                                .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
-                                .map(Map.Entry::getValue)
-                                .collect(Collectors.joining("\n\n"));
+                        String pkgCode;
+                        if (sortWithinPackage) {
+                            // Sort CodeUnits within package by FQN for deterministic output
+                            pkgCode = pkgEntry.getValue().entrySet().stream()
+                                    .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
+                                    .map(Map.Entry::getValue)
+                                    .collect(Collectors.joining("\n\n"));
+                        } else {
+                            // Preserve insertion order (source declaration order)
+                            pkgCode = String.join("\n\n", pkgEntry.getValue().values());
+                        }
                         return packageHeader + "\n\n" + pkgCode;
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -2572,12 +2560,12 @@ public interface ContextFragment {
         /**
          * Formats the primary class skeleton and its direct ancestors into a single, deterministic output.
          * - Partitions provided skeletons into primary and ancestors (by FQN equality with cu)
-         * - Groups by package, preserving insertion order for primary, sorting for ancestors
-         * - Includes ancestor skeletons without language-specific comments
-         * - Adds a comment header listing direct ancestors in order
+         * - Groups by package, preserving insertion order for primary TLDs
+         * - Includes ancestor skeletons sorted by FQN within packages (deterministic)
+         * - Adds a comment header listing direct ancestors in source declaration order
          */
         private String formatSummaryWithAncestors(CodeUnit cu, Map<CodeUnit, String> skeletons) {
-            // Partition fetched skeletons into primary and ancestors
+            // Partition fetched skeletons into primary and ancestors, preserving insertion order
             Map<CodeUnit, String> primary = new LinkedHashMap<>();
             List<CodeUnit> ancestorList = new ArrayList<>();
             skeletons.forEach((k, v) -> {
@@ -2588,18 +2576,15 @@ public interface ContextFragment {
                 }
             });
 
-            // Sort ancestors by fqName for deterministic output
-            ancestorList.sort(Comparator.comparing(CodeUnit::fqName));
-
             var sb = new StringBuilder();
 
             // Emit primary class skeleton(s) preserving insertion order
-            String primaryFormatted = formatSkeletonsByPackage(primary);
+            String primaryFormatted = formatSkeletonsByPackage(primary, false);
             if (!primaryFormatted.isEmpty()) {
                 sb.append(primaryFormatted).append("\n\n");
             }
 
-            // Emit direct ancestors comment header if any
+            // Emit direct ancestors comment header if any (preserving declaration order from ancestorList)
             if (!ancestorList.isEmpty()) {
                 String ancestorNames =
                         ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
@@ -2609,10 +2594,13 @@ public interface ContextFragment {
                         .append(ancestorNames)
                         .append("\n\n");
 
-                // Emit ancestor skeletons sorted by fqName for determinism
+                // Emit ancestor skeletons sorted by FQN within packages for deterministic output
                 Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
                 ancestorList.forEach(anc -> ancestorsMap.put(anc, skeletons.get(anc)));
-                String ancestorsFormatted = formatSkeletonsByPackageSorted(ancestorsMap);
+                // Preserve ancestor declaration order in the rendered skeletons for CODEUNIT_SKELETON.
+                // Package grouping is still deterministic (alphabetical), and insertion order within packages
+                // reflects the meaningful ancestor order from source: superclass first, then interfaces in order.
+                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap, false);
                 if (!ancestorsFormatted.isEmpty()) {
                     sb.append(ancestorsFormatted).append("\n\n");
                 }
@@ -2702,8 +2690,8 @@ public interface ContextFragment {
                 return "No summaries available";
             }
 
-            // Use shared helper to format by package
-            String formatted = formatSkeletonsByPackage(allSkeletons);
+            // Format by package preserving insertion order (source declaration order)
+            String formatted = formatSkeletonsByPackage(allSkeletons, false);
             return formatted.isEmpty() ? "No summaries available" : formatted;
         }
 
