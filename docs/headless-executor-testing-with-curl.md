@@ -225,6 +225,126 @@ JSON
 
 To override the code model in ARCHITECT mode, add `"codeModel": "gpt-5-mini"` (or any supported model) to the payload.
 
+### LUTZ Mode
+
+LUTZ mode automatically decomposes a complex objective into tasks using SearchAgent planning,
+then executes each task sequentially with the Architect agent. Ideal for multi-step goals that
+benefit from structured decomposition and reasoning before implementation.
+
+#### Example: Complex refactoring with planning
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Refactor the authentication module: improve error handling, add logging, and create unit tests.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "tags": {
+    "mode": "LUTZ"
+  }
+}
+JSON
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "RUNNING"
+}
+```
+
+**Event stream (demonstrates two-phase behavior):**
+
+```bash
+curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/events?after=0" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Sample events:**
+
+```json
+[
+  {
+    "seq": 1,
+    "type": "NOTIFICATION",
+    "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
+  },
+  {
+    "seq": 2,
+    "type": "LLM_TOKEN",
+    "data": "Planning phase: Analyzing refactoring objectives..."
+  },
+  {
+    "seq": 3,
+    "type": "NOTIFICATION",
+    "data": "Task list generated with 3 subtasks"
+  },
+  {
+    "seq": 4,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 1/3: Improve error handling..."
+  },
+  {
+    "seq": 5,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 6,
+    "type": "NOTIFICATION",
+    "data": "Task 1 completed, progress: 33%"
+  },
+  {
+    "seq": 7,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 2/3: Add logging..."
+  },
+  {
+    "seq": 8,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 9,
+    "type": "NOTIFICATION",
+    "data": "Task 2 completed, progress: 66%"
+  },
+  {
+    "seq": 10,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 3/3: Create unit tests..."
+  },
+  {
+    "seq": 11,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 12,
+    "type": "NOTIFICATION",
+    "data": "Task 3 completed, progress: 100%"
+  }
+]
+```
+
+**Key characteristics of LUTZ mode:**
+
+- **Two-phase execution**: Planning phase generates tasks, execution phase runs them sequentially
+- **Intelligent decomposition**: SearchAgent breaks down complex objectives into manageable subtasks
+- **Progress tracking**: Progress updates after each subtask completes (not per-subtask granularity)
+- **Full implementation**: Uses both `plannerModel` (for reasoning) and `codeModel` (for code generation)
+- **Atomic commits**: Can auto-commit and auto-compress per task based on settings
+- **Event streaming**: All phases emit events to `/v1/jobs/{jobId}/events` in real-time
+
 ### ASK Mode
 
 ASK mode enables read-only exploration of your codebase using natural language queries.

@@ -103,6 +103,94 @@ curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
   -H "Authorization: Bearer my-secret-token" | tail -f
 ```
 
+## LUTZ Mode: Two-Phase Planning & Execution
+
+LUTZ mode enables **intelligent task decomposition followed by sequential execution**. It's ideal for complex objectives that benefit from structured planning before implementation.
+
+### How LUTZ Works
+
+When you submit a LUTZ job, the system executes in two phases:
+
+1. **Phase 1: Task Planning** — SearchAgent analyzes your objective and generates a structured task list
+   - Uses your `plannerModel` to understand the goal
+   - Generates an ordered set of subtasks
+   - Persists the task list in the session context
+
+2. **Phase 2: Task Execution** — ArchitectAgent executes each generated subtask sequentially
+   - Iterates through incomplete tasks from the generated list
+   - Uses `plannerModel` for reasoning and `codeModel` for implementation
+   - Honors `autoCommit` and `autoCompress` settings per task
+   - Streams events and updates progress after each task
+
+### Configuration
+
+LUTZ mode requires:
+- `plannerModel`: The LLM model for planning (task decomposition) and reasoning during execution
+- `codeModel` (optional): The LLM model for code generation; defaults to project default if not specified
+- `autoCommit` (optional): Whether to auto-commit changes after each task (default: false)
+- `autoCompress` (optional): Whether to auto-compress context history after each task (default: false)
+
+### Key Differences from ARCHITECT
+
+| Aspect | ARCHITECT | LUTZ |
+|--------|-----------|------|
+| **Planning** | Implicit per-task reasoning | Explicit upfront planning phase |
+| **Task List** | User provides via `taskInput` (one per request) | Auto-generated from objective |
+| **Workflow** | Direct execution of user tasks | SearchAgent → task gen → Architect execution |
+| **Best For** | Single-step objectives, quick iterations | Complex multi-step goals, structured decomposition |
+
+### Example Workflow
+
+```bash
+# 1. Create a session
+curl -sS -X POST "http://localhost:8080/v1/sessions" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "name": "LUTZ Planning Session"
+}
+JSON
+# Returns: { "sessionId": "<session-id>" }
+
+# 2. Submit a LUTZ job with a complex objective
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: lutz-job-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "tags": {
+    "mode": "LUTZ"
+  }
+}
+JSON
+# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
+
+# 3. Stream events to see planning and execution
+curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
+  -H "Authorization: Bearer my-secret-token" | tail -f
+# Events will show:
+# - Planning phase: SearchAgent generating subtasks
+# - Execution phase: ArchitectAgent executing each task, progress updates
+```
+
+### Event Stream Semantics
+
+LUTZ jobs emit events following this pattern:
+
+1. **Planning Events**: Task list generation and context updates from SearchAgent
+2. **Execution Events**: Per-task progress, code modifications, and completions
+3. **Final Events**: Job completion with diff and summary
+
+Progress is updated after each top-level task completes (not per subtask).
+
 ## API Endpoints
 
 Once running, the executor exposes the following endpoints:
@@ -127,10 +215,11 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, ASK, or CODE)
+  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, or CODE)
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for read-only codebase search
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
+  - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 - **`GET /v1/jobs/{jobId}`** - Get job status
