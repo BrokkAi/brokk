@@ -50,11 +50,13 @@
         { adds: 0, dels: 0 }
     );
 
-    // Lines count: total lines across all messages in this thread
-    $: totalLinesAll = messageBubbles.reduce((acc, b) => acc + ((b.markdown ?? '').split(/\r?\n/).length), 0);
+    // Lines count: total lines across all messages in this thread, or summary if viewing summary
+    $: totalLinesAll = showSummary
+        ? (summary ?? '').split(/\r?\n/).length
+        : messageBubbles.reduce((acc, b) => acc + ((b.markdown ?? '').split(/\r?\n/).length), 0);
 
-    // Message count label (message bubbles only)
-    $: msgLabel = messageBubbles.length === 1 ? '1 msg' : `${messageBubbles.length} msgs`;
+    // Message count label (1 msg if viewing summary, otherwise count message bubbles)
+    $: msgLabel = showSummary ? '1 msg' : (messageBubbles.length === 1 ? '1 msg' : `${messageBubbles.length} msgs`);
 
     // Show edits only if any adds/dels present
     $: showEdits = threadTotals.adds > 0 || threadTotals.dels > 0;
