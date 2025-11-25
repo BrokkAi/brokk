@@ -214,16 +214,22 @@ public final class JobRunner {
                                                     spec.autoCompress());
                                         }
                                         case LUTZ -> {
-                                            cm.executeTask(
-                                                    task,
-                                                    Objects.requireNonNull(
-                                                            architectPlannerModel,
-                                                            "plannerModel required for LUTZ jobs"),
-                                                    Objects.requireNonNull(
-                                                            architectCodeModel,
-                                                            "code model unavailable for LUTZ jobs"),
-                                                    spec.autoCommit(),
-                                                    spec.autoCompress());
+                                            // Phase 1: Use SearchAgent to generate a task list from the initial task
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for LUTZ jobs"),
+                                                        SearchAgent.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
+                                            }
+                                            // Task list is now in the live context and persisted by the scope
+                                            logger.debug("LUTZ Phase 1 complete: task list generated");
                                         }
                                         case CODE -> {
                                             var agent = new CodeAgent(
