@@ -42,7 +42,7 @@ namespace Status {
 // Class + namespace merging
 class Config {
     constructor(public data: Record<string, any>) {}
-    
+
     get(key: string): any {
         return this.data[key];
     }
@@ -89,4 +89,24 @@ interface Conflicting {
 interface Conflicting {
     value: number; // This will override the previous declaration
     extra: boolean;
+}
+
+// Field + Function pattern - getter/setter patterns
+// TypeScript allows getters/setters which appear as both field and function
+class FieldAndFunction {
+    private _data: number = 0;
+
+    // Getter/setter pair - may be captured as both field and function
+    get data(): number {
+        return this._data;
+    }
+
+    set data(value: number) {
+        this._data = value;
+    }
+
+    // Regular method for comparison
+    reset(): void {
+        this._data = 0;
+    }
 }

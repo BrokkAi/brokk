@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -72,6 +72,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     private GoAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.GO, state);
         this.packageQuery = createGoNamespaceQuery();
+    }
+
+    public static GoAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new GoAnalyzer(project, state);
     }
 
     @Override

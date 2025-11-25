@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,6 +49,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState) {
         super(project, Languages.C_SHARP, prebuiltState);
+    }
+
+    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new CSharpAnalyzer(project, state);
     }
 
     @Override

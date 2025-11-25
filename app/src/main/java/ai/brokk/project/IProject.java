@@ -1,5 +1,9 @@
-package ai.brokk;
+package ai.brokk.project;
 
+import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
+import ai.brokk.IssueProvider;
+import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -134,11 +138,11 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default Service.ModelConfig getCodeModelConfig() {
+    default AbstractService.ModelConfig getCodeModelConfig() {
         throw new UnsupportedOperationException();
     }
 
-    default Service.ModelConfig getQuickModelConfig() {
+    default AbstractService.ModelConfig getQuickModelConfig() {
         throw new UnsupportedOperationException();
     }
 
@@ -285,19 +289,19 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setQuickModelConfig(Service.ModelConfig modelConfig) {
+    default void setQuickModelConfig(AbstractService.ModelConfig modelConfig) {
         throw new UnsupportedOperationException();
     }
 
-    default void setCodeModelConfig(Service.ModelConfig modelConfig) {
+    default void setCodeModelConfig(AbstractService.ModelConfig modelConfig) {
         throw new UnsupportedOperationException();
     }
 
-    default Service.ModelConfig getArchitectModelConfig() {
+    default AbstractService.ModelConfig getArchitectModelConfig() {
         throw new UnsupportedOperationException();
     }
 
-    default void setArchitectModelConfig(Service.ModelConfig config) {
+    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 

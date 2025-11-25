@@ -1,11 +1,11 @@
 package ai.brokk;
 
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;

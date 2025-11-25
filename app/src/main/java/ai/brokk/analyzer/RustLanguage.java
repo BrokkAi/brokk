@@ -2,11 +2,11 @@ package ai.brokk.analyzer;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -61,7 +61,10 @@ public class RustLanguage implements Language {
 
     @Override
     public IAnalyzer loadAnalyzer(IProject project) {
-        return createAnalyzer(project);
+        var storage = getStoragePath(project);
+        return TreeSitterStateIO.load(storage)
+                .map(state -> (IAnalyzer) RustAnalyzer.fromState(project, state))
+                .orElseGet(() -> createAnalyzer(project));
     }
 
     @Override

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
@@ -65,6 +65,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
         super(project, language, state);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
+    }
+
+    public static PhpAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new PhpAnalyzer(project, Languages.PHP, state);
     }
 
     @Override

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -42,6 +42,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     private JavascriptAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.JAVASCRIPT, state);
+    }
+
+    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state) {
+        return new JavascriptAnalyzer(project, state);
     }
 
     @Override

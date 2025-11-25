@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -542,9 +542,16 @@ class HeadlessExecutorMainIntegrationTest {
     private byte[] createEmptyZip() throws IOException {
         var out = new java.io.ByteArrayOutputStream();
         try (var zos = new ZipOutputStream(out)) {
-            var entry = new ZipEntry("metadata.json");
-            zos.putNextEntry(entry);
-            zos.write("{\"version\": 1}".getBytes(StandardCharsets.UTF_8));
+            // Create valid V4 session format with fragments-v4.json
+            var fragmentsEntry = new ZipEntry("fragments-v4.json");
+            zos.putNextEntry(fragmentsEntry);
+            zos.write("{\"version\": 1, \"referenced\": {}, \"virtual\": {}, \"task\": {}}"
+                    .getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
+            // Add empty contexts.jsonl
+            var contextsEntry = new ZipEntry("contexts.jsonl");
+            zos.putNextEntry(contextsEntry);
             zos.closeEntry();
         }
         return out.toByteArray();

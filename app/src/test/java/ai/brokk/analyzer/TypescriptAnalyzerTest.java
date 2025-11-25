@@ -1543,6 +1543,22 @@ public class TypescriptAnalyzerTest {
         // However, the analyzer may capture both - we just verify the interface exists and has members
         assertTrue(conflictingSkeleton.contains("value"), "Conflicting interface should contain value property");
         assertTrue(conflictingSkeleton.contains("extra"), "Conflicting interface should contain extra property");
+
+        // Test 8: Field + Function pattern - FieldAndFunction class
+        // TypeScript getters/setters may be captured as both field and function
+        // The analyzer should treat this as benign (not warn) and handle properly
+        CodeUnit fieldAndFunctionClass = declarations.stream()
+                .filter(cu -> cu.shortName().equals("FieldAndFunction") && cu.isClass())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("FieldAndFunction class should be found"));
+
+        assertTrue(skeletons.containsKey(fieldAndFunctionClass), "FieldAndFunction class should have skeleton");
+        String fieldAndFunctionSkeleton = skeletons.get(fieldAndFunctionClass);
+
+        // Verify the class contains the getter/setter and method
+        assertTrue(fieldAndFunctionSkeleton.contains("_data"), "Should contain _data field");
+        assertTrue(fieldAndFunctionSkeleton.contains("data"), "Should contain data getter/setter");
+        assertTrue(fieldAndFunctionSkeleton.contains("reset"), "Should contain reset method");
     }
 
     @Test
