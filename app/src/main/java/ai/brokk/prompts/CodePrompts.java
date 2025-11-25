@@ -984,7 +984,8 @@ public abstract class CodePrompts {
                     """
            - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
              `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an existing function's signature and body, including any Javadoc; it cannot create new functions.""";
+             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
+             existing function's signature, annotations, and body, including any Javadoc; it cannot create new functions.""";
             hints = "- Use syntax-aware SEARCH when you are rewriting an entire class or function.\n" + hints;
         }
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
