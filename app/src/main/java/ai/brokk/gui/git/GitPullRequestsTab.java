@@ -1924,9 +1924,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                 }
 
-                // Fetch the branch before checkout (applies to both same-repo and fork cases)
-                logger.info("Fetching branch '{}' from remote '{}'", prBranchName, remoteName);
-                getRepo().remote().fetchBranch(remoteName, prBranchName);
+                // Fetch the branch before checkout if needed (applies to both same-repo and fork cases)
+                if (getRepo().remote().branchNeedsFetch(remoteName, prBranchName)) {
+                    logger.info("Fetching branch '{}' from remote '{}' (has updates)", prBranchName, remoteName);
+                    getRepo().remote().fetchBranch(remoteName, prBranchName);
+                } else {
+                    logger.debug("Skipping fetch for '{}/{}' (already up-to-date)", remoteName, prBranchName);
+                }
                 remoteBranchRef = remoteName + "/" + prBranchName;
 
                 String localBranchName = getExpectedLocalBranchName(pr);

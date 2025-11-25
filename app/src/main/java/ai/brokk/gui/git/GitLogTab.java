@@ -275,8 +275,30 @@ public class GitLogTab extends JPanel implements ThemeAware {
             if (!e.getValueIsAdjusting() && remoteBranchTable.getSelectedRow() != -1) {
                 String branchName = (String) remoteBranchTableModel.getValueAt(remoteBranchTable.getSelectedRow(), 0);
                 branchTable.clearSelection();
+                // Show commits immediately from local cache
                 updateCommitsForBranch(branchName);
-                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField();
+                // Then check/fetch in background and refresh if updates found
+                if (branchName.contains("/")) {
+                    var slashIndex = branchName.indexOf('/');
+                    var remoteName = branchName.substring(0, slashIndex);
+                    var remoteBranchOnly = branchName.substring(slashIndex + 1);
+                    contextManager.submitBackgroundTask("Checking " + branchName, () -> {
+                        try {
+                            if (getRepo().remote().branchNeedsFetch(remoteName, remoteBranchOnly)) {
+                                logger.info("Fetching branch '{}' from remote '{}' (has updates)", remoteBranchOnly, remoteName);
+                                getRepo().remote().fetchBranch(remoteName, remoteBranchOnly);
+                                // Refresh commits after fetch
+                                SwingUtilities.invokeLater(() -> updateCommitsForBranch(branchName));
+                            } else {
+                                logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
+                            }
+                        } catch (Exception ex) {
+                            logger.warn("Failed to check/fetch branch '{}': {}", branchName, ex.getMessage());
+                        }
+                        return null;
+                    });
+                }
             }
         });
 
@@ -727,9 +749,13 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         var slashIndex = branchName.indexOf('/');
                         var remoteName = branchName.substring(0, slashIndex);
                         localTrackingName = branchName.substring(slashIndex + 1);
-                        // Fetch the branch before checkout to ensure it's up-to-date
-                        logger.info("Fetching branch '{}' from remote '{}'", localTrackingName, remoteName);
-                        getRepo().remote().fetchBranch(remoteName, localTrackingName);
+                        // Fetch the branch before checkout if needed
+                        if (getRepo().remote().branchNeedsFetch(remoteName, localTrackingName)) {
+                            logger.info("Fetching branch '{}' from remote '{}' (has updates)", localTrackingName, remoteName);
+                            getRepo().remote().fetchBranch(remoteName, localTrackingName);
+                        } else {
+                            logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
+                        }
                     }
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.showNotification(

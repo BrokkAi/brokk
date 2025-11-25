@@ -143,4 +143,68 @@ public class GitRepoFetchBranchTest {
         assertNotNull(localRef);
         assertEquals(newCommit.getId(), localRef.getObjectId());
     }
+
+    @Test
+    void testBranchNeedsFetch_NoLocalRef_ReturnsTrue() throws Exception {
+        // Create a new branch in remote that local doesn't have
+        remoteGit.checkout().setCreateBranch(true).setName("new-branch").call();
+        Path file = remoteDir.resolve("new.txt");
+        Files.writeString(file, "new content\n", StandardCharsets.UTF_8);
+        remoteGit.add().addFilepattern("new.txt").call();
+        remoteGit.commit().setMessage("New branch commit").call();
+        remoteGit.checkout().setName("master").call();
+
+        // Local doesn't have this branch yet - should need fetch
+        assertTrue(localRepo.remote().branchNeedsFetch("origin", "new-branch"),
+                "Should need fetch when local ref doesn't exist");
+    }
+
+    @Test
+    void testBranchNeedsFetch_UpToDate_ReturnsFalse() throws Exception {
+        // Create and fetch a branch
+        remoteGit.checkout().setCreateBranch(true).setName("synced-branch").call();
+        Path file = remoteDir.resolve("synced.txt");
+        Files.writeString(file, "synced content\n", StandardCharsets.UTF_8);
+        remoteGit.add().addFilepattern("synced.txt").call();
+        remoteGit.commit().setMessage("Synced commit").call();
+        remoteGit.checkout().setName("master").call();
+
+        // Fetch the branch
+        localRepo.remote().fetchBranch("origin", "synced-branch");
+
+        // Now local and remote are in sync - should not need fetch
+        assertFalse(localRepo.remote().branchNeedsFetch("origin", "synced-branch"),
+                "Should not need fetch when local ref matches remote");
+    }
+
+    @Test
+    void testBranchNeedsFetch_RemoteHasUpdates_ReturnsTrue() throws Exception {
+        // Create and fetch a branch
+        remoteGit.checkout().setCreateBranch(true).setName("outdated-branch").call();
+        Path file = remoteDir.resolve("outdated.txt");
+        Files.writeString(file, "initial\n", StandardCharsets.UTF_8);
+        remoteGit.add().addFilepattern("outdated.txt").call();
+        remoteGit.commit().setMessage("Initial").call();
+        remoteGit.checkout().setName("master").call();
+
+        localRepo.remote().fetchBranch("origin", "outdated-branch");
+
+        // Add new commit to remote
+        remoteGit.checkout().setName("outdated-branch").call();
+        Files.writeString(file, "updated\n", StandardCharsets.UTF_8);
+        remoteGit.add().addFilepattern("outdated.txt").call();
+        remoteGit.commit().setMessage("Update").call();
+        remoteGit.checkout().setName("master").call();
+
+        // Local is now behind - should need fetch
+        assertTrue(localRepo.remote().branchNeedsFetch("origin", "outdated-branch"),
+                "Should need fetch when remote has new commits");
+    }
+
+    @Test
+    void testBranchNeedsFetch_NonExistentBranch_ReturnsFalse() throws Exception {
+        // Branch doesn't exist on remote - should return false (nothing to fetch)
+        assertFalse(localRepo.remote().branchNeedsFetch("origin", "non-existent-branch"),
+                "Should return false for non-existent remote branch");
+    }
 }

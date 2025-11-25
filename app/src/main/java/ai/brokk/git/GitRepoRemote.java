@@ -193,6 +193,54 @@ public class GitRepoRemote {
         fetchCommand.call();
     }
 
+    /**
+     * Checks if a branch needs to be fetched by comparing local and remote SHAs.
+     * Uses ls-remote to query the remote without downloading objects.
+     *
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param branchName The name of the branch to check.
+     * @return true if the branch has updates on remote, false if up-to-date.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public boolean branchNeedsFetch(String remoteName, String branchName) throws GitAPIException {
+        String remoteUrl = getUrl(remoteName);
+
+        // Query remote for current SHA of this branch
+        var lsRemote = Git.lsRemoteRepository()
+                .setRemote(remoteUrl)
+                .setHeads(true);
+        repo.applyGitHubAuthentication(lsRemote, remoteUrl);
+
+        var refs = lsRemote.call();
+        String remoteSha = null;
+        for (var ref : refs) {
+            if (ref.getName().equals("refs/heads/" + branchName)) {
+                remoteSha = ref.getObjectId().getName();
+                break;
+            }
+        }
+
+        if (remoteSha == null) {
+            // Branch doesn't exist on remote
+            return false;
+        }
+
+        // Get local tracking ref SHA
+        try {
+            var localRef = repository.findRef("refs/remotes/" + remoteName + "/" + branchName);
+            if (localRef == null) {
+                // No local ref, needs fetch
+                return true;
+            }
+            String localSha = localRef.getObjectId().getName();
+            return !remoteSha.equals(localSha);
+        } catch (IOException e) {
+            // Error reading local ref, assume needs fetch
+            logger.warn("Error reading local ref for {}/{}: {}", remoteName, branchName, e.getMessage());
+            return true;
+        }
+    }
+
     /** Pull changes from the remote repo.getRepository() for the current branch */
     public void pull() throws GitAPIException {
         var pullCommand = git.pull().setTimeout((int) Environment.GIT_NETWORK_TIMEOUT.toSeconds());
