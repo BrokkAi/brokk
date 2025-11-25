@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
 import com.google.common.base.Splitter;
@@ -222,15 +223,20 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution: never auto-commit; allow compression if requested
-                                            cm.executeTask(
-                                                    new TaskList.TaskItem(task.title(), task.text(), false),
-                                                    Objects.requireNonNull(
-                                                            askPlannerModel, "plannerModel required for ASK jobs"),
-                                                    Objects.requireNonNull(
-                                                            askCodeModel, "code model unavailable for ASK jobs"),
-                                                    false,
-                                                    spec.autoCompress());
+                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                askPlannerModel,
+                                                                "plannerModel required for ASK jobs"),
+                                                        SearchAgent.Objective.ANSWER_ONLY,
+                                                        scope);
+                                                var result = searchAgent.execute();
+                                                scope.append(result);
+                                            }
                                         }
                                     }
 
