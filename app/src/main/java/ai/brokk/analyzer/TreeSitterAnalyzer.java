@@ -73,6 +73,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final java.util.concurrent.ExecutorService GLOBAL_INGEST_EXECUTOR =
             ExecutorServiceUtil.newFixedThreadExecutor(Runtime.getRuntime().availableProcessors(), "ts-ingest-");
 
+    // Shutdown hook to gracefully terminate global executors on JVM exit
+    static {
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            log.debug("Shutting down global TreeSitter executors...");
+                            GLOBAL_PARSE_EXECUTOR.shutdown();
+                            GLOBAL_INGEST_EXECUTOR.shutdown();
+                            try {
+                                if (!GLOBAL_PARSE_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
+                                    log.warn("Parse executor did not terminate in time, forcing shutdown");
+                                    GLOBAL_PARSE_EXECUTOR.shutdownNow();
+                                }
+                                if (!GLOBAL_INGEST_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
+                                    log.warn("Ingest executor did not terminate in time, forcing shutdown");
+                                    GLOBAL_INGEST_EXECUTOR.shutdownNow();
+                                }
+                                log.debug("Global TreeSitter executors shut down successfully");
+                            } catch (InterruptedException e) {
+                                log.warn("Shutdown interrupted, forcing immediate termination");
+                                GLOBAL_PARSE_EXECUTOR.shutdownNow();
+                                GLOBAL_INGEST_EXECUTOR.shutdownNow();
+                                Thread.currentThread().interrupt();
+                            }
+                        },
+                        "TreeSitterAnalyzer-shutdown"));
+    }
+
     // Common separators across languages to denote hierarchy or member access.
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
