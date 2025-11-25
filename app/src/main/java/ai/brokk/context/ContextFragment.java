@@ -2572,33 +2572,33 @@ public interface ContextFragment {
                                  @Override
                                  @Blocking
                                  public String text() {
-            Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
-            if (skeletons.isEmpty()) {
-                return "No summary found for: " + targetIdentifier;
-            }
+                                     Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
+                                     if (skeletons.isEmpty()) {
+                                         return "No summary found for: " + targetIdentifier;
+                                     }
 
-            var analyzer = getAnalyzer();
-            var formatter = new SkeletonFragmentFormatter();
+                                     var analyzer = getAnalyzer();
+                                     var formatter = new SkeletonFragmentFormatter();
 
-            CodeUnit primaryTarget = null;
-            List<CodeUnit> ancestors = List.of();
+                                     CodeUnit primaryTarget = null;
+                                     List<CodeUnit> ancestors = List.of();
 
-            if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                var maybeClassUnit = analyzer.getDefinitions(targetIdentifier).stream()
-                        .filter(CodeUnit::isClass)
-                        .findAny();
-                if (maybeClassUnit.isPresent()) {
-                    primaryTarget = maybeClassUnit.get();
-                    ancestors = analyzer.getDirectAncestors(primaryTarget);
-                }
-            }
+                                     if (summaryType == SummaryType.CODEUNIT_SKELETON) {
+                                         var maybeClassUnit = resolvePrimaryTargets(analyzer).stream()
+                                                 .filter(CodeUnit::isClass)
+                                                 .findFirst();
+                                         if (maybeClassUnit.isPresent()) {
+                                             primaryTarget = maybeClassUnit.get();
+                                             ancestors = analyzer.getDirectAncestors(primaryTarget);
+                                         }
+                                     }
 
-            var request =
-                    new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
-            String formatted = formatter.format(request);
+                                     var request =
+                                             new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
+                                     String formatted = formatter.format(request);
 
-            return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
-        }
+                                     return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
+                                 }
 
         /**
          * Core formatting method that groups skeletons by package and optionally sorts within packages.
