@@ -2403,6 +2403,99 @@ public interface ContextFragment {
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
+    // Stateless formatter that renders skeletons grouped by package and optionally emits a
+    // "// Direct ancestors of ..." section. Output depends only on input.
+    static class SkeletonFragmentFormatter {
+        public record Request(
+                @Nullable CodeUnit primaryTarget,
+                List<CodeUnit> ancestors,
+                Map<CodeUnit, String> skeletons,
+                SummaryType summaryType) {}
+
+        public String format(Request request) {
+            if (request.summaryType() == SummaryType.CODEUNIT_SKELETON
+                    && request.primaryTarget() != null
+                    && request.primaryTarget().isClass()) {
+                return formatSummaryWithAncestors(request.primaryTarget(), request.ancestors(), request.skeletons());
+            } else {
+                return formatSkeletonsByPackage(request.skeletons(), false);
+            }
+        }
+
+        private String formatSummaryWithAncestors(
+                CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
+            Map<CodeUnit, String> primary = new LinkedHashMap<>();
+            skeletons.forEach((k, v) -> {
+                if (k.fqName().equals(cu.fqName())) {
+                    primary.put(k, v);
+                }
+            });
+
+            var sb = new StringBuilder();
+
+            String primaryFormatted = formatSkeletonsByPackage(primary, false);
+            if (!primaryFormatted.isEmpty()) {
+                sb.append(primaryFormatted).append("\n\n");
+            }
+
+            if (!ancestorList.isEmpty()) {
+                String ancestorNames =
+                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                sb.append("// Direct ancestors of ")
+                        .append(cu.shortName())
+                        .append(": ")
+                        .append(ancestorNames)
+                        .append("\n\n");
+
+                Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
+                ancestorList.forEach(anc -> {
+                    String sk = skeletons.get(anc);
+                    if (sk != null) {
+                        ancestorsMap.put(anc, sk);
+                    }
+                });
+
+                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap, false);
+                if (!ancestorsFormatted.isEmpty()) {
+                    sb.append(ancestorsFormatted).append("\n\n");
+                }
+            }
+
+            return sb.toString().trim();
+        }
+
+        private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons, boolean sortWithinPackage) {
+            if (skeletons.isEmpty()) {
+                return "";
+            }
+
+            var skeletonsByPackage = skeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        String pkgCode;
+                        if (sortWithinPackage) {
+                            pkgCode = pkgEntry.getValue().entrySet().stream()
+                                    .sorted(Map.Entry.comparingByKey(Comparator.comparing(CodeUnit::fqName)))
+                                    .map(Map.Entry::getValue)
+                                    .collect(Collectors.joining("\n\n"));
+                        } else {
+                            pkgCode = String.join("\n\n", pkgEntry.getValue().values());
+                        }
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
+        }
+    }
+
     class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
@@ -2494,21 +2587,26 @@ public interface ContextFragment {
             }
 
             var analyzer = getAnalyzer();
+            var formatter = new SkeletonFragmentFormatter();
+
+            CodeUnit primaryTarget = null;
+            List<CodeUnit> ancestors = List.of();
 
             if (summaryType == SummaryType.CODEUNIT_SKELETON) {
                 var maybeClassUnit = analyzer.getDefinitions(targetIdentifier).stream()
                         .filter(CodeUnit::isClass)
                         .findAny();
                 if (maybeClassUnit.isPresent()) {
-                    var cu = maybeClassUnit.get();
-                    if (cu.isClass()) {
-                        return formatSummaryWithAncestors(cu, skeletons);
-                    }
+                    primaryTarget = maybeClassUnit.get();
+                    ancestors = analyzer.getDirectAncestors(primaryTarget);
                 }
             }
 
-            // For FILE_SKELETONS or non-class CODEUNIT_SKELETON, format by package preserving insertion order
-            return formatSkeletonsByPackage(skeletons, false);
+            var request =
+                    new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
+            String formatted = formatter.format(request);
+
+            return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
         }
 
         /**
@@ -2691,7 +2789,10 @@ public interface ContextFragment {
             }
 
             // Format by package preserving insertion order (source declaration order)
-            String formatted = formatSkeletonsByPackage(allSkeletons, false);
+            var formatter = new SkeletonFragmentFormatter();
+            var request =
+                    new SkeletonFragmentFormatter.Request(null, List.of(), allSkeletons, SummaryType.FILE_SKELETONS);
+            String formatted = formatter.format(request);
             return formatted.isEmpty() ? "No summaries available" : formatted;
         }
 
