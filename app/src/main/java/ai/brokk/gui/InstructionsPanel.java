@@ -1371,8 +1371,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         commandInputOverlay.hideOverlay();
                         instructionsArea.setEnabled(true);
 
-                        instructionsArea.setText(item);
-                        commandInputUndoManager.discardAllEdits();
+                        setTextWithUndo(item); // Use undo-preserving helper
                         instructionsArea.requestFocusInWindow();
                     });
                     menu.add(historyMenuItem);
