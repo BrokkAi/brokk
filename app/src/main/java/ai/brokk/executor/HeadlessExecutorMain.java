@@ -5,6 +5,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStore;
@@ -162,6 +164,8 @@ public final class HeadlessExecutorMain {
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
         this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
+        this.server.registerAuthenticatedContext("/v1/context/classes", this::handlePostContextClasses);
+        this.server.registerAuthenticatedContext("/v1/context/methods", this::handlePostContextMethods);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -1008,6 +1012,284 @@ public final class HeadlessExecutorMain {
     private record AddedContextFile(String id, String relativePath) {}
 
     private record AddContextFilesResponse(List<AddedContextFile> added) {}
+
+    private record AddContextClassesRequest(List<String> classNames) {}
+
+    private record AddedContextClass(String id, String className) {}
+
+    private record AddContextClassesResponse(List<AddedContextClass> added) {}
+
+    private record AddContextMethodsRequest(List<String> methodNames) {}
+
+    private record AddedContextMethod(String id, String methodName) {}
+
+    private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
+
+    /**
+     * POST /v1/context/classes - Add class summaries to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "classNames": ["com.example.Foo", "com.example.Bar"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "className": "com.example.Foo" },
+     *     { "id": "2", "className": "com.example.Bar" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Class names must be non-empty and non-blank</li>
+     *   <li>At least one valid class name must be provided</li>
+     *   <li>Class names are resolved via the analyzer; invalid names are skipped with a warning</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds class summary fragments to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextClasses(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextClassesRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.classNames() == null || request.classNames().isEmpty()) {
+                var error = ErrorPayload.validationError("classNames must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var validClassNames = new ArrayList<String>();
+            var invalidNames = new ArrayList<String>();
+
+            // Validate and collect valid class names
+            for (var className : request.classNames()) {
+                if (className == null || className.isBlank()) {
+                    invalidNames.add("(blank name)");
+                    continue;
+                }
+
+                var trimmed = className.strip();
+
+                // Try to resolve the class name via the analyzer
+                var definitions = analyzer.getDefinitions(trimmed);
+                if (definitions.isEmpty()) {
+                    invalidNames.add(trimmed + " (not found in analyzer)");
+                    continue;
+                }
+
+                var codeUnit = definitions.stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst();
+                if (codeUnit.isEmpty()) {
+                    invalidNames.add(trimmed + " (not a class)");
+                    continue;
+                }
+
+                validClassNames.add(trimmed);
+            }
+
+            // Check if we have at least one valid class name
+            if (validClassNames.isEmpty()) {
+                var msg = "No valid class names provided";
+                if (!invalidNames.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidNames);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Add class summaries to context
+            contextManager.addSummaries(Set.of(), validClassNames.stream()
+                    .flatMap(name -> analyzer.getDefinitions(name).stream()
+                            .filter(CodeUnit::isClass))
+                    .collect(Collectors.toSet()));
+
+            // Build response with fragment IDs
+            var addedClasses = new ArrayList<AddedContextClass>();
+            var liveContext = contextManager.liveContext();
+
+            for (var className : validClassNames) {
+                // Find the skeleton fragment ID in live context for this class
+                var fragId = liveContext.virtualFragments()
+                        .filter(f -> f instanceof ContextFragment.SkeletonFragment)
+                        .map(f -> (ContextFragment.SkeletonFragment) f)
+                        .filter(s -> s.getTargetIdentifiers().contains(className))
+                        .map(ContextFragment::id)
+                        .findFirst()
+                        .orElse("");
+
+                addedClasses.add(new AddedContextClass(fragId, className));
+            }
+
+            var response = new AddContextClassesResponse(addedClasses);
+            logger.info(
+                    "Added {} classes to context (session={}): {}",
+                    addedClasses.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedClasses.stream()
+                            .map(AddedContextClass::className)
+                            .collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/classes", e);
+            var error = ErrorPayload.internalError("Failed to add classes to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/methods - Add method sources to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "methodNames": ["com.example.Foo.bar", "com.example.Baz.qux"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "methodName": "com.example.Foo.bar" },
+     *     { "id": "2", "methodName": "com.example.Baz.qux" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Method names must be non-empty and non-blank</li>
+     *   <li>At least one valid method name must be provided</li>
+     *   <li>Method names are resolved via the analyzer; invalid names are skipped with a warning</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds code (method source) fragments to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextMethods(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextMethodsRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.methodNames() == null || request.methodNames().isEmpty()) {
+                var error = ErrorPayload.validationError("methodNames must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var validMethodNames = new ArrayList<String>();
+            var invalidNames = new ArrayList<String>();
+
+            // Validate and collect valid method names
+            for (var methodName : request.methodNames()) {
+                if (methodName == null || methodName.isBlank()) {
+                    invalidNames.add("(blank name)");
+                    continue;
+                }
+
+                var trimmed = methodName.strip();
+
+                // Try to resolve the method name via the analyzer
+                var definitions = analyzer.getDefinitions(trimmed);
+                if (definitions.isEmpty()) {
+                    invalidNames.add(trimmed + " (not found in analyzer)");
+                    continue;
+                }
+
+                var codeUnit = definitions.stream()
+                        .filter(CodeUnit::isFunction)
+                        .findFirst();
+                if (codeUnit.isEmpty()) {
+                    invalidNames.add(trimmed + " (not a method)");
+                    continue;
+                }
+
+                validMethodNames.add(trimmed);
+            }
+
+            // Check if we have at least one valid method name
+            if (validMethodNames.isEmpty()) {
+                var msg = "No valid method names provided";
+                if (!invalidNames.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidNames);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Add method sources to context as CodeFragments
+            var addedMethods = new ArrayList<AddedContextMethod>();
+
+            for (var methodName : validMethodNames) {
+                var fragment = new ContextFragment.CodeFragment(contextManager, methodName);
+                contextManager.addVirtualFragment(fragment);
+                addedMethods.add(new AddedContextMethod(fragment.id(), methodName));
+            }
+
+            var response = new AddContextMethodsResponse(addedMethods);
+            logger.info(
+                    "Added {} methods to context (session={}): {}",
+                    addedMethods.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedMethods.stream()
+                            .map(AddedContextMethod::methodName)
+                            .collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/methods", e);
+            var error = ErrorPayload.internalError("Failed to add methods to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     public static void main(String[] args) {
         try {
