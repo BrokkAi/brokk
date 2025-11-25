@@ -157,6 +157,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private @Nullable String preWandOriginalText; // Captured before wand action for undo
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -2075,19 +2076,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
-            // Capture the original text BEFORE activation clears it
-            String originalText = instructionsArea.getText();
-            if (isPlaceholderText(originalText)) {
-                originalText = "";
+            // Check if WandButton captured the original text (before streaming modified the area)
+            String capturedOldText = wandButton.getCapturedOriginalText();
+            if (capturedOldText != null) {
+                wandButton.clearCapturedOriginalText(); // Clear after use
+            } else {
+                // Fallback: capture from area (works for history selection, voice input)
+                capturedOldText = instructionsArea.getText();
+                if (isPlaceholderText(capturedOldText)) {
+                    capturedOldText = "";
+                }
             }
-            String capturedOldText = originalText;
+            String finalOldText = capturedOldText;
 
             // If placeholder is active or area is disabled, activate input first
             if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
             SwingUtilities.invokeLater(() -> {
-                setTextWithUndo(text, capturedOldText); // Use undo-preserving helper with captured old text
+                setTextWithUndo(text, finalOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
             });
@@ -2974,6 +2981,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
+        private @Nullable String capturedOriginalText;
 
         public WandButton(
                 ContextManager contextManager,
@@ -2985,9 +2993,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             SwingUtilities.invokeLater(() -> setIcon(Icons.WAND));
             setToolTipText(WAND_TOOLTIP);
             addActionListener(e -> {
+                // Capture original text BEFORE wand action modifies the area
+                capturedOriginalText = promptSupplier.get();
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
             });
+        }
+
+        public @Nullable String getCapturedOriginalText() {
+            return capturedOriginalText;
+        }
+
+        public void clearCapturedOriginalText() {
+            capturedOriginalText = null;
         }
 
         @Override
