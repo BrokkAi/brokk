@@ -137,8 +137,8 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
 
                 final StreamingChatModel architectPlannerModel =
-                        mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel architectCodeModel = mode == Mode.ARCHITECT
+                        mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
                                 : defaultCodeModel())
@@ -210,6 +210,18 @@ public final class JobRunner {
                                                     Objects.requireNonNull(
                                                             architectCodeModel,
                                                             "code model unavailable for ARCHITECT jobs"),
+                                                    spec.autoCommit(),
+                                                    spec.autoCompress());
+                                        }
+                                        case LUTZ -> {
+                                            cm.executeTask(
+                                                    task,
+                                                    Objects.requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for LUTZ jobs"),
+                                                    Objects.requireNonNull(
+                                                            architectCodeModel,
+                                                            "code model unavailable for LUTZ jobs"),
                                                     spec.autoCommit(),
                                                     spec.autoCompress());
                                         }
