@@ -45,7 +45,8 @@ public final class JobRunner {
     private enum Mode {
         ARCHITECT,
         CODE,
-        ASK
+        ASK,
+        LUTZ
     }
 
     private static Mode parseMode(JobSpec spec) {
@@ -154,7 +155,7 @@ public final class JobRunner {
                 var service = cm.getService();
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
@@ -163,13 +164,13 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ -> !hasCodeModelOverride;
                             case ASK -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
