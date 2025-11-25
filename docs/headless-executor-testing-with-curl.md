@@ -51,6 +51,135 @@ curl -sS -X PUT "${BASE}/v1/sessions" \
   --data-binary @"${SESSION_ZIP}"
 ```
 
+## Context Injection (Optional)
+
+Before running ASK (or any mode), you can optionally inject specific files, classes, and methods into the context.
+This is useful for precise, caller-driven context control. Note that ASK mode already uses SearchAgent for
+automatic codebase discovery, so these endpoints are optional but provide finer-grained control.
+
+### Add Files to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/files" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "relativePaths": [
+    "src/main/java/com/example/api/UserController.java",
+    "src/main/java/com/example/service/UserService.java",
+    "src/main/resources/application.properties"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "1", "relativePath": "src/main/java/com/example/api/UserController.java" },
+    { "id": "2", "relativePath": "src/main/java/com/example/service/UserService.java" },
+    { "id": "3", "relativePath": "src/main/resources/application.properties" }
+  ]
+}
+```
+
+### Add Class Summaries to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/classes" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "classNames": [
+    "com.example.api.UserController",
+    "com.example.service.UserService",
+    "com.example.repository.UserRepository"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "4", "className": "com.example.api.UserController" },
+    { "id": "5", "className": "com.example.service.UserService" },
+    { "id": "6", "className": "com.example.repository.UserRepository" }
+  ]
+}
+```
+
+### Add Method Sources to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/methods" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "methodNames": [
+    "com.example.service.UserService.findUserById",
+    "com.example.service.UserService.updateUser",
+    "com.example.api.UserController.getUser"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "7", "methodName": "com.example.service.UserService.findUserById" },
+    { "id": "8", "methodName": "com.example.service.UserService.updateUser" },
+    { "id": "9", "methodName": "com.example.api.UserController.getUser" }
+  ]
+}
+```
+
+### Workflow: Pre-seed Context, Then Ask
+
+```bash
+# 1. Add specific files to context
+curl -sS -X POST "${BASE}/v1/context/files" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"relativePaths": ["src/main/java/com/example/service/UserService.java"]}'
+
+# 2. Add class summaries
+curl -sS -X POST "${BASE}/v1/context/classes" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"classNames": ["com.example.repository.UserRepository"]}'
+
+# 3. Now run ASK with pre-seeded context
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Based on the code I just added, explain the UserService class structure and its key responsibilities.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+---
+
 ## Create Job
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
@@ -96,10 +225,12 @@ JSON
 
 To override the code model in ARCHITECT mode, add `"codeModel": "gpt-5-mini"` (or any supported model) to the payload.
 
-### ASK Mode (read-only codebase search)
+### ASK Mode
 
-ASK mode enables **read-only exploration** of your codebase using natural language queries.
+ASK mode enables read-only exploration of your codebase using natural language queries.
 Under the hood, ASK uses the SearchAgent to discover and inspect code symbols, classes, methods, and file contents without making any modifications or commits.
+
+You can run ASK with no pre-seeded context and let SearchAgent automatically discover relevant code, or optionally pre-seed specific context using the `/v1/context/*` endpoints (see Context Injection above) for precise control.
 
 #### Example: Ask about code structure
 
@@ -170,12 +301,12 @@ ASK will retrieve class skeletons with method signatures and fields, providing a
 
 #### Key characteristics of ASK mode
 
-- **Read-only**: No code modifications, commits, or builds
-- **Intelligent search**: Uses SearchAgent to find relevant code based on natural language queries
-- **Multiple inspection tools**: Searches symbols, classes, methods, usages, file contents, and git history
-- **Responsive**: Streams results back via `/v1/jobs/{jobId}/events` as they are discovered
-- **Requires `plannerModel`**: Specify which LLM to use for understanding your query and navigating the codebase
-- **Ignores `codeModel`**: Code model is not used in ASK mode
+- Read-only: No code modifications, commits, or builds
+- Intelligent search: Uses SearchAgent to find relevant code based on natural language queries
+- Multiple inspection tools: Searches symbols, classes, methods, usages, file contents, and git history
+- Responsive: Streams results back via `/v1/jobs/{jobId}/events` as they are discovered
+- Requires `plannerModel`: Specify which LLM to use for understanding your query and navigating the codebase
+- Ignores `codeModel`: Code model is not used in ASK mode
 
 ### CODE Mode
 
@@ -200,7 +331,7 @@ JSON
 ```
 
 **Note:** `plannerModel` is still required here for validation, but CODE execution uses `codeModel`. Omit `codeModel`
-to fall back to the project’s default code model.
+to fall back to the project's default code model.
 
 ## Job Status
 
