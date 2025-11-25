@@ -14,6 +14,7 @@ import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ComputedValue;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -1526,7 +1527,7 @@ public class ContextSerializationTest {
         rewriteContextsInZip(original, longerZip, line -> {
             try {
                 var mapper = new ObjectMapper();
-                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
                 @SuppressWarnings("unchecked")
                 List<String> readonly = (List<String>) obj.getOrDefault("readonly", new ArrayList<>());
                 readonly = new ArrayList<>(readonly);
@@ -1567,7 +1568,7 @@ public class ContextSerializationTest {
         rewriteContextsInZip(marked, shorterZip, line -> {
             try {
                 var mapper = new ObjectMapper();
-                Map<String, Object> obj = mapper.readValue(line, Map.class);
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
                 obj.put("readonly", new ArrayList<>()); // clear readonly list
                 return mapper.writeValueAsString(obj);
             } catch (Exception e) {

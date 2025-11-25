@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.AtomicWrites;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;

@@ -1,6 +1,6 @@
 package ai.brokk.util;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;

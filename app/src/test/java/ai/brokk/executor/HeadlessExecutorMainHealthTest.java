@@ -3,7 +3,7 @@ package ai.brokk.executor;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

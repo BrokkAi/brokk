@@ -4,12 +4,13 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;

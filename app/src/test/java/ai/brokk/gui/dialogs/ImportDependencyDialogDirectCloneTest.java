@@ -3,7 +3,7 @@ package ai.brokk.gui.dialogs;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.AbstractProject;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;

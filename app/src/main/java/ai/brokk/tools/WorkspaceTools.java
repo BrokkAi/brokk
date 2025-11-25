@@ -1,8 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
@@ -10,6 +8,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
@@ -24,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;

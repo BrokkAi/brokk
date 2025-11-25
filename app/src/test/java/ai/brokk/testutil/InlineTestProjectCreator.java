@@ -1,8 +1,8 @@
 package ai.brokk.testutil;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.Files;

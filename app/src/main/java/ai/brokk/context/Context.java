@@ -1,6 +1,5 @@
 package ai.brokk.context;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
@@ -12,6 +11,7 @@ import ai.brokk.context.ContextFragment.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
@@ -911,8 +911,10 @@ public class Context {
             if (className.isBlank()) {
                 continue;
             }
-            var cuOpt = analyzer.getDefinition(className);
-            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
@@ -1011,8 +1013,10 @@ public class Context {
             if (methodName.isBlank()) {
                 continue;
             }
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+            var cuOpt = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
