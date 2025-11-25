@@ -333,9 +333,10 @@ public final class JobRunner {
                         .join();
 
                 // Optional compress after execution:
-                // - For ARCHITECT: per-task compression already honored via spec.autoCompress().
-                // - For CODE/ASK: run a single compression pass if requested.
-                if (mode != Mode.ARCHITECT && spec.autoCompress()) {
+                // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
+                // - For CODE: run a single compression pass if requested.
+                // - For ASK: no compression (read-only mode).
+                if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
                     try {
                         cm.compressHistoryAsync().join();
