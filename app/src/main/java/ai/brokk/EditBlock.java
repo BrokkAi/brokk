@@ -805,7 +805,7 @@ public class EditBlock {
             var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
             throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
         } else {
-            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, false);
+            Set<String> sources = AnalyzerUtil.getMethodSources(analyzer, fqName, true);
             if (sources.isEmpty()) {
                 var suggestions = analyzer.searchDefinitions(shortName).stream()
                         .map(CodeUnit::fqName)

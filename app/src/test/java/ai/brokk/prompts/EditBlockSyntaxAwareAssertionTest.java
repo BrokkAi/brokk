@@ -78,7 +78,7 @@ public class EditBlockSyntaxAwareAssertionTest {
     }
 
     @Test
-    void brkFunctionWithJavaDocPreservesJavaDoc() throws Exception {
+    void brkFunctionWithJavaDocReplacesJavaDoc() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                         """
                         package p;
@@ -109,6 +109,11 @@ public class EditBlockSyntaxAwareAssertionTest {
                     "src/main/java/p/A.java",
                     "BRK_FUNCTION p.A.greet",
                     """
+                    /**
+                     * Greets a person enthusiastically.
+                     * @param name The name of the person to greet.
+                     * @return An enthusiastic greeting.
+                     */
                     public String greet(String name) {
                         return "Hi, " + name + "!";
                     }
@@ -121,8 +126,9 @@ public class EditBlockSyntaxAwareAssertionTest {
             assertTrue(result.failedBlocks().isEmpty(), "No failed blocks expected for valid BRK_FUNCTION resolution");
 
             var updated = javaFile.read().orElseThrow();
-            assertTrue(updated.contains("/**"), "Javadoc should be preserved");
-            assertTrue(updated.contains("* Greets a person."), "Javadoc should be preserved");
+            assertTrue(updated.contains("/**"), "New Javadoc should be present");
+            assertTrue(updated.contains("* Greets a person enthusiastically."), "New Javadoc should be present");
+            assertFalse(updated.contains("* Greets a person."), "Old Javadoc should be removed");
             assertTrue(updated.contains("return \"Hi, \" + name + \"!\";"), "Updated method body should be present");
             assertFalse(updated.contains("return \"Hello, \" + name;"), "Old method body should be replaced");
         }

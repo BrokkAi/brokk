@@ -984,7 +984,7 @@ public abstract class CodePrompts {
                     """
            - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
              `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an existing function's signature and body, preserving any Javadoc; it cannot create new functions.""";
+             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an existing function's signature and body, including any Javadoc; it cannot create new functions.""";
             hints = "- Use syntax-aware SEARCH when you are rewriting an entire class or function.\n" + hints;
         }
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
@@ -1191,13 +1191,18 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                     """
                   ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
 
-                  This replaces the method's signature and body, but notice it preserves the Javadoc from the "Before" example.
+                  This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
 
                   ```
                   src/main/java/com/acme/Foo.java
                   <<<<<<< SEARCH
                   BRK_FUNCTION com.acme.Foo.greet
                   =======
+                  /**
+                   * Returns a greeting for the given name.
+                   * @param name the name to greet.
+                   * @return the greeting string.
+                   */
                   public String greet(String name) {
                       return "Hi, " + name;
                   }
