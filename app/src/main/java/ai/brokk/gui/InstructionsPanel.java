@@ -2042,6 +2042,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         instructionsArea.setText(newText);
 
+        // Discard any intermediate edits (e.g., from wand streaming) before adding our single edit
+        commandInputUndoManager.discardAllEdits();
+
         // Re-enable undo listener for future user typing
         instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
 
