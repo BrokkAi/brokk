@@ -164,7 +164,7 @@ public final class JobRunner {
                 String codeModelNameForLog =
                         switch (mode) {
                             case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
-                            case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
+                            case ASK -> "(default, ignored for ASK)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                         };
                 boolean usesDefaultCodeModel =
@@ -178,7 +178,7 @@ public final class JobRunner {
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
