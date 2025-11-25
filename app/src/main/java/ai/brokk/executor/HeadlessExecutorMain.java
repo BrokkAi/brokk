@@ -18,12 +18,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -156,6 +161,7 @@ public final class HeadlessExecutorMain {
         // - PUT  /v1/sessions  (import/load an existing session from a zip)
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -813,6 +819,179 @@ public final class HeadlessExecutorMain {
         }
     }
 
+    /**
+     * POST /v1/context/files - Add files to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "relativePaths": ["src/main/java/com/example/Foo.java", "src/test/java/com/example/FooTest.java"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "relativePath": "src/main/java/com/example/Foo.java" },
+     *     { "id": "2", "relativePath": "src/test/java/com/example/FooTest.java" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Paths must be relative (not absolute)</li>
+     *   <li>Paths must not escape the workspace (no "../.." attacks)</li>
+     *   <li>Paths must refer to regular files that exist</li>
+     *   <li>At least one valid path must be provided</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds valid files to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextFiles(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextFilesRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.relativePaths() == null || request.relativePaths().isEmpty()) {
+                var error = ErrorPayload.validationError("relativePaths must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var root = contextManager.getProject().getRoot();
+            var validProjectFiles = new HashSet<ai.brokk.analyzer.ProjectFile>();
+            var invalidPaths = new ArrayList<String>();
+
+            // Validate and collect valid paths
+            for (var pathStr : request.relativePaths()) {
+                if (pathStr == null || pathStr.isBlank()) {
+                    invalidPaths.add("(blank path)");
+                    continue;
+                }
+
+                var pathObj = Path.of(pathStr);
+
+                // Check if absolute
+                if (pathObj.isAbsolute()) {
+                    invalidPaths.add(pathStr + " (absolute path not allowed)");
+                    continue;
+                }
+
+                // Resolve against root and normalize
+                var absolutePath = root.resolve(pathObj).normalize();
+
+                // Check if it escapes the workspace
+                if (!absolutePath.startsWith(root)) {
+                    invalidPaths.add(pathStr + " (escapes workspace)");
+                    continue;
+                }
+
+                // Check if it's a regular file that exists
+                if (!Files.isRegularFile(absolutePath)) {
+                    invalidPaths.add(pathStr + " (not a regular file or does not exist)");
+                    continue;
+                }
+
+                // Compute normalized relative path
+                var normalizedRelPath = root.relativize(absolutePath).toString();
+
+                try {
+                    var projectFile = contextManager.toFile(normalizedRelPath);
+                    validProjectFiles.add(projectFile);
+                } catch (Exception e) {
+                    logger.warn("Failed to convert path to ProjectFile: {}", normalizedRelPath, e);
+                    invalidPaths.add(normalizedRelPath + " (conversion error)");
+                }
+            }
+
+            // Check if we have at least one valid path
+            if (validProjectFiles.isEmpty()) {
+                var msg = "No valid relative paths provided";
+                if (!invalidPaths.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidPaths);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Capture files in context BEFORE
+            var before = contextManager.getFilesInContext();
+
+            // Add files to context (this emits notifications and pushes context)
+            contextManager.addFiles(validProjectFiles);
+
+            // Capture files in context AFTER
+            var after = contextManager.getFilesInContext();
+
+            // Determine which files were effectively added
+            var addedFiles = after.stream()
+                    .filter(pf -> !before.contains(pf))
+                    .collect(Collectors.toList());
+
+            // Build response with fragment IDs
+            var addedContextFiles = new ArrayList<AddedContextFile>();
+            var liveContext = contextManager.liveContext();
+
+            for (var projectFile : addedFiles) {
+                // Find the fragment ID in live context
+                var fragId = liveContext.fileFragments()
+                        .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
+                        .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                        .filter(p -> {
+                            var bf = p.file();
+                            if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
+                                return false;
+                            }
+                            var a = ((ai.brokk.analyzer.ProjectFile) bf).absPath();
+                            var b = projectFile.absPath();
+                            return a.equals(b);
+                        })
+                        .map(ai.brokk.context.ContextFragment::id)
+                        .findFirst()
+                        .orElse("");
+
+                var relPath = root.relativize(projectFile.absPath()).toString();
+                addedContextFiles.add(new AddedContextFile(fragId, relPath));
+            }
+
+            var response = new AddContextFilesResponse(addedContextFiles);
+            logger.info(
+                    "Added {} files to context (session={}): {}",
+                    addedContextFiles.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedContextFiles.stream()
+                            .map(AddedContextFile::relativePath)
+                            .collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/files", e);
+            var error = ErrorPayload.internalError("Failed to add files to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
     private record CreateSessionRequest(String name) {}
 
     private record JobSpecRequest(
@@ -823,6 +1002,12 @@ public final class HeadlessExecutorMain {
             @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
+
+    private record AddContextFilesRequest(List<String> relativePaths) {}
+
+    private record AddedContextFile(String id, String relativePath) {}
+
+    private record AddContextFilesResponse(List<AddedContextFile> added) {}
 
     public static void main(String[] args) {
         try {
