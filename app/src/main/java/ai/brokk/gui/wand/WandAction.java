@@ -182,6 +182,13 @@ public class WandAction {
         }
 
         @Override
+        public void showNotification(NotificationRole role, String message) {
+            // Delegate to errorReporter instead of writing to instructionsArea
+            // This prevents cost notifications from polluting the refined prompt
+            errorReporter.showNotification(role, message);
+        }
+
+        @Override
         public List<ChatMessage> getLlmRawMessages() {
             return List.of();
         }
