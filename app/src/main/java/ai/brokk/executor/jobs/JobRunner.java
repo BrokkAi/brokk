@@ -230,6 +230,33 @@ public final class JobRunner {
                                             }
                                             // Task list is now in the live context and persisted by the scope
                                             logger.debug("LUTZ Phase 1 complete: task list generated");
+
+                                            // Phase 2: Check if task list was generated; if empty, mark job complete
+                                            var generatedTasks = cm.getTaskList().tasks();
+                                            if (generatedTasks.isEmpty()) {
+                                                var msg = "SearchAgent generated no tasks for: " + task.text();
+                                                logger.info("LUTZ job {}: {}", jobId, msg);
+                                                if (console != null) {
+                                                    try {
+                                                        console.showNotification(
+                                                                IConsoleIO.NotificationRole.INFO, msg);
+                                                    } catch (Throwable ignore) {
+                                                        // Non-critical: event writing failed
+                                                    }
+                                                }
+                                                // Mark job as completed (no tasks to execute)
+                                                completed.incrementAndGet();
+                                                int progress = total == 0 ? 100 : (int) ((completed.get() * 100.0) / total);
+                                                try {
+                                                    JobStatus s = store.loadStatus(jobId);
+                                                    if (s != null) {
+                                                        s = s.withProgress(progress);
+                                                        store.updateStatus(jobId, s);
+                                                    }
+                                                } catch (Exception e) {
+                                                    logger.debug("Unable to update job progress for {}", jobId, e);
+                                                }
+                                            }
                                         }
                                         case CODE -> {
                                             var agent = new CodeAgent(
