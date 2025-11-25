@@ -408,7 +408,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         // 2. Build the final set of resolved imports, prioritizing explicit imports.
         Set<CodeUnit> resolved = new LinkedHashSet<>(explicitImports);
         Set<String> resolvedSimpleNames =
-                explicitImports.stream().map(CodeUnit::identifier).collect(Collectors.toCollection(HashSet::new));
+                explicitImports.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
 
         // 3. Process wildcard imports. A class from a wildcard is only added if a class
         //    with the same simple name has not already been added from an explicit import
