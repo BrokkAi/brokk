@@ -1397,9 +1397,6 @@ public interface ContextFragment {
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
-    // FIXME SearchFragment does not preserve the tool calls output that the user sees during
-    // the search, I think we need to add a messages parameter and pass them to super();
-    // then we'd also want to override format() to keep it out of what the LLM sees
     class SearchFragment extends TaskFragment { // Non-dynamic (content-hashed via TaskFragment)
         private final Set<CodeUnit> sources; // This is pre-computed, so SearchFragment is not dynamic in content
 
