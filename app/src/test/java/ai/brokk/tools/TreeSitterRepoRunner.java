@@ -919,12 +919,6 @@ public class TreeSitterRepoRunner {
             return "";
         }
 
-        // Extract timing values (in nanos)
-        long readNanos = timing.readNanos();
-        long parseNanos = timing.parseNanos();
-        long processNanos = timing.processNanos();
-        long mergeNanos = timing.mergeNanos();
-
         // Extract wall-clock boundaries
         long readStart = timing.readStartNanos();
         long readEnd = timing.readEndNanos();
