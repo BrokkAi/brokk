@@ -360,17 +360,18 @@ public final class DependenciesPanel extends JPanel {
                     // Persist the updated live set
                     project.saveLiveDependencies(liveDependencyTopLevelDirs);
 
-                    // Now reload the UI with the updated live set
+                    // Reload the UI - the table will reflect the saved state
+                    // Note: Do NOT call saveChangesAsync() here - it would read the old table state
+                    // before loadDependenciesAsync() completes, causing a race condition that
+                    // overwrites our saved state with stale data.
                     loadDependenciesAsync();
-                    // Persist changes after a dependency import completes and then resume watcher.
-                    var future = saveChangesAsync();
-                    future.whenComplete((r, ex) -> {
-                        try {
-                            chrome.getContextManager().getAnalyzerWrapper().resume();
-                        } catch (Exception e2) {
-                            logger.debug("Error resuming watcher after dependency import", e2);
-                        }
-                    });
+
+                    // Resume watcher after import completes
+                    try {
+                        chrome.getContextManager().getAnalyzerWrapper().resume();
+                    } catch (Exception e2) {
+                        logger.debug("Error resuming watcher after dependency import", e2);
+                    }
                     setControlsLocked(false);
                 }
             };

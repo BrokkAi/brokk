@@ -156,7 +156,7 @@ class DependencyDefaultCheckedBehaviorTest {
         assertEquals(2, parentLiveDeps.size(), "Parent should have 2 live dependencies");
 
         // Setup: Create a worktree project with its own temporary root
-        @TempDir Path worktreeRoot = Files.createTempDirectory("worktree");
+        Path worktreeRoot = Files.createTempDirectory("worktree");
 
         try {
             // Create the .brokk structure for the worktree
@@ -246,7 +246,7 @@ class DependencyDefaultCheckedBehaviorTest {
      * Creates a mock dependency directory structure under a project's .brokk/dependencies with a
      * simple source file.
      */
-    private void createDependencyDirectory(IProject project, String depName) throws IOException {
+    private void createDependencyDirectory(AbstractProject project, String depName) throws IOException {
         Path dependenciesDir = project.getMasterRootPathForConfig()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(AbstractProject.DEPENDENCIES_DIR);
@@ -265,7 +265,7 @@ class DependencyDefaultCheckedBehaviorTest {
      * models what happens when `DependencyLifecycleListener.dependencyImportFinished()` is called
      * and the UI reloads.
      */
-    private void simulateDependencyImport(IProject project, String depName) throws IOException {
+    private void simulateDependencyImport(AbstractProject project, String depName) throws IOException {
         // Get current live dependencies
         Set<IProject.Dependency> currentLiveDeps = project.getLiveDependencies();
         Set<Path> liveDependencyTopLevelDirs = new HashSet<>();
