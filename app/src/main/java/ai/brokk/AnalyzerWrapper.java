@@ -145,9 +145,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     public void onFilesChanged(EventBatch batch) {
         logger.trace("AnalyzerWrapper received events batch: {}", batch);
         if (!readyForWatcherEvents) {
-            logger.debug("AnalyzerWrapper not ready for watcher events yet, queuing batch");
-            queuedWatcherEvents.add(batch);
-            return;
+            synchronized (queuedWatcherEvents) {
+                if (!readyForWatcherEvents) {
+                    logger.debug("AnalyzerWrapper not ready for watcher events yet, queuing batch");
+                    queuedWatcherEvents.add(batch);
+                    return;
+                }
+            }
         }
 
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.

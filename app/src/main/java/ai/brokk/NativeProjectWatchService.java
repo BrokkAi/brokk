@@ -115,9 +115,7 @@ public class NativeProjectWatchService implements IWatchService {
         paths.add(root);
         try {
             // Build the watcher with exclusions
-            var builder = DirectoryWatcher.builder()
-                    .listener(this::handleEvent)
-                    .fileHashing(true);
+            var builder = DirectoryWatcher.builder().listener(this::handleEvent).fileHashing(true);
 
             // Also watch git metadata if present
             if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
