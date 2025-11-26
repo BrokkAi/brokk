@@ -797,9 +797,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String result = String.join(" ", quals).strip();
-        if (log.isDebugEnabled()) {
-            log.debug("Extracted qualifier suffix '{}' from declarator tail: {}", result, (tail == null ? "" : tail));
-        }
+        log.trace("Extracted qualifier suffix '{}' from declarator tail: {}", result, (tail == null ? "" : tail));
         return result;
     }
 
