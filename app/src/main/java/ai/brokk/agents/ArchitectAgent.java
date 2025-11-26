@@ -728,6 +728,16 @@ public class ArchitectAgent {
                     throw new InterruptedException();
                 }
 
+                // Post-batch message
+                if (currentBatchSize > 1) {
+                    io.llmOutput(
+                            "All " + currentBatchSize + " SearchAgents are finished. " + failedCount
+                                    + " Searches failed",
+                            ChatMessageType.AI,
+                            true,
+                            false);
+                }
+
                 // Build the final history entry using the full transcript
                 List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
 
