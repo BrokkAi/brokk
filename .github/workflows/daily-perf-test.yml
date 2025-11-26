@@ -83,7 +83,7 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: ./scripts/run-treesitter-repos.sh setup
 
-      - name: Run benchmark on HEAD (${{ env.HEAD_SHA_SHORT }})
+      - name: Run benchmark on HEAD
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
           for i in {1..3}; do
@@ -94,7 +94,7 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: ./gradlew clean
 
-      - name: Checkout BASE (${{ env.BASE_SHA_SHORT }})
+      - name: Checkout BASE
         if: steps.check_commits.outputs.should_skip == 'false'
         run: git checkout ${{ env.BASE_SHA }}
 
