@@ -762,13 +762,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
 
         // Extract const qualifier (word boundary aware + AST-based)
-        if (!tail.isEmpty() && hasKeywordWithBoundary(tail, "const") || nodeHasConst) {
+        if ((!tail.isEmpty() && hasKeywordWithBoundary(tail, "const")) || nodeHasConst) {
             addedQualTypes.add("const");
             quals.add("const");
         }
 
         // Extract volatile qualifier (word boundary aware + AST-based)
-        if (!tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile") || nodeHasVolatile) {
+        if ((!tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile")) || nodeHasVolatile) {
             if (addedQualTypes.add("volatile")) {
                 quals.add("volatile");
             }
