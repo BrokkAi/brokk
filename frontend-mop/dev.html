@@ -1092,15 +1092,34 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 
 function getCurrentTheme() {
     const html = document.documentElement;
+    if (html.classList.contains('theme-light-plus')) return 'light-plus';
     if (html.classList.contains('theme-light')) return 'light';
+    if (html.classList.contains('theme-dark-plus')) return 'dark-plus';
     if (html.classList.contains('theme-high-contrast')) return 'high-contrast';
     return 'dark'; // default
 }
 
 function setTheme(themeName) {
     const html = document.documentElement;
-    html.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast');
-    html.classList.add('theme-' + themeName);
+    // Remove all theme classes first
+    html.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast', 'theme-dark-plus', 'theme-light-plus');
+
+    // Apply appropriate classes based on theme name
+    if (themeName === 'light') {
+        html.classList.add('theme-light');
+    } else if (themeName === 'dark') {
+        html.classList.add('theme-dark');
+    } else if (themeName === 'dark-plus') {
+        html.classList.add('theme-dark');
+        html.classList.add('theme-dark-plus');
+    } else if (themeName === 'light-plus') {
+        html.classList.add('theme-light');
+        html.classList.add('theme-light-plus');
+    } else if (themeName === 'high-contrast') {
+        html.classList.add('theme-high-contrast');
+    } else {
+        html.classList.add('theme-dark'); // fallback
+    }
 
     // Update display
     const display = document.getElementById('current-theme-display');
@@ -1112,7 +1131,7 @@ function setTheme(themeName) {
 }
 
 function cycleTheme() {
-    const themes = ['light', 'dark', 'high-contrast'];
+    const themes = ['dark', 'dark-plus', 'light', 'light-plus', 'high-contrast'];
     const current = getCurrentTheme();
     const currentIndex = themes.indexOf(current);
     const nextIndex = (currentIndex + 1) % themes.length;
