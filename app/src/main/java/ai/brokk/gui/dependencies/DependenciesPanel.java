@@ -340,6 +340,27 @@ public final class DependenciesPanel extends JPanel {
 
                 @Override
                 public void dependencyImportFinished(String name) {
+                    // Add the newly imported dependency to the live set by default
+                    var project = chrome.getProject();
+                    var currentLiveDeps = project.getLiveDependencies();
+                    var liveDependencyTopLevelDirs = new HashSet<Path>();
+                    
+                    // Add all currently live dependencies
+                    for (var dep : currentLiveDeps) {
+                        liveDependencyTopLevelDirs.add(dep.root().absPath());
+                    }
+                    
+                    // Add the newly imported dependency directory
+                    var newDepDir = project.getMasterRootPathForConfig()
+                            .resolve(".brokk")
+                            .resolve("dependencies")
+                            .resolve(name);
+                    liveDependencyTopLevelDirs.add(newDepDir);
+                    
+                    // Persist the updated live set
+                    project.saveLiveDependencies(liveDependencyTopLevelDirs);
+                    
+                    // Now reload the UI with the updated live set
                     loadDependenciesAsync();
                     // Persist changes after a dependency import completes and then resume watcher.
                     var future = saveChangesAsync();
