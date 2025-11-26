@@ -54,6 +54,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import ai.brokk.IConsoleIO;
 
 /**
  * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
@@ -126,9 +127,16 @@ public class SearchAgent {
     private boolean beastMode;
     private boolean codeAgentJustSucceeded;
 
+
     /**
-     * Creates a SearchAgent with explicit control over output streaming.
+     * Creates a SearchAgent with explicit control over output streaming and IO routing.
      *
+     * @param initialContext the initial context
+     * @param goal the search goal
+     * @param model the LLM model to use
+     * @param objective the search objective
+     * @param scope the task scope for history recording
+     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
      * @param echo if true, LLM output is streamed to the UI; if false, output is silent
      */
     public SearchAgent(
@@ -137,23 +145,25 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
+            @Nullable IConsoleIO io,
             boolean echo) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
-        this.io = cm.getIo();
+        this.io = io != null ? io : cm.getIo();
         var llmOptions = new Llm.Options(model, "Search: " + goal);
         if (echo) {
             llmOptions = llmOptions.withEcho();
         }
         this.llm = cm.getLlm(llmOptions);
-        this.llm.setOutput(io);
+        this.llm.setOutput(this.io);
         var summarizeConfig = new Service.ModelConfig(
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
         var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
+        this.summarizer.setOutput(this.io);
 
         this.beastMode = false;
         this.codeAgentJustSucceeded = false;
@@ -176,7 +186,7 @@ public class SearchAgent {
     }
 
     /**
-     * Creates a SearchAgent with output streaming enabled (default behavior).
+     * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
      */
     public SearchAgent(
             Context initialContext,
@@ -184,7 +194,22 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope) {
-        this(initialContext, goal, model, objective, scope, true);
+        this(initialContext, goal, model, objective, scope, null, true);
+    }
+
+    /**
+     * Creates a SearchAgent with explicit control over output streaming but default IO.
+     *
+     * @param echo if true, LLM output is streamed to the UI; if false, output is silent
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            boolean echo) {
+        this(initialContext, goal, model, objective, scope, null, echo);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -836,15 +861,23 @@ public class SearchAgent {
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Callers should invoke this before calling execute() if they want the initial context scan.
-     * Updates the SearchAgent's internal Context, and also returns it.
+BRK_CONFLICT_BEGIN_1
+BRK_OUR_VERSION a9b3e52
+ff18b49      * Updates the SearchAgent's internal Context, and also returns it.
+BRK_BASE_VERSION d94c8e0
+BRK_THEIR_VERSION 8f84d7c
+8f84d7c      *
+8f84d7c      * @param model the LLM model to use for context scanning
+8f84d7c      * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending
+BRK_CONFLICT_END_1
      */
-    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, model, goal);
+        var contextAgent = new ContextAgent(cm, model, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
@@ -855,7 +888,9 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
-            context = scope.append(contextAgentResult);
+            if (appendToScope) {
+                context = scope.append(contextAgentResult);
+            }
             return context;
         }
 
@@ -889,12 +924,27 @@ public class SearchAgent {
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        context = scope.append(contextAgentResult);
+        if (appendToScope) {
+            context = scope.append(contextAgentResult);
+        }
         return context;
     }
 
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Appends the result to scope by default.
+     */
     public Context scanInitialContext() throws InterruptedException {
-        return scanInitialContext(cm.getService().getScanModel());
+        return scanInitialContext(cm.getService().getScanModel(), true);
+    }
+
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     *
+     * @param model the LLM model to use for context scanning
+     */
+    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+        return scanInitialContext(model, true);
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
