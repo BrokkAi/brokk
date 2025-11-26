@@ -2100,7 +2100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> {
             // Check if WandButton captured the original text (before streaming modified the area)
             String capturedOldText = wandButton.getCapturedOriginalText();
-            if (capturedOldText != null) {
+            if (!capturedOldText.isEmpty()) {
                 wandButton.clearCapturedOriginalText(); // Clear after use
             } else {
                 // Fallback: capture from area (works for history selection, voice input)
@@ -3003,7 +3003,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
-        private @Nullable String capturedOriginalText;
+        private String capturedOriginalText = "";
 
         public WandButton(
                 ContextManager contextManager,
@@ -3028,12 +3028,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             });
         }
 
-        public @Nullable String getCapturedOriginalText() {
+        public String getCapturedOriginalText() {
             return capturedOriginalText;
         }
 
         public void clearCapturedOriginalText() {
-            capturedOriginalText = null;
+            capturedOriginalText = "";
         }
 
         @Override
