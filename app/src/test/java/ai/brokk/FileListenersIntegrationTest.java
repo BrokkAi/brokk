@@ -58,7 +58,7 @@ class FileListenersIntegrationTest {
 
         // Step 2: Create AnalyzerWrapper with injected watch service (like ContextManager does)
         // Note: Pass null for analyzerListener to avoid git repo access in tests
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Step 3: Add external listener (like ContextManager does)
         var externalListener = new TestExternalListener();
@@ -100,7 +100,7 @@ class FileListenersIntegrationTest {
         // Create watch service and AnalyzerWrapper
         watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Add two external listeners
         var listener1 = new TestExternalListener();
@@ -137,7 +137,7 @@ class FileListenersIntegrationTest {
         // Create watch service and AnalyzerWrapper
         watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         // Pass null for analyzerListener to avoid git repo access in tests
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Add and then remove an external listener
         var externalListener = new TestExternalListener();
@@ -174,7 +174,7 @@ class FileListenersIntegrationTest {
 
         // Create watch service and AnalyzerWrapper
         watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Simulate two different components accessing the watch service
         var watchServiceFromComponent1 = analyzerWrapper.getWatchService();

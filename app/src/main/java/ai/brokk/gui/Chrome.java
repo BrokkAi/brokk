@@ -279,6 +279,14 @@ public class Chrome
     public Chrome(ContextManager contextManager) {
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
+        this.contextManager.addFileChangeListener(changedFiles -> {
+            // Refresh preview windows when tracked files change
+            Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
+            openPreviewFiles.retainAll(changedFiles);
+            if (!openPreviewFiles.isEmpty()) {
+                refreshPreviewsForFiles(openPreviewFiles);
+            }
+        });
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
@@ -1697,12 +1705,6 @@ public class Chrome
 
     @Override
     public void onTrackedFileChange() {
-        // Refresh preview windows when tracked files change
-        Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
-        if (!openPreviewFiles.isEmpty()) {
-            refreshPreviewsForFiles(openPreviewFiles);
-        }
-
         // Also refresh the Review tab to show updated changes
         historyOutputPanel.refreshBranchDiffPanel();
     }

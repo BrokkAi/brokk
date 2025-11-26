@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -26,6 +27,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
@@ -52,60 +54,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // Dedicated single-threaded executor for analyzer refresh tasks
     private final LoggingExecutorService analyzerExecutor;
     private volatile @Nullable Thread analyzerExecutorThread;
-
-    /**
-     * Creates an AnalyzerWrapper with an AnalyzerListener.
-     * Creates a temporary UI listener internally for backward compatibility.
-     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} instead
-     */
-    @Deprecated
-    @SuppressWarnings("InlineMeSuggester")
-    public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener) {
-        this(project, listener, (IWatchService) null);
-    }
-
-    /**
-     * Creates an AnalyzerWrapper with separate listeners for analyzer and file system events.
-     * @param project The project to analyze
-     * @param analyzerListener Listener for analyzer lifecycle events (can be null)
-     * @param fileWatchListener Additional file watch listener (e.g., from ContextManager). If null, creates temporary uiListener.
-     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} and add listeners via watchService.addListener()
-     */
-    @Deprecated
-    public AnalyzerWrapper(
-            IProject project,
-            @Nullable AnalyzerListener analyzerListener,
-            @Nullable IWatchService.Listener fileWatchListener) {
-        this.project = project;
-        this.root = project.getRoot();
-        gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        this.listener = analyzerListener;
-
-        if (analyzerListener == null) {
-            this.watchService = new IWatchService() {};
-        } else {
-            Path globalGitignorePath = null;
-            if (project instanceof AbstractProject abstractProject) {
-                globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
-            }
-            // Build list of listeners
-            var listeners = new ArrayList<IWatchService.Listener>();
-            listeners.add(this); // Analyzer listener
-
-            // Add file watch listener if provided
-            if (fileWatchListener != null) {
-                listeners.add(fileWatchListener);
-            }
-            // Note: If no fileWatchListener is provided, only analyzer events will be handled.
-            // Callers should use the new constructor and add their own listeners via watchService.addListener()
-
-            this.watchService = WatchServiceFactory.create(root, gitRepoRoot, globalGitignorePath, listeners);
-        }
-
-        // Initialize executor and analyzer
-        this.analyzerExecutor = createAnalyzerExecutor();
-        submitInitialAnalyzerBuild();
-    }
+    private boolean readyForWatcherEvents = false;
+    private final List<EventBatch> queuedWatcherEvents = new ArrayList<>();
 
     /**
      * Creates an AnalyzerWrapper with an injected watch service.
@@ -117,19 +67,15 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
     public AnalyzerWrapper(
-            IProject project, @Nullable AnalyzerListener analyzerListener, @Nullable IWatchService watchService) {
+            IProject project, @NotNull AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
-        this.watchService = watchService != null ? watchService : new IWatchService() {};
-
-        // Register self as listener if we have both a real watch service and an analyzer listener
-        if (watchService != null && analyzerListener != null) {
-            watchService.addListener(this);
-        }
+        this.watchService = watchService;
+        watchService.addListener(this);
 
         // Initialize executor and analyzer
         this.analyzerExecutor = createAnalyzerExecutor();
@@ -162,17 +108,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      */
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
-            // Watcher will wait for the future to complete before processing events,
-            // but it will start watching files immediately in order not to miss any changes in the meantime.
-            var delayNotificationsUntilCompleted = new CompletableFuture<Void>();
-            watchService.start(delayNotificationsUntilCompleted);
-
-            // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
-            delayNotificationsUntilCompleted.complete(null);
+            analyzerExecutor.submit(() -> {
+                readyForWatcherEvents = true;
+                processQueuedWatcherEvents();
+            });
 
             // debug logging
             final var metrics = currentAnalyzer.getMetrics();
@@ -186,9 +129,27 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         });
     }
 
+    private void processQueuedWatcherEvents() {
+        logger.debug("Processing {} queued watcher event batches", queuedWatcherEvents.size());
+        List<EventBatch> localQueuedEvents;
+        synchronized (queuedWatcherEvents) {
+            localQueuedEvents = new ArrayList<>(queuedWatcherEvents);
+            queuedWatcherEvents.clear();
+        }
+
+        for (var batch : localQueuedEvents) {
+            onFilesChanged(batch);
+        }
+    }
+
     @Override
     public void onFilesChanged(EventBatch batch) {
         logger.trace("AnalyzerWrapper received events batch: {}", batch);
+        if (!readyForWatcherEvents) {
+            logger.debug("AnalyzerWrapper not ready for watcher events yet, queuing batch");
+            queuedWatcherEvents.add(batch);
+            return;
+        }
 
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.
         // Git metadata and tracked file change notifications are handled by ContextManager's listener.
