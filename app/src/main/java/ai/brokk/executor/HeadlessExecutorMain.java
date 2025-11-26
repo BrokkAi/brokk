@@ -949,9 +949,7 @@ public final class HeadlessExecutorMain {
             var after = contextManager.getFilesInContext();
 
             // Determine which files were effectively added
-            var addedFiles = after.stream()
-                    .filter(pf -> !before.contains(pf))
-                    .collect(Collectors.toList());
+            var addedFiles = after.stream().filter(pf -> !before.contains(pf)).collect(Collectors.toList());
 
             // Build response with fragment IDs
             var addedContextFiles = new ArrayList<AddedContextFile>();
@@ -959,7 +957,8 @@ public final class HeadlessExecutorMain {
 
             for (var projectFile : addedFiles) {
                 // Find the fragment ID in live context
-                var fragId = liveContext.fileFragments()
+                var fragId = liveContext
+                        .fileFragments()
                         .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
                         .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
                         .filter(p -> {
@@ -1103,9 +1102,7 @@ public final class HeadlessExecutorMain {
                     continue;
                 }
 
-                var codeUnit = definitions.stream()
-                        .filter(CodeUnit::isClass)
-                        .findFirst();
+                var codeUnit = definitions.stream().filter(CodeUnit::isClass).findFirst();
                 if (codeUnit.isEmpty()) {
                     invalidNames.add(trimmed + " (not a class)");
                     continue;
@@ -1126,10 +1123,12 @@ public final class HeadlessExecutorMain {
             }
 
             // Add class summaries to context
-            contextManager.addSummaries(Set.of(), validClassNames.stream()
-                    .flatMap(name -> analyzer.getDefinitions(name).stream()
-                            .filter(CodeUnit::isClass))
-                    .collect(Collectors.toSet()));
+            contextManager.addSummaries(
+                    Set.of(),
+                    validClassNames.stream()
+                            .flatMap(name ->
+                                    analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
+                            .collect(Collectors.toSet()));
 
             // Build response with fragment IDs
             var addedClasses = new ArrayList<AddedContextClass>();
@@ -1137,7 +1136,8 @@ public final class HeadlessExecutorMain {
 
             for (var className : validClassNames) {
                 // Find the skeleton fragment ID in live context for this class
-                var fragId = liveContext.virtualFragments()
+                var fragId = liveContext
+                        .virtualFragments()
                         .filter(f -> f instanceof ContextFragment.SkeletonFragment)
                         .map(f -> (ContextFragment.SkeletonFragment) f)
                         .filter(s -> s.getTargetIdentifiers().contains(className))
@@ -1153,9 +1153,7 @@ public final class HeadlessExecutorMain {
                     "Added {} classes to context (session={}): {}",
                     addedClasses.size(),
                     contextManager.getCurrentSessionId(),
-                    addedClasses.stream()
-                            .map(AddedContextClass::className)
-                            .collect(Collectors.joining(", ")));
+                    addedClasses.stream().map(AddedContextClass::className).collect(Collectors.joining(", ")));
 
             SimpleHttpServer.sendJsonResponse(exchange, 200, response);
         } catch (Exception e) {
@@ -1243,9 +1241,7 @@ public final class HeadlessExecutorMain {
                     continue;
                 }
 
-                var codeUnit = definitions.stream()
-                        .filter(CodeUnit::isFunction)
-                        .findFirst();
+                var codeUnit = definitions.stream().filter(CodeUnit::isFunction).findFirst();
                 if (codeUnit.isEmpty()) {
                     invalidNames.add(trimmed + " (not a method)");
                     continue;
@@ -1279,9 +1275,7 @@ public final class HeadlessExecutorMain {
                     "Added {} methods to context (session={}): {}",
                     addedMethods.size(),
                     contextManager.getCurrentSessionId(),
-                    addedMethods.stream()
-                            .map(AddedContextMethod::methodName)
-                            .collect(Collectors.joining(", ")));
+                    addedMethods.stream().map(AddedContextMethod::methodName).collect(Collectors.joining(", ")));
 
             SimpleHttpServer.sendJsonResponse(exchange, 200, response);
         } catch (Exception e) {

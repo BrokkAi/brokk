@@ -1,9 +1,9 @@
 package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
@@ -87,12 +87,18 @@ class AskModeSearchAgentTest {
 
         // Create an ASK mode job
         var jobSpec = Map.<String, Object>of(
-                "sessionId", UUID.randomUUID().toString(),
-                "taskInput", "What is the structure of this project?",
-                "autoCommit", false,
-                "autoCompress", false,
-                "plannerModel", "gemini-2.0-flash",
-                "tags", Map.of("mode", "ASK"));
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "What is the structure of this project?",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "tags",
+                Map.of("mode", "ASK"));
 
         var jobId = createJobWithSpec(jobSpec, "ask-test-read-only");
 
@@ -100,7 +106,8 @@ class AskModeSearchAgentTest {
         Thread.sleep(500);
 
         // Poll for events to ensure job has processed
-        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000").toURL();
+        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
+                .toURL();
         var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
         eventsConn.setRequestMethod("GET");
         eventsConn.setRequestProperty("Authorization", "Bearer " + authToken);
@@ -139,13 +146,15 @@ class AskModeSearchAgentTest {
         try {
             // Expect 200 or 409 (no git); if 409, that's fine (no git repo)
             var statusCode = diffConn.getResponseCode();
-            assertTrue(statusCode == 200 || statusCode == 409,
+            assertTrue(
+                    statusCode == 200 || statusCode == 409,
                     "Diff endpoint should succeed or report no git; got: " + statusCode);
 
             if (statusCode == 200) {
                 try (InputStream is = diffConn.getInputStream()) {
                     var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(diffText.isEmpty() || diffText.isBlank(),
+                    assertTrue(
+                            diffText.isEmpty() || diffText.isBlank(),
                             "ASK mode should produce no diff (read-only); got: " + diffText);
                 }
             }
@@ -160,13 +169,20 @@ class AskModeSearchAgentTest {
 
         // Create ASK job with explicit codeModel (should be ignored)
         var jobSpec = Map.<String, Object>of(
-                "sessionId", UUID.randomUUID().toString(),
-                "taskInput", "List the main files in this project",
-                "autoCommit", false,
-                "autoCompress", false,
-                "plannerModel", "gemini-2.0-flash",
-                "codeModel", "gemini-2.0-flash", // Explicitly set, but should be ignored in ASK
-                "tags", Map.of("mode", "ASK"));
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "List the main files in this project",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "codeModel",
+                "gemini-2.0-flash", // Explicitly set, but should be ignored in ASK
+                "tags",
+                Map.of("mode", "ASK"));
 
         var jobId = createJobWithSpec(jobSpec, "ask-test-ignore-code-model");
 
@@ -194,12 +210,18 @@ class AskModeSearchAgentTest {
 
         // Create ASK job with autoCompress enabled
         var jobSpec = Map.<String, Object>of(
-                "sessionId", UUID.randomUUID().toString(),
-                "taskInput", "What are the key files?",
-                "autoCommit", false,
-                "autoCompress", true, // Enable compression
-                "plannerModel", "gemini-2.0-flash",
-                "tags", Map.of("mode", "ASK"));
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "What are the key files?",
+                "autoCommit",
+                false,
+                "autoCompress",
+                true, // Enable compression
+                "plannerModel",
+                "gemini-2.0-flash",
+                "tags",
+                Map.of("mode", "ASK"));
 
         var jobId = createJobWithSpec(jobSpec, "ask-test-auto-compress");
 
@@ -227,12 +249,18 @@ class AskModeSearchAgentTest {
 
         // Create ASK job with autoCommit=true (should be ignored)
         var jobSpec = Map.<String, Object>of(
-                "sessionId", UUID.randomUUID().toString(),
-                "taskInput", "Describe the architecture",
-                "autoCommit", true, // Should be ignored in ASK mode
-                "autoCompress", false,
-                "plannerModel", "gemini-2.0-flash",
-                "tags", Map.of("mode", "ASK"));
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Describe the architecture",
+                "autoCommit",
+                true, // Should be ignored in ASK mode
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "tags",
+                Map.of("mode", "ASK"));
 
         var jobId = createJobWithSpec(jobSpec, "ask-test-no-auto-commit");
 
@@ -250,7 +278,8 @@ class AskModeSearchAgentTest {
             if (statusCode == 200) {
                 try (InputStream is = diffConn.getInputStream()) {
                     var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(diffText.isEmpty() || diffText.isBlank(),
+                    assertTrue(
+                            diffText.isEmpty() || diffText.isBlank(),
                             "ASK should produce no diff even with autoCommit=true; got: " + diffText);
                 }
             }

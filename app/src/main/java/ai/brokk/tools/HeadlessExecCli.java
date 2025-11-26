@@ -1,7 +1,5 @@
 package ai.brokk.tools;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import ai.brokk.ContextManager;
 import ai.brokk.executor.HeadlessExecutorMain;
 import ai.brokk.project.MainProject;
@@ -9,8 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -388,7 +384,8 @@ public class HeadlessExecCli {
         System.out.println("Usage: java HeadlessExecCli [options] <prompt>");
         System.out.println();
         System.out.println("Options:");
-        System.out.println("  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ (default: ARCHITECT)");
+        System.out.println(
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
         System.out.println("  --code-model MODEL       Code model name (optional)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");

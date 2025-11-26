@@ -232,14 +232,14 @@ public final class JobRunner {
                                             logger.debug("LUTZ Phase 1 complete: task list generated");
 
                                             // Phase 2: Check if task list was generated; if empty, mark job complete
-                                            var generatedTasks = cm.getTaskList().tasks();
+                                            var generatedTasks =
+                                                    cm.getTaskList().tasks();
                                             if (generatedTasks.isEmpty()) {
                                                 var msg = "SearchAgent generated no tasks for: " + task.text();
                                                 logger.info("LUTZ job {}: {}", jobId, msg);
                                                 if (console != null) {
                                                     try {
-                                                        console.showNotification(
-                                                                IConsoleIO.NotificationRole.INFO, msg);
+                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
                                                     } catch (Throwable ignore) {
                                                         // Non-critical: event writing failed
                                                     }
@@ -253,15 +253,23 @@ public final class JobRunner {
                                                 var incompleteTasks = generatedTasks.stream()
                                                         .filter(t -> !t.done())
                                                         .toList();
-                                                logger.debug("LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
+                                                logger.debug(
+                                                        "LUTZ will execute {} incomplete task(s)",
+                                                        incompleteTasks.size());
 
                                                 for (TaskList.TaskItem generatedTask : incompleteTasks) {
                                                     if (cancelled.get()) {
-                                                        logger.info("LUTZ job {} execution cancelled during task iteration", jobId);
-                                                        return; // Exit submitLlmAction to avoid outer completion increment
+                                                        logger.info(
+                                                                "LUTZ job {} execution cancelled during task iteration",
+                                                                jobId);
+                                                        return; // Exit submitLlmAction to avoid outer completion
+                                                        // increment
                                                     }
 
-                                                    logger.info("LUTZ job {} executing generated task: {}", jobId, generatedTask.text());
+                                                    logger.info(
+                                                            "LUTZ job {} executing generated task: {}",
+                                                            jobId,
+                                                            generatedTask.text());
                                                     try {
                                                         cm.executeTask(
                                                                 generatedTask,
@@ -299,8 +307,7 @@ public final class JobRunner {
                                                         context,
                                                         task.text(),
                                                         Objects.requireNonNull(
-                                                                askPlannerModel,
-                                                                "plannerModel required for ASK jobs"),
+                                                                askPlannerModel, "plannerModel required for ASK jobs"),
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
                                                 var result = searchAgent.execute();

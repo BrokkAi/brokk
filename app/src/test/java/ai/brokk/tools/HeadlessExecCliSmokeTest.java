@@ -17,46 +17,43 @@ import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
  */
 class HeadlessExecCliSmokeTest {
 
-  @Test
-  void testHeadlessExecCliHelpFlag() {
-    var args = new String[] {"--help"};
+    @Test
+    void testHeadlessExecCliHelpFlag() {
+        var args = new String[] {"--help"};
 
-    int exitCode = HeadlessExecCli.runCli(args);
+        int exitCode = HeadlessExecCli.runCli(args);
 
-    assertEquals(0, exitCode, "CLI should exit with code 0 for --help");
-  }
+        assertEquals(0, exitCode, "CLI should exit with code 0 for --help");
+    }
 
-  @Test
-  void testHeadlessExecCliMissingPlannerModelFails() {
-    var args = new String[] {
-      "--mode", "ASK",
-      "Some prompt"
-    };
+    @Test
+    void testHeadlessExecCliMissingPlannerModelFails() {
+        var args = new String[] {"--mode", "ASK", "Some prompt"};
 
-    int exitCode = HeadlessExecCli.runCli(args);
+        int exitCode = HeadlessExecCli.runCli(args);
 
-    assertEquals(1, exitCode, "CLI should exit with code 1 when planner-model is missing");
-  }
+        assertEquals(1, exitCode, "CLI should exit with code 1 when planner-model is missing");
+    }
 
-  /**
-   * Full end-to-end smoke test with actual executor startup.
-   * Skipped by default; only runs when BROKK_CLI_SMOKE=true is set.
-   * Requires LLM model access and working Git repository in the test environment.
-   */
-  @DisabledIfEnvironmentVariable(
-      named = "BROKK_CLI_SMOKE",
-      matches = "^(?!true).*",
-      disabledReason = "Full smoke test skipped unless BROKK_CLI_SMOKE=true (requires LLM models and Git)")
-  @Test
-  void testHeadlessExecCliAskModeWithExecutor() {
-    var args = new String[] {
-      "--mode", "ASK",
-      "--planner-model", "gpt-5-mini",
-      "Find the main package in this workspace"
-    };
+    /**
+     * Full end-to-end smoke test with actual executor startup.
+     * Skipped by default; only runs when BROKK_CLI_SMOKE=true is set.
+     * Requires LLM model access and working Git repository in the test environment.
+     */
+    @DisabledIfEnvironmentVariable(
+            named = "BROKK_CLI_SMOKE",
+            matches = "^(?!true).*",
+            disabledReason = "Full smoke test skipped unless BROKK_CLI_SMOKE=true (requires LLM models and Git)")
+    @Test
+    void testHeadlessExecCliAskModeWithExecutor() {
+        var args = new String[] {
+            "--mode", "ASK",
+            "--planner-model", "gpt-5-mini",
+            "Find the main package in this workspace"
+        };
 
-    int exitCode = HeadlessExecCli.runCli(args);
+        int exitCode = HeadlessExecCli.runCli(args);
 
-    assertEquals(0, exitCode, "CLI should exit successfully (exit code 0)");
-  }
+        assertEquals(0, exitCode, "CLI should exit successfully (exit code 0)");
+    }
 }
