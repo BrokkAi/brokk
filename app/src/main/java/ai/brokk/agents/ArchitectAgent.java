@@ -32,6 +32,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -42,6 +43,7 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -58,10 +60,12 @@ public class ArchitectAgent {
     private volatile int currentBatchSize = 0;
 
     // Helper record to associate a SearchAgent task Future with its request and result
-    private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
+    private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {
+    }
 
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
-    private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
+    private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {
+    }
 
     private final ContextManager cm;
     private final StreamingChatModel planningModel;
@@ -89,7 +93,7 @@ public class ArchitectAgent {
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
      *
      * @param codeModel
-     * @param goal The initial user instruction or goal for the agent.
+     * @param goal      The initial user instruction or goal for the agent.
      */
     public ArchitectAgent(
             ContextManager contextManager,
@@ -106,12 +110,14 @@ public class ArchitectAgent {
         this.context = contextManager.liveContext();
     }
 
-    /** A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent. */
+    /**
+     * A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent.
+     */
     @Tool(
             "Provide a final answer to the multi-step project. Use this when you're done or have everything you need. Do not combine with other tools.")
     public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
-                    String finalExplanation) {
+            String finalExplanation) {
         var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
         logger.debug(msg);
         io.llmOutput(msg, ChatMessageType.AI, true, false);
@@ -119,7 +125,9 @@ public class ArchitectAgent {
         return finalExplanation;
     }
 
-    /** A tool to abort the plan if you cannot proceed or if it is irrelevant. */
+    /**
+     * A tool to abort the plan if you cannot proceed or if it is irrelevant.
+     */
     @Tool(
             "Abort the entire project. Use this if the tasks are impossible or out of scope. Do not combine with other tools.")
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
@@ -138,11 +146,11 @@ public class ArchitectAgent {
             "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions. If you expect your changes to temporarily break the build and plan to fix them in later steps, set 'deferBuild' to true to defer build/verification.")
     public String callCodeAgent(
             @P(
-                            "Detailed instructions for the CodeAgent referencing the current project. Code Agent can figure out how to change the code at the syntax level but needs clear instructions of what exactly you want changed")
-                    String instructions,
+                    "Detailed instructions for the CodeAgent referencing the current project. Code Agent can figure out how to change the code at the syntax level but needs clear instructions of what exactly you want changed")
+            String instructions,
             @P(
-                            "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
-                    boolean deferBuild)
+                    "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
+            boolean deferBuild)
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
@@ -280,11 +288,11 @@ public class ArchitectAgent {
     }
 
     private void addPlanningToHistory() {
-            var messages = io.getLlmRawMessages();
-            if (messages.isEmpty()) {
-                    return;
-            }
-            context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+        var messages = io.getLlmRawMessages();
+        if (messages.isEmpty()) {
+            return;
+        }
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
     }
 
     @Tool(
@@ -310,10 +318,10 @@ public class ArchitectAgent {
     }
 
     /**
-         * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
-         * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
-         * as a context fragment.
-         */
+     * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
+     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
+     * as a context fragment.
+     */
     @Tool(
             "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
     public String callSearchAgent(
@@ -326,12 +334,12 @@ public class ArchitectAgent {
         try {
             // Use MutedConsoleIO for background search agents to prevent MOP interleaving, but keep notifications
             IConsoleIO saIo = shouldEcho ? cm.getIo() : new MutedConsoleIO(cm.getIo());
-            
+
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
                 io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
             }
-            
+
             var searchAgent = new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo, shouldEcho);
             // Ensure all SAs scan, but do not append individual history entries during batch
             searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
@@ -354,7 +362,7 @@ public class ArchitectAgent {
         } finally {
             if (shouldEcho) {
                 if (currentBatchSize > 1) {
-                    io.llmOutput("Waiting for the rest of the SearchAgents...", ChatMessageType.AI, true, false);
+                    io.llmOutput("Waiting for the other " + (currentBatchSize - 1) + " SearchAgents...", ChatMessageType.AI, true, false);
                 }
                 searchAgentEchoInUse.set(false);
             }
@@ -396,12 +404,12 @@ public class ArchitectAgent {
 
     /**
      * Run the multi-step project loop: plan, choose tools, execute, repeat.
-     *
+     * <p>
      * Strategy:
      * 1) Try CodeAgent first with the goal.
      * 2) Enter planning loop. If the workspace is critical, restrict tools to workspace-trimming set.
      * 3) If the planning LLM returns ContextTooLarge, switch to GEMINI_2_5_PRO and run a single
-     *    critical-turn (restricted tools) to shrink the workspace, then proceed with the result.
+     * critical-turn (restricted tools) to shrink the workspace, then proceed with the result.
      */
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
@@ -623,9 +631,14 @@ public class ArchitectAgent {
                 // Create a planning history entry once before launching searches
                 addPlanningToHistory();
 
-                int n = searchAgentReqs.size();
                 // Mark current batch size so the streaming SA can print the waiting message at the right time
-                currentBatchSize = n;
+                currentBatchSize = searchAgentReqs.size();
+
+                if (currentBatchSize > 1) {
+                    io.llmOutput(
+                            "Search Agent: running " + currentBatchSize + " queries in parallel; only the first will stream.",
+                            ChatMessageType.AI, true, false);
+                }
 
                 // Submit search agent tasks to run in the background
                 var searchAgentTasks = new ArrayList<SearchTask>();
@@ -651,7 +664,7 @@ public class ArchitectAgent {
                 TaskResult baseSaResult = null;
                 Context combinedContext = context;
 
-                for (int i = 0; i < n; i++) {
+                for (int i = 0; i < currentBatchSize; i++) {
                     var searchTask = searchAgentTasks.get(i);
                     var request = searchTask.request();
                     var future = searchTask.future();
@@ -688,7 +701,7 @@ public class ArchitectAgent {
                         interrupted = true;
                         failedCount++;
                         // cancel remaining
-                        for (int j = i; j < n; j++) {
+                        for (int j = i; j < currentBatchSize; j++) {
                             searchAgentTasks.get(j).future().cancel(true);
                         }
                     } catch (ExecutionException e) {
@@ -807,7 +820,9 @@ public class ArchitectAgent {
         return resultWithMessages(reason, "Architect: " + goal);
     }
 
-    /** Helper method to get priority rank for tool names. Lower number means higher priority. */
+    /**
+     * Helper method to get priority rank for tool names. Lower number means higher priority.
+     */
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
@@ -840,13 +855,13 @@ public class ArchitectAgent {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             var topFilesText =
                     """
-                    <related_files>
-                    Here are some files that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
-                    If relevant, explicitly add them (e.g., summaries or sources) so they become visible to Code Agent. If they are not relevant, ignore them.
-
-                    %s
-                    </related_files>
-                    """
+                            <related_files>
+                            Here are some files that may be related to what is in your Workspace, and the identifiers declared in each. They are not yet part of the Workspace!
+                            If relevant, explicitly add them (e.g., summaries or sources) so they become visible to Code Agent. If they are not relevant, ignore them.
+                            
+                            %s
+                            </related_files>
+                            """
                             .formatted(relatedBlock);
             messages.add(new UserMessage(topFilesText));
             messages.add(new AiMessage("Okay, I will consider these related files."));
