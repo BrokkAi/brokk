@@ -93,31 +93,16 @@ jobs:
           echo "$report" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Post to Slack
+      - name: Send performance data to Slack Workflow
         if: steps.check_commits.outputs.should_skip == 'false'
-        uses: slackapi/slack-github-action@v1.25.0
+        uses: slackapi/slack-github-action@v2.1.1
         with:
+          webhook: ${{ secrets.SLACK_DAILY_PERF_WEBHOOK_URL }}
+          webhook-type: webhook-trigger
           payload: |
             {
-              "text": "Daily Performance Report: ${{ env.HEAD_SHA_SHORT }} vs ${{ env.BASE_SHA_SHORT }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "${{ steps.compare.outputs.markdown_report }}"
-                  }
-                },
-                {
-                  "type": "context",
-                  "elements": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "Comparing `master@${{ env.HEAD_SHA_SHORT }}` with `master@${{ env.BASE_SHA_SHORT }}`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
-                    }
-                  ]
-                }
-              ]
+              "report_markdown": "${{ steps.compare.outputs.markdown_report }}",
+              "head_sha_short": "${{ env.HEAD_SHA_SHORT }}",
+              "base_sha_short": "${{ env.BASE_SHA_SHORT }}",
+              "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
