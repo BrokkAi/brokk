@@ -7,6 +7,9 @@ import ai.brokk.EditBlock;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -16,6 +19,7 @@ import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
@@ -40,6 +44,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class CodeAgentTest {
 
+    private TestProject project;
+
     private static class CountingPreprocessorModel implements StreamingChatModel {
         private final AtomicInteger preprocessingCallCount = new AtomicInteger(0);
         private final String cannedResponse;
@@ -53,7 +59,7 @@ class CodeAgentTest {
             // Check if this is a preprocessing request by looking for the distinctive system message
             boolean isPreprocessingRequest = chatRequest.messages().stream().anyMatch(msg -> {
                 String text = Messages.getText(msg);
-                return text != null && text.contains("You are familiar with common build and lint tools");
+                return text.contains("You are familiar with common build and lint tools");
             });
 
             if (isPreprocessingRequest) {
@@ -75,22 +81,19 @@ class CodeAgentTest {
     @TempDir
     Path projectRoot;
 
-    TestContextManager contextManager;
+    TestContextManager cm;
     TestConsoleIO consoleIO;
     CodeAgent codeAgent;
-    EditBlockParser parser;
     BiFunction<String, Path, Environment.ShellCommandRunner> originalShellCommandRunnerFactory;
 
     @BeforeEach
     void setUp() throws IOException {
         Files.createDirectories(projectRoot);
         consoleIO = new TestConsoleIO();
-        contextManager = new TestContextManager(projectRoot, consoleIO);
-        // For tests not needing LLM, model can be a dummy,
-        // as CodeAgent's constructor doesn't use it directly.
-        // Llm instance creation is deferred to runTask/runQuickTask.
-        codeAgent = new CodeAgent(contextManager, new Service.UnavailableStreamingModel(), consoleIO);
-        parser = EditBlockParser.instance; // Basic parser
+        project = new TestProject(projectRoot, Languages.JAVA);
+        cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
+        assert cm.getProject() == project;
+        codeAgent = new CodeAgent(cm, new Service.UnavailableStreamingModel(), consoleIO);
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
@@ -134,7 +137,7 @@ class CodeAgentTest {
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(cs, es, proseOnlyText, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, proseOnlyText, false, EditBlockParser.instance, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
@@ -163,7 +166,7 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(cs, es, llmText, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
@@ -198,7 +201,7 @@ class CodeAgentTest {
         var es = createEditState(List.of(), 0);
 
         // Act
-        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, false, EditBlockParser.instance, null);
 
         // Assert
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -226,7 +229,7 @@ class CodeAgentTest {
         var es = createEditState(List.of(), 0);
         String llmTextNoBlocks = "Thinking...";
 
-        var result = codeAgent.parsePhase(cs, es, llmTextNoBlocks, true, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextNoBlocks, true, EditBlockParser.instance, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -252,7 +255,7 @@ class CodeAgentTest {
                                   </block>
                                   """;
 
-        var result = codeAgent.parsePhase(cs, es, llmTextWithBlock, true, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithBlock, true, EditBlockParser.instance, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -264,9 +267,9 @@ class CodeAgentTest {
     // A-2: applyPhase – total apply failure (below fallback threshold)
     @Test
     void testApplyPhase_totalApplyFailure_belowThreshold() throws IOException {
-        var file = contextManager.toFile("test.txt");
+        var file = cm.toFile("test.txt");
         file.write("initial content");
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         var nonMatchingBlock =
                 new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
@@ -287,13 +290,13 @@ class CodeAgentTest {
     // A-4: applyPhase – mix success & failure
     @Test
     void testApplyPhase_mixSuccessAndFailure() throws IOException {
-        var file1 = contextManager.toFile("file1.txt");
+        var file1 = cm.toFile("file1.txt");
         file1.write("hello world");
-        contextManager.addEditableFile(file1);
+        cm.addEditableFile(file1);
 
-        var file2 = contextManager.toFile("file2.txt");
+        var file2 = cm.toFile("file2.txt");
         file2.write("foo bar");
-        contextManager.addEditableFile(file2);
+        cm.addEditableFile(file2);
 
         // This block will succeed because it matches the full line content
         var successBlock = new EditBlock.SearchReplaceBlock(file1.toString(), "hello world", "goodbye world");
@@ -336,7 +339,7 @@ class CodeAgentTest {
     // V-2: verifyPhase – verification command absent
     @Test
     void testVerifyPhase_verificationCommandAbsent() {
-        contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No commands
+        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No commands
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(List.of(), 1); // 1 block applied
 
@@ -351,8 +354,8 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_buildFailureAndSuccessCycle() {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
         var attempt = new AtomicInteger(0);
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
@@ -407,8 +410,8 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_interruptionDuringBuild() {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             throw new InterruptedException("Simulated interruption during shell command");
@@ -427,8 +430,8 @@ class CodeAgentTest {
     @Test
     void testRunTask_exitsSuccessOnNoEdits() {
         var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
-        codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
-        contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
+        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
+        project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
         var initialContext = newContext();
         var result = codeAgent.runTask(initialContext, List.of(), "A request that results in no edits", Set.of());
 
@@ -445,9 +448,9 @@ class CodeAgentTest {
         // 3. LLM provides no more edits ("I give up").
         // 4. Loop terminates with BUILD_ERROR.
 
-        var file = contextManager.toFile("test.txt");
+        var file = cm.toFile("test.txt");
         file.write("hello");
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         var firstResponse =
                 """
@@ -473,10 +476,10 @@ class CodeAgentTest {
         };
 
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
+        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
         var result = codeAgent.runTask("change hello to goodbye", Set.of());
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
@@ -487,9 +490,9 @@ class CodeAgentTest {
     // CF-1: changedFiles tracking after successful apply
     @Test
     void testApplyPhase_updatesChangedFilesSet() throws IOException {
-        var file = contextManager.toFile("file.txt");
+        var file = cm.toFile("file.txt");
         file.write("old");
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
         var cs = createConversationState(List.of(), new UserMessage("req"));
@@ -506,8 +509,8 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_sanitizesUnixJavaPaths() {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
         var absPath = rootFwd + "/src/Main.java";
@@ -533,8 +536,8 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_sanitizesWindowsJavaPaths() {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         var rootAbs = projectRoot.toAbsolutePath().toString();
         var rootBwd = rootAbs.replace('/', '\\');
@@ -561,8 +564,8 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_sanitizesPythonTracebackPaths() {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
         var absPyPath = rootFwd + "/pkg/mod.py";
@@ -593,9 +596,9 @@ class CodeAgentTest {
     // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
     @Test
     void testGenerateSearchReplaceBlocksFromTurn_preservesBaselinePerTurn() throws IOException {
-        var file = contextManager.toFile("file.txt");
+        var file = cm.toFile("file.txt");
         file.write("hello world");
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
@@ -645,10 +648,10 @@ class CodeAgentTest {
     // SRB-2: Multiple distinct changes in a single turn produce multiple S/R blocks (fine-grained)
     @Test
     void testGenerateSearchReplaceBlocksFromTurn_multipleChangesProduceMultipleBlocks() throws IOException {
-        var file = contextManager.toFile("multi.txt");
+        var file = cm.toFile("multi.txt");
         var original = String.join("\n", List.of("alpha", "keep", "omega")) + "\n";
         file.write(original);
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         // Prepare per-turn baseline manually (simulate what applyPhase would capture)
         var originalMap = new HashMap<ProjectFile, String>();
@@ -686,10 +689,10 @@ class CodeAgentTest {
     // SRB-3: Ensure expansion to achieve uniqueness (avoid ambiguous search blocks)
     @Test
     void testGenerateSearchReplaceBlocksFromTurn_expandsToUniqueSearchTargets() throws IOException {
-        var file = contextManager.toFile("unique.txt");
+        var file = cm.toFile("unique.txt");
         var original = String.join("\n", List.of("alpha", "beta", "alpha", "gamma")) + "\n";
         file.write(original);
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         var originalMap = new HashMap<ProjectFile, String>();
         originalMap.put(file, original);
@@ -713,10 +716,10 @@ class CodeAgentTest {
     // SRB-4: Overlapping expansions should merge into a single block
     @Test
     void testGenerateSearchReplaceBlocksFromTurn_mergesOverlappingExpansions() throws IOException {
-        var file = contextManager.toFile("merge.txt");
+        var file = cm.toFile("merge.txt");
         var original = String.join("\n", List.of("line1", "target", "middle", "target", "line5")) + "\n";
         file.write(original);
-        contextManager.addEditableFile(file);
+        cm.addEditableFile(file);
 
         var originalMap = new HashMap<ProjectFile, String>();
         originalMap.put(file, original);
@@ -775,12 +778,12 @@ class CodeAgentTest {
         var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
 
         // Configure the context manager to use the counting model for quickest model
-        contextManager.setQuickestModel(countingModel);
+        cm.setQuickestModel(countingModel);
 
         // Configure build to fail with output that exceeds threshold (> 200 lines)
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Generate long build output (> 200 lines to trigger LLM preprocessing)
         StringBuilder longOutput = new StringBuilder();
@@ -888,10 +891,10 @@ class CodeAgentTest {
     @Test
     void testRunTask_blocksEditsToReadOnlyFile() throws IOException {
         // Arrange: create a file and mark it as read-only in the workspace context
-        var roFile = contextManager.toFile("ro.txt");
+        var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
-        var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
+        var roFrag = new ContextFragment.ProjectPathFragment(roFile, cm);
         var ctx = newContext().addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
@@ -910,7 +913,7 @@ class CodeAgentTest {
                 """
                         .formatted(roFile.toString());
         var stubModel = new TestScriptedLanguageModel(response);
-        var agent = new CodeAgent(contextManager, stubModel, consoleIO);
+        var agent = new CodeAgent(cm, stubModel, consoleIO);
 
         // Act
         var result = agent.runTask(ctx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
@@ -933,7 +936,7 @@ class CodeAgentTest {
     }
 
     private Context newContext() {
-        return new Context(contextManager, null);
+        return new Context(cm, null);
     }
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
@@ -941,9 +944,9 @@ class CodeAgentTest {
     void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException {
         // Arrange: create a file and add it as both an editable ProjectPathFragment
         // and a read-only virtual fragment (simulating a Code or Usage reference)
-        var file = contextManager.toFile("file.txt");
+        var file = cm.toFile("file.txt");
         file.write("hello");
-        var editFrag = new ContextFragment.ProjectPathFragment(file, contextManager);
+        var editFrag = new ContextFragment.ProjectPathFragment(file, cm);
         var ctx = newContext().addPathFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
@@ -964,13 +967,13 @@ class CodeAgentTest {
                 """
                         .formatted(file.toString());
         var stubModel = new TestScriptedLanguageModel(response);
-        var agent = new CodeAgent(contextManager, stubModel, consoleIO);
+        var agent = new CodeAgent(cm, stubModel, consoleIO);
 
         // Mock build to succeed
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
-        contextManager.getProject().setBuildDetails(bd);
-        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
         var result = agent.runTask(ctx, List.of(), "Change file from hello to goodbye", Set.of());
@@ -981,5 +984,187 @@ class CodeAgentTest {
                 result.stopDetails().reason(),
                 "Editable ProjectPathFragment should take precedence over other fragment types");
         assertEquals("goodbye", file.read().orElseThrow().strip(), "File should be modified");
+    }
+
+    // RO-4: computeReadOnlyPaths – precedence for ProjectPathFragment, SummaryFragment, CodeFragment, and explicit
+    // read-only markers (including overlapping cases)
+    @Test
+    void testComputeReadOnlyPaths_precedenceAndOverlaps() throws Exception {
+        // Create a small Java package with several files so we can attach different fragment combinations.
+        // Layout:
+        //  - SummaryOnly.java:        Summary only -> read-only
+        //  - PpfAndSummaryEditable.java: ProjectPathFragment + Summary -> editable (PPF wins)
+        //  - PpfReadonly.java:        ProjectPathFragment (explicit read-only) + Summary -> read-only
+        //  - CodeAndSummaryEditable.java: CodeFragment + Summary -> editable (Code wins)
+        //  - CodeReadonlyOnly.java:   CodeFragment (explicit read-only) + Summary -> read-only
+        //  - CodeOnly.java:           CodeFragment only -> editable
+        Files.createDirectories(projectRoot.resolve("src/main/java/com/example"));
+
+        var summaryOnlyFile = cm.toFile("src/main/java/com/example/SummaryOnly.java");
+        summaryOnlyFile.write(
+                """
+                package com.example;
+
+                public class SummaryOnly {}
+                """);
+        cm.addEditableFile(summaryOnlyFile);
+
+        var ppfAndSummaryEditableFile = cm.toFile("src/main/java/com/example/PpfAndSummaryEditable.java");
+        ppfAndSummaryEditableFile.write(
+                """
+                package com.example;
+
+                public class PpfAndSummaryEditable {}
+                """);
+        cm.addEditableFile(ppfAndSummaryEditableFile);
+
+        var ppfReadonlyFile = cm.toFile("src/main/java/com/example/PpfReadonly.java");
+        ppfReadonlyFile.write(
+                """
+                package com.example;
+
+                public class PpfReadonly {}
+                """);
+        cm.addEditableFile(ppfReadonlyFile);
+
+        var codeAndSummaryEditableFile = cm.toFile("src/main/java/com/example/CodeAndSummaryEditable.java");
+        codeAndSummaryEditableFile.write(
+                """
+                package com.example;
+
+                public class CodeAndSummaryEditable {}
+                """);
+        cm.addEditableFile(codeAndSummaryEditableFile);
+
+        var codeReadonlyOnlyFile = cm.toFile("src/main/java/com/example/CodeReadonlyOnly.java");
+        codeReadonlyOnlyFile.write(
+                """
+                package com.example;
+
+                public class CodeReadonlyOnly {}
+                """);
+        cm.addEditableFile(codeReadonlyOnlyFile);
+
+        var codeOnlyFile = cm.toFile("src/main/java/com/example/CodeOnly.java");
+        codeOnlyFile.write(
+                """
+                package com.example;
+
+                public class CodeOnly {}
+                """);
+        cm.addEditableFile(codeOnlyFile);
+
+        // Let the analyzer discover these files/classes so SummaryFragment and CodeFragment can resolve sources().
+        var analyzer = cm.getAnalyzerWrapper()
+                .updateFiles(Set.of(
+                        summaryOnlyFile,
+                        ppfAndSummaryEditableFile,
+                        ppfReadonlyFile,
+                        codeAndSummaryEditableFile,
+                        codeReadonlyOnlyFile,
+                        codeOnlyFile))
+                .get();
+        assertFalse(analyzer.getAllDeclarations().isEmpty());
+
+        // Build fragments
+        var ppfAndSummaryEditablePpf = new ContextFragment.ProjectPathFragment(ppfAndSummaryEditableFile, cm);
+        var ppfReadonlyPpf = new ContextFragment.ProjectPathFragment(ppfReadonlyFile, cm);
+
+        var summarySummaryOnly = new ContextFragment.SummaryFragment(
+                cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        assertFalse(summarySummaryOnly.files().isEmpty());
+        var summaryPpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+                cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var summaryPpfReadonly = new ContextFragment.SummaryFragment(
+                cm, "com.example.PpfReadonly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var summaryCodeAndSummaryEditable = new ContextFragment.SummaryFragment(
+                cm, "com.example.CodeAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var summaryCodeReadonlyOnly = new ContextFragment.SummaryFragment(
+                cm, "com.example.CodeReadonlyOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var summaryCodeReadonlyWithPpf = new ContextFragment.SummaryFragment(
+                cm, "com.example.CodeReadonlyWithPpf", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var summaryCodeOnly = new ContextFragment.SummaryFragment(
+                cm, "com.example.CodeOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+        var codeCodeAndSummaryEditable = new ContextFragment.CodeFragment(
+                cm,
+                analyzer.getTopLevelDeclarations(codeAndSummaryEditableFile).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .orElseThrow());
+        var codeCodeReadonlyOnly = new ContextFragment.CodeFragment(
+                cm,
+                analyzer.getTopLevelDeclarations(codeReadonlyOnlyFile).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .orElseThrow());
+        var codeCodeOnly = new ContextFragment.CodeFragment(
+                cm,
+                analyzer.getTopLevelDeclarations(codeOnlyFile).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst()
+                        .orElseThrow());
+
+        // Compose a single Context with all of these fragments
+        var ctx = new Context(cm, null)
+                .addPathFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
+                .addVirtualFragments(List.of(
+                        summarySummaryOnly,
+                        summaryPpfAndSummaryEditable,
+                        summaryPpfReadonly,
+                        summaryCodeAndSummaryEditable,
+                        summaryCodeReadonlyOnly,
+                        summaryCodeReadonlyWithPpf,
+                        summaryCodeOnly,
+                        codeCodeAndSummaryEditable,
+                        codeCodeReadonlyOnly,
+                        codeCodeOnly));
+        ctx = ctx.setReadonly(ppfReadonlyPpf, true);
+        ctx = ctx.setReadonly(codeCodeReadonlyOnly, true);
+
+        // Make sure computed fragments have resolved their files() so computeReadOnlyPaths sees correct ProjectFiles.
+        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+
+        var readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
+
+        // SummaryOnly.java: only a SummaryFragment -> read-only
+        assertTrue(
+                readOnlyPaths.contains(summaryOnlyFile.toString()),
+                "File with only a SummaryFragment should be read-only");
+
+        // PpfAndSummaryEditable.java: editable ProjectPathFragment + SummaryFragment -> editable (PPF wins)
+        assertFalse(
+                readOnlyPaths.contains(ppfAndSummaryEditableFile.toString()),
+                "Editable ProjectPathFragment should make the file editable even if a SummaryFragment also references it");
+
+        // PpfReadonly.java: explicitly read-only ProjectPathFragment + SummaryFragment -> read-only
+        assertTrue(
+                readOnlyPaths.contains(ppfReadonlyFile.toString()),
+                "Explicitly read-only ProjectPathFragment should always make the file read-only");
+
+        // CodeAndSummaryEditable.java: CodeFragment (editable) + SummaryFragment -> editable (Code wins over summary)
+        assertFalse(
+                readOnlyPaths.contains(codeAndSummaryEditableFile.toString()),
+                "Editable CodeFragment should make the file editable even if a SummaryFragment also references it");
+
+        // CodeReadonlyOnly.java: CodeFragment (explicit read-only) + SummaryFragment -> read-only
+        assertTrue(
+                readOnlyPaths.contains(codeReadonlyOnlyFile.toString()),
+                "Explicitly read-only CodeFragment with no other editable fragments should make the file read-only");
+
+        // CodeOnly.java: CodeFragment only (no Summary, no explicit read-only) -> editable
+        assertFalse(
+                readOnlyPaths.contains(codeOnlyFile.toString()),
+                "File referenced only by an editable CodeFragment should not be treated as read-only");
+
+        // re-check editable/summary conflict with a FILE_SKELETON summary
+        ctx = ctx.removeFragments(Set.of(summaryPpfAndSummaryEditable));
+        var summaryFilePpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+                cm, ppfAndSummaryEditablePpf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+        ctx = ctx.addVirtualFragment(summaryFilePpfAndSummaryEditable);
+        readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
+        assertFalse(
+                readOnlyPaths.contains(ppfAndSummaryEditablePpf.toString()),
+                "File referenced only by an editable CodeFragment should not be treated as read-only");
     }
 }
