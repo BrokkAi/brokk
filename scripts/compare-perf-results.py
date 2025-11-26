@@ -231,6 +231,16 @@ def generate_json_summary(base_avg: Dict[str, float], head_avg: Dict[str, float]
     for cfg in METRICS_TO_TRACK:
         base_mean, head_mean, base_n, head_n = aggregate_for(cfg["key"])
         change_pct, status_text, status_emoji = build_change_and_status(base_mean, head_mean, cfg)
+
+        # Pre-formatted string values for Slack (no conditionals there)
+        base_str = f"{format_value(base_mean, cfg)}{cfg['unit']}" if base_mean is not None else ""
+        head_str = f"{format_value(head_mean, cfg)}{cfg['unit']}" if head_mean is not None else ""
+        if change_pct is None:
+            change_str = "N/A"
+        else:
+            sign = "+" if change_pct > 0 else ""
+            change_str = f"{sign}{change_pct:.1f}%"
+
         metrics_json[cfg["key"]] = {
             "name": cfg["name"],
             "unit": cfg["unit"],
@@ -238,9 +248,12 @@ def generate_json_summary(base_avg: Dict[str, float], head_avg: Dict[str, float]
             "threshold": cfg["threshold"],
             "base_avg": base_mean,
             "base_count": base_n,
+            "base_str": base_str,
             "head_avg": head_mean,
             "head_count": head_n,
+            "head_str": head_str,
             "change_pct": change_pct,
+            "change_str": change_str,
             "status": status_text,
             "status_emoji": status_emoji,
         }
