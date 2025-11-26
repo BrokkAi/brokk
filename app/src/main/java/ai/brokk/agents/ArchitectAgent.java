@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -67,6 +68,9 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private boolean offerUndoToolNext = false;
+
+    @Nullable
+    private StopReason lastFatalReason = null;
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
@@ -166,8 +170,9 @@ public class ArchitectAgent {
         if (reason == StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
-        if (reason == StopReason.LLM_ERROR) {
-            logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
+        if (reason == StopReason.LLM_ERROR || reason == StopReason.IO_ERROR) {
+            this.lastFatalReason = reason;
+            logger.error("Fatal {} during CodeAgent execution: {}", reason, stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
@@ -377,9 +382,11 @@ public class ArchitectAgent {
             var initialSummary = callCodeAgent(goal, false);
             architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
         } catch (ToolRegistry.FatalLlmException e) {
-            var errorMessage = "Fatal LLM error executing initial Code Agent: %s".formatted(e.getMessage());
+            var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
+            this.lastFatalReason = null;
+            var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
-            return resultWithMessages(StopReason.LLM_ERROR);
+            return resultWithMessages(fatalReason);
         }
 
         // If CodeAgent succeeded, immediately finish without entering planning loop
@@ -646,7 +653,9 @@ public class ArchitectAgent {
             for (var req : codeAgentReqs) {
                 ToolExecutionResult toolResult = tr.executeTool(req);
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                    return resultWithMessages(StopReason.LLM_ERROR);
+                    var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
+                    this.lastFatalReason = null;
+                    return resultWithMessages(fatalReason);
                 }
 
                 architectMessages.add(toolResult.toExecutionResultMessage());
