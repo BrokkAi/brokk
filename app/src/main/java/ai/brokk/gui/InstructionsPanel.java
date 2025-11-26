@@ -157,7 +157,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
-    private @Nullable String preWandOriginalText; // Captured before wand action for undo
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -2056,6 +2055,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param oldText the original text to restore on undo (must be captured before any clearing)
      */
     private void setTextWithUndo(String newText, String oldText) {
+        // Skip no-op edits (e.g., when wand fails and restores original)
+        if (newText.equals(oldText)) {
+            // Still need to ensure undo listener is enabled (WandButton may have disabled it)
+            instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+            instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+            return;
+        }
+
         // Ensure undo listener is disabled (may already be disabled for wand streaming)
         instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
 
