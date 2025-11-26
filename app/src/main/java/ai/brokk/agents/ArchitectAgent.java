@@ -751,7 +751,10 @@ public class ArchitectAgent {
                             finalMessages,
                             combinedContext,
                             baseSaResult.stopDetails(),
-                            baseSaResult.meta());
+                            Objects.requireNonNullElse(
+                                    baseSaResult.meta(),
+                                    new TaskResult.TaskMeta(
+                                            TaskResult.Type.SEARCH, ModelConfig.from(planningModel, cm.getService()))));
                     context = scope.append(combinedResult);
                 }
 
