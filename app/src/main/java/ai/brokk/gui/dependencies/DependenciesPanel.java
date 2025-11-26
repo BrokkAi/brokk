@@ -618,10 +618,22 @@ public final class DependenciesPanel extends JPanel {
 
     private CompletableFuture<Void> saveChangesAsync(Map<String, Boolean> overridesByName) {
         // Snapshot the desired live set on the EDT to avoid accessing Swing model off-thread
+        // Build from ALL rows in the table (both checked and unchecked), applying overrides where specified
         var newLiveDependencyTopLevelDirs = new HashSet<Path>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             String name = (String) tableModel.getValueAt(i, 1);
-            boolean isLive = overridesByName.getOrDefault(name, Boolean.TRUE.equals(tableModel.getValueAt(i, 0)));
+            
+            // Determine if this dependency should be live:
+            // 1. If an override is provided for this name, use it
+            // 2. Otherwise, use the current checkbox state (handling "Loading"/"Unloading" as truthy)
+            boolean isLive;
+            if (overridesByName.containsKey(name)) {
+                isLive = overridesByName.get(name);
+            } else {
+                Object checkboxValue = tableModel.getValueAt(i, 0);
+                isLive = isTruthyLive(checkboxValue);
+            }
+            
             if (!isLive) continue;
 
             var pf = dependencyProjectFileMap.get(name);
