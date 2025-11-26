@@ -421,9 +421,6 @@ public interface ContextFragment {
             ib.start();
         }
         // Prime additional surfaces for specific fragment types
-        if (this instanceof ContextFragment.CodeFragment cf) {
-            cf.computedUnit().start();
-        }
     }
 
     /**
@@ -2249,7 +2246,6 @@ public interface ContextFragment {
     class CodeFragment extends VirtualFragment implements DynamicIdentity { // Dynamic, uses nextId
         private final String fullyQualifiedName;
         private volatile @Nullable String snapshotText;
-        private @Nullable ComputedValue<CodeUnit> unitCv;
         private @Nullable CodeUnit preResolvedUnit;
         private @Nullable ComputedValue<String> textCv;
         private @Nullable ComputedValue<String> descCv;
@@ -2307,27 +2303,15 @@ public interface ContextFragment {
             return FragmentType.CODE;
         }
 
-        public ComputedValue<CodeUnit> computedUnit() {
-            return lazyInitCv(
-                    unitCv,
-                    () -> unitCv,
-                    () -> {
-                        var pr = preResolvedUnit;
-                        if (pr != null) {
-                            return ComputedValue.completed("cf-unit-" + id(), pr);
-                        }
-                        return new ComputedValue<>(
-                                "cf-unit-" + id(),
-                                () -> {
-                                    var analyzer = getAnalyzer();
-                                    return analyzer.getDefinitions(fullyQualifiedName).stream()
-                                            .findFirst()
-                                            .orElseThrow(() -> new IllegalArgumentException(
-                                                    "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
-                                },
-                                getFragmentExecutor());
-                    },
-                    v -> unitCv = v);
+        private CodeUnit resolveUnit() {
+            if (preResolvedUnit != null) {
+                return preResolvedUnit;
+            }
+            var analyzer = getAnalyzer();
+            return analyzer.getDefinitions(fullyQualifiedName).stream()
+                    .findFirst()
+                    .orElseThrow(() ->
+                            new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
         }
 
         @Override
@@ -2335,12 +2319,10 @@ public interface ContextFragment {
             return lazyInitCv(
                     descCv,
                     () -> descCv,
-                    () -> computedUnit()
-                            .future()
-                            .thenApply(CodeUnit::shortName)
-                            .thenApply(shortName -> "Source for " + shortName)
-                            .thenApply(ComputedValue::completed)
-                            .join(),
+                    () -> new ComputedValue<>(
+                            "cf-desc-" + id(),
+                            () -> "Source for " + resolveUnit().shortName(),
+                            getFragmentExecutor()),
                     v -> descCv = v);
         }
 
@@ -2349,11 +2331,10 @@ public interface ContextFragment {
             return lazyInitCv(
                     shortCv,
                     () -> shortCv,
-                    () -> computedUnit()
-                            .future()
-                            .thenApply(CodeUnit::shortName)
-                            .thenApply(ComputedValue::completed)
-                            .join(),
+                    () -> new ComputedValue<>(
+                            "cf-short-" + id(),
+                            () -> resolveUnit().shortName(),
+                            getFragmentExecutor()),
                     v -> shortCv = v);
         }
 
@@ -2366,7 +2347,7 @@ public interface ContextFragment {
                             "cf-text-" + id(),
                             () -> {
                                 var analyzer = getAnalyzer();
-                                var unit = computedUnit().future().join();
+                                var unit = resolveUnit();
                                 var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
 
                                 String result;
@@ -2403,11 +2384,10 @@ public interface ContextFragment {
             return lazyInitCv(
                     sourcesCv,
                     () -> sourcesCv,
-                    () -> computedUnit()
-                            .future()
-                            .thenApply(u -> Set.of(u))
-                            .thenApply(ComputedValue::completed)
-                            .join(),
+                    () -> new ComputedValue<>(
+                            "cf-sources-" + id(),
+                            () -> Set.of(resolveUnit()),
+                            getFragmentExecutor()),
                     v -> sourcesCv = v);
         }
 
@@ -2416,11 +2396,10 @@ public interface ContextFragment {
             return lazyInitCv(
                     filesCv,
                     () -> filesCv,
-                    () -> this.sources()
-                            .future()
-                            .thenApply(set -> set.stream().map(CodeUnit::source).collect(Collectors.toSet()))
-                            .thenApply(ComputedValue::completed)
-                            .join(),
+                    () -> new ComputedValue<>(
+                            "cf-files-" + id(),
+                            () -> Set.of(resolveUnit().source()),
+                            getFragmentExecutor()),
                     v -> filesCv = v);
         }
 
@@ -2434,11 +2413,10 @@ public interface ContextFragment {
             return lazyInitCv(
                     syntaxCv,
                     () -> syntaxCv,
-                    () -> computedUnit()
-                            .future()
-                            .thenApply(u -> u.source().getSyntaxStyle())
-                            .thenApply(ComputedValue::completed)
-                            .join(),
+                    () -> new ComputedValue<>(
+                            "cf-syntax-" + id(),
+                            () -> resolveUnit().source().getSyntaxStyle(),
+                            getFragmentExecutor()),
                     v -> syntaxCv = v);
         }
 

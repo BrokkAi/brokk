@@ -342,10 +342,8 @@ class ContextTest {
         assertEquals(1, virtuals.size(), "Only non-workspace class should be added");
         assertTrue(virtuals.get(0) instanceof ContextFragment.CodeFragment);
         var codeFrag = (ContextFragment.CodeFragment) virtuals.get(0);
-        // May need to compute the unit; but we can assert the FQN via repr or computedUnit
-        var maybeUnit = codeFrag.computedUnit().await(Duration.ofSeconds(5));
-        assertTrue(maybeUnit.isPresent());
-        assertEquals("com.example.AnotherClass", maybeUnit.get().fqName());
+        // Assert that the fragment is for the expected fully qualified name
+        assertEquals("com.example.AnotherClass", codeFrag.getFullyQualifiedName());
     }
 
     @Test

@@ -1203,12 +1203,7 @@ public class ContextSerializationTest {
                 .orElseThrow();
 
         if (loadedRawFragment instanceof ContextFragment.CodeFragment loadedFragment) {
-            var maybeCu = loadedFragment.computedUnit().await(Duration.ofSeconds(10));
-            if (maybeCu.isPresent()) {
-                assertEquals(codeUnit.fqName(), maybeCu.get().fqName());
-            } else {
-                fail("Code unit could not be computed within 10 seconds");
-            }
+            assertEquals(codeUnit.fqName(), loadedFragment.getFullyQualifiedName());
         } else {
             fail("Expected CodeFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }

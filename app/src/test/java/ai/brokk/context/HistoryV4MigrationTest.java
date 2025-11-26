@@ -236,12 +236,7 @@ class HistoryV4MigrationTest {
             var cf = findFragment(ctx, ContextFragment.CodeFragment.class, f -> true);
             assertNotNull(cf);
             assertTrue(cf.description().join().startsWith("Source for"));
-            var maybeCu = cf.computedUnit().await(Duration.ofSeconds(10));
-            if (maybeCu.isPresent()) {
-                assertNotNull(maybeCu.get().fqName());
-            } else {
-                fail("Code unit could not be computed within 10 seconds");
-            }
+            assertNotNull(cf.getFullyQualifiedName());
         } else if ("v3-callgraph-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
