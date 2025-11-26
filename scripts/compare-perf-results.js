@@ -1,4 +1,3 @@
-
 const fs = require('fs');
 const path = require('path');
 
@@ -8,17 +7,61 @@ const METRICS_TO_TRACK = [
     { key: 'files_per_second', name: 'Files/Second', higherIsWorse: false, unit: ' files/s', threshold: 10.0 },
 ];
 
-function findReportFile(dir) {
-    if (!fs.existsSync(dir) || !fs.lstatSync(dir).isDirectory()) {
+/**
+ * Resolve a report JSON file from either:
+ * - a path to a JSON file, or
+ * - a directory containing one or more JSON files.
+ * 
+ * Selection priority inside a directory:
+ *  1) baseline-*.json
+ *  2) results.json, report.json, summary.json
+ *  3) the most recently modified *.json file
+ */
+function findReportFile(p) {
+    if (!fs.existsSync(p)) {
+        console.warn(`Path does not exist: ${p}`);
         return null;
     }
-    const files = fs.readdirSync(dir);
-    const reportFile = files.find(f => f.startsWith('baseline-') && f.endsWith('.json'));
-    if (!reportFile) {
-        console.warn(`Could not find report file in ${dir}`);
+
+    const stat = fs.lstatSync(p);
+    if (stat.isFile() && p.endsWith('.json')) {
+        return p;
+    }
+
+    if (!stat.isDirectory()) {
+        console.warn(`Not a directory or JSON file: ${p}`);
         return null;
     }
-    return path.join(dir, reportFile);
+
+    const files = fs.readdirSync(p).map(f => path.join(p, f)).filter(full => {
+        try {
+            return fs.lstatSync(full).isFile() && full.endsWith('.json');
+        } catch (_) {
+            return false;
+        }
+    });
+
+    if (files.length === 0) {
+        console.warn(`Could not find any *.json report file in ${p}`);
+        return null;
+    }
+
+    // 1) Prefer baseline-*.json
+    const baseline = files.find(f => path.basename(f).startsWith('baseline-') && f.endsWith('.json'));
+    if (baseline) return baseline;
+
+    // 2) Common names
+    const preferredNames = ['results.json', 'report.json', 'summary.json'];
+    const preferred = files.find(f => preferredNames.includes(path.basename(f)));
+    if (preferred) return preferred;
+
+    // 3) Most recent by mtime
+    files.sort((a, b) => {
+        const aTime = fs.statSync(a).mtimeMs;
+        const bTime = fs.statSync(b).mtimeMs;
+        return bTime - aTime;
+    });
+    return files[0];
 }
 
 function parseReport(filePath) {
@@ -32,26 +75,41 @@ function parseReport(filePath) {
     }
 }
 
+/**
+ * Extract metrics for all repos present. If "chromium" exists, limit to that repo to
+ * keep output focused; otherwise include all repos. Language label is "repo/lang".
+ */
 function extractMetrics(report) {
     const metrics = {};
-    if (!report || !report.results || !report.results.chromium) return {};
-    const results = report.results.chromium;
+    if (!report || !report.results || typeof report.results !== 'object') return {};
 
-    for (const lang in results) {
-        for (const metric of METRICS_TO_TRACK) {
-            const metricKey = `${lang}.${metric.key}`;
-            if (results[lang] && results[lang][metric.key] !== undefined) {
-                metrics[metricKey] = results[lang][metric.key];
+    const repos = report.results.chromium ? ['chromium'] : Object.keys(report.results);
+
+    for (const repo of repos) {
+        const repoResults = report.results[repo];
+        if (!repoResults || typeof repoResults !== 'object') continue;
+
+        for (const lang of Object.keys(repoResults)) {
+            const langMetrics = repoResults[lang];
+            if (!langMetrics || typeof langMetrics !== 'object') continue;
+
+            for (const metric of METRICS_TO_TRACK) {
+                const metricKey = `${repo}/${lang}.${metric.key}`;
+                if (langMetrics[metric.key] !== undefined) {
+                    metrics[metricKey] = langMetrics[metric.key];
+                }
             }
         }
     }
     return metrics;
 }
 
-function averageResults(dirs) {
-    const reports = dirs.map(findReportFile).filter(Boolean).map(parseReport).filter(Boolean);
+function averageResults(inputs) {
+    const reportFiles = inputs.map(findReportFile).filter(Boolean);
+    const reports = reportFiles.map(parseReport).filter(Boolean);
+
     if (reports.length === 0) {
-        throw new Error(`No valid reports found for directories: ${dirs.join(', ')}`);
+        throw new Error(`No valid reports found for directories: ${inputs.join(', ')}`);
     }
 
     const allMetrics = reports.map(extractMetrics);
@@ -117,7 +175,6 @@ function generateReport(baseAvg, headAvg) {
             status = ':sparkles:';
         }
 
-
         markdown += `| ${metricConfig.name} | ${lang} | ${formatValue(baseValue, metricConfig)}${metricConfig.unit} | ${formatValue(headValue, metricConfig)}${metricConfig.unit} | ${changeStr} | ${status} |\n`;
     }
 
@@ -126,17 +183,18 @@ function generateReport(baseAvg, headAvg) {
 
 function main() {
     const args = process.argv.slice(2);
-    const baseDirs = args.filter(arg => arg.includes('report-base-'));
-    const headDirs = args.filter(arg => arg.includes('report-head-'));
+    // Accept both directories and direct JSON file paths. We still separate base/head by naming pattern.
+    const baseInputs = args.filter(arg => arg.includes('report-base-'));
+    const headInputs = args.filter(arg => arg.includes('report-head-'));
 
-    if (baseDirs.length === 0 || headDirs.length === 0) {
+    if (baseInputs.length === 0 || headInputs.length === 0) {
         console.error('Usage: node compare-perf-results.js <base-report-dirs...> <head-report-dirs...>');
         process.exit(1);
     }
     
     try {
-        const baseAvg = averageResults(baseDirs);
-        const headAvg = averageResults(headDirs);
+        const baseAvg = averageResults(baseInputs);
+        const headAvg = averageResults(headInputs);
         const report = generateReport(baseAvg, headAvg);
         console.log(report);
     } catch (error) {
