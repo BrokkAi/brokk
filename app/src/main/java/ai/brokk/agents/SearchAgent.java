@@ -54,7 +54,6 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import ai.brokk.IConsoleIO;
 
 /**
  * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
@@ -126,7 +125,6 @@ public class SearchAgent {
     // State toggles
     private boolean beastMode;
     private boolean codeAgentJustSucceeded;
-
 
     /**
      * Creates a SearchAgent with explicit control over output streaming and IO routing.
