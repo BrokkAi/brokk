@@ -749,12 +749,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 .strip();
 
         // Augment textual detection with AST-based scanning for robust qualifier extraction
-        boolean nodeHasConst = false;
-        boolean nodeHasVolatile = false;
+        boolean nodeHasConst;
+        boolean nodeHasVolatile;
 
         // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
-        nodeHasConst = nodeHasConst || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
+        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
+        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
         nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, src, "const");
         nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, src, "volatile");
 
@@ -762,32 +762,31 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
 
         // Extract const qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "const")) || nodeHasConst) {
-            if (addedQualTypes.add("const")) {
-                quals.add("const");
-            }
+        if (!tail.isEmpty() && hasKeywordWithBoundary(tail, "const") || nodeHasConst) {
+            addedQualTypes.add("const");
+            quals.add("const");
         }
 
         // Extract volatile qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile")) || nodeHasVolatile) {
+        if (!tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile") || nodeHasVolatile) {
             if (addedQualTypes.add("volatile")) {
                 quals.add("volatile");
             }
         }
 
         // Extract reference qualifier: && takes precedence over & (check && first)
-        if (tail != null && tail.contains("&&")) {
+        if (tail.contains("&&")) {
             if (addedQualTypes.add("&&")) {
                 quals.add("&&");
             }
-        } else if (tail != null && tail.contains("&")) {
+        } else if (tail.contains("&")) {
             if (addedQualTypes.add("&")) {
                 quals.add("&");
             }
         }
 
         // Extract full noexcept clause (including optional parenthesized condition)
-        String noexceptClause = (tail == null || tail.isEmpty()) ? "" : extractNoexceptClause(tail);
+        String noexceptClause = tail.isEmpty() ? "" : extractNoexceptClause(tail);
         if (!noexceptClause.isEmpty() && addedQualTypes.add("noexcept")) {
             quals.add(noexceptClause);
         }
@@ -797,7 +796,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String result = String.join(" ", quals).strip();
-        log.trace("Extracted qualifier suffix '{}' from declarator tail: {}", result, (tail == null ? "" : tail));
+        log.trace("Extracted qualifier suffix '{}' from declarator tail: {}", result, tail);
         return result;
     }
 
