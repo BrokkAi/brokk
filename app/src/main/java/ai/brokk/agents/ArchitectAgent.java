@@ -53,6 +53,9 @@ public class ArchitectAgent {
     // Lock to ensure only one SearchAgent streams output at a time during parallel execution
     private final AtomicBoolean searchAgentEchoInUse = new AtomicBoolean(false);
 
+    // Size of the current SearchAgent batch (0 or 1 means no batch). Used to drive minimal UX messaging.
+    private volatile int currentBatchSize = 0;
+
     // Helper record to associate a SearchAgent task Future with its request and result
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
 
@@ -260,6 +263,9 @@ public class ArchitectAgent {
             return stringResult;
         } finally {
             if (shouldEcho) {
+                if (currentBatchSize > 1) {
+                    io.llmOutput("Waiting for the rest of the SearchAgents...", ChatMessageType.AI, true, false);
+                }
                 searchAgentEchoInUse.set(false);
             }
         }
@@ -529,13 +535,8 @@ public class ArchitectAgent {
                 addPlanningToHistory();
 
                 int n = searchAgentReqs.size();
-                if (n > 1) {
-                    io.llmOutput(
-                            "Search Agent: running " + n + " queries in parallel; only the first will stream.",
-                            ChatMessageType.AI,
-                            true,
-                            false);
-                }
+                // Mark current batch size so the streaming SA can print the waiting message at the right time
+                currentBatchSize = n;
 
                 // Submit search agent tasks to run in the background
                 var searchAgentTasks = new ArrayList<SearchTask>();
@@ -579,13 +580,6 @@ public class ArchitectAgent {
                         // Set base result from the first SearchAgent
                         if (baseSaResult == null) {
                             baseSaResult = outcome.taskResult();
-                            if (n > 1) {
-                                io.llmOutput(
-                                        "Waiting for the rest of the SearchAgents",
-                                        ChatMessageType.AI,
-                                        true,
-                                        false);
-                            }
                         }
 
                         // Merge contexts deterministically
@@ -622,16 +616,8 @@ public class ArchitectAgent {
                 }
 
                 if (interrupted) {
+                    currentBatchSize = 0;
                     throw new InterruptedException();
-                }
-
-                // Post-batch message
-                if (n > 1) {
-                    io.llmOutput(
-                            "All " + n + " SearchAgents are finished. " + failedCount + " Searches failed",
-                            ChatMessageType.AI,
-                            true,
-                            false);
                 }
 
                 // Build the final history entry using the full transcript
@@ -650,6 +636,9 @@ public class ArchitectAgent {
                             baseSaResult.meta());
                     context = scope.append(combinedResult);
                 }
+
+                // Reset batch size after all SAs are finished
+                currentBatchSize = 0;
             }
 
             // code agent calls are done serially
