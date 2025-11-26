@@ -49,10 +49,8 @@ public class WandAction {
                 if (!refined.isBlank()) {
                     SwingUtilities.invokeLater(() -> promptConsumer.accept(refined));
                 } else {
-                    SwingUtilities.invokeLater(() -> {
-                        instructionsArea.setEnabled(true);
-                        instructionsArea.requestFocusInWindow();
-                    });
+                    // Blank refinement - restore original text (also re-enables undo listener)
+                    SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
                 }
             } catch (InterruptedException e) {
                 SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
