@@ -861,15 +861,10 @@ public class SearchAgent {
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Callers should invoke this before calling execute() if they want the initial context scan.
-BRK_CONFLICT_BEGIN_1
-BRK_OUR_VERSION a9b3e52
-ff18b49      * Updates the SearchAgent's internal Context, and also returns it.
-BRK_BASE_VERSION d94c8e0
-BRK_THEIR_VERSION 8f84d7c
-8f84d7c      *
-8f84d7c      * @param model the LLM model to use for context scanning
-8f84d7c      * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending
-BRK_CONFLICT_END_1
+     * Updates the SearchAgent's internal Context, and also returns it.
+     *
+     * @param model the LLM model to use for context scanning
+     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending
      */
     public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
