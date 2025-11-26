@@ -617,6 +617,17 @@ public class ArchitectAgent {
                 // Create a planning history entry once before launching searches
                 addPlanningToHistory();
 
+                // Pre-batch transcript marker and optional pre message
+                int transcriptStart = io.getLlmRawMessages().size();
+                int n = searchAgentReqs.size();
+                if (n > 1) {
+                    io.llmOutput(
+                            "Waiting for " + n + " SearchAgents",
+                            ChatMessageType.AI,
+                            true,
+                            false);
+                }
+
                 // Submit search agent tasks to run in the background
                 var searchAgentTasks = new ArrayList<SearchTask>();
                 for (var req : searchAgentReqs) {
@@ -633,9 +644,14 @@ public class ArchitectAgent {
                     searchAgentTasks.add(new SearchTask(req, future));
                 }
 
-                // Collect search results in request order and merge deterministically
-                var interrupted = false;
-                var n = searchAgentTasks.size();
+                // Collect search results in request order for deterministic merge
+                boolean interrupted = false;
+                int failedCount = 0;
+
+                // Track the first SearchAgent TaskResult to use as the base for history
+                TaskResult baseSaResult = null;
+                Context combinedContext = context;
+
                 for (int i = 0; i < n; i++) {
                     var searchTask = searchAgentTasks.get(i);
                     var request = searchTask.request();
@@ -643,18 +659,27 @@ public class ArchitectAgent {
                     try {
                         if (interrupted) {
                             future.cancel(true);
+                            failedCount++;
                             continue;
                         }
                         var outcome = future.get();
+
                         // Record tool result into the conversational transcript
                         architectMessages.add(outcome.toolResult().toExecutionResultMessage());
-                        if (i == 0) {
-                            // Append the first SearchAgent result to history
-                            context = scope.append(outcome.taskResult());
-                        } else {
-                            // Merge additional contexts deterministically
-                            context = context.union(outcome.taskResult().context());
+
+                        // Set base result from the first SearchAgent
+                        if (baseSaResult == null) {
+                            baseSaResult = outcome.taskResult();
                         }
+
+                        // Merge contexts deterministically
+                        combinedContext = combinedContext.union(outcome.taskResult().context());
+
+                        // Count failures by SearchAgent stop reason
+                        if (outcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
+                            failedCount++;
+                        }
+
                         logger.debug(
                                 "Collected result for tool '{}' => result: {}",
                                 request.name(),
@@ -662,12 +687,14 @@ public class ArchitectAgent {
                     } catch (InterruptedException e) {
                         logger.warn("SearchAgent task for request '{}' was interrupted", request.name());
                         interrupted = true;
+                        failedCount++;
                         // cancel remaining
                         for (int j = i; j < n; j++) {
                             searchAgentTasks.get(j).future().cancel(true);
                         }
                     } catch (ExecutionException e) {
                         logger.warn("Error executing SearchAgent task '{}'", request.name(), e.getCause());
+                        failedCount++;
                         // Record failure for this request but continue processing others
                         var errorMessage = "Error executing Search Agent: %s"
                                 .formatted(Objects.toString(
@@ -677,14 +704,40 @@ public class ArchitectAgent {
                         architectMessages.add(failure.toExecutionResultMessage());
                     }
                 }
+
                 if (interrupted) {
                     throw new InterruptedException();
                 }
 
-                // Append minimal status note (not streamed); first SearchAgent streams its own "engaged" message.
+                // Optional post-batch message
                 if (n > 1) {
-                    architectMessages.add(new AiMessage(
-                            "Search Agent: started " + n + " queries in parallel (only one streamed)."));
+                    io.llmOutput(
+                            "All " + n + " SearchAgents are finished. " + failedCount + " Searches failed",
+                            ChatMessageType.AI,
+                            true,
+                            false);
+                }
+
+                // Build the transcript slice for history (pre -> post)
+                List<ChatMessage> raw = new ArrayList<>(io.getLlmRawMessages());
+                List<ChatMessage> batchMessages = n > 1
+                        ? new ArrayList<>(raw.subList(Math.min(transcriptStart, raw.size()), raw.size()))
+                        : raw;
+
+                // Fallback in case no SA result was produced (should be rare)
+                if (baseSaResult == null) {
+                    // Nothing to append; keep existing context and continue
+                } else {
+                    // Create a single history entry using the base SA's metadata/description,
+                    // but with the combined context and the sliced transcript.
+                    var combinedResult = new TaskResult(
+                            cm,
+                            baseSaResult.actionDescription(),
+                            batchMessages,
+                            combinedContext,
+                            baseSaResult.stopDetails(),
+                            baseSaResult.meta());
+                    context = scope.append(combinedResult);
                 }
             }
 
