@@ -528,12 +528,10 @@ public class ArchitectAgent {
                 // Create a planning history entry once before launching searches
                 addPlanningToHistory();
 
-                // Pre-batch transcript marker and optional pre message
-                int transcriptStart = io.getLlmRawMessages().size();
                 int n = searchAgentReqs.size();
                 if (n > 1) {
                     io.llmOutput(
-                            "Waiting for " + n + " SearchAgents",
+                            "Search Agent: running " + n + " queries in parallel; only the first will stream.",
                             ChatMessageType.AI,
                             true,
                             false);
@@ -562,6 +560,7 @@ public class ArchitectAgent {
                 // Track the first SearchAgent TaskResult to use as the base for history
                 TaskResult baseSaResult = null;
                 Context combinedContext = context;
+                boolean announcedWaiting = false;
 
                 for (int i = 0; i < n; i++) {
                     var searchTask = searchAgentTasks.get(i);
@@ -581,6 +580,15 @@ public class ArchitectAgent {
                         // Set base result from the first SearchAgent
                         if (baseSaResult == null) {
                             baseSaResult = outcome.taskResult();
+                            // Notify that we are waiting for the remaining SAs (only once)
+                            if (n > 1 && !announcedWaiting) {
+                                io.llmOutput(
+                                        "Waiting for " + (n - 1) + " SearchAgents",
+                                        ChatMessageType.AI,
+                                        true,
+                                        false);
+                                announcedWaiting = true;
+                            }
                         }
 
                         // Merge contexts deterministically
@@ -620,7 +628,7 @@ public class ArchitectAgent {
                     throw new InterruptedException();
                 }
 
-                // Optional post-batch message
+                // Post-batch message
                 if (n > 1) {
                     io.llmOutput(
                             "All " + n + " SearchAgents are finished. " + failedCount + " Searches failed",
@@ -629,22 +637,17 @@ public class ArchitectAgent {
                             false);
                 }
 
-                // Build the transcript slice for history (pre -> post)
-                List<ChatMessage> raw = new ArrayList<>(io.getLlmRawMessages());
-                List<ChatMessage> batchMessages = n > 1
-                        ? new ArrayList<>(raw.subList(Math.min(transcriptStart, raw.size()), raw.size()))
-                        : raw;
+                // Build the final history entry using the full transcript
+                List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
 
                 // Fallback in case no SA result was produced (should be rare)
-                if (baseSaResult == null) {
-                    // Nothing to append; keep existing context and continue
-                } else {
+                if (baseSaResult != null) {
                     // Create a single history entry using the base SA's metadata/description,
-                    // but with the combined context and the sliced transcript.
+                    // but with the combined context and the full transcript.
                     var combinedResult = new TaskResult(
                             cm,
                             baseSaResult.actionDescription(),
-                            batchMessages,
+                            finalMessages,
                             combinedContext,
                             baseSaResult.stopDetails(),
                             baseSaResult.meta());
