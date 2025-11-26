@@ -4,9 +4,11 @@ import ai.brokk.ContextManager;
 import ai.brokk.executor.HeadlessExecutorMain;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Ascii;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.UUID;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -14,6 +16,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * CLI tool for testing the headless executor end-to-end.
@@ -31,43 +34,57 @@ import org.apache.logging.log4j.Logger;
 public class HeadlessExecCli {
     private static final Logger logger = LogManager.getLogger(HeadlessExecCli.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    private final MediaType JSON;
     private static final int READY_POLL_TIMEOUT_MS = 30000;
     private static final int READY_POLL_INTERVAL_MS = 500;
     private static final int JOB_POLL_INTERVAL_MS = 1000;
 
     private String mode = "ARCHITECT";
-    private String plannerModel;
-    private String codeModel;
-    private String authToken;
+    private String plannerModel = "claude-opus-4-5";
+    private String codeModel = "claude-sonnet-4-5";
+    private String authToken = "";
     private boolean autoCommit = false;
     private boolean autoCompress = false;
-    private String prompt;
+    private String prompt = "";
 
     private HeadlessExecutorMain executor;
     private Path tempWorkspace;
     private OkHttpClient httpClient;
 
+    public HeadlessExecCli() {
+        MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+        if (mediaType == null) {
+            throw new IllegalStateException("Failed to parse JSON media type");
+        }
+        JSON = mediaType;
+        if (authToken.isBlank()) {
+            authToken = UUID.randomUUID().toString();
+        }
+        httpClient = new OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build();
+
+        // Create temporary workspace
+        try {
+            tempWorkspace = Files.createTempDirectory("brokk-headless-");
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create temp workspace", e);
+        }
+        logger.info("Created temp workspace: {}", tempWorkspace);
+        // Start executor in-process on random port
+        var execId = UUID.randomUUID();
+        var project = new MainProject(tempWorkspace);
+        var contextManager = new ContextManager(project);
+        try {
+            executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to initialize HeadlessExecutorMain", e);
+        }
+    }
+
     private int run() {
         try {
-            // Initialize
-            if (authToken == null || authToken.isBlank()) {
-                authToken = UUID.randomUUID().toString();
-            }
-            httpClient = new OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .build();
-
-            // Create temporary workspace
-            tempWorkspace = Files.createTempDirectory("brokk-headless-");
-            logger.info("Created temp workspace: {}", tempWorkspace);
-
-            // Start executor in-process on random port
-            var execId = UUID.randomUUID();
-            var project = new MainProject(tempWorkspace);
-            var contextManager = new ContextManager(project);
-            executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
             executor.start();
             int port = executor.getPort();
             var baseUrl = "http://127.0.0.1:" + port;
@@ -112,6 +129,7 @@ public class HeadlessExecCli {
     /**
      * POST /v1/sessions to create a session.
      */
+    @Nullable
     private String createSession(String baseUrl) throws IOException {
         var body = mapper.createObjectNode();
         body.put("name", "CLI Session " + System.currentTimeMillis());
@@ -170,6 +188,7 @@ public class HeadlessExecCli {
     /**
      * POST /v1/jobs to submit a job.
      */
+    @Nullable
     private String submitJob(String baseUrl, String sessionId) throws IOException {
         var jobSpec = mapper.createObjectNode();
         jobSpec.put("sessionId", sessionId);
@@ -177,12 +196,16 @@ public class HeadlessExecCli {
         jobSpec.put("autoCommit", autoCommit);
         jobSpec.put("autoCompress", autoCompress);
         jobSpec.put("plannerModel", plannerModel);
-        if (codeModel != null && !codeModel.isBlank()) {
+        if (!codeModel.isBlank()) {
             jobSpec.put("codeModel", codeModel);
         }
-
+        if (mode.isBlank()) {
+            mode = "ARCHITECT";
+        } else {
+            mode = mode.toUpperCase(Locale.ROOT);
+        }
         var tags = mapper.createObjectNode();
-        tags.put("mode", mode.toUpperCase());
+        tags.put("mode", mode);
         jobSpec.set("tags", tags);
 
         var request = new Request.Builder()
@@ -299,27 +322,21 @@ public class HeadlessExecCli {
      * Cleanup: stop executor and delete temp workspace.
      */
     private void cleanup() {
-        if (executor != null) {
-            try {
-                executor.stop(0);
-                logger.info("Executor stopped");
-            } catch (Exception e) {
-                logger.warn("Error stopping executor", e);
-            }
+        try {
+            executor.stop(0);
+            logger.info("Executor stopped");
+        } catch (Exception e) {
+            logger.warn("Error stopping executor", e);
         }
 
-        if (tempWorkspace != null) {
-            try {
-                recursiveDelete(tempWorkspace);
-                logger.info("Deleted temp workspace: {}", tempWorkspace);
-            } catch (IOException e) {
-                logger.warn("Error deleting temp workspace", e);
-            }
+        try {
+            recursiveDelete(tempWorkspace);
+            logger.info("Deleted temp workspace: {}", tempWorkspace);
+        } catch (IOException e) {
+            logger.warn("Error deleting temp workspace", e);
         }
 
-        if (httpClient != null) {
-            httpClient.dispatcher().executorService().shutdown();
-        }
+        httpClient.dispatcher().executorService().shutdown();
     }
 
     /**
@@ -428,7 +445,7 @@ public class HeadlessExecCli {
                 }
             } else {
                 // Positional argument (prompt)
-                if (prompt == null) {
+                if (prompt.isBlank()) {
                     prompt = arg;
                 } else {
                     System.err.println("ERROR: Multiple prompts provided");
@@ -438,45 +455,39 @@ public class HeadlessExecCli {
         }
 
         // Validate required arguments
-        if (plannerModel == null || plannerModel.isBlank()) {
+        if (plannerModel.isBlank()) {
             System.err.println("ERROR: --planner-model is required");
             return false;
         }
-        if (prompt == null || prompt.isBlank()) {
+        if (prompt.isBlank()) {
             System.err.println("ERROR: <prompt> positional argument is required");
             return false;
         }
-
         return true;
     }
 
     private boolean parseOption(String key, String value) {
         switch (key) {
-            case "mode":
-                mode = value.toUpperCase();
+            case "mode" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --mode requires a value");
+                    return false;
+                }
+                mode = Ascii.toUpperCase(value);
                 if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ)$")) {
                     System.err.println("ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, or LUTZ");
                     return false;
                 }
-                break;
-            case "planner-model":
-                plannerModel = value;
-                break;
-            case "code-model":
-                codeModel = value;
-                break;
-            case "token":
-                authToken = value;
-                break;
-            case "auto-commit":
-                autoCommit = true;
-                break;
-            case "auto-compress":
-                autoCompress = true;
-                break;
-            default:
+            }
+            case "planner-model" -> plannerModel = value;
+            case "code-model" -> codeModel = value;
+            case "token" -> authToken = value;
+            case "auto-commit" -> autoCommit = true;
+            case "auto-compress" -> autoCompress = true;
+            default -> {
                 System.err.println("ERROR: Unknown option: --" + key);
                 return false;
+            }
         }
         return true;
     }

@@ -876,7 +876,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.relativePaths() == null || request.relativePaths().isEmpty()) {
+            if (request.relativePaths().isEmpty()) {
                 var error = ErrorPayload.validationError("relativePaths must not be empty");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
@@ -966,7 +966,7 @@ public final class HeadlessExecutorMain {
                             if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
                                 return false;
                             }
-                            var a = ((ai.brokk.analyzer.ProjectFile) bf).absPath();
+                            var a = bf.absPath();
                             var b = projectFile.absPath();
                             return a.equals(b);
                         })
@@ -1076,7 +1076,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.classNames() == null || request.classNames().isEmpty()) {
+            if (request.classNames().isEmpty()) {
                 var error = ErrorPayload.validationError("classNames must not be empty");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
@@ -1215,7 +1215,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.methodNames() == null || request.methodNames().isEmpty()) {
+            if (request.methodNames().isEmpty()) {
                 var error = ErrorPayload.validationError("methodNames must not be empty");
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;

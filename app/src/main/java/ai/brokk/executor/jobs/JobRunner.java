@@ -145,7 +145,6 @@ public final class JobRunner {
                         : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
@@ -274,7 +273,7 @@ public final class JobRunner {
                                                         cm.executeTask(
                                                                 generatedTask,
                                                                 architectPlannerModel,
-                                                                architectCodeModel,
+                                                                Objects.requireNonNull(architectCodeModel),
                                                                 spec.autoCommit(),
                                                                 spec.autoCompress());
                                                     } catch (Exception e) {
