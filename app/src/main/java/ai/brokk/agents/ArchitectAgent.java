@@ -156,9 +156,7 @@ public class ArchitectAgent {
         boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var resultString = deferBuild
-                    ? "CodeAgent finished! Details are in the Workspace messages."
-                    : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
             logger.debug("callCodeAgent finished successfully");
             codeAgentJustSucceeded = !deferBuild && didChange;
             return resultString;
@@ -217,7 +215,7 @@ public class ArchitectAgent {
                     The Code Agent couldn't parse the response after multiple attempts:
                     %s
 
-                    Details are in the Workspace. Review the SEARCH/REPLACE block format and try again with clearer instructions.
+                    Review the SEARCH/REPLACE block format and try again with clearer instructions.
                     """
                         .formatted(explanation);
             case APPLY_ERROR ->
@@ -227,7 +225,7 @@ public class ArchitectAgent {
                     The Code Agent couldn't apply edits after multiple attempts:
                     %s
 
-                    This may indicate ambiguous search patterns or outdated file content. Details are in the Workspace.
+                    This may indicate ambiguous search patterns or outdated file content.
                     You can retry with more specific instructions, or undo with 'undoLastChanges'.
                     """
                         .formatted(explanation);
@@ -249,7 +247,7 @@ public class ArchitectAgent {
                     An error occurred while reading or writing files:
                     %s
 
-                    This may be a transient issue. Details are in the Workspace. You can retry.
+                    This may be a transient issue. You can retry.
                     """
                         .formatted(explanation);
             default ->
@@ -259,7 +257,7 @@ public class ArchitectAgent {
                     Reason: %s
                     Details: %s
 
-                    Changes were made but may not be complete. Details are in the Workspace.
+                    Changes may have been made but may not be complete.
                     You can undo with 'undoLastChanges' or retry with different instructions.
                     """
                         .formatted(reason, explanation);
