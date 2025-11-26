@@ -27,6 +27,12 @@ jobs:
           cp -v ./scripts/run-treesitter-repos.sh ./.ci-tools/run-treesitter-repos.sh
           cp -v ./scripts/compare-perf-results.py ./.ci-tools/compare-perf-results.py
           chmod +x ./.ci-tools/run-treesitter-repos.sh
+          # Absolute paths for stability across checkouts
+          echo "CI_TOOLS=$GITHUB_WORKSPACE/.ci-tools" >> $GITHUB_ENV
+          echo "REPORT_ROOT=$GITHUB_WORKSPACE/perf" >> $GITHUB_ENV
+          mkdir -p "$GITHUB_WORKSPACE/.ci-tools"
+          mkdir -p "$GITHUB_WORKSPACE/perf"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/run-treesitter-repos.sh"
 
       - name: Get commit hashes
         id: get_commits
@@ -88,13 +94,13 @@ jobs:
 
       - name: Setup test projects
         if: steps.check_commits.outputs.should_skip == 'false'
-        run: ./.ci-tools/run-treesitter-repos.sh setup
+        run: "$CI_TOOLS"/run-treesitter-repos.sh setup
 
       - name: Run benchmark on HEAD
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
           for i in {1..3}; do
-            ./.ci-tools/run-treesitter-repos.sh multi-lang --output "$(pwd)/report-head-$i" --max-files 100 --json
+            "$CI_TOOLS"/run-treesitter-repos.sh multi-lang --output "$REPORT_ROOT/report-head-$i" --max-files 100 --json
           done
 
       - name: Clean build artifacts
@@ -109,18 +115,33 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
           for i in {1..3}; do
-            ./.ci-tools/run-treesitter-repos.sh multi-lang --output "$(pwd)/report-base-$i" --max-files 100 --json
+            "$CI_TOOLS"/run-treesitter-repos.sh multi-lang --output "$REPORT_ROOT/report-base-$i" --max-files 100 --json
           done
 
       - name: Compare results
         if: steps.check_commits.outputs.should_skip == 'false'
         id: compare
         run: |
-          # Generate Markdown and Block Kit outputs; escape both as JSON string literals for safe embedding in the payload
-          markdown_report=$(python3 ./.ci-tools/compare-perf-results.py --format=markdown report-base-* report-head-* | jq -Rs .)
-          blocks_report=$(python3 ./.ci-tools/compare-perf-results.py --format=blocks report-base-* report-head-* | jq -Rs .)
-          echo "markdown_report=$markdown_report" >> $GITHUB_OUTPUT
-          echo "blocks_report=$blocks_report" >> $GITHUB_OUTPUT
+          summary_json=$(python3 "$CI_TOOLS/compare-perf-results.py" --format=json "$REPORT_ROOT"/report-base-* "$REPORT_ROOT"/report-head-*)
+          echo "$summary_json" | tee "$REPORT_ROOT/summary.json"
+          # Expose granular variables for Slack Workflow
+          echo "ok=$(echo "$summary_json" | jq -r '.ok')" >> $GITHUB_OUTPUT
+          echo "error_text=$(echo "$summary_json" | jq -r '.error // empty')" >> $GITHUB_OUTPUT
+          echo "time_base=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.base_avg // empty')" >> $GITHUB_OUTPUT
+          echo "time_head=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.head_avg // empty')" >> $GITHUB_OUTPUT
+          echo "time_change_pct=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "time_status=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status // empty')" >> $GITHUB_OUTPUT
+          echo "time_status_emoji=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status_emoji // empty')" >> $GITHUB_OUTPUT
+          echo "mem_base=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.base_avg // empty')" >> $GITHUB_OUTPUT
+          echo "mem_head=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.head_avg // empty')" >> $GITHUB_OUTPUT
+          echo "mem_change_pct=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "mem_status=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.status // empty')" >> $GITHUB_OUTPUT
+          echo "mem_status_emoji=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.status_emoji // empty')" >> $GITHUB_OUTPUT
+          echo "fps_base=$(echo "$summary_json" | jq -r '.metrics.files_per_second.base_avg // empty')" >> $GITHUB_OUTPUT
+          echo "fps_head=$(echo "$summary_json" | jq -r '.metrics.files_per_second.head_avg // empty')" >> $GITHUB_OUTPUT
+          echo "fps_change_pct=$(echo "$summary_json" | jq -r '.metrics.files_per_second.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "fps_status=$(echo "$summary_json" | jq -r '.metrics.files_per_second.status // empty')" >> $GITHUB_OUTPUT
+          echo "fps_status_emoji=$(echo "$summary_json" | jq -r '.metrics.files_per_second.status_emoji // empty')" >> $GITHUB_OUTPUT
 
       - name: Send performance data to Slack Workflow
         if: steps.check_commits.outputs.should_skip == 'false'
@@ -130,9 +151,24 @@ jobs:
           webhook-type: webhook-trigger
           payload: |
             {
-              "report_markdown": ${{ steps.compare.outputs.markdown_report }},
-              "report_blocks": ${{ steps.compare.outputs.blocks_report }},
+              "ok": "${{ steps.compare.outputs.ok }}",
+              "error_text": "${{ steps.compare.outputs.error_text }}",
               "head_sha_short": "${{ env.HEAD_SHA_SHORT }}",
               "base_sha_short": "${{ env.BASE_SHA_SHORT }}",
-              "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "time_base": "${{ steps.compare.outputs.time_base }}",
+              "time_head": "${{ steps.compare.outputs.time_head }}",
+              "time_change_pct": "${{ steps.compare.outputs.time_change_pct }}",
+              "time_status": "${{ steps.compare.outputs.time_status }}",
+              "time_status_emoji": "${{ steps.compare.outputs.time_status_emoji }}",
+              "mem_base": "${{ steps.compare.outputs.mem_base }}",
+              "mem_head": "${{ steps.compare.outputs.mem_head }}",
+              "mem_change_pct": "${{ steps.compare.outputs.mem_change_pct }}",
+              "mem_status": "${{ steps.compare.outputs.mem_status }}",
+              "mem_status_emoji": "${{ steps.compare.outputs.mem_status_emoji }}",
+              "fps_base": "${{ steps.compare.outputs.fps_base }}",
+              "fps_head": "${{ steps.compare.outputs.fps_head }}",
+              "fps_change_pct": "${{ steps.compare.outputs.fps_change_pct }}",
+              "fps_status": "${{ steps.compare.outputs.fps_status }}",
+              "fps_status_emoji": "${{ steps.compare.outputs.fps_status_emoji }}"
             }
