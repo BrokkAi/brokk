@@ -72,48 +72,41 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
-        // these should always be available
-        var quickCfg = project.getMainProject().getQuickModelConfig();
-        var qm = getModel(quickCfg);
-        if (qm == null) {
-            // Fallback to previous behavior if resolution fails
-            qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
-        }
-        quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
+        // Initialize default chat models based on MainProject configurations.
+        var mainProject = project.getMainProject();
 
-        // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
-        boolean freeTier = false;
+        // Quick model: use QUICK config, fall back to UnavailableStreamingModel if not resolvable.
         try {
-            float balance = getUserBalance();
-            freeTier = balance < MINIMUM_PAID_BALANCE;
-            LogManager.getLogger(Service.class).info("User balance = {}, free‑tier = {}", balance, freeTier);
-        } catch (IOException | IllegalArgumentException e) {
+            var quickCfg = mainProject.getQuickModelConfig();
+            var qm = getModel(quickCfg);
+            quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
+        } catch (Exception e) {
             LogManager.getLogger(Service.class)
-                    .warn("Unable to fetch user balance for quick‑edit model selection: {}", e.getMessage());
+                    .warn("Failed to initialize quick model from config: {}", e.getMessage());
+            quickModel = new UnavailableStreamingModel();
         }
 
-        if (freeTier) {
+        // Quick-edit model: prefer QUICK_EDIT config; if unavailable, fall back to quickModel.
+        try {
+            var quickEditCfg = mainProject.getQuickEditModelConfig();
+            var qem = getModel(quickEditCfg);
+            quickEditModel = (qem == null) ? quickModel : qem;
+        } catch (Exception e) {
             LogManager.getLogger(Service.class)
-                    .info("Free tier detected – using quickModel for quick‑edit operations.");
+                    .warn("Failed to initialize quick-edit model from config: {}", e.getMessage());
             quickEditModel = quickModel;
-        } else {
-            var qeCfg = project.getMainProject().getQuickEditModelConfig();
-            var qe = getModel(qeCfg);
-            if (qe == null) {
-                qe = getModel(new ModelConfig(CEREBRAS_GPT_OSS_120B, ReasoningLevel.DEFAULT));
-            }
-            quickEditModel = (qe == null) ? quickModel : qe;
         }
 
-        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qkCfg = project.getMainProject().getQuickestModelConfig();
-        var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
-        if (qqm == null) {
-            qqm = getModel(
-                    new ModelConfig(GEMINI_2_0_FLASH_LITE, ReasoningLevel.DEFAULT),
-                    OpenAiChatRequestParameters.builder().temperature(0.0));
+        // Quickest model: use QUICKEST config with temperature forced to 0.0; fall back to UnavailableStreamingModel.
+        try {
+            var quickestCfg = mainProject.getQuickestModelConfig();
+            var qqm = getModel(quickestCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
+            quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
+        } catch (Exception e) {
+            LogManager.getLogger(Service.class)
+                    .warn("Failed to initialize quickest model from config: {}", e.getMessage());
+            quickestModel = new UnavailableStreamingModel();
         }
-        quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()
