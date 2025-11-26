@@ -11,6 +11,7 @@ import ai.brokk.gui.WorkspacePanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Decompiler;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -352,8 +353,8 @@ public final class DependenciesPanel extends JPanel {
 
                     // Add the newly imported dependency directory
                     var newDepDir = project.getMasterRootPathForConfig()
-                            .resolve(".brokk")
-                            .resolve("dependencies")
+                            .resolve(AbstractProject.BROKK_DIR)
+                            .resolve(AbstractProject.DEPENDENCIES_DIR)
                             .resolve(name);
                     liveDependencyTopLevelDirs.add(newDepDir);
 
@@ -641,8 +642,8 @@ public final class DependenciesPanel extends JPanel {
             if (pf != null) {
                 var depTopLevelDir = chrome.getProject()
                         .getMasterRootPathForConfig()
-                        .resolve(".brokk")
-                        .resolve("dependencies")
+                        .resolve(AbstractProject.BROKK_DIR)
+                        .resolve(AbstractProject.DEPENDENCIES_DIR)
                         .resolve(pf.getRelPath().getFileName());
                 newLiveDependencyTopLevelDirs.add(depTopLevelDir);
             }
