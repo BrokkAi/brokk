@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.jetbrains.annotations.Nullable;
@@ -91,14 +92,30 @@ public class GitRepoFactory {
      * Clones a remote repository into {@code directory}. If {@code depth} &gt; 0 a shallow clone of that depth is
      * performed, otherwise a full clone is made.
      *
-     * <p>If the URL looks like a plain GitHub HTTPS repo without “.git” (e.g. https://github.com/Owner/Repo) we
-     * automatically append “.git”.
+     * <p>If the URL looks like a plain GitHub HTTPS repo without ".git" (e.g. https://github.com/Owner/Repo) we
+     * automatically append ".git".
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        return cloneRepo(() -> MainProject.getGitHubToken(), remoteUrl, directory, depth);
+        return cloneRepo(() -> MainProject.getGitHubToken(), remoteUrl, directory, depth, null);
     }
 
-    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+    /**
+     * Clones a remote repository with progress monitoring.
+     *
+     * @param remoteUrl the URL of the remote repository
+     * @param directory the local directory to clone into
+     * @param depth clone depth (0 for full clone, > 0 for shallow)
+     * @param monitor progress monitor for clone operations (may be null)
+     * @return a GitRepo instance for the cloned repository
+     * @throws GitAPIException if the clone fails
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable ProgressMonitor monitor)
+            throws GitAPIException {
+        return cloneRepo(() -> MainProject.getGitHubToken(), remoteUrl, directory, depth, monitor);
+    }
+
+    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth,
+            @Nullable ProgressMonitor monitor)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -124,6 +141,10 @@ public class GitRepoFactory {
                     throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
                             + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
                 }
+            }
+
+            if (monitor != null) {
+                cloneCmd.setProgressMonitor(monitor);
             }
 
             if (depth > 0) {
@@ -153,11 +174,29 @@ public class GitRepoFactory {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        return cloneRepo(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag);
+        return cloneRepo(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, null);
+    }
+
+    /**
+     * Clone a repository with branch/tag selection and progress monitoring.
+     *
+     * @param remoteUrl the URL of the remote repository
+     * @param directory the local directory to clone into (must be empty or not exist)
+     * @param depth clone depth (0 for full clone, > 0 for shallow)
+     * @param branchOrTag specific branch or tag to clone (null for default branch)
+     * @param monitor progress monitor for clone operations (may be null)
+     * @return a GitRepo instance for the cloned repository
+     * @throws GitAPIException if the clone fails
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag,
+            @Nullable ProgressMonitor monitor)
+            throws GitAPIException {
+        return cloneRepo(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, monitor);
     }
 
     static GitRepo cloneRepo(
-            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
+            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag,
+            @Nullable ProgressMonitor monitor)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -187,6 +226,10 @@ public class GitRepoFactory {
 
             if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
                 cloneCmd.setBranch(branchOrTag);
+            }
+
+            if (monitor != null) {
+                cloneCmd.setProgressMonitor(monitor);
             }
 
             if (depth > 0) {

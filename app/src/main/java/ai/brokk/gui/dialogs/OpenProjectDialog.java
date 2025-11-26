@@ -33,6 +33,7 @@ import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHubBuilder;
@@ -52,6 +53,70 @@ public class OpenProjectDialog extends JDialog {
             boolean isPrivate) {}
 
     private static final Pattern GITHUB_URL_PATTERN = Pattern.compile("https://github.com/([^/]+)/([^/\\s]+)");
+
+    /**
+     * Swing-based implementation of JGit's ProgressMonitor for cloning.
+     * Updates UI components on the EDT as the clone operation progresses.
+     */
+    private static class SwingCloneProgressMonitor implements ProgressMonitor {
+        private final JProgressBar progressBar;
+        private final JLabel statusLabel;
+        private int totalWork;
+        private int completed;
+
+        SwingCloneProgressMonitor(JProgressBar progressBar, JLabel statusLabel) {
+            this.progressBar = progressBar;
+            this.statusLabel = statusLabel;
+            this.totalWork = UNKNOWN;
+            this.completed = 0;
+        }
+
+        @Override
+        public void start(int totalTasks) {
+            // Can be ignored or used for initialization
+        }
+
+        @Override
+        public void beginTask(String title, int totalWork) {
+            this.totalWork = totalWork;
+            this.completed = 0;
+            SwingUtilities.invokeLater(() -> {
+                statusLabel.setText(title);
+                if (totalWork == UNKNOWN) {
+                    progressBar.setIndeterminate(true);
+                } else {
+                    progressBar.setIndeterminate(false);
+                    progressBar.setMaximum(totalWork);
+                    progressBar.setValue(0);
+                }
+            });
+        }
+
+        @Override
+        public void update(int work) {
+            completed += work;
+            SwingUtilities.invokeLater(() -> {
+                if (!progressBar.isIndeterminate()) {
+                    progressBar.setValue(Math.min(completed, totalWork));
+                }
+            });
+        }
+
+        @Override
+        public void endTask() {
+            SwingUtilities.invokeLater(() -> progressBar.setValue(totalWork == UNKNOWN ? 100 : totalWork));
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+
+        @Override
+        public void showDuration(boolean enabled) {
+            // Not used
+        }
+    }
     private final @Nullable Frame parentFrame;
     private @Nullable Path selectedProjectPath = null;
     private List<GitHubRepoInfo> loadedRepositories = List.of();
@@ -602,19 +667,30 @@ public class OpenProjectDialog extends JDialog {
 
         // 1. Build the modal progress dialog on the EDT
         final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
+        var statusLabel = new JLabel("Cloning repository from " + normalizedUrl);
         var progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
-        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
-        progressDialog.add(progressBar, BorderLayout.CENTER);
+
+        var contentPanel = new JPanel(new BorderLayout(10, 10));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        contentPanel.add(statusLabel, BorderLayout.NORTH);
+        contentPanel.add(progressBar, BorderLayout.CENTER);
+
+        progressDialog.add(contentPanel);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        progressDialog.setResizable(false);
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(parentFrame);
 
-        // 2. Start background clone
+        // 2. Create progress monitor for clone operation
+        var monitor = new SwingCloneProgressMonitor(progressBar, statusLabel);
+
+        // 3. Start background clone
         var worker = new SwingWorker<Path, Void>() {
             @Override
             protected Path doInBackground() throws Exception {
                 // Heavy-weight Git operation happens off the EDT
-                GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
+                GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0, monitor);
                 return directory;
             }
 
@@ -640,7 +716,7 @@ public class OpenProjectDialog extends JDialog {
         };
         worker.execute();
 
-        // 3. Show the dialog (modal) – this blocks the EDT but continues to
+        // 4. Show the dialog (modal) – this blocks the EDT but continues to
         //    dispatch events, so the SwingWorker can complete in background.
         progressDialog.setVisible(true);
     }
