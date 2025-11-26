@@ -148,14 +148,15 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
+        // Detect whether this CodeAgent run made any changes
+        boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild
                     ? "CodeAgent finished! Details are in the Workspace messages."
                     : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded =
-                    !deferBuild && !context.getChangedFiles(initialContext).isEmpty();
+            codeAgentJustSucceeded = !deferBuild && didChange;
             return resultString;
         }
 
@@ -174,8 +175,8 @@ public class ArchitectAgent {
         String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
-        // Offer undo tool for constraint violations and edit failures (recoverable)
-        if (reason == StopReason.READ_ONLY_EDIT || reason == StopReason.APPLY_ERROR) {
+        // Offer undo if the CodeAgent failed and left changes behind
+        if (didChange) {
             this.offerUndoToolNext = true;
         }
 
@@ -279,6 +280,8 @@ public class ArchitectAgent {
             io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             // Synchronize local context with latest global state after undo
             context = cm.liveContext();
+            // Reset the offer; only re-offer if a subsequent failure makes changes again
+            this.offerUndoToolNext = false;
             return resultMsg;
         } else {
             var resultMsg = "Nothing to undo (concurrency bug?)";
