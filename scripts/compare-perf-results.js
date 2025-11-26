@@ -137,7 +137,25 @@ function formatValue(value, metricConfig) {
     return value.toFixed(decimals);
 }
 
-function generateReport(baseAvg, headAvg) {
+function buildStatus(baseValue, headValue, metricConfig) {
+    if (typeof baseValue === 'number' && typeof headValue === 'number' && baseValue !== 0) {
+        const change = ((headValue - baseValue) / baseValue) * 100;
+        const changeStr = `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
+        const isWorse = metricConfig.higherIsWorse ? change > 0 : change < 0;
+        let status = ':question:';
+        if (Math.abs(change) > metricConfig.threshold) {
+            status = isWorse ? ':x: Regression' : ':white_check_mark: Improvement';
+        } else {
+            status = ':heavy_check_mark: OK';
+        }
+        return { changeStr, status };
+    } else if (typeof headValue === 'number' && typeof baseValue !== 'number') {
+        return { changeStr: 'New', status: ':sparkles:' };
+    }
+    return { changeStr: 'N/A', status: ':question:' };
+}
+
+function generateMarkdownReport(baseAvg, headAvg) {
     const headSha = process.env.HEAD_SHA_SHORT || 'HEAD';
     const baseSha = process.env.BASE_SHA_SHORT || 'BASE';
     
@@ -156,24 +174,7 @@ function generateReport(baseAvg, headAvg) {
         const baseValue = baseAvg[key];
         const headValue = headAvg[key];
 
-        let changeStr = 'N/A';
-        let status = ':question:';
-
-        if (typeof baseValue === 'number' && typeof headValue === 'number' && baseValue !== 0) {
-            const change = ((headValue - baseValue) / baseValue) * 100;
-            changeStr = `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
-            
-            const isWorse = metricConfig.higherIsWorse ? change > 0 : change < 0;
-            
-            if (Math.abs(change) > metricConfig.threshold) {
-                status = isWorse ? ':x: Regression' : ':white_check_mark: Improvement';
-            } else {
-                status = ':heavy_check_mark: OK';
-            }
-        } else if (typeof headValue === 'number' && typeof baseValue !== 'number') {
-            changeStr = 'New';
-            status = ':sparkles:';
-        }
+        const { changeStr, status } = buildStatus(baseValue, headValue, metricConfig);
 
         markdown += `| ${metricConfig.name} | ${lang} | ${formatValue(baseValue, metricConfig)}${metricConfig.unit} | ${formatValue(headValue, metricConfig)}${metricConfig.unit} | ${changeStr} | ${status} |\n`;
     }
@@ -181,31 +182,107 @@ function generateReport(baseAvg, headAvg) {
     return markdown;
 }
 
+function generateBlockKitReport(baseAvg, headAvg) {
+    const headSha = process.env.HEAD_SHA_SHORT || 'HEAD';
+    const baseSha = process.env.BASE_SHA_SHORT || 'BASE';
+
+    const blocks = [];
+
+    blocks.push({
+        type: 'header',
+        text: { type: 'plain_text', text: 'Daily Performance Report' }
+    });
+    blocks.push({
+        type: 'context',
+        elements: [
+            { type: 'mrkdwn', text: `Comparison between \`master@${headSha}\` and \`master@${baseSha}\`.` }
+        ]
+    });
+    blocks.push({ type: 'divider' });
+
+    const allKeys = [...new Set([...Object.keys(baseAvg), ...Object.keys(headAvg)])].sort();
+
+    for (const key of allKeys) {
+        const [lang, metricKey] = key.split('.', 2);
+        const metricConfig = METRICS_TO_TRACK.find(m => m.key === metricKey);
+        if (!metricConfig) continue;
+
+        const baseValue = baseAvg[key];
+        const headValue = headAvg[key];
+        const { changeStr, status } = buildStatus(baseValue, headValue, metricConfig);
+
+        const fields = [
+            { type: 'mrkdwn', text: `*Metric*\n${metricConfig.name}` },
+            { type: 'mrkdwn', text: `*Scope*\n${lang}` },
+            { type: 'mrkdwn', text: `*Baseline (${baseSha})*\n${formatValue(baseValue, metricConfig)}${metricConfig.unit}` },
+            { type: 'mrkdwn', text: `*Current (${headSha})*\n${formatValue(headValue, metricConfig)}${metricConfig.unit}` },
+            { type: 'mrkdwn', text: `*Change*\n${changeStr}` },
+            { type: 'mrkdwn', text: `*Status*\n${status}` }
+        ];
+
+        blocks.push({ type: 'section', fields });
+    }
+
+    return JSON.stringify(blocks);
+}
+
 function main() {
     const args = process.argv.slice(2);
+
+    // Format handling
+    let format = 'markdown';
+    const fmtArgIdx = args.findIndex(a => a.startsWith('--format=') || a === '--format' || a === '-f');
+    if (fmtArgIdx !== -1) {
+        const val = args[fmtArgIdx].includes('=') ? args[fmtArgIdx].split('=')[1] : args[fmtArgIdx + 1];
+        if (val) format = val.trim().toLowerCase();
+    }
+
     // Accept both directories and direct JSON file paths. We still separate base/head by naming pattern.
-    const baseInputs = args.filter(arg => arg.includes('report-base-'));
-    const headInputs = args.filter(arg => arg.includes('report-head-'));
+    const filtered = args.filter(a => !a.startsWith('--format'));
+    const baseInputs = filtered.filter(arg => arg.includes('report-base-'));
+    const headInputs = filtered.filter(arg => arg.includes('report-head-'));
 
     if (baseInputs.length === 0 || headInputs.length === 0) {
-        console.error('Usage: node compare-perf-results.js <base-report-dirs...> <head-report-dirs...>');
+        console.error('Usage: node compare-perf-results.js [--format=markdown|blocks] <base-report-dirs...> <head-report-dirs...>');
         process.exit(1);
     }
     
     try {
         const baseAvg = averageResults(baseInputs);
         const headAvg = averageResults(headInputs);
-        const report = generateReport(baseAvg, headAvg);
-        console.log(report);
+
+        if (format === 'blocks') {
+            const blocks = generateBlockKitReport(baseAvg, headAvg);
+            console.log(blocks);
+        } else {
+            const report = generateMarkdownReport(baseAvg, headAvg);
+            console.log(report);
+        }
     } catch (error) {
-        console.error('Error generating performance report:', error.message);
         const headSha = process.env.HEAD_SHA_SHORT || 'HEAD';
         const baseSha = process.env.BASE_SHA_SHORT || 'BASE';
-        let markdown = `:warning: **Failed to generate performance report**\n\n`;
-        markdown += `Comparison between \`master@${headSha}\` and \`master@${baseSha}\` failed.\n\n`;
-        markdown += `\`\`\`\n${error.stack}\n\`\`\``;
-        console.log(markdown);
-        process.exit(0); // Exit 0 so the markdown error report is still sent
+
+        if (format === 'blocks') {
+            const blocks = [
+                {
+                    type: 'section',
+                    text: { type: 'mrkdwn', text: `:warning: *Failed to generate performance report*\nComparison between \`master@${headSha}\` and \`master@${baseSha}\` failed.` }
+                },
+                {
+                    type: 'section',
+                    text: { type: 'mrkdwn', text: '```' + (error && error.stack ? error.stack : String(error)) + '```' }
+                }
+            ];
+            console.log(JSON.stringify(blocks));
+            process.exit(0);
+        } else {
+            console.error('Error generating performance report:', error.message);
+            let markdown = `:warning: **Failed to generate performance report**\n\n`;
+            markdown += `Comparison between \`master@${headSha}\` and \`master@${baseSha}\` failed.\n\n`;
+            markdown += `\`\`\`\n${error && error.stack ? error.stack : String(error)}\n\`\`\``;
+            console.log(markdown);
+            process.exit(0); // Exit 0 so the error report is still sent
+        }
     }
 }
 

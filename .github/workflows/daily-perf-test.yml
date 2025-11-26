@@ -116,9 +116,9 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         id: compare
         run: |
-          report=$(node ./.ci-tools/compare-perf-results.js report-base-* report-head-*)
-          echo "markdown_report<<EOF" >> $GITHUB_OUTPUT
-          echo "$report" >> $GITHUB_OUTPUT
+          blocks_report=$(node ./.ci-tools/compare-perf-results.js --format=blocks report-base-* report-head-*)
+          echo "blocks_report<<EOF" >> $GITHUB_OUTPUT
+          echo "$blocks_report" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send performance data to Slack Workflow
@@ -129,7 +129,7 @@ jobs:
           webhook-type: webhook-trigger
           payload: |
             {
-              "report_markdown": "${{ steps.compare.outputs.markdown_report }}",
+              "report_blocks": "${{ steps.compare.outputs.blocks_report }}",
               "head_sha_short": "${{ env.HEAD_SHA_SHORT }}",
               "base_sha_short": "${{ env.BASE_SHA_SHORT }}",
               "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
