@@ -311,6 +311,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
+        // Disable undo listener while initial placeholder is showing
+        disableUndoListener();
         wandButton = new WandButton(
                 contextManager,
                 chrome,
@@ -495,7 +497,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * The listener will be re-enabled when setTextWithUndo is called.
      */
     private void disableUndoListener() {
+        assert SwingUtilities.isEventDispatchThread();
         instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+    }
+
+    private void enableUndoListener() {
+        assert SwingUtilities.isEventDispatchThread();
+        // Remove first to avoid duplicate listeners
+        instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+        instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
     }
 
     public JTextArea getInstructionsArea() {
@@ -2130,6 +2140,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * present, and requests focus for the input field.
      */
     private void activateCommandInput() {
+        assert SwingUtilities.isEventDispatchThread();
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
@@ -2137,6 +2148,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (isPlaceholderText(instructionsArea.getText())) {
             clearCommandInput();
         }
+        // Enable undo listener now that real content can be entered
+        enableUndoListener();
         instructionsArea.requestFocusInWindow(); // Give it focus
     }
 
@@ -2145,12 +2158,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * This is called when focus is lost and no text has been entered.
      */
     private void deactivateCommandInput() {
+        assert SwingUtilities.isEventDispatchThread();
         String currentText = instructionsArea.getText();
         // Only restore placeholder if text is empty or whitespace-only
         if (currentText == null || currentText.trim().isEmpty()) {
             instructionsArea.setText(getCurrentPlaceholder());
             instructionsArea.setEnabled(false);
             commandInputOverlay.showOverlay();
+            // Disable undo listener while placeholder is showing
+            disableUndoListener();
         }
         // If user typed something, leave it as-is (don't restore placeholder)
     }
