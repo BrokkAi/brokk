@@ -392,9 +392,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 List.of() // Start with empty listeners
                 );
 
-        var delayNotificationsUntilCompleted = new CompletableFuture<Void>();
-        delayNotificationsUntilCompleted.complete(null);
-        watchService.start(delayNotificationsUntilCompleted);
+        watchService.start(CompletableFuture.completedFuture(null));
 
         // Create AnalyzerWrapper with injected watch service
         this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
