@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
@@ -44,6 +45,7 @@ public class VoiceInputButton extends JButton {
     private final Consumer<String> onError;
     private final Runnable onRecordingStart;
     private final @Nullable Future<Set<String>> customSymbolsFuture;
+    private final @Nullable Predicate<String> isPlaceholder;
     private final Runnable serviceListener;
 
     // For STT (mic) usage
@@ -64,6 +66,8 @@ public class VoiceInputButton extends JButton {
      * @param onRecordingStart callback when recording starts
      * @param customSymbolsFuture Optional Future providing a set of symbols to prioritize for transcription hints. Can
      *     be null.
+     * @param isPlaceholder Optional predicate to detect placeholder text. If current text matches, it will be replaced
+     *     instead of appended to.
      * @param onError callback for error handling
      */
     public VoiceInputButton(
@@ -71,12 +75,14 @@ public class VoiceInputButton extends JButton {
             ContextManager contextManager,
             Runnable onRecordingStart,
             @Nullable Future<Set<String>> customSymbolsFuture,
+            @Nullable Predicate<String> isPlaceholder,
             Consumer<String> onError) {
         this.targetTextArea = targetTextArea;
         this.contextManager = contextManager;
         this.onRecordingStart = onRecordingStart;
         this.onError = onError;
         this.customSymbolsFuture = customSymbolsFuture;
+        this.isPlaceholder = isPlaceholder;
         this.serviceListener = this::updateSttAvailability;
 
         // Determine standard button height to make this button square
@@ -168,7 +174,7 @@ public class VoiceInputButton extends JButton {
     }
 
     /**
-     * Convenience constructor without custom symbols.
+     * Convenience constructor without custom symbols or placeholder detection.
      *
      * @param targetTextArea the text area where transcribed text will be placed
      * @param contextManager the context manager for speech-to-text processing
@@ -180,7 +186,7 @@ public class VoiceInputButton extends JButton {
             ContextManager contextManager,
             Runnable onRecordingStart,
             Consumer<String> onError) {
-        this(targetTextArea, contextManager, onRecordingStart, null, onError);
+        this(targetTextArea, contextManager, onRecordingStart, null, null, onError);
     }
 
     /** Update the button enabled/tooltip state based on current STT availability. This is invoked on the EDT. */
@@ -365,11 +371,17 @@ public class VoiceInputButton extends JButton {
                     // put it in the target text area
                     SwingUtilities.invokeLater(() -> {
                         if (!transcript.isBlank()) {
-                            // If user typed something already, put a space
-                            if (!targetTextArea.getText().isBlank()) {
-                                targetTextArea.append(" ");
+                            var currentText = targetTextArea.getText();
+                            if (isPlaceholder != null && isPlaceholder.test(currentText)) {
+                                // Replace placeholder with transcript
+                                targetTextArea.setText(transcript);
+                            } else {
+                                // Append to existing text
+                                if (!currentText.isBlank()) {
+                                    targetTextArea.append(" ");
+                                }
+                                targetTextArea.append(transcript);
                             }
-                            targetTextArea.append(transcript);
                         }
                     });
 

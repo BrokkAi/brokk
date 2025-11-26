@@ -325,6 +325,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     activateCommandInput();
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Recording");
                 },
+                null,
+                this::isPlaceholderText,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
