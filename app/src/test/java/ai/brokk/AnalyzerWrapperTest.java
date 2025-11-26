@@ -202,7 +202,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create AnalyzerWrapper with null watch service (headless mode)
-        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), (IWatchService) null);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
 
         // Verify AnalyzerWrapper was created successfully
         assertNotNull(analyzerWrapper, "AnalyzerWrapper should be created with null watch service");
