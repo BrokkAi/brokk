@@ -95,7 +95,7 @@ public class BuildOutputPreprocessor {
         }
 
         // Limit build output to fit within token constraints
-        var model = cm.getService().quickestModel();
+        var model = requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_FLASH_LITE));
         var llm = cm.getLlm(model, "BuildOutputPreprocessor");
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
         return preprocessOutput(truncatedOutput, cm, llm);
@@ -142,15 +142,6 @@ public class BuildOutputPreprocessor {
         var messages = List.of(systemMessage, userMessage);
 
         var result = llm.sendRequest(messages);
-        if (result.error() != null || result.isPartial() || result.text().isBlank()) {
-            // try again with flash-lite, which has a larger max output than flash 2.0
-            // (this is needed for very verbose builds, but 2.5 lite is dumber than 2.0 overall so it's not our
-            // preferred option)
-            var model = requireNonNull(contextManager.getService().getModel(Service.GEMINI_2_5_FLASH_LITE));
-            llm = contextManager.getLlm(model, "BuildOutputPreprocessor Plan B");
-            result = llm.sendRequest(messages);
-        }
-
         if (result.error() != null || result.isPartial() || result.text().isBlank()) {
             logPreprocessingError(result, contextManager);
             return truncatedOutput;
