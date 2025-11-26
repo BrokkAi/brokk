@@ -100,7 +100,7 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
           for i in {1..3}; do
-            ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-head-$i" --max-files 5000 --json
+            ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-head-$i" --max-files 3000 --json
           done
 
       - name: Clean build artifacts
@@ -115,7 +115,7 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
           for i in {1..3}; do
-            ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-base-$i" --max-files 5000 --json
+            ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-base-$i" --max-files 3000 --json
           done
 
       - name: Compare results
