@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -67,6 +68,9 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private boolean offerUndoToolNext = false;
+
+    @Nullable
+    private StopReason lastFatalReason = null;
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
@@ -148,38 +152,122 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
+        // Detect whether this CodeAgent run made any changes
+        boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var resultString = deferBuild
-                    ? "CodeAgent finished! Details are in the Workspace messages."
-                    : "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded =
-                    !deferBuild && !context.getChangedFiles(initialContext).isEmpty();
+            codeAgentJustSucceeded = !deferBuild && didChange;
             return resultString;
         }
 
-        // For non-SUCCESS outcomes:
-        // throw errors that should halt the architect
+        // For non-SUCCESS outcomes, format error feedback appropriately
+
+        // Throw errors that should halt the architect
         if (reason == StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
-        if (reason == StopReason.LLM_ERROR) {
-            logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
+        if (reason == StopReason.LLM_ERROR || reason == StopReason.IO_ERROR) {
+            this.lastFatalReason = reason;
+            logger.error("Fatal {} during CodeAgent execution: {}", reason, stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
-        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.), explain how to recover
-        this.offerUndoToolNext = true;
-        var resultString =
-                """
-                        CodeAgent was not able to get to a clean build. Details are in the Workspace.
-                        Changes were made but can be undone with 'undoLastChanges'
-                        if CodeAgent made negative progress; you will have to determine this from the messages history and the
-                        current Workspace contents.
-                        """;
-        logger.debug("failed callCodeAgent");
+        // Format recoverable errors with clear guidance for the LLM
+        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation());
+        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
+
+        // Offer undo if the CodeAgent failed and left changes behind
+        if (didChange) {
+            this.offerUndoToolNext = true;
+        }
+
         return resultString;
+    }
+
+    /**
+     * Formats CodeAgent failure messages with clear, structured guidance for the LLM.
+     * Each failure type includes actionable next steps.
+     */
+    private String formatCodeAgentFailure(StopReason reason, String explanation) {
+        return switch (reason) {
+            case READ_ONLY_EDIT ->
+                """
+                    **Constraint Violation: Read-Only File**
+
+                    Your instructions asked to modify a file marked read-only in the Workspace:
+                    %s
+
+                    To proceed, do one of the following:
+                    1. Add the file for editing with addFilesToWorkspace([...]), then retry callCodeAgent.
+                    2. If it should remain read-only, adjust instructions to edit a different file or create a new one.
+
+                    No changes were applied.
+                    """
+                        .formatted(explanation);
+            case PARSE_ERROR ->
+                """
+                    **Parse Error: Invalid Response Format**
+
+                    The Code Agent couldn't parse the response after multiple attempts:
+                    %s
+
+                    Next steps:
+                    - Retry callCodeAgent with instructions that produce only valid SEARCH/REPLACE blocks (no commentary).
+                    - Keep edits small and focused; prefer one file or a single function per turn.
+                    """
+                        .formatted(explanation);
+            case APPLY_ERROR ->
+                """
+                    **Apply Error: Edit Blocks Failed**
+
+                    The Code Agent couldn't apply edits after multiple attempts:
+                    %s
+
+                    Likely cause: search patterns were too generic to match uniquely.
+
+                    Try one of:
+                    - Include more unique context in each SEARCH/REPLACE block (surrounding lines that appear only once).
+                    - Target a specific function or class and include that identifier in your instructions.
+                    - Add the exact files first (addFilesToWorkspace or addFileSummariesToWorkspace), then retry callCodeAgent.
+                    - Or undo with 'undoLastChanges'.
+                    """
+                        .formatted(explanation);
+            case BUILD_ERROR ->
+                """
+                    **Build Error: Failed to Compile/Test**
+
+                    Build/test verification failed after multiple attempts:
+                    %s
+
+                    Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
+                    If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
+                    You can also retry with different instructions, or undo with 'undoLastChanges'.
+                    """
+                        .formatted(explanation);
+            case IO_ERROR ->
+                """
+                    **IO Error: File System Issue**
+
+                    An error occurred while reading or writing files:
+                    %s
+
+                    This may be a transient issue. You can retry.
+                    """
+                        .formatted(explanation);
+            default ->
+                """
+                    **Code Agent Failed**
+
+                    Reason: %s
+                    Details: %s
+
+                    Changes may have been made but may not be complete.
+                    You can undo with 'undoLastChanges' or retry with different instructions.
+                    """
+                        .formatted(reason, explanation);
+        };
     }
 
     private void addPlanningToHistory() {
@@ -201,6 +289,8 @@ public class ArchitectAgent {
             io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             // Synchronize local context with latest global state after undo
             context = cm.liveContext();
+            // Reset the offer; only re-offer if a subsequent failure makes changes again
+            this.offerUndoToolNext = false;
             return resultMsg;
         } else {
             var resultMsg = "Nothing to undo (concurrency bug?)";
@@ -296,9 +386,11 @@ public class ArchitectAgent {
             var initialSummary = callCodeAgent(goal, false);
             architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
         } catch (ToolRegistry.FatalLlmException e) {
-            var errorMessage = "Fatal LLM error executing initial Code Agent: %s".formatted(e.getMessage());
+            var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
+            this.lastFatalReason = null;
+            var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
-            return resultWithMessages(StopReason.LLM_ERROR);
+            return resultWithMessages(fatalReason);
         }
 
         // If CodeAgent succeeded, immediately finish without entering planning loop
@@ -565,7 +657,9 @@ public class ArchitectAgent {
             for (var req : codeAgentReqs) {
                 ToolExecutionResult toolResult = tr.executeTool(req);
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                    return resultWithMessages(StopReason.LLM_ERROR);
+                    var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
+                    this.lastFatalReason = null;
+                    return resultWithMessages(fatalReason);
                 }
 
                 architectMessages.add(toolResult.toExecutionResultMessage());
