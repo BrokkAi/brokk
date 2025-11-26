@@ -1013,7 +1013,7 @@ public class SearchAgent {
             @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                     String instructions)
             throws InterruptedException, ToolRegistry.FatalLlmException {
-        // append first the SearchAgent's result so far, CodeAgent appends its own result
+        // Append first the SearchAgent's result so far; CodeAgent appends its own result
         context = scope.append(createResult("Search: " + goal, goal));
 
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
@@ -1021,16 +1021,21 @@ public class SearchAgent {
         var agent = new CodeAgent(cm, cm.getCodeModel());
         var opts = new HashSet<CodeAgent.Option>();
 
+        // Keep a snapshot to determine if changes occurred
+        Context contextBefore = context;
+
         var result = agent.runTask(context, List.of(), instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
         context = scope.append(result);
 
+        boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
+
         if (reason == TaskResult.StopReason.SUCCESS) {
-            // we need an output to be appended by the search agent caller (code agent appended its own result)
+            // CodeAgent appended its own result; output concise success
             io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
-            var resultString = "CodeAgent finished with a successful build! Details are in the Workspace messages.";
+            var resultString = "CodeAgent finished with a successful build!";
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
             return resultString;
@@ -1041,7 +1046,6 @@ public class SearchAgent {
             throw new InterruptedException();
         }
         if (reason == TaskResult.StopReason.LLM_ERROR) {
-            // we need an output to be appended by the search agent caller (code agent appended its own result)
             io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
@@ -1050,11 +1054,27 @@ public class SearchAgent {
         // Non-success outcomes: continue planning on next loop
         codeAgentJustSucceeded = false;
         logger.debug("SearchAgent.callCodeAgent failed with reason {}; continuing planning", reason);
-        return """
-                CodeAgent was not able to get to a clean build. Details are in the Workspace.
-                Changes were made but can be undone with 'undoLastChanges' if they are negative progress.
-                Continuing search and planning.
-                """;
+
+        // Provide actionable guidance; reserve workspace details only for BUILD_ERROR
+        StringBuilder sb = new StringBuilder();
+        if (reason == TaskResult.StopReason.BUILD_ERROR) {
+            sb.append("CodeAgent was not able to get to a clean build. Details are in the Workspace.\n");
+            if (didChange) {
+                sb.append("Changes were made; you can undo with 'undoLastChanges' if they are negative progress.\n");
+            }
+            sb.append(
+                    "Consider retrying with 'deferBuild=true' for multi-step changes, then complete follow-up fixes.\n");
+        } else {
+            sb.append("CodeAgent did not complete successfully.\n");
+            if (didChange) {
+                sb.append("If the changes are not helpful, you can undo with 'undoLastChanges'.\n");
+            }
+            sb.append(
+                    "Try smaller, focused edits with valid SEARCH/REPLACE blocks; add or refresh required files using workspace tools "
+                            + "(e.g., addFilesToWorkspace, addFileSummariesToWorkspace), or use callSearchAgent to locate the correct targets, then retry callCodeAgent.\n");
+        }
+        sb.append("Continuing search and planning.\n");
+        return sb.toString();
     }
 
     // =======================

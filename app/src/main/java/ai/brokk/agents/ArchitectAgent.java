@@ -199,13 +199,11 @@ public class ArchitectAgent {
                     Your instructions asked to modify a file marked read-only in the Workspace:
                     %s
 
-                    **Why this happened**: Read-only files are protected from accidental modification.
+                    To proceed, do one of the following:
+                    1. Add the file for editing with addFilesToWorkspace([...]), then retry callCodeAgent.
+                    2. If it should remain read-only, adjust instructions to edit a different file or create a new one.
 
-                    **To fix this, you can**:
-                    1. Modify your approach to work on different files instead
-                    2. Ask me to clarify which files should be editable
-
-                    No changes were applied. You can retry with adjusted instructions.
+                    No changes were applied.
                     """
                         .formatted(explanation);
             case PARSE_ERROR ->
@@ -215,7 +213,9 @@ public class ArchitectAgent {
                     The Code Agent couldn't parse the response after multiple attempts:
                     %s
 
-                    Review the SEARCH/REPLACE block format and try again with clearer instructions.
+                    Next steps:
+                    - Retry callCodeAgent with instructions that produce only valid SEARCH/REPLACE blocks (no commentary).
+                    - Keep edits small and focused; prefer one file or a single function per turn.
                     """
                         .formatted(explanation);
             case APPLY_ERROR ->
@@ -225,8 +225,13 @@ public class ArchitectAgent {
                     The Code Agent couldn't apply edits after multiple attempts:
                     %s
 
-                    This may indicate ambiguous search patterns or outdated file content.
-                    You can retry with more specific instructions, or undo with 'undoLastChanges'.
+                    Likely cause: search patterns were too generic to match uniquely.
+
+                    Try one of:
+                    - Include more unique context in each SEARCH/REPLACE block (surrounding lines that appear only once).
+                    - Target a specific function or class and include that identifier in your instructions.
+                    - Add the exact files first (addFilesToWorkspace or addFileSummariesToWorkspace), then retry callCodeAgent.
+                    - Or undo with 'undoLastChanges'.
                     """
                         .formatted(explanation);
             case BUILD_ERROR ->
@@ -237,7 +242,8 @@ public class ArchitectAgent {
                     %s
 
                     Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
-                    You can retry with different instructions, or undo with 'undoLastChanges'.
+                    If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
+                    You can also retry with different instructions, or undo with 'undoLastChanges'.
                     """
                         .formatted(explanation);
             case IO_ERROR ->
