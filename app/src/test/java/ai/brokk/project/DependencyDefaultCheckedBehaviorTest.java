@@ -2,15 +2,11 @@ package ai.brokk.project;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.gui.dependencies.DependenciesPanel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,8 +54,7 @@ class DependencyDefaultCheckedBehaviorTest {
         assertTrue(liveDeps.size() > 0, "Live dependencies should not be empty after import");
 
         Set<String> liveDepNames = extractDependencyNames(liveDeps);
-        assertTrue(liveDepNames.contains(depName1),
-                "First imported dependency should be live by default");
+        assertTrue(liveDepNames.contains(depName1), "First imported dependency should be live by default");
     }
 
     @Test
@@ -80,14 +75,11 @@ class DependencyDefaultCheckedBehaviorTest {
 
         // Assert: Both dependencies should be live
         Set<IProject.Dependency> liveDepsAfterSecond = mainProject.getLiveDependencies();
-        assertEquals(2, liveDepsAfterSecond.size(),
-                "Both dependencies should be live after second import");
+        assertEquals(2, liveDepsAfterSecond.size(), "Both dependencies should be live after second import");
 
         Set<String> liveDepNames = extractDependencyNames(liveDepsAfterSecond);
-        assertTrue(liveDepNames.contains(depName1),
-                "First dependency should remain live after second import");
-        assertTrue(liveDepNames.contains(depName2),
-                "Second dependency should be live");
+        assertTrue(liveDepNames.contains(depName1), "First dependency should remain live after second import");
+        assertTrue(liveDepNames.contains(depName2), "Second dependency should be live");
     }
 
     @Test
@@ -106,15 +98,13 @@ class DependencyDefaultCheckedBehaviorTest {
 
             // Check all imported so far
             for (int j = 0; j <= i; j++) {
-                assertTrue(liveDepNames.contains(depNames[j]),
-                        depNames[j] + " should remain live");
+                assertTrue(liveDepNames.contains(depNames[j]), depNames[j] + " should remain live");
             }
         }
 
         // Final assertion: All 3 should be live
         Set<IProject.Dependency> finalLiveDeps = mainProject.getLiveDependencies();
-        assertEquals(3, finalLiveDeps.size(),
-                "All three dependencies should be live");
+        assertEquals(3, finalLiveDeps.size(), "All three dependencies should be live");
     }
 
     @Test
@@ -136,7 +126,8 @@ class DependencyDefaultCheckedBehaviorTest {
         assertEquals(0, offDeps.size(), "Dependency should be off after toggle");
 
         // Act: Turn it back on
-        Path depTopLevel = mainProject.getMasterRootPathForConfig()
+        Path depTopLevel = mainProject
+                .getMasterRootPathForConfig()
                 .resolve(AbstractProject.BROKK_DIR)
                 .resolve(AbstractProject.DEPENDENCIES_DIR)
                 .resolve(depName);
@@ -165,8 +156,7 @@ class DependencyDefaultCheckedBehaviorTest {
         assertEquals(2, parentLiveDeps.size(), "Parent should have 2 live dependencies");
 
         // Setup: Create a worktree project with its own temporary root
-        @TempDir
-        Path worktreeRoot = Files.createTempDirectory("worktree");
+        @TempDir Path worktreeRoot = Files.createTempDirectory("worktree");
 
         try {
             // Create the .brokk structure for the worktree
@@ -183,12 +173,10 @@ class DependencyDefaultCheckedBehaviorTest {
 
             // Assert: Worktree should inherit parent's live set
             Set<String> worktreeLiveNames = extractDependencyNames(worktreeLiveDeps);
-            assertEquals(2, worktreeLiveNames.size(),
-                    "Worktree should inherit parent's live dependencies on first access");
-            assertTrue(worktreeLiveNames.contains(depName1),
-                    "Worktree should have parent's first dependency");
-            assertTrue(worktreeLiveNames.contains(depName2),
-                    "Worktree should have parent's second dependency");
+            assertEquals(
+                    2, worktreeLiveNames.size(), "Worktree should inherit parent's live dependencies on first access");
+            assertTrue(worktreeLiveNames.contains(depName1), "Worktree should have parent's first dependency");
+            assertTrue(worktreeLiveNames.contains(depName2), "Worktree should have parent's second dependency");
 
             // Act: Import a new dependency into the worktree
             String wtDepName = "dep-worktree-new";
@@ -198,32 +186,31 @@ class DependencyDefaultCheckedBehaviorTest {
             // Assert: Worktree should have 3 live dependencies (2 inherited + 1 new)
             Set<IProject.Dependency> worktreeAfterImport = worktreeProject.getLiveDependencies();
             Set<String> worktreeAfterNames = extractDependencyNames(worktreeAfterImport);
-            assertEquals(3, worktreeAfterNames.size(),
-                    "Worktree should have 3 live dependencies after new import");
-            assertTrue(worktreeAfterNames.contains(depName1),
+            assertEquals(3, worktreeAfterNames.size(), "Worktree should have 3 live dependencies after new import");
+            assertTrue(
+                    worktreeAfterNames.contains(depName1),
                     "Parent's first dependency should still be live in worktree");
-            assertTrue(worktreeAfterNames.contains(depName2),
+            assertTrue(
+                    worktreeAfterNames.contains(depName2),
                     "Parent's second dependency should still be live in worktree");
-            assertTrue(worktreeAfterNames.contains(wtDepName),
-                    "New dependency should be live in worktree");
+            assertTrue(worktreeAfterNames.contains(wtDepName), "New dependency should be live in worktree");
 
             // Assert: Parent should still have only 2 (worktree changes are isolated)
-            Set<String> parentAfterWorktreeImport = extractDependencyNames(
-                    mainProject.getLiveDependencies());
-            assertEquals(2, parentAfterWorktreeImport.size(),
+            Set<String> parentAfterWorktreeImport = extractDependencyNames(mainProject.getLiveDependencies());
+            assertEquals(
+                    2,
+                    parentAfterWorktreeImport.size(),
                     "Parent project's live set should be unaffected by worktree import");
 
             worktreeProject.close();
         } finally {
             // Cleanup
-            Files.walk(worktreeRoot)
-                    .sorted((a, b) -> b.compareTo(a))
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException ignored) {
-                        }
-                    });
+            Files.walk(worktreeRoot).sorted((a, b) -> b.compareTo(a)).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException ignored) {
+                }
+            });
         }
     }
 
@@ -248,12 +235,9 @@ class DependencyDefaultCheckedBehaviorTest {
 
         // Assert: Live dependencies should be restored from persistence
         Set<String> reloadedLiveDeps = extractDependencyNames(mainProject.getLiveDependencies());
-        assertEquals(2, reloadedLiveDeps.size(),
-                "Live dependencies should persist across project reload");
-        assertTrue(reloadedLiveDeps.contains(depName1),
-                "First dependency should be restored after reload");
-        assertTrue(reloadedLiveDeps.contains(depName2),
-                "Second dependency should be restored after reload");
+        assertEquals(2, reloadedLiveDeps.size(), "Live dependencies should persist across project reload");
+        assertTrue(reloadedLiveDeps.contains(depName1), "First dependency should be restored after reload");
+        assertTrue(reloadedLiveDeps.contains(depName2), "Second dependency should be restored after reload");
     }
 
     // ============== Helper Methods ==============

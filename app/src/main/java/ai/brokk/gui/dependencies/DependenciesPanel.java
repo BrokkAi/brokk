@@ -344,22 +344,22 @@ public final class DependenciesPanel extends JPanel {
                     var project = chrome.getProject();
                     var currentLiveDeps = project.getLiveDependencies();
                     var liveDependencyTopLevelDirs = new HashSet<Path>();
-                    
+
                     // Add all currently live dependencies
                     for (var dep : currentLiveDeps) {
                         liveDependencyTopLevelDirs.add(dep.root().absPath());
                     }
-                    
+
                     // Add the newly imported dependency directory
                     var newDepDir = project.getMasterRootPathForConfig()
                             .resolve(".brokk")
                             .resolve("dependencies")
                             .resolve(name);
                     liveDependencyTopLevelDirs.add(newDepDir);
-                    
+
                     // Persist the updated live set
                     project.saveLiveDependencies(liveDependencyTopLevelDirs);
-                    
+
                     // Now reload the UI with the updated live set
                     loadDependenciesAsync();
                     // Persist changes after a dependency import completes and then resume watcher.
@@ -622,7 +622,7 @@ public final class DependenciesPanel extends JPanel {
         var newLiveDependencyTopLevelDirs = new HashSet<Path>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             String name = (String) tableModel.getValueAt(i, 1);
-            
+
             // Determine if this dependency should be live:
             // 1. If an override is provided for this name, use it
             // 2. Otherwise, use the current checkbox state (handling "Loading"/"Unloading" as truthy)
@@ -633,7 +633,7 @@ public final class DependenciesPanel extends JPanel {
                 Object checkboxValue = tableModel.getValueAt(i, 0);
                 isLive = isTruthyLive(checkboxValue);
             }
-            
+
             if (!isLive) continue;
 
             var pf = dependencyProjectFileMap.get(name);
