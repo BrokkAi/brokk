@@ -11,7 +11,6 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -37,8 +36,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -59,8 +56,8 @@ public class ArchitectAgent {
     // Helper record to associate a SearchAgent task Future with its request and result
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
 
-    // Result of executing a single search request: both the tool execution result and the updated context
-    private record SearchTaskResult(ToolExecutionResult toolResult, Context context) {}
+    // Result of executing a single search request: both the tool execution result and the SearchAgent result
+    private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
 
     private final ContextManager cm;
     private final StreamingChatModel planningModel;
@@ -142,6 +139,9 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
+        // Record planning history before invoking CodeAgent
+        addPlanningToHistory();
+
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
@@ -188,12 +188,12 @@ public class ArchitectAgent {
         return resultString;
     }
 
-    private void c() {
-        var messages = io.getLlmRawMessages();
-        if (messages.isEmpty()) {
-            return;
-        }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+    private void addPlanningToHistory() {
+            var messages = io.getLlmRawMessages();
+            if (messages.isEmpty()) {
+                    return;
+            }
+            context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
     }
 
     @Tool(
@@ -525,36 +525,10 @@ public class ArchitectAgent {
 
             // Handle search agent requests with batched history
             if (!searchAgentReqs.isEmpty()) {
-                // Add planning to history once before submitting search tasks
-                architectMessages.add(new UserMessage("Plan the search strategy and submit queries."));
-                architectMessages.add(new AiMessage("I will execute the following searches to gather information."));
-
-                // Extract queries for consolidated notification
-                var queries = searchAgentReqs.stream()
-                    .map(req -> {
-                        try {
-                            var args = new com.fasterxml.jackson.databind.ObjectMapper().readTree(req.arguments());
-                            return args.has("query") ? args.get("query").asText() : req.arguments();
-                        } catch (Exception e) {
-                            return req.arguments();
-                        }
-                    })
-                    .toList();
-
-                // Emit consolidated start message
-                if (searchAgentReqs.size() > 1) {
-                    io.llmOutput("**Search Agent** running %d queries in parallel (streaming first only):\n%s"
-                        .formatted(searchAgentReqs.size(),
-                                   IntStream.range(0, queries.size())
-                                       .mapToObj(i -> "%d. %s".formatted(i + 1, queries.get(i)))
-                                       .collect(Collectors.joining("\n"))),
-                        ChatMessageType.AI, true, false);
-                } else if (searchAgentReqs.size() == 1) {
-                    io.llmOutput("**Search Agent** running: " + queries.get(0), ChatMessageType.AI, true, false);
-                }
+                // Create a planning history entry once before launching searches
+                addPlanningToHistory();
 
                 // Submit search agent tasks to run in the background
-                // Each task gets its own isolated WorkspaceTools and Context, all seeded from the same baseContext
                 var searchAgentTasks = new ArrayList<SearchTask>();
                 for (var req : searchAgentReqs) {
                     Callable<SearchTaskResult> task = () -> {
@@ -563,7 +537,7 @@ public class ArchitectAgent {
                         var toolResult = tr.executeTool(req);
                         var saResult = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
-                        return new SearchTaskResult(toolResult, saResult.context());
+                        return new SearchTaskResult(toolResult, saResult);
                     };
                     var taskDescription = "SearchAgent: " + LogDescription.getShortDescription(req.arguments());
                     var future = cm.submitBackgroundTask(taskDescription, task);
@@ -573,9 +547,6 @@ public class ArchitectAgent {
                 // Collect search results in request order and merge deterministically
                 var interrupted = false;
                 var n = searchAgentTasks.size();
-                int failedCount = 0;
-                Context batchContext = context;
-                
                 for (int i = 0; i < n; i++) {
                     var searchTask = searchAgentTasks.get(i);
                     var request = searchTask.request();
@@ -583,12 +554,18 @@ public class ArchitectAgent {
                     try {
                         if (interrupted) {
                             future.cancel(true);
-                            failedCount++;
                             continue;
                         }
                         var outcome = future.get();
-                        batchContext = batchContext.union(outcome.context());
+                        // Record tool result into the conversational transcript
                         architectMessages.add(outcome.toolResult().toExecutionResultMessage());
+                        if (i == 0) {
+                            // Append the first SearchAgent result to history
+                            context = scope.append(outcome.taskResult());
+                        } else {
+                            // Merge additional contexts deterministically
+                            context = context.union(outcome.taskResult().context());
+                        }
                         logger.debug(
                                 "Collected result for tool '{}' => result: {}",
                                 request.name(),
@@ -596,14 +573,12 @@ public class ArchitectAgent {
                     } catch (InterruptedException e) {
                         logger.warn("SearchAgent task for request '{}' was interrupted", request.name());
                         interrupted = true;
-                        failedCount++;
                         // cancel remaining
                         for (int j = i; j < n; j++) {
                             searchAgentTasks.get(j).future().cancel(true);
                         }
                     } catch (ExecutionException e) {
                         logger.warn("Error executing SearchAgent task '{}'", request.name(), e.getCause());
-                        failedCount++;
                         // Record failure for this request but continue processing others
                         var errorMessage = "Error executing Search Agent: %s"
                                 .formatted(Objects.toString(
@@ -613,31 +588,15 @@ public class ArchitectAgent {
                         architectMessages.add(failure.toExecutionResultMessage());
                     }
                 }
-                
                 if (interrupted) {
                     throw new InterruptedException();
                 }
 
-                // Emit consolidated end message
-                var completedCount = n - failedCount;
-                io.llmOutput("**Search batch complete**: %d total (%d succeeded, %d failed)".formatted(n, completedCount, failedCount), 
-                    ChatMessageType.AI, true, false);
-
-                // Merge all search contexts and create a single history entry for the batch
-                context = batchContext;
-                var searchBatchMessages = new ArrayList<ChatMessage>(io.getLlmRawMessages());
-                if (searchBatchMessages.isEmpty()) {
-                    searchBatchMessages = new ArrayList<>(architectMessages);
+                // Append minimal status note (not streamed); first SearchAgent streams its own "engaged" message.
+                if (n > 1) {
+                    architectMessages.add(new AiMessage(
+                            "Search Agent: started " + n + " queries in parallel (only one streamed)."));
                 }
-                var searchBatchFragment = new ContextFragment.TaskFragment(cm, searchBatchMessages, "Search batch: " + goal);
-                var searchBatchMeta = new TaskResult.TaskMeta(TaskResult.Type.SEARCH, ModelConfig.from(planningModel, cm.getService()));
-                var searchBatchResult = new TaskResult(
-                    "Search batch for: " + goal,
-                    searchBatchFragment,
-                    context,
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    searchBatchMeta);
-                context = scope.append(searchBatchResult);
             }
 
             // code agent calls are done serially
