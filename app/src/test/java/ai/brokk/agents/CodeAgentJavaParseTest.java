@@ -20,9 +20,9 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     private record JavaParseResult(ProjectFile file, CodeAgent.Step step) {}
 
     private JavaParseResult runParseJava(String fileName, String src) throws IOException {
-        var javaFile = contextManager.toFile(fileName);
+        var javaFile = cm.toFile(fileName);
         javaFile.write(src);
-        contextManager.addEditableFile(javaFile);
+        cm.addEditableFile(javaFile);
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
@@ -160,21 +160,21 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // PJ-6: parseJavaPhase - multiple files with syntax/identifier errors aggregate diagnostics and continue
     @Test
     void testParseJavaPhase_multipleFiles_collectsDiagnostics_andContinues() throws IOException {
-        var f1 = contextManager.toFile("Bad1.java");
+        var f1 = cm.toFile("Bad1.java");
         var s1 = """
                 class Bad1 { void m( { int a = b; } }
                 """; // syntax + undefined
         // identifier
         f1.write(s1);
-        contextManager.addEditableFile(f1);
+        cm.addEditableFile(f1);
 
-        var f2 = contextManager.toFile("Bad2.java");
+        var f2 = cm.toFile("Bad2.java");
         var s2 = """
                 class Bad2 { void n(){ y++; }
                 """; // missing closing brace +
         // undefined identifier
         f2.write(s2);
-        contextManager.addEditableFile(f2);
+        cm.addEditableFile(f2);
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
@@ -431,13 +431,13 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // PJ-21: parseJavaPhase - when there are no edits since last build, skip parsing (no diagnostics)
     @Test
     void testParseJavaPhase_noEdits_skipsParsing_diagnosticsEmpty() throws IOException {
-        var javaFile = contextManager.toFile("NoEdits.java");
+        var javaFile = cm.toFile("NoEdits.java");
         javaFile.write(
                 """
                 class NoEdits { void m( { } }
                 """); // would be a syntax error if
         // parsed
-        contextManager.addEditableFile(javaFile);
+        cm.addEditableFile(javaFile);
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
