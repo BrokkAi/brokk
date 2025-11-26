@@ -46,6 +46,7 @@ public class VoiceInputButton extends JButton {
     private final Runnable onRecordingStart;
     private final @Nullable Future<Set<String>> customSymbolsFuture;
     private final @Nullable Predicate<String> isPlaceholder;
+    private final @Nullable Consumer<String> onTranscriptReady;
     private final Runnable serviceListener;
 
     // For STT (mic) usage
@@ -68,6 +69,8 @@ public class VoiceInputButton extends JButton {
      *     be null.
      * @param isPlaceholder Optional predicate to detect placeholder text. If current text matches, it will be replaced
      *     instead of appended to.
+     * @param onTranscriptReady Optional callback to handle transcript text. If provided, this is called instead of
+     *     directly setting the text area content.
      * @param onError callback for error handling
      */
     public VoiceInputButton(
@@ -76,6 +79,7 @@ public class VoiceInputButton extends JButton {
             Runnable onRecordingStart,
             @Nullable Future<Set<String>> customSymbolsFuture,
             @Nullable Predicate<String> isPlaceholder,
+            @Nullable Consumer<String> onTranscriptReady,
             Consumer<String> onError) {
         this.targetTextArea = targetTextArea;
         this.contextManager = contextManager;
@@ -83,6 +87,7 @@ public class VoiceInputButton extends JButton {
         this.onError = onError;
         this.customSymbolsFuture = customSymbolsFuture;
         this.isPlaceholder = isPlaceholder;
+        this.onTranscriptReady = onTranscriptReady;
         this.serviceListener = this::updateSttAvailability;
 
         // Determine standard button height to make this button square
@@ -174,7 +179,7 @@ public class VoiceInputButton extends JButton {
     }
 
     /**
-     * Convenience constructor without custom symbols or placeholder detection.
+     * Convenience constructor without custom symbols, placeholder detection, or transcript callback.
      *
      * @param targetTextArea the text area where transcribed text will be placed
      * @param contextManager the context manager for speech-to-text processing
@@ -186,7 +191,7 @@ public class VoiceInputButton extends JButton {
             ContextManager contextManager,
             Runnable onRecordingStart,
             Consumer<String> onError) {
-        this(targetTextArea, contextManager, onRecordingStart, null, null, onError);
+        this(targetTextArea, contextManager, onRecordingStart, null, null, null, onError);
     }
 
     /** Update the button enabled/tooltip state based on current STT availability. This is invoked on the EDT. */
@@ -371,16 +376,20 @@ public class VoiceInputButton extends JButton {
                     // put it in the target text area
                     SwingUtilities.invokeLater(() -> {
                         if (!transcript.isBlank()) {
-                            var currentText = targetTextArea.getText();
-                            if (isPlaceholder != null && isPlaceholder.test(currentText)) {
-                                // Replace placeholder with transcript
-                                targetTextArea.setText(transcript);
+                            if (onTranscriptReady != null) {
+                                // Delegate to callback (ensures undo listener is enabled)
+                                onTranscriptReady.accept(transcript);
                             } else {
-                                // Append to existing text
-                                if (!currentText.isBlank()) {
-                                    targetTextArea.append(" ");
+                                // Direct manipulation (legacy behavior)
+                                var currentText = targetTextArea.getText();
+                                if (isPlaceholder != null && isPlaceholder.test(currentText)) {
+                                    targetTextArea.setText(transcript);
+                                } else {
+                                    if (!currentText.isBlank()) {
+                                        targetTextArea.append(" ");
+                                    }
+                                    targetTextArea.append(transcript);
                                 }
-                                targetTextArea.append(transcript);
                             }
                         }
                     });

@@ -329,6 +329,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
+                this::populateInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
