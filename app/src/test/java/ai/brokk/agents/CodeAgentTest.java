@@ -8,6 +8,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.project.IProject;
@@ -428,8 +429,8 @@ class CodeAgentTest {
         var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
         codeAgent = new CodeAgent(contextManager, stubModel, consoleIO);
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
-        var initialContext = contextManager.liveContext();
-        var result = codeAgent.runTask("A request that results in no edits", Set.of());
+        var initialContext = newContext();
+        var result = codeAgent.runTask(initialContext, List.of(), "A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals(initialContext, result.context());
@@ -812,7 +813,7 @@ class CodeAgentTest {
     // Ensure that build errors recorded in Context are surfaced in the workspace prompt
     @Test
     void testBuildErrorIsIncludedInWorkspacePrompt() throws InterruptedException {
-        var ctx = contextManager.liveContext().withBuildResult(false, "Simulated build error for prompt");
+        var ctx = newContext().withBuildResult(false, "Simulated build error for prompt");
         var prologue = List.<ChatMessage>of();
         var taskMessages = new ArrayList<ChatMessage>();
         var nextRequest = new UserMessage("Please fix the build");
@@ -891,7 +892,7 @@ class CodeAgentTest {
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
         var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
-        var ctx = contextManager.liveContext().addPathFragments(List.of(roFrag));
+        var ctx = newContext().addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
         ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
@@ -931,6 +932,10 @@ class CodeAgentTest {
                 "io.toolError() should not have been called for READ_ONLY_EDIT in standalone CodeAgent mode");
     }
 
+    private Context newContext() {
+        return new Context(contextManager, null);
+    }
+
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
     @Test
     void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException {
@@ -939,7 +944,7 @@ class CodeAgentTest {
         var file = contextManager.toFile("file.txt");
         file.write("hello");
         var editFrag = new ContextFragment.ProjectPathFragment(file, contextManager);
-        var ctx = contextManager.liveContext().addPathFragments(List.of(editFrag));
+        var ctx = newContext().addPathFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
         // In practice, Code/Usage fragments would be read-only; here we just ensure the logic
