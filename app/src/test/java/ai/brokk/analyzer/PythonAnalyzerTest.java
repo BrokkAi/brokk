@@ -62,14 +62,14 @@ public final class PythonAnalyzerTest {
         ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
         // Skeletons are now reconstructed. We check CodeUnits first.
         var classesInFileA = analyzer.getDeclarations(fileA);
-        var classA_CU = CodeUnit.cls(fileA, "a", "A$A");
+        var classA_CU = CodeUnit.cls(fileA, "a.A", "A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
         var topLevelDeclsInA = analyzer.withFileProperties(tld -> tld.get(fileA))
                 .topLevelCodeUnits(); // Accessing internal for test validation
         assertNotNull(topLevelDeclsInA, "Top level declarations for file A should exist.");
 
-        var funcA_CU = CodeUnit.fn(fileA, "a", "A.funcA");
+        var funcA_CU = CodeUnit.fn(fileA, "a.A", "funcA");
         assertTrue(topLevelDeclsInA.contains(funcA_CU), "File A should contain function funcA as top-level.");
         assertTrue(topLevelDeclsInA.contains(classA_CU), "File A should contain class A as top-level.");
 
@@ -162,8 +162,8 @@ public final class PythonAnalyzerTest {
                 s -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
 
         // Test class with preceding comment (use correct FQN format)
-        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", true);
-        assertTrue(classSourceOpt.isPresent(), "documented$DocumentedClass should be found");
+        Optional<String> classSourceOpt = AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
+        assertTrue(classSourceOpt.isPresent(), "documented.DocumentedClass should be found");
 
         String normalizedSource = normalize.apply(classSourceOpt.get());
 
@@ -175,8 +175,8 @@ public final class PythonAnalyzerTest {
 
         // Test nested class with comments (use correct FQN format)
         Optional<String> innerClassSourceOpt =
-                AnalyzerUtil.getClassSource(analyzer, "documented$OuterClass$InnerClass", true);
-        assertTrue(innerClassSourceOpt.isPresent(), "documented$OuterClass$InnerClass should be found");
+                AnalyzerUtil.getClassSource(analyzer, "documented.OuterClass.InnerClass", true);
+        assertTrue(innerClassSourceOpt.isPresent(), "documented.OuterClass.InnerClass should be found");
 
         String normalizedInnerSource = normalize.apply(innerClassSourceOpt.get());
 
@@ -208,7 +208,7 @@ public final class PythonAnalyzerTest {
 
         // Test method with preceding comment (use correct FQN format)
         Optional<String> methodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
         assertTrue(methodSource.isPresent(), "get_value method should be found");
 
         String normalizedMethodSource = normalize.apply(methodSource.get());
@@ -223,7 +223,7 @@ public final class PythonAnalyzerTest {
 
         // Test static method with comment (use correct FQN format)
         Optional<String> staticMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.utility_method", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.utility_method", true);
         assertTrue(staticMethodSource.isPresent(), "utility_method should be found");
 
         String normalizedStaticSource = normalize.apply(staticMethodSource.get());
@@ -238,7 +238,7 @@ public final class PythonAnalyzerTest {
 
         // Test class method with comment (use correct FQN format)
         Optional<String> classMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.create_default", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.create_default", true);
         assertTrue(classMethodSource.isPresent(), "create_default should be found");
 
         String normalizedClassMethodSource = normalize.apply(classMethodSource.get());
@@ -257,7 +257,7 @@ public final class PythonAnalyzerTest {
     void testPythonCommentExpansionEdgeCases() {
         // Test constructor with comment (use correct FQN format)
         Optional<String> constructorSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.__init__", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.__init__", true);
         assertTrue(constructorSource.isPresent(), "__init__ method should be found");
 
         Function<String, String> normalize =
@@ -274,7 +274,7 @@ public final class PythonAnalyzerTest {
 
         // Test nested class method (use correct FQN format)
         Optional<String> innerMethodSource =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$OuterClass$InnerClass.inner_method", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.OuterClass.InnerClass.inner_method", true);
         assertTrue(innerMethodSource.isPresent(), "inner_method should be found");
 
         String normalizedInnerMethodSource = normalize.apply(innerMethodSource.get());
@@ -295,9 +295,9 @@ public final class PythonAnalyzerTest {
 
         // Test class source with and without comments
         Optional<String> classSourceWithComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", true);
+                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", true);
         Optional<String> classSourceWithoutComments =
-                AnalyzerUtil.getClassSource(analyzer, "documented$DocumentedClass", false);
+                AnalyzerUtil.getClassSource(analyzer, "documented.DocumentedClass", false);
 
         assertTrue(classSourceWithComments.isPresent(), "Class source with comments should be present");
         assertTrue(classSourceWithoutComments.isPresent(), "Class source without comments should be present");
@@ -325,9 +325,9 @@ public final class PythonAnalyzerTest {
 
         // Test method source with and without comments
         Optional<String> methodSourceWithComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", true);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", true);
         Optional<String> methodSourceWithoutComments =
-                AnalyzerUtil.getMethodSource(analyzer, "documented$DocumentedClass.get_value", false);
+                AnalyzerUtil.getMethodSource(analyzer, "documented.DocumentedClass.get_value", false);
 
         assertTrue(methodSourceWithComments.isPresent(), "Method source with comments should be present");
         assertTrue(methodSourceWithoutComments.isPresent(), "Method source without comments should be present");
@@ -366,12 +366,12 @@ public final class PythonAnalyzerTest {
         Set<CodeUnit> declarations = analyzer.getDeclarations(localClassesFile);
 
         // Should find the top-level class
-        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "", "local_classes$TopLevelClass");
+        CodeUnit topLevelClassCU = CodeUnit.cls(localClassesFile, "local_classes", "TopLevelClass");
         assertTrue(declarations.contains(topLevelClassCU), "Should find top-level class");
 
-        // The fix worked! Local classes now have scoped FQNs like test_function_1$LocalClass
+        // The fix worked! Local classes now have scoped FQNs like test_function_1.LocalClass
         var scopedLocalClasses = declarations.stream()
-                .filter(cu -> cu.isClass() && cu.fqName().contains("$LocalClass"))
+                .filter(cu -> cu.isClass() && cu.fqName().contains(".LocalClass"))
                 .collect(Collectors.toSet());
 
         // Verify the fix worked correctly
@@ -380,16 +380,16 @@ public final class PythonAnalyzerTest {
         // Check that each local class has the proper scoped FQN format
         assertTrue(
                 scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_1$LocalClass")),
-                "Should find local_classes.test_function_1$LocalClass");
+                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_1.LocalClass")),
+                "Should find local_classes.test_function_1.LocalClass");
         assertTrue(
                 scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_2$LocalClass")),
-                "Should find local_classes.test_function_2$LocalClass");
+                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_2.LocalClass")),
+                "Should find local_classes.test_function_2.LocalClass");
         assertTrue(
                 scopedLocalClasses.stream()
-                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_3$LocalClass")),
-                "Should find local_classes.test_function_3$LocalClass");
+                        .anyMatch(cu -> cu.fqName().equals("local_classes.test_function_3.LocalClass")),
+                "Should find local_classes.test_function_3.LocalClass");
 
         // Verify no duplicate FQNs (the original bug is fixed)
         var fqNames = scopedLocalClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
@@ -514,11 +514,11 @@ public final class PythonAnalyzerTest {
 
         // Should find property getters but NOT setters
         var valueGetters = declarations.stream()
-                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test$PropertyTest.value"))
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test.PropertyTest.value"))
                 .collect(Collectors.toList());
 
         var nameGetters = declarations.stream()
-                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test$PropertyTest.name"))
+                .filter(cu -> cu.isFunction() && cu.fqName().equals("duplictad_fields_test.PropertyTest.name"))
                 .collect(Collectors.toList());
 
         // Should find 1 getter each (setters skipped)
@@ -569,14 +569,14 @@ public final class PythonAnalyzerTest {
 
         // Verify we have the getters but not the setter or deleter
         assertTrue(
-                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.format")),
+                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.format")),
                 "Should find format getter");
         assertTrue(
-                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.value")),
+                methods.stream().anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.value")),
                 "Should find value getter");
         assertTrue(
                 methods.stream()
-                        .anyMatch(m -> m.fqName().equals("property_setter_test$MplTimeConverter.regular_method")),
+                        .anyMatch(m -> m.fqName().equals("property_setter_test.MplTimeConverter.regular_method")),
                 "Should find regular_method");
 
         // Verify no duplicate format or value methods
@@ -612,13 +612,13 @@ public final class PythonAnalyzerTest {
         // Should find function-local classes with proper scoping
         assertTrue(
                 fqNames.stream()
-                        .anyMatch(fqn -> fqn.equals("astropy_duplicate_test.test_minimal_subclass$LogDRepresentation")),
-                "Should find astropy_duplicate_test.test_minimal_subclass$LogDRepresentation");
+                        .anyMatch(fqn -> fqn.equals("astropy_duplicate_test.test_minimal_subclass.LogDRepresentation")),
+                "Should find astropy_duplicate_test.test_minimal_subclass.LogDRepresentation");
 
         assertTrue(
                 fqNames.stream()
-                        .anyMatch(fqn -> fqn.equals("astropy_duplicate_test.another_test_function$LogDRepresentation")),
-                "Should find astropy_duplicate_test.another_test_function$LogDRepresentation");
+                        .anyMatch(fqn -> fqn.equals("astropy_duplicate_test.another_test_function.LogDRepresentation")),
+                "Should find astropy_duplicate_test.another_test_function.LogDRepresentation");
 
         // Verify no duplicate FQNs exist (the main issue is fixed)
         var duplicateFqNames =
@@ -629,10 +629,12 @@ public final class PythonAnalyzerTest {
         assertEquals(0, duplicateFqNames, "Should have no duplicate FQNs");
 
         // Test the disambiguation mechanism by checking that function-local classes are properly scoped
-        var functionLocalClasses =
-                fqNames.stream().filter(fqn -> fqn.contains("$")).collect(Collectors.toList());
+        // Function-local classes have function scope in packageName, so we look for .LogDRepresentation pattern
+        var functionLocalClasses = fqNames.stream()
+                .filter(fqn -> fqn.contains(".LogDRepresentation"))
+                .collect(Collectors.toList());
 
-        assertEquals(2, functionLocalClasses.size(), "Both classes should be function-local with $ scoping");
+        assertEquals(2, functionLocalClasses.size(), "Both classes should be function-local with proper scoping");
     }
 
     @Test
@@ -655,9 +657,9 @@ public final class PythonAnalyzerTest {
         // Should find only 1 class (last definition wins)
         assertEquals(1, classesA.size(), "File A should have only 1 local class (last wins)");
         assertEquals(
-                "disambiguation_test_a.test_func$LocalClass",
+                "disambiguation_test_a.test_func.LocalClass",
                 classesA.get(0).fqName(),
-                "Should use standard $ notation without bracketed disambiguation");
+                "Should use standard dot notation without bracketed disambiguation");
 
         // Now analyze file B
         Set<CodeUnit> declarationsB = analyzer.getDeclarations(fileB);
@@ -669,23 +671,23 @@ public final class PythonAnalyzerTest {
         // Should also find only 1 class (last definition wins)
         assertEquals(1, classesB.size(), "File B should have only 1 local class (last wins)");
         assertEquals(
-                "disambiguation_test_b.test_func$LocalClass",
+                "disambiguation_test_b.test_func.LocalClass",
                 classesB.get(0).fqName(),
-                "Should use standard $ notation without bracketed disambiguation");
+                "Should use standard dot notation without bracketed disambiguation");
 
         // Verify they're independent - same pattern in different files
         // Note: FQNs differ by module name but follow same pattern
         assertTrue(
-                classesA.get(0).fqName().endsWith("test_func$LocalClass"),
-                "File A class should end with test_func$LocalClass");
+                classesA.get(0).fqName().endsWith("test_func.LocalClass"),
+                "File A class should end with test_func.LocalClass");
         assertTrue(
-                classesB.get(0).fqName().endsWith("test_func$LocalClass"),
-                "File B class should end with test_func$LocalClass");
+                classesB.get(0).fqName().endsWith("test_func.LocalClass"),
+                "File B class should end with test_func.LocalClass");
     }
 
     @Test
     void testNestedFunctionLocalClasses() {
-        // Test that nested classes inside function-local classes use consistent $ separation
+        // Test that nested classes inside function-local classes use consistent dot separation
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer analyzer = new PythonAnalyzer(project);
 
@@ -697,33 +699,33 @@ public final class PythonAnalyzerTest {
 
         assertEquals(3, classes.size(), "Should find 3 classes: OuterLocal, InnerLocal, DeepLocal");
 
-        // Verify FQN consistency: all should use $ for separation in function-local context
+        // Verify FQN consistency: all should use dots for separation in function-local context
         var outerLocal = classes.stream()
-                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function$OuterLocal"))
+                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function.OuterLocal"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                "nested_local_classes.outer_function$OuterLocal",
+                "nested_local_classes.outer_function.OuterLocal",
                 outerLocal.fqName(),
-                "OuterLocal should be nested_local_classes.outer_function$OuterLocal");
+                "OuterLocal should be nested_local_classes.outer_function.OuterLocal");
 
         var innerLocal = classes.stream()
-                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function$OuterLocal$InnerLocal"))
+                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function.OuterLocal.InnerLocal"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                "nested_local_classes.outer_function$OuterLocal$InnerLocal",
+                "nested_local_classes.outer_function.OuterLocal.InnerLocal",
                 innerLocal.fqName(),
-                "InnerLocal should use consistent $ separation: nested_local_classes.outer_function$OuterLocal$InnerLocal");
+                "InnerLocal should use consistent dot separation");
 
         var deepLocal = classes.stream()
-                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function$OuterLocal$InnerLocal$DeepLocal"))
+                .filter(cu -> cu.fqName().equals("nested_local_classes.outer_function.OuterLocal.InnerLocal.DeepLocal"))
                 .findFirst()
                 .orElseThrow();
         assertEquals(
-                "nested_local_classes.outer_function$OuterLocal$InnerLocal$DeepLocal",
+                "nested_local_classes.outer_function.OuterLocal.InnerLocal.DeepLocal",
                 deepLocal.fqName(),
-                "DeepLocal should use consistent $ separation throughout");
+                "DeepLocal should use consistent dot separation throughout");
 
         // Verify parent-child relationships work correctly
         var innerChildren = analyzer.getDirectChildren(innerLocal);
@@ -772,45 +774,45 @@ public final class PythonAnalyzerTest {
                 classes.size(),
                 "Should find 5 classes: LocalClass, AnotherLocal, MyClass, _PrivateClass, NestedClass");
 
-        // Verify _private_function$LocalClass (function-local class)
+        // Verify _private_function.LocalClass (function-local class)
         var localClass = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions._private_function$LocalClass"))
+                .filter(cu -> cu.fqName().equals("underscore_functions._private_function.LocalClass"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
-                        "LocalClass should be underscore_functions._private_function$LocalClass (function-local), found: "
+                        "LocalClass should be underscore_functions._private_function.LocalClass (function-local), found: "
                                 + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
-                "underscore_functions._private_function$LocalClass",
+                "underscore_functions._private_function.LocalClass",
                 localClass.fqName(),
                 "_private_function should be recognized as function, not class");
 
-        // Verify __dunder_function__$AnotherLocal (function-local class)
+        // Verify __dunder_function__.AnotherLocal (function-local class)
         var anotherLocal = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions.__dunder_function__$AnotherLocal"))
+                .filter(cu -> cu.fqName().equals("underscore_functions.__dunder_function__.AnotherLocal"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
-                        "AnotherLocal should be underscore_functions.__dunder_function__$AnotherLocal (function-local), found: "
+                        "AnotherLocal should be underscore_functions.__dunder_function__.AnotherLocal (function-local), found: "
                                 + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
-                "underscore_functions.__dunder_function__$AnotherLocal",
+                "underscore_functions.__dunder_function__.AnotherLocal",
                 anotherLocal.fqName(),
                 "__dunder_function__ should be recognized as function, not class");
 
         // Verify _PrivateClass.NestedClass (regular nested class, NOT function-local)
         var nestedClass = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions$_PrivateClass$NestedClass"))
+                .filter(cu -> cu.fqName().equals("underscore_functions._PrivateClass.NestedClass"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
-                        "NestedClass should be underscore_functions$_PrivateClass$NestedClass (regular nested), found: "
+                        "NestedClass should be underscore_functions._PrivateClass.NestedClass (regular nested), found: "
                                 + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
         assertEquals(
-                "underscore_functions$_PrivateClass$NestedClass",
+                "underscore_functions._PrivateClass.NestedClass",
                 nestedClass.fqName(),
                 "_PrivateClass should be recognized as class (PascalCase), not function");
 
         // Verify parent-child relationship for _PrivateClass
         var privateClass = classes.stream()
-                .filter(cu -> cu.fqName().equals("underscore_functions$_PrivateClass"))
+                .filter(cu -> cu.fqName().equals("underscore_functions._PrivateClass"))
                 .findFirst()
                 .orElseThrow();
         var privateClassChildren = analyzer.getDirectChildren(privateClass);
@@ -854,19 +856,19 @@ public final class PythonAnalyzerTest {
 
         // Verify MyClass exists
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("function_redefinition$MyClass")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("function_redefinition.MyClass")),
                 "MyClass should exist");
 
         // Verify SecondLocal exists as child of second my_function
         var secondLocal = classes.stream()
-                .filter(cu -> cu.fqName().equals("function_redefinition.my_function$SecondLocal"))
+                .filter(cu -> cu.fqName().equals("function_redefinition.my_function.SecondLocal"))
                 .findFirst()
                 .orElseThrow(
                         () -> new AssertionError("SecondLocal should exist from second function definition, found: "
                                 + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
 
         assertEquals(
-                "function_redefinition.my_function$SecondLocal",
+                "function_redefinition.my_function.SecondLocal",
                 secondLocal.fqName(),
                 "SecondLocal should be attached to my_function");
 
@@ -896,7 +898,7 @@ public final class PythonAnalyzerTest {
         // Find TestDuplicates class
         var testDuplicatesClass = declarations.stream()
                 .filter(CodeUnit::isClass)
-                .filter(cu -> cu.fqName().equals("duplicate_children$TestDuplicates"))
+                .filter(cu -> cu.fqName().equals("duplicate_children.TestDuplicates"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("TestDuplicates class not found. Found: "
                         + declarations.stream()
@@ -913,7 +915,7 @@ public final class PythonAnalyzerTest {
                 .toList();
         assertEquals(1, methods.size(), "Should have exactly 1 'method' (last wins)");
 
-        // 2. Test duplicate nested class - should be in children with $ separator
+        // 2. Test duplicate nested class - should be in children with dot separator
         var innerClasses = children.stream()
                 .filter(cu -> cu.isClass()
                         && cu.shortName().contains("Inner")
@@ -970,7 +972,7 @@ public final class PythonAnalyzerTest {
 
         // Verify local class FQN
         assertEquals(
-                "mypackage.packaged_functions.my_function$LocalClass",
+                "mypackage.packaged_functions.my_function.LocalClass",
                 localClass.fqName(),
                 "Local class FQN should be in package with function-local naming");
 
@@ -1024,13 +1026,13 @@ public final class PythonAnalyzerTest {
 
         // Verify classes inside if/else are captured
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base")),
                 "Base class inside 'if' should be captured");
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base$Config")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base.Config")),
                 "Nested Config class should be captured");
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$FallbackBase")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.FallbackBase")),
                 "FallbackBase class inside 'else' should be captured");
 
         // Test subclass resolution
@@ -1058,9 +1060,9 @@ public final class PythonAnalyzerTest {
         // Can we find Base from getAllDeclarations?
         var allDecls = testAnalyzer.getAllDeclarations();
         var baseClass = allDecls.stream()
-                .filter(cu -> cu.fqName().equals("conditional_pkg.base$Base"))
+                .filter(cu -> cu.fqName().equals("conditional_pkg.base.Base"))
                 .findFirst();
-        assertTrue(baseClass.isPresent(), "conditional_pkg.base$Base should be findable in getAllDeclarations");
+        assertTrue(baseClass.isPresent(), "conditional_pkg.base.Base should be findable in getAllDeclarations");
 
         // Test: Can we find the parent class (Base) from MySubclass?
         var ancestors = testAnalyzer.getDirectAncestors(mySubclass.get());
@@ -1068,8 +1070,8 @@ public final class PythonAnalyzerTest {
         // Parent resolution should now work
         assertEquals(1, ancestors.size(), "MySubclass should have exactly 1 direct ancestor (Base)");
         assertTrue(
-                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base$Base")),
-                "MySubclass should have conditional_pkg.base$Base as ancestor");
+                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.Base")),
+                "MySubclass should have conditional_pkg.base.Base as ancestor");
 
         testProject.close();
     }
@@ -1193,14 +1195,14 @@ public final class PythonAnalyzerTest {
                         "mypackage/sibling.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var siblingFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling$SiblingClass")
+            var siblingFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.sibling.SiblingClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(siblingFile);
 
             // In Python, class FQNs include the module name
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child$ChildClass")),
-                    "Should resolve 'from .child import ChildClass' to mypackage.child$ChildClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.child.ChildClass")),
+                    "Should resolve 'from .child import ChildClass' to mypackage.child.ChildClass");
         }
     }
 
@@ -1229,13 +1231,13 @@ public final class PythonAnalyzerTest {
                         "mypackage/subdir/child.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.child$ChildClass")
+            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.child.ChildClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(childFile);
 
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base$BaseClass")),
-                    "Should resolve 'from ..base import BaseClass' to mypackage.base$BaseClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.base.BaseClass")),
+                    "Should resolve 'from ..base import BaseClass' to mypackage.base.BaseClass");
         }
     }
 
@@ -1264,13 +1266,13 @@ public final class PythonAnalyzerTest {
                         "mypackage/subdir/deep/nested.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.nested$DeepClass")
+            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.nested.DeepClass")
                     .get();
             var imports = analyzer.importedCodeUnitsOf(nestedFile);
 
             assertTrue(
-                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top$TopClass")),
-                    "Should resolve 'from ...top import TopClass' to mypackage.top$TopClass");
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
+                    "Should resolve 'from ...top import TopClass' to mypackage.top.TopClass");
         }
     }
 
@@ -1299,7 +1301,7 @@ public final class PythonAnalyzerTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var dogFile =
-                    AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.dog$Dog").get();
+                    AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.dog.Dog").get();
             var dogDecls = analyzer.getDeclarations(dogFile);
 
             var dogClass = dogDecls.stream()
@@ -1314,5 +1316,88 @@ public final class PythonAnalyzerTest {
                     ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
                     "Dog should extend Animal via relative import");
         }
+    }
+
+    @Test
+    void testPackagedTopLevelClassesIncludeModuleName() {
+        // Regression test: Top-level classes in packaged Python files should include module name in FQ name
+        // Bug: Classes were missing module component (e.g., "tests.units.utils.ExampleTestState" instead of
+        // "tests.units.utils.test_utils.ExampleTestState")
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile testUtilsFile = new ProjectFile(project.getRoot(), "tests/units/utils/test_utils.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(testUtilsFile);
+
+        // --- Verify top-level classes include module name ---
+        var topLevelClasses = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> !cu.fqName().contains(".test_backend_variable_cls.")) // exclude function-local
+                .collect(Collectors.toList());
+
+        // ExampleTestState should be tests.units.utils.test_utils.ExampleTestState
+        assertTrue(
+                topLevelClasses.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.ExampleTestState")),
+                "ExampleTestState should have FQ name including module. Found: "
+                        + topLevelClasses.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        // DataFrame should be tests.units.utils.test_utils.DataFrame
+        assertTrue(
+                topLevelClasses.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.DataFrame")),
+                "DataFrame should have FQ name including module. Found: "
+                        + topLevelClasses.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        // --- Verify top-level functions include module name ---
+        var topLevelFunctions = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.fqName().startsWith("tests.units.utils.test_utils."))
+                .filter(cu -> !cu.fqName().contains(".ExampleTestState.")) // exclude methods
+                .filter(cu -> !cu.fqName().contains(".DataFrame.")) // exclude methods
+                .filter(cu -> !cu.fqName().contains(".TestBackendVariable.")) // exclude function-local class methods
+                .collect(Collectors.toList());
+
+        assertTrue(
+                topLevelFunctions.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.mock_event")),
+                "mock_event should have FQ name including module");
+        assertTrue(
+                topLevelFunctions.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.get_above_max_version")),
+                "get_above_max_version should have FQ name including module");
+        assertTrue(
+                topLevelFunctions.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.test_func")),
+                "test_func should have FQ name including module");
+
+        // --- Verify function-local class includes function scope ---
+        // test_backend_variable_cls contains a class TestBackendVariable
+        var functionLocalClasses = declarations.stream()
+                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.fqName().contains("TestBackendVariable"))
+                .collect(Collectors.toList());
+
+        assertEquals(1, functionLocalClasses.size(), "Should find exactly one TestBackendVariable class");
+        assertEquals(
+                "tests.units.utils.test_utils.test_backend_variable_cls.TestBackendVariable",
+                functionLocalClasses.getFirst().fqName(),
+                "Function-local class should have function in its FQ name");
+
+        // --- Verify top-level variables include module name ---
+        var topLevelVars = declarations.stream()
+                .filter(CodeUnit::isField)
+                .filter(cu -> cu.fqName().startsWith("tests.units.utils.test_utils."))
+                .collect(Collectors.toList());
+
+        assertTrue(
+                topLevelVars.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.V055")),
+                "V055 should have FQ name including module. Found: "
+                        + topLevelVars.stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertTrue(
+                topLevelVars.stream()
+                        .anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.V059")),
+                "V059 should have FQ name including module");
     }
 }
