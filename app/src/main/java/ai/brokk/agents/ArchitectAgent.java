@@ -7,6 +7,7 @@ import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
@@ -138,8 +139,6 @@ public class ArchitectAgent {
                             "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
                     boolean deferBuild)
             throws ToolRegistry.FatalLlmException, InterruptedException {
-        addPlanningToHistory();
-
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
@@ -226,15 +225,17 @@ public class ArchitectAgent {
     public String callSearchAgent(
                                             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
                                             throws ToolRegistry.FatalLlmException, InterruptedException {
-                        addPlanningToHistory();
                         logger.debug("callSearchAgent invoked with query: {}", query);
 
                         // Acquire echo lock - only first caller gets to stream output
                         boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
                         try {
-                                            io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
-                                            var searchAgent = new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, shouldEcho);
-                                            searchAgent.scanInitialContext();
+                                            // Use MutedConsoleIO for background search agents to prevent MOP interleaving, but keep notifications
+                                            IConsoleIO saIo = shouldEcho ? cm.getIo() : new MutedConsoleIO(cm.getIo());
+                                            io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
+                                            var searchAgent = new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo, shouldEcho);
+                                            // Ensure all SAs scan, but do not append individual history entries during batch
+                                            searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
                                             var result = searchAgent.execute();
                                             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
                                             threadlocalSearchResult.set(result);
