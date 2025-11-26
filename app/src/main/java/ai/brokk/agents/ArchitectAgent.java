@@ -560,7 +560,6 @@ public class ArchitectAgent {
                 // Track the first SearchAgent TaskResult to use as the base for history
                 TaskResult baseSaResult = null;
                 Context combinedContext = context;
-                boolean announcedWaiting = false;
 
                 for (int i = 0; i < n; i++) {
                     var searchTask = searchAgentTasks.get(i);
@@ -580,14 +579,12 @@ public class ArchitectAgent {
                         // Set base result from the first SearchAgent
                         if (baseSaResult == null) {
                             baseSaResult = outcome.taskResult();
-                            // Notify that we are waiting for the remaining SAs (only once)
-                            if (n > 1 && !announcedWaiting) {
+                            if (n > 1) {
                                 io.llmOutput(
-                                        "Waiting for " + (n - 1) + " SearchAgents",
+                                        "Waiting for the rest of the SearchAgents",
                                         ChatMessageType.AI,
                                         true,
                                         false);
-                                announcedWaiting = true;
                             }
                         }
 
