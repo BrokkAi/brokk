@@ -710,7 +710,7 @@ public class ArchitectAgent {
                 // Emit consolidated end message
                 var completedCount = n - failedCount;
                 io.llmOutput("**Search batch complete**: %d total (%d succeeded, %d failed)".formatted(n, completedCount, failedCount), 
-                    ChatMessageType.AI);
+                    ChatMessageType.AI, true, false);
 
                 // Merge all search contexts and create a single history entry for the batch
                 context = batchContext;
