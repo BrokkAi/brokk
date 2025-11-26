@@ -13,8 +13,6 @@ jobs:
     steps:
       - name: Checkout HEAD
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Needed to get history for BASE_SHA
 
       - name: Get commit hashes
         id: get_commits
@@ -23,7 +21,7 @@ jobs:
           echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV
           echo "HEAD_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-          BASE_SHA=$(git rev-list -n 1 --before="24 hours ago" "${{ github.base_ref || github.ref_name }}")
+          BASE_SHA=$(git rev-list -n 1 --before="24 hours ago" "origin/${{ github.base_ref || github.ref_name }}")
           echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV
           if [ -n "$BASE_SHA" ]; then
             echo "BASE_SHA_SHORT=$(git rev-parse --short $BASE_SHA)" >> $GITHUB_ENV
