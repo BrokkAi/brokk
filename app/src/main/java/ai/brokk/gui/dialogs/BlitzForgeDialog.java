@@ -1134,451 +1134,453 @@ public class BlitzForgeDialog extends JDialog {
     }
 
     private void onOK() {
-        String instructions = instructionsArea.getText().trim();
-        if (instructions.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    this, "Instructions cannot be empty", "Input Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        var perFileModelSelection = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
-
-        // Refresh cost estimate and warn if it is more than half the balance
-        updateCostEstimate();
-        if (!Float.isNaN(userBalance) && estimatedCost > userBalance / 2.0) {
-            int choice = chrome.showConfirmDialog(
-                    this,
-                    String.format(
-                            "The estimated cost is $%.2f, which exceeds half of your remaining balance ($%.2f).\nDo you want to continue?",
-                            estimatedCost, (double) userBalance),
-                    "Low Balance Warning",
-                    JOptionPane.OK_CANCEL_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-            if (choice != JOptionPane.OK_OPTION) {
-                return;
+            String instructions = instructionsArea.getText().trim();
+            if (instructions.isEmpty()) {
+                    JOptionPane.showMessageDialog(
+                                    this, "Instructions cannot be empty", "Input Error", JOptionPane.ERROR_MESSAGE);
+                    return;
             }
-        }
 
-        // Determine files to process (from the Files table)
-        List<ProjectFile> filesToProcessList;
-        if (tableModel.getRowCount() == 0) {
-            JOptionPane.showMessageDialog(
-                    this, "No files have been selected", "No Files", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        List<ProjectFile> selectedFiles = new ArrayList<>();
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            String relPath = (String) tableModel.getValueAt(i, 0);
-            selectedFiles.add(chrome.getContextManager().toFile(relPath));
-        }
-        filesToProcessList = selectedFiles;
+            var perFileModelSelection = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
 
-        Integer relatedK = null;
-        var txt =
-                Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
-        if (!txt.isEmpty()) {
-            try {
-                int kValue = Integer.parseInt(txt);
-                if (kValue < 0) {
-                    throw new NumberFormatException("Value must be non-negative");
-                }
-                if (kValue > 0) {
-                    relatedK = kValue;
-                }
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Value for 'Include related classes' must be a non-negative integer",
-                        "Input Error",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
+            // Refresh cost estimate and warn if it is more than half the balance
+            updateCostEstimate();
+            if (!Float.isNaN(userBalance) && estimatedCost > userBalance / 2.0) {
+                    int choice = chrome.showConfirmDialog(
+                                    this,
+                                    String.format(
+                                                    "The estimated cost is $%.2f, which exceeds half of your remaining balance ($%.2f).\nDo you want to continue?",
+                                                    estimatedCost, (double) userBalance),
+                                    "Low Balance Warning",
+                                    JOptionPane.OK_CANCEL_OPTION,
+                                    JOptionPane.WARNING_MESSAGE);
+                    if (choice != JOptionPane.OK_OPTION) {
+                            return;
+                    }
             }
-        }
 
-        String perFileCommandTemplate = perFileCommandTextField.getText().trim();
-        if (perFileCommandTemplate.isEmpty()) {
-            perFileCommandTemplate = null;
-        }
-
-        boolean includeWorkspace = includeWorkspaceCheckbox.isSelected();
-
-        PostProcessingOption runOption =
-                switch ((String) runPostProcessCombo.getSelectedItem()) {
-                    case "Agent" -> PostProcessingOption.ARCHITECT;
-                    case "Ask" -> PostProcessingOption.ASK;
-                    default -> PostProcessingOption.NONE;
-                };
-        var selectedInclude = (String) parallelOutputCombo.getSelectedItem();
-        var parallelOutputMode =
-                switch (selectedInclude) {
-                    case "Include none" -> BlitzForge.ParallelOutputMode.NONE;
-                    case "Include changed files" -> BlitzForge.ParallelOutputMode.CHANGED;
-                    default -> BlitzForge.ParallelOutputMode.ALL;
-                };
-        boolean buildFirst = buildFirstCheckbox.isSelected();
-        String contextFilter = contextFilterTextField.getText().trim();
-        String postProcessingInstructions =
-                postProcessingInstructionsArea.getText().trim();
-
-        if (runOption != PostProcessingOption.NONE && postProcessingInstructions.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Post-processing instructions cannot be empty when a post-processing action is selected.",
-                    "Input Error",
-                    JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        String action = (String) requireNonNull(actionComboBox.getSelectedItem());
-
-        // Persist Blitz-history entry
-        chrome.getProject().addToBlitzHistory(instructions, postProcessingInstructions, MAX_BLITZ_HISTORY_ITEMS);
-
-        setVisible(false); // Hide this dialog
-
-        // Build the execution config for the engine
-        var cm = chrome.getContextManager();
-        var service = cm.getService();
-        StreamingChatModel perFileModel = requireNonNull(service.getModel(perFileModelSelection.config()));
-        var engineOutputMode =
-                switch (parallelOutputMode) {
-                    case NONE -> BlitzForge.ParallelOutputMode.NONE;
-                    case ALL -> BlitzForge.ParallelOutputMode.ALL;
-                    case CHANGED -> BlitzForge.ParallelOutputMode.CHANGED;
-                };
-        var engineAction =
-                switch (action.trim().toUpperCase(Locale.ROOT)) {
-                    case "ASK" -> Action.ASK;
-                    case "CODE" -> Action.CODE;
-                    default -> Action.CODE;
-                };
-
-        // Snapshot values for lambda capture
-        final Integer fRelatedKSupplier = relatedK;
-        final boolean fIncludeWorkspaceForSupplier = includeWorkspace;
-
-        // Post-processing capture
-        final PostProcessingOption fRunOption = runOption;
-        final BlitzForge.ParallelOutputMode fOutputMode = engineOutputMode;
-        final String fPostProcessingInstructions = postProcessingInstructions;
-        final List<ProjectFile> fFilesToProcess = filesToProcessList;
-
-        BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
-                instructions,
-                perFileModel,
-                () -> {
-                    if (fRelatedKSupplier != null) {
-                        try {
-                            var acList = cm.liveContext().buildAutoContext(fRelatedKSupplier);
-                            var acText = ContextFragment.SummaryFragment.combinedText(acList);
-                            if (!acText.isBlank()) {
-                                return """
-                                <related_classes>
-                                Here are the top %d related classes.
-
-                                %s
-                                </related_classes>
-                                """
-                                        .formatted(fRelatedKSupplier, acText);
-                            }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return "";
-                        }
-                    }
-                    return "";
-                },
-                () -> {
-                    if (!fIncludeWorkspaceForSupplier) {
-                        return "";
-                    }
-                    var ctx = cm.liveContext();
-                    var list = new ArrayList<ChatMessage>();
-                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
-                            ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
-                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
-                    var text = "";
-                    for (var m : list) {
-                        text += m + "\n";
-                    }
-                    return text;
-                },
-                contextFilter,
-                engineOutputMode);
-
-        // Snapshot locals for lambda capture
-        final @Nullable Integer fRelatedK = relatedK;
-        final @Nullable String fPerFileCmd = perFileCommandTemplate;
-        final String fContextFilter = contextFilter;
-
-        // Prepare listener dialog + cancel wiring with logging
-        var progressDialog = new BlitzForgeProgressDialog(chrome, () -> {
-            logger.debug(
-                    "BlitzForge cancel requested (Tools path) on thread {}",
-                    Thread.currentThread().getName());
-            cm.interruptLlmAction();
-        });
-
-        // Kick off background execution
-        var analyzerWrapper = cm.getAnalyzerWrapper();
-        cm.submitLlmAction(() -> {
-            logger.debug(
-                    "BlitzForge parallel processing started (Tools path) on thread {}",
-                    Thread.currentThread().getName());
-            analyzerWrapper.pause();
-            try (var scope = cm.beginTask(instructions, false)) {
-                var parallelResult = runParallel(
-                        runCfg,
-                        progressDialog,
-                        filesToProcessList,
-                        includeWorkspace,
-                        fRelatedK,
-                        fPerFileCmd,
-                        engineAction,
-                        instructions,
-                        fContextFilter,
-                        contextFilter);
-                scope.append(parallelResult);
-
-                // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
-                if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                    logger.debug("Parallel processing was interrupted; skipping post-processing.");
+            // Determine files to process (from the Files table)
+            List<ProjectFile> filesToProcessList;
+            if (tableModel.getRowCount() == 0) {
+                    JOptionPane.showMessageDialog(
+                                    this, "No files have been selected", "No Files", JOptionPane.INFORMATION_MESSAGE);
                     return;
-                }
+            }
+            List<ProjectFile> selectedFiles = new ArrayList<>();
+            for (int i = 0; i < tableModel.getRowCount(); i++) {
+                    String relPath = (String) tableModel.getValueAt(i, 0);
+                    selectedFiles.add(chrome.getContextManager().toFile(relPath));
+            }
+            filesToProcessList = selectedFiles;
 
-                var mainIo = cm.getIo();
-
-                if (fRunOption == PostProcessingOption.NONE) {
-                    return;
-                }
-
-                String buildFailureText;
-                if (buildFirst) {
-                    buildFailureText = BuildAgent.runVerification(cm);
-                } else {
-                    buildFailureText = "";
-                }
-
-                if (fPostProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
-                    logger.debug("Build successful or not run, and parallel output processing was not requested");
-                    return;
-                }
-
-                var files = fFilesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-
-                var messages = parallelResult.output().messages();
-                assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
-                var effectiveOutputMode = messages.isEmpty() ? BlitzForge.ParallelOutputMode.NONE : fOutputMode;
-
-                var parallelDetails =
-                        switch (effectiveOutputMode) {
-                            case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
-                            case CHANGED -> {
-                                var output = Messages.getText(messages.getLast());
-                                yield "The parallel processing made changes to the following files:\n```\n%s```"
-                                        .formatted(output);
+            Integer relatedK = null;
+            var txt =
+                            Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
+            if (!txt.isEmpty()) {
+                    try {
+                            int kValue = Integer.parseInt(txt);
+                            if (kValue < 0) {
+                                    throw new NumberFormatException("Value must be non-negative");
                             }
-                            default -> { // "all"
-                                var output = Messages.getText(messages.getLast());
-                                yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                            if (kValue > 0) {
+                                    relatedK = kValue;
                             }
-                        };
+                    } catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(
+                                            this,
+                                            "Value for 'Include related classes' must be a non-negative integer",
+                                            "Input Error",
+                                            JOptionPane.ERROR_MESSAGE);
+                            return;
+                    }
+            }
 
-                var effectiveGoal = fPostProcessingInstructions.isBlank()
-                        ? "Please fix the problems."
-                        : "Here are the postprocessing instructions:\n```\n%s```"
-                                .formatted(fPostProcessingInstructions);
+            String perFileCommandTemplate = perFileCommandTextField.getText().trim();
+            if (perFileCommandTemplate.isEmpty()) {
+                    perFileCommandTemplate = null;
+            }
 
-                // Build the agent instructions WITHOUT embedding raw build output; Architect should consult
-                // the Build Results fragment in the session context for full build logs/details.
-                var agentInstructions =
-                        """
-                        I just finished a parallel upgrade task with the following instructions:
-                        ```
-                        %s
-                        ```
+            boolean includeWorkspace = includeWorkspaceCheckbox.isSelected();
 
-                        %s
+            PostProcessingOption runOption =
+                            switch ((String) runPostProcessCombo.getSelectedItem()) {
+                                    case "Agent" -> PostProcessingOption.ARCHITECT;
+                                    case "Ask" -> PostProcessingOption.ASK;
+                                    default -> PostProcessingOption.NONE;
+                            };
+            var selectedInclude = (String) parallelOutputCombo.getSelectedItem();
+            var parallelOutputMode =
+                            switch (selectedInclude) {
+                                    case "Include none" -> BlitzForge.ParallelOutputMode.NONE;
+                                    case "Include changed files" -> BlitzForge.ParallelOutputMode.CHANGED;
+                                    default -> BlitzForge.ParallelOutputMode.ALL;
+                            };
+            boolean buildFirst = buildFirstCheckbox.isSelected();
+            String contextFilter = contextFilterTextField.getText().trim();
+            String postProcessingInstructions =
+                            postProcessingInstructionsArea.getText().trim();
 
-                        Build details and verification output are available in the session's Build Results fragment;
-                        please consult it when fixing any remaining issues.
+            if (runOption != PostProcessingOption.NONE && postProcessingInstructions.isEmpty()) {
+                    JOptionPane.showMessageDialog(
+                                    this,
+                                    "Post-processing instructions cannot be empty when a post-processing action is selected.",
+                                    "Input Error",
+                                    JOptionPane.ERROR_MESSAGE);
+                    return;
+            }
 
-                        %s
-                        """
-                                .formatted(instructions, parallelDetails, effectiveGoal);
+            String action = (String) requireNonNull(actionComboBox.getSelectedItem());
 
-                if (fRunOption == PostProcessingOption.ASK) {
-                    mainIo.systemNotify(
-                            "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
-                    TaskResult postProcessResult =
-                            InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
-                    scope.append(postProcessResult);
-                } else {
-                    mainIo.systemNotify(
-                            "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
-                    var agent = new ArchitectAgent(
-                            cm,
-                            chrome.getInstructionsPanel().getSelectedModel(),
+            // Persist Blitz-history entry
+            chrome.getProject().addToBlitzHistory(instructions, postProcessingInstructions, MAX_BLITZ_HISTORY_ITEMS);
+
+            setVisible(false); // Hide this dialog
+
+            // Build the execution config for the engine
+            var cm = chrome.getContextManager();
+            var service = cm.getService();
+            // Resolve per-file model via ContextManager-aware resolution
+            StreamingChatModel perFileModel = requireNonNull(cm.getModelOrDefault(perFileModelSelection.config(), "PerFile"));
+            var engineOutputMode =
+                            switch (parallelOutputMode) {
+                                    case NONE -> BlitzForge.ParallelOutputMode.NONE;
+                                    case ALL -> BlitzForge.ParallelOutputMode.ALL;
+                                    case CHANGED -> BlitzForge.ParallelOutputMode.CHANGED;
+                            };
+            var engineAction =
+                            switch (action.trim().toUpperCase(Locale.ROOT)) {
+                                    case "ASK" -> Action.ASK;
+                                    case "CODE" -> Action.CODE;
+                                    default -> Action.CODE;
+                            };
+
+            // Snapshot values for lambda capture
+            final Integer fRelatedKSupplier = relatedK;
+            final boolean fIncludeWorkspaceForSupplier = includeWorkspace;
+
+            // Post-processing capture
+            final PostProcessingOption fRunOption = runOption;
+            final BlitzForge.ParallelOutputMode fOutputMode = engineOutputMode;
+            final String fPostProcessingInstructions = postProcessingInstructions;
+            final List<ProjectFile> fFilesToProcess = filesToProcessList;
+
+            BlitzForge.RunConfig runCfg = new BlitzForge.RunConfig(
+                            instructions,
                             perFileModel,
-                            agentInstructions,
-                            scope);
-                    TaskResult postProcessResult = agent.executeWithScan();
-                    scope.append(postProcessResult);
-                }
-            } finally {
-                analyzerWrapper.resume();
-            }
-        });
-        // Show the progress dialog (modeless)
-        progressDialog.setVisible(true);
+                            () -> {
+                                    if (fRelatedKSupplier != null) {
+                                            try {
+                                                    var acList = cm.liveContext().buildAutoContext(fRelatedKSupplier);
+                                                    var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                                                    if (!acText.isBlank()) {
+                                                            return """
+                                                            <related_classes>
+                                                            Here are the top %d related classes.
+
+                                                            %s
+                                                            </related_classes>
+                                                            """
+                                                                            .formatted(fRelatedKSupplier, acText);
+                                                    }
+                                            } catch (InterruptedException e) {
+                                                    Thread.currentThread().interrupt();
+                                                    return "";
+                                            }
+                                    }
+                                    return "";
+                            },
+                            () -> {
+                                    if (!fIncludeWorkspaceForSupplier) {
+                                            return "";
+                                    }
+                                    var ctx = cm.liveContext();
+                                    var list = new ArrayList<ChatMessage>();
+                                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                                                    ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                                    list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
+                                    var text = "";
+                                    for (var m : list) {
+                                            text += m + "\n";
+                                    }
+                                    return text;
+                            },
+                            contextFilter,
+                            engineOutputMode);
+
+            // Snapshot locals for lambda capture
+            final @Nullable Integer fRelatedK = relatedK;
+            final @Nullable String fPerFileCmd = perFileCommandTemplate;
+            final String fContextFilter = contextFilter;
+
+            // Prepare listener dialog + cancel wiring with logging
+            var progressDialog = new BlitzForgeProgressDialog(chrome, () -> {
+                    logger.debug(
+                                    "BlitzForge cancel requested (Tools path) on thread {}",
+                                    Thread.currentThread().getName());
+                    cm.interruptLlmAction();
+            });
+
+            // Kick off background execution
+            var analyzerWrapper = cm.getAnalyzerWrapper();
+            cm.submitLlmAction(() -> {
+                    logger.debug(
+                                    "BlitzForge parallel processing started (Tools path) on thread {}",
+                                    Thread.currentThread().getName());
+                    analyzerWrapper.pause();
+                    try (var scope = cm.beginTask(instructions, false)) {
+                            var parallelResult = runParallel(
+                                            runCfg,
+                                            progressDialog,
+                                            filesToProcessList,
+                                            includeWorkspace,
+                                            fRelatedK,
+                                            fPerFileCmd,
+                                            engineAction,
+                                            instructions,
+                                            fContextFilter,
+                                            contextFilter);
+                            scope.append(parallelResult);
+
+                            // If the parallel phase was cancelled/interrupted, skip any post-processing (including build).
+                            if (parallelResult.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                                    logger.debug("Parallel processing was interrupted; skipping post-processing.");
+                                    return;
+                            }
+
+                            var mainIo = cm.getIo();
+
+                            if (fRunOption == PostProcessingOption.NONE) {
+                                    return;
+                            }
+
+                            String buildFailureText;
+                            if (buildFirst) {
+                                    buildFailureText = BuildAgent.runVerification(cm);
+                            } else {
+                                    buildFailureText = "";
+                            }
+
+                            if (fPostProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
+                                    logger.debug("Build successful or not run, and parallel output processing was not requested");
+                                    return;
+                            }
+
+                            var files = fFilesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+
+                            var messages = parallelResult.output().messages();
+                            assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
+                            var effectiveOutputMode = messages.isEmpty() ? BlitzForge.ParallelOutputMode.NONE : fOutputMode;
+
+                            var parallelDetails =
+                                            switch (effectiveOutputMode) {
+                                                    case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
+                                                    case CHANGED -> {
+                                                            var output = Messages.getText(messages.getLast());
+                                                            yield "The parallel processing made changes to the following files:\n```\n%s```"
+                                                                            .formatted(output);
+                                                    }
+                                                    default -> { // "all"
+                                                            var output = Messages.getText(messages.getLast());
+                                                            yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                                                    }
+                                            };
+
+                            var effectiveGoal = fPostProcessingInstructions.isBlank()
+                                            ? "Please fix the problems."
+                                            : "Here are the postprocessing instructions:\n```\n%s```"
+                                                            .formatted(fPostProcessingInstructions);
+
+                            // Build the agent instructions WITHOUT embedding raw build output; Architect should consult
+                            // the Build Results fragment in the session context for full build logs/details.
+                            var agentInstructions =
+                                            """
+                                            I just finished a parallel upgrade task with the following instructions:
+                                            ```
+                                            %s
+                                            ```
+
+                                            %s
+
+                                            Build details and verification output are available in the session's Build Results fragment;
+                                            please consult it when fixing any remaining issues.
+
+                                            %s
+                                            """
+                                                            .formatted(instructions, parallelDetails, effectiveGoal);
+
+                            if (fRunOption == PostProcessingOption.ASK) {
+                                    mainIo.systemNotify(
+                                                    "Ask command has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
+                                    TaskResult postProcessResult =
+                                                    InstructionsPanel.executeAskCommand(cm, perFileModel, agentInstructions);
+                                    scope.append(postProcessResult);
+                            } else {
+                                    mainIo.systemNotify(
+                                                    "Architect has been invoked.", "Post-processing", JOptionPane.INFORMATION_MESSAGE);
+                                    var agent = new ArchitectAgent(
+                                                    cm,
+                                                    chrome.getInstructionsPanel().getSelectedModel(),
+                                                    perFileModel,
+                                                    agentInstructions,
+                                                    scope);
+                                    TaskResult postProcessResult = agent.executeWithScan();
+                                    scope.append(postProcessResult);
+                            }
+                    } finally {
+                            analyzerWrapper.resume();
+                    }
+            });
+            // Show the progress dialog (modeless)
+            progressDialog.setVisible(true);
     }
 
     private @NotNull TaskResult runParallel(
-            BlitzForge.RunConfig runCfg,
-            BlitzForgeProgressDialog progressDialog,
-            List<ProjectFile> filesToProcessList,
-            boolean fIncludeWorkspace,
-            @Nullable Integer fRelatedK,
-            @Nullable String fPerFileCmd,
-            Action engineAction,
-            String instructions,
-            String fContextFilter,
-            String contextFilter) {
-        var cm = chrome.getContextManager();
-        var service = cm.getService();
-        var context = cm.liveContext();
-        var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
-        var model = requireNonNull(service.getModel(selectedFavorite.config()));
+                BlitzForge.RunConfig runCfg,
+                BlitzForgeProgressDialog progressDialog,
+                List<ProjectFile> filesToProcessList,
+                boolean fIncludeWorkspace,
+                @Nullable Integer fRelatedK,
+                @Nullable String fPerFileCmd,
+                Action engineAction,
+                String instructions,
+                String fContextFilter,
+                String contextFilter) {
+          var cm = chrome.getContextManager();
+          var service = cm.getService();
+          var context = cm.liveContext();
+          var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
+          // Resolve favorite model via ContextManager-aware resolution
+          var model = requireNonNull(cm.getModelOrDefault(selectedFavorite.config(), "PerFile"));
 
-        // Engine + per-file processor
-        var engine = new BlitzForge(cm, service, runCfg, progressDialog);
+          // Engine + per-file processor
+          var engine = new BlitzForge(cm, service, runCfg, progressDialog);
 
-        // Per-file processor: mirrors the previous dialog's processSingleFile logic
-        return engine.executeParallel(filesToProcessList, file -> {
-            if (Thread.currentThread().isInterrupted()) {
-                return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
-            }
-
-            var dialogIo = progressDialog.getConsoleIO(file);
-            String errorMessage = null;
-
-            List<ChatMessage> readOnlyMessages = new ArrayList<>();
-            try {
-                if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
-                            context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
-                    readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
-                }
-                if (fRelatedK != null) {
-                    var acList = cm.liveContext().buildAutoContext(fRelatedK);
-                    var acText = ContextFragment.SummaryFragment.combinedText(acList);
-                    if (!acText.isBlank()) {
-                        var msgText =
-                                """
-                                <related_classes>
-                                The user requested to include the top %d related classes.
-
-                                %s
-                                </related_classes>
-                                """
-                                        .formatted(fRelatedK, acText);
-                        readOnlyMessages.add(new UserMessage(msgText));
-                    }
+          // Per-file processor: mirrors the previous dialog's processSingleFile logic
+          return engine.executeParallel(filesToProcessList, file -> {
+                if (Thread.currentThread().isInterrupted()) {
+                      return new BlitzForge.FileResult(file, false, "Cancelled by user.", "");
                 }
 
-                if (fPerFileCmd != null && !fPerFileCmd.isBlank()) {
-                    MustacheFactory mf = new DefaultMustacheFactory();
-                    Mustache mustache = mf.compile(new StringReader(fPerFileCmd), "perFileCommand");
-                    StringWriter writer = new StringWriter();
-                    Map<String, Object> scope = new HashMap<>();
-                    scope.put("filepath", file.toString());
-                    mustache.execute(writer, scope);
-                    String finalCommand = writer.toString();
+                var dialogIo = progressDialog.getConsoleIO(file);
+                String errorMessage = null;
 
-                    String commandOutputText;
-                    try {
-                        String output = Environment.instance.runShellCommand(
-                                finalCommand, cm.getProject().getRoot(), line -> {}, Environment.UNLIMITED_TIMEOUT);
-                        commandOutputText =
-                                """
-                                <per_file_command_output command="%s">
-                                %s
-                                </per_file_command_output>
-                                """
-                                        .formatted(finalCommand, output);
-                    } catch (Environment.SubprocessException ex) {
-                        commandOutputText =
-                                """
-                                <per_file_command_output command="%s">
-                                Error executing command: %s
-                                Output (if any):
-                                %s
-                                </per_file_command_output>
-                                """
-                                        .formatted(finalCommand, ex.getMessage(), ex.getOutput());
-                        dialogIo.toolError(
-                                "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
-                                "Command Execution Error");
-                    }
-                    readOnlyMessages.add(new UserMessage(commandOutputText));
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                errorMessage = "Interrupted during message preparation.";
-            } catch (Exception ex) {
-                errorMessage = "Setup failed: " + ex.getMessage();
-                dialogIo.toolError(errorMessage, "Setup");
-            }
-
-            if (errorMessage != null) {
-                return new BlitzForge.FileResult(file, false, errorMessage, "");
-            }
-
-            // Run the task
-            var initialContext = cm.liveContext();
-            TaskResult tr;
-            if (engineAction == Action.ASK) {
-                var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
-                var llm = cm.getLlm(model, "Ask", true);
-                var meta =
-                        new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
-                llm.setOutput(dialogIo);
-                tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
-            } else {
-                var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
-            }
-
-            if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                Thread.currentThread().interrupt();
-                errorMessage = "Processing interrupted.";
-            } else if (tr.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                errorMessage = "Processing failed: " + tr.stopDetails().reason()
-                        + (tr.stopDetails().explanation().isEmpty()
-                                ? ""
-                                : " - " + tr.stopDetails().explanation());
-                dialogIo.toolError(errorMessage, "Agent Processing Error");
-            }
-
-            boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
-            String llmOutput = dialogIo.getLlmOutput();
-
-            // Optional context filtering
-            if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
+                List<ChatMessage> readOnlyMessages = new ArrayList<>();
                 try {
-                    var quickestModel = cm.getService().quickestModel();
-                    var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
-                    filterLlm.setOutput(dialogIo);
-                    boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
-                    if (!keep) {
-                        llmOutput = "";
-                    }
-                } catch (Exception e) {
-                    // Non-fatal; keep output
-                }
-            }
+                      if (fIncludeWorkspace) {
+                            readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                                        context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                            readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
+                      }
+                      if (fRelatedK != null) {
+                            var acList = cm.liveContext().buildAutoContext(fRelatedK);
+                            var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                            if (!acText.isBlank()) {
+                                  var msgText =
+                                              """
+                                              <related_classes>
+                                              The user requested to include the top %d related classes.
 
-            return new BlitzForge.FileResult(file, edited, errorMessage, llmOutput);
-        });
+                                              %s
+                                              </related_classes>
+                                              """
+                                                          .formatted(fRelatedK, acText);
+                                  readOnlyMessages.add(new UserMessage(msgText));
+                            }
+                      }
+
+                      if (fPerFileCmd != null && !fPerFileCmd.isBlank()) {
+                            MustacheFactory mf = new DefaultMustacheFactory();
+                            Mustache mustache = mf.compile(new StringReader(fPerFileCmd), "perFileCommand");
+                            StringWriter writer = new StringWriter();
+                            Map<String, Object> scope = new HashMap<>();
+                            scope.put("filepath", file.toString());
+                            mustache.execute(writer, scope);
+                            String finalCommand = writer.toString();
+
+                            String commandOutputText;
+                            try {
+                                  String output = Environment.instance.runShellCommand(
+                                              finalCommand, cm.getProject().getRoot(), line -> {}, Environment.UNLIMITED_TIMEOUT);
+                                  commandOutputText =
+                                              """
+                                              <per_file_command_output command="%s">
+                                              %s
+                                              </per_file_command_output>
+                                              """
+                                                          .formatted(finalCommand, output);
+                            } catch (Environment.SubprocessException ex) {
+                                  commandOutputText =
+                                              """
+                                              <per_file_command_output command="%s">
+                                              Error executing command: %s
+                                              Output (if any):
+                                              %s
+                                              </per_file_command_output>
+                                              """
+                                                          .formatted(finalCommand, ex.getMessage(), ex.getOutput());
+                                  dialogIo.toolError(
+                                              "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
+                                              "Command Execution Error");
+                            }
+                            readOnlyMessages.add(new UserMessage(commandOutputText));
+                      }
+                } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      errorMessage = "Interrupted during message preparation.";
+                } catch (Exception ex) {
+                      errorMessage = "Setup failed: " + ex.getMessage();
+                      dialogIo.toolError(errorMessage, "Setup");
+                }
+
+                if (errorMessage != null) {
+                      return new BlitzForge.FileResult(file, false, errorMessage, "");
+                }
+
+                // Run the task
+                var initialContext = cm.liveContext();
+                TaskResult tr;
+                if (engineAction == Action.ASK) {
+                      var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
+                      var llm = cm.getLlm(model, "Ask", true);
+                      var meta =
+                                  new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                      llm.setOutput(dialogIo);
+                      tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
+                } else {
+                      var agent = new CodeAgent(cm, model, dialogIo);
+                      tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+                }
+
+                if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                      Thread.currentThread().interrupt();
+                      errorMessage = "Processing interrupted.";
+                } else if (tr.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                      errorMessage = "Processing failed: " + tr.stopDetails().reason()
+                                  + (tr.stopDetails().explanation().isEmpty()
+                                              ? ""
+                                              : " - " + tr.stopDetails().explanation());
+                      dialogIo.toolError(errorMessage, "Agent Processing Error");
+                }
+
+                boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
+                String llmOutput = dialogIo.getLlmOutput();
+
+                // Optional context filtering
+                if (!fContextFilter.isBlank() && !llmOutput.isBlank()) {
+                      try {
+                            var quickestModel = cm.getService().quickestModel();
+                            var filterLlm = cm.getLlm(quickestModel, "ContextFilter");
+                            filterLlm.setOutput(dialogIo);
+                            boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, llmOutput);
+                            if (!keep) {
+                                  llmOutput = "";
+                            }
+                      } catch (Exception e) {
+                            // Non-fatal; keep output
+                      }
+                }
+
+                return new BlitzForge.FileResult(file, edited, errorMessage, llmOutput);
+          });
     }
 }

@@ -1041,16 +1041,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return titledContainer;
     }
 
-    /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
         var service = chrome.getContextManager().getService();
-        var model = service.getModel(config);
 
         // Compute tokens off-EDT
         chrome.getContextManager()
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+                    // Use ContextManager-aware model resolution (no ad-hoc fallbacks here)
+                    var model = contextManager.getModelOrDefault(config, "Selected");
+
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
@@ -1458,75 +1459,56 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /**
-     * Centralized model selection from the dropdown with fallback and vision check. Returns null if selection
-     * fails or if the context contains images but the selected model does not support vision.
-     */
     private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel) {
-        var cm = chrome.getContextManager();
-        var models = cm.getService();
+         var cm = chrome.getContextManager();
+         var models = cm.getService();
 
-        // Pre-check: is the LLM service online?
-        if (!models.isOnline()) {
-            logger.warn(
-                    "LLM service offline for action '{}': service online=false, contextHasImages={}",
-                    actionLabel,
-                    contextHasImages());
-            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
-            chrome.toolError("LLM service is offline; please check your connection or key.");
-            return null;
-        }
+         // Pre-check: is the LLM service online?
+         if (!models.isOnline()) {
+              logger.warn(
+                        "LLM service offline for action '{}': service online=false, contextHasImages={}",
+                        actionLabel,
+                        contextHasImages());
+              logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+              chrome.toolError("LLM service is offline; please check your connection or key.");
+              return null;
+         }
 
-        Service.ModelConfig config;
-        try {
-            config = modelSelector.getModel();
-        } catch (IllegalStateException e) {
-            logger.warn(
-                    "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
-                    actionLabel,
-                    e.getMessage(),
-                    contextHasImages(),
-                    models.isOnline());
-            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-            return null;
-        }
+         Service.ModelConfig config;
+         try {
+              config = modelSelector.getModel();
+         } catch (IllegalStateException e) {
+              logger.warn(
+                        "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
+                        actionLabel,
+                        e.getMessage(),
+                        contextHasImages(),
+                        models.isOnline());
+              chrome.toolError("Please finish configuring your custom model or select a favorite first.");
+              return null;
+         }
 
-        var selectedModel = models.getModel(config);
-        if (selectedModel == null) {
-            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
-                    + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
-            if (fallbackModel != null) {
-                selectedModel = fallbackModel;
-            }
-        }
+         // Use ContextManager-aware resolution so centralized fallbacks are applied
+         var selectedModel = cm.getModelOrDefault(config, "Selected");
 
-        // If fallback also failed, show error and return null
-        if (selectedModel == null) {
-            logger.warn(
-                    "No available model for action '{}': selected config name='{}', reasoning='{}', contextHasImages={}, service online={}",
-                    actionLabel,
-                    config.name(),
-                    config.reasoning(),
-                    contextHasImages(),
-                    models.isOnline());
-            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
-            chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
-            return null;
-        }
+         if (selectedModel == null) {
+              chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
+                        + config.reasoning());
+              return null;
+         }
 
-        boolean hasImages = contextHasImages();
-        if (hasImages && !models.supportsVision(selectedModel)) {
-            logger.debug(
-                    "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
-                    actionLabel,
-                    models.nameOf(selectedModel),
-                    models.isOnline());
-            showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
-            return null;
-        }
+         boolean hasImages = contextHasImages();
+         if (hasImages && !models.supportsVision(selectedModel)) {
+              logger.debug(
+                        "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
+                        actionLabel,
+                        models.nameOf(selectedModel),
+                        models.isOnline());
+              showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
+              return null;
+         }
 
-        return selectedModel;
+         return selectedModel;
     }
 
     // --- Public API ---

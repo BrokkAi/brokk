@@ -385,11 +385,19 @@ public final class JobRunner {
     }
 
     private StreamingChatModel resolveModelOrThrow(String name) {
-        var model = cm.getService().getModel(new Service.ModelConfig(name));
-        if (model == null) {
-            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
-        }
-        return model;
+            // Prefer ContextManager-aware resolution so any centralized fallback logic is used.
+            StreamingChatModel model = null;
+            try {
+                    model = cm.getModelOrDefault(new Service.ModelConfig(name), name);
+            } catch (Exception ignored) {
+                    // As a conservative fallback, attempt direct service lookup (this should rarely be necessary
+                    // if ContextManager implements the resolution).
+                    model = cm.getService().getModel(new Service.ModelConfig(name));
+            }
+            if (model == null) {
+                    throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
+            }
+            return model;
     }
 
     private StreamingChatModel defaultCodeModel() {
