@@ -4,6 +4,7 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
@@ -39,7 +40,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import ai.brokk.IConsoleIO;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -721,12 +721,11 @@ public class ContextAgent {
         }
 
         if (showBatch1Reasoning) {
-            this.io
-                    .llmOutput(
-                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
-                            ChatMessageType.AI,
-                            false,
-                            true);
+            this.io.llmOutput(
+                    "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
+                    ChatMessageType.AI,
+                    false,
+                    true);
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
@@ -776,12 +775,11 @@ public class ContextAgent {
         }
 
         if (showBatch1Reasoning) {
-            this.io
-                    .llmOutput(
-                            "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
-                            ChatMessageType.AI,
-                            false,
-                            true);
+            this.io.llmOutput(
+                    "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
+                    ChatMessageType.AI,
+                    false,
+                    true);
         }
 
         return new LlmRecommendation(
