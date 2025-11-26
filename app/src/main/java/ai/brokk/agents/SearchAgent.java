@@ -126,19 +126,29 @@ public class SearchAgent {
     private boolean beastMode;
     private boolean codeAgentJustSucceeded;
 
+    /**
+     * Creates a SearchAgent with explicit control over output streaming.
+     *
+     * @param echo if true, LLM output is streamed to the UI; if false, output is silent
+     */
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope) {
+            ContextManager.TaskScope scope,
+            boolean echo) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
         this.io = cm.getIo();
-        this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
+        var llmOptions = new Llm.Options(model, "Search: " + goal);
+        if (echo) {
+            llmOptions = llmOptions.withEcho();
+        }
+        this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(io);
         var summarizeConfig = new Service.ModelConfig(
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
@@ -163,6 +173,18 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+    }
+
+    /**
+     * Creates a SearchAgent with output streaming enabled (default behavior).
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope) {
+        this(initialContext, goal, model, objective, scope, true);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */

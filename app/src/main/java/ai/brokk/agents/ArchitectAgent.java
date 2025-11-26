@@ -34,6 +34,9 @@ import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -48,6 +51,9 @@ public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
 
     private final IConsoleIO io;
+
+    // Lock to ensure only one SearchAgent streams output at a time during parallel execution
+    private final AtomicBoolean searchAgentEchoInUse = new AtomicBoolean(false);
 
     // Helper record to associate a SearchAgent task Future with its request and result
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
@@ -270,7 +276,7 @@ public class ArchitectAgent {
         };
     }
 
-    private void addPlanningToHistory() {
+    private void c() {
         var messages = io.getLlmRawMessages();
         if (messages.isEmpty()) {
             return;
@@ -301,38 +307,45 @@ public class ArchitectAgent {
     }
 
     /**
-     * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
-     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
-     * as a context fragment.
-     */
+         * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
+         * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
+         * as a context fragment.
+         */
     @Tool(
-            "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
+                                            "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
     public String callSearchAgent(
-            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
-            throws ToolRegistry.FatalLlmException, InterruptedException {
-        addPlanningToHistory();
-        logger.debug("callSearchAgent invoked with query: {}", query);
+                                            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
+                                            throws ToolRegistry.FatalLlmException, InterruptedException {
+                        addPlanningToHistory();
+                        logger.debug("callSearchAgent invoked with query: {}", query);
 
-        // Instantiate and run SearchAgent
-        io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
-        var searchAgent = new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
-        searchAgent.scanInitialContext();
-        var result = searchAgent.execute();
-        // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
-        threadlocalSearchResult.set(result);
+                        // Acquire echo lock - only first caller gets to stream output
+                        boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
+                        try {
+                                            io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI);
+                                            var searchAgent = new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, shouldEcho);
+                                            searchAgent.scanInitialContext();
+                                            var result = searchAgent.execute();
+                                            // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the threadlocal
+                                            threadlocalSearchResult.set(result);
 
-        if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
-            throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
-        }
+                                            if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
+                                                                throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
+                                            }
 
-        if (result.stopDetails().reason() != StopReason.SUCCESS) {
-            logger.debug("SearchAgent returned non-success for query {}: {}", query, result.stopDetails());
-            return result.stopDetails().toString();
-        }
+                                            if (result.stopDetails().reason() != StopReason.SUCCESS) {
+                                                                logger.debug("SearchAgent returned non-success for query {}: {}", query, result.stopDetails());
+                                                                return result.stopDetails().toString();
+                                            }
 
-        var stringResult = "Search complete";
-        logger.debug(stringResult);
-        return stringResult;
+                                            var stringResult = "Search complete";
+                                            logger.debug(stringResult);
+                                            return stringResult;
+                        } finally {
+                                            if (shouldEcho) {
+                                                                searchAgentEchoInUse.set(false);
+                                            }
+                        }
     }
 
     /**
@@ -590,6 +603,26 @@ public class ArchitectAgent {
                 context = wst.getContext();
                 architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
+            }
+
+            // Notify user about parallel searches before submission
+            if (searchAgentReqs.size() > 1) {
+                var queries = searchAgentReqs.stream()
+                    .map(req -> {
+                        try {
+                            var args = new com.fasterxml.jackson.databind.ObjectMapper().readTree(req.arguments());
+                            return args.has("query") ? args.get("query").asText() : req.arguments();
+                        } catch (Exception e) {
+                            return req.arguments();
+                        }
+                    })
+                    .toList();
+                io.llmOutput("**Search Agent** running %d queries in parallel (streaming first only):\n%s"
+                    .formatted(searchAgentReqs.size(),
+                               IntStream.range(0, queries.size())
+                                   .mapToObj(i -> "%d. %s".formatted(i + 1, queries.get(i)))
+                                   .collect(Collectors.joining("\n"))),
+                    ChatMessageType.AI, true, false);
             }
 
             // Submit search agent tasks to run in the background (offered only when Undo is offered)
