@@ -3648,6 +3648,9 @@ public class Chrome
                 if (contextManager.getContextHistory().hasUndoStates()) {
                     contextManager.undoContextAsync();
                 }
+            } else if (instructionsPanel.getCommandInputUndoManager().canUndo()) {
+                // Fallback: undo instructions panel when focus is elsewhere
+                instructionsPanel.getCommandInputUndoManager().undo();
             }
         }
 
@@ -3657,6 +3660,9 @@ public class Chrome
                 canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canUndoNow = contextManager.getContextHistory().hasUndoStates();
+            } else {
+                // Fallback: enable if instructions panel has undoable content
+                canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
             }
             setEnabled(canUndoNow);
         }
@@ -3677,6 +3683,9 @@ public class Chrome
                 if (contextManager.getContextHistory().hasRedoStates()) {
                     contextManager.redoContextAsync();
                 }
+            } else if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
+                // Fallback: redo instructions panel when focus is elsewhere
+                instructionsPanel.getCommandInputUndoManager().redo();
             }
         }
 
@@ -3686,6 +3695,9 @@ public class Chrome
                 canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canRedoNow = contextManager.getContextHistory().hasRedoStates();
+            } else {
+                // Fallback: enable if instructions panel has redoable content
+                canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
             }
             setEnabled(canRedoNow);
         }
