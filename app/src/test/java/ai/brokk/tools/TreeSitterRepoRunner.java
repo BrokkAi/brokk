@@ -1192,7 +1192,7 @@ public class TreeSitterRepoRunner {
 
                         RESULTS (as completed):
                         ======================
-                        %-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s
+                        %-20s %-12s %-8s %-12s %-12s %-15s %-6s
                         %s
                         """,
                         LocalDateTime.now(),
@@ -1204,6 +1204,7 @@ public class TreeSitterRepoRunner {
                         "TIME(sec)",
                         "MEMORY(MB)",
                         "MB/FILE",
+                        "STATUS",
                         "-".repeat(100));
             }
 
