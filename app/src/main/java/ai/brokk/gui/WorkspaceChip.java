@@ -553,7 +553,7 @@ public class WorkspaceChip extends JPanel {
         if (ctx == null) {
             return false;
         }
-        return ctx.isReadOnly(fragment);
+        return ctx.isMarkedReadonly(fragment);
     }
 
     private boolean isPanelReadOnly() {
@@ -757,7 +757,7 @@ public class WorkspaceChip extends JPanel {
                 if (!ensureMutatingAllowed()) {
                     return;
                 }
-                contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isReadOnly(fragment)));
+                contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isMarkedReadonly(fragment)));
             });
             menu.add(toggleRo);
             menu.addSeparator();
