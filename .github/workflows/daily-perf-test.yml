@@ -11,17 +11,38 @@ jobs:
   performance-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout HEAD
+      - name: Checkout repository (master)
         uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Fetch remote branches
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
 
       - name: Get commit hashes
         id: get_commits
         run: |
+          # HEAD (current checkout)
           HEAD_SHA=$(git rev-parse HEAD)
           echo "HEAD_SHA=$HEAD_SHA" >> $GITHUB_ENV
           echo "HEAD_SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-          BASE_SHA=$(git rev-list -n 1 --before="24 hours ago" "origin/${{ github.base_ref || github.ref_name }}")
+          # Determine baseline branch:
+          # - For PRs: use the PR base branch (e.g., master)
+          # - For scheduled/manual runs: default to master
+          BRANCH="${{ github.base_ref }}"
+          if [ -z "$BRANCH" ]; then
+            BRANCH="master"
+          fi
+          echo "Using baseline branch: $BRANCH"
+
+          # Ensure remote branches are present (in case checkout was shallow or remote refs missing)
+          git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*
+
+          # Find the most recent commit on the baseline branch that is older than 24 hours
+          BASE_SHA=$(git rev-list -n 1 --before="24 hours ago" "origin/$BRANCH" || true)
           echo "BASE_SHA=$BASE_SHA" >> $GITHUB_ENV
           if [ -n "$BASE_SHA" ]; then
             echo "BASE_SHA_SHORT=$(git rev-parse --short $BASE_SHA)" >> $GITHUB_ENV
