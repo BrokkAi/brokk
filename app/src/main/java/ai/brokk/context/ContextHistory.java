@@ -209,7 +209,7 @@ public class ContextHistory {
                 .toList();
 
         // Merge: keep all unaffected fragments, but swap in the refreshed ones.
-        Context merged = base.removeFragments(toReplace).addPathFragments(replacements);
+        Context merged = base.removeFragments(toReplace).addFragments(replacements);
 
         // Maintain "Load external changes (n)" semantics.
         var previousAction = base.getAction();
@@ -444,7 +444,7 @@ public class ContextHistory {
     private void snapshotContext(Context ctx) {
         for (var fragment : ctx.allFragments().toList()) {
             try {
-                fragment.snapshot(SNAPSHOT_AWAIT_TIMEOUT);
+                fragment.snapshot().await(SNAPSHOT_AWAIT_TIMEOUT);
             } catch (Exception e) {
                 logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
             }
@@ -529,14 +529,20 @@ public class ContextHistory {
                     var pf = files.iterator().next();
 
                     try {
-                        // Prefer frozen snapshot strictly when available to ensure historical restoration
-                        var snap = fragment.getSnapshotTextOrNull();
-                        if (snap != null) {
-                            desiredContents.put(pf, snap);
+                        // Prefer the unified snapshot when available for stable restoration
+                        var snapNow = fragment.snapshot().tryGet();
+                        if (snapNow.isPresent()) {
+                            desiredContents.put(pf, snapNow.get().text());
                             return;
                         }
 
-                        // Fallback to computed text only if no snapshot is present
+                        var snapAwait = fragment.snapshot().await(SNAPSHOT_AWAIT_TIMEOUT);
+                        if (snapAwait.isPresent()) {
+                            desiredContents.put(pf, snapAwait.get().text());
+                            return;
+                        }
+
+                        // Fallback to computed text only if no snapshot is available within timeout
                         var tryNow = fragment.text().tryGet();
                         if (tryNow.isPresent()) {
                             desiredContents.put(pf, tryNow.get());

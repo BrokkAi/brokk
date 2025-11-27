@@ -69,7 +69,6 @@ public interface ContextFragment {
         IMAGE_FILE,
 
         STRING,
-        SEARCH,
         SKELETON,
         USAGE,
         CODE,
@@ -81,33 +80,14 @@ public interface ContextFragment {
         STACKTRACE,
         BUILD_LOG;
 
-        private static final EnumSet<FragmentType> PATH_TYPES =
-                EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
+        private static final EnumSet<FragmentType> PATH_TYPES = EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
 
-        private static final EnumSet<FragmentType> VIRTUAL_TYPES = EnumSet.of(
-                STRING,
-                SEARCH,
-                SKELETON,
-                USAGE,
-                CODE,
-                CALL_GRAPH,
-                HISTORY,
-                TASK,
-                PASTE_TEXT,
-                PASTE_IMAGE,
-                STACKTRACE,
-                BUILD_LOG);
-
-        private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(SEARCH, HISTORY, TASK);
+        private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(HISTORY, TASK);
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
 
         public boolean isPath() {
             return PATH_TYPES.contains(this);
-        }
-
-        public boolean isVirtual() {
-            return VIRTUAL_TYPES.contains(this);
         }
 
         public boolean isOutput() {

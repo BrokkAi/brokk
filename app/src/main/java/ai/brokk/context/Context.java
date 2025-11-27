@@ -35,6 +35,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -190,78 +191,117 @@ public class Context {
     }
 
     @Blocking
-    public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
-        // Build a list of unique new path fragments
-        var toAdd = new ArrayList<ContextFragment.PathFragment>();
-        paths.stream()
-                .filter(p -> fragments.stream().noneMatch(p::hasSameSource))
-                .forEach(pf -> {
-                    if (toAdd.stream().noneMatch(existing -> existing.hasSameSource(pf))) {
-                        toAdd.add(pf);
-                    }
-                });
+    public Context addFragments(Collection<? extends ContextFragment> toAdd) {
+        // Partition into path vs non-path fragments for separate action messages
+        var pathCandidates = new ArrayList<ContextFragment.PathFragment>();
+        var otherCandidates = new ArrayList<ContextFragment>();
+        for (var f : toAdd) {
+            if (f instanceof ContextFragment.PathFragment pf) {
+                pathCandidates.add(pf);
+            } else {
+                otherCandidates.add(f);
+            }
+        }
+
+        Context newCtx = this;
+        if (!pathCandidates.isEmpty()){
+            newCtx = newCtx.addFragments(
+                    pathCandidates,
+                    added -> {
+                        String actionDetails = toAdd.stream()
+                                .map(ContextFragment::shortDescription)
+                                .map(ComputedValue::join)
+                                .collect(Collectors.joining(", "));
+                        return "Edit " + actionDetails;
+                    });
+        }
+        if (!otherCandidates.isEmpty()){
+            newCtx = newCtx.addFragments(
+                    pathCandidates,
+                    added -> {
+                        int addedCount = added.size();
+                        return "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
+                    });
+        }
+        return newCtx;
+    }
+
+    /**
+     * Adds fragments to the context.
+     * <p>
+     * Fragments are deduplicated by semantic equivalence ({@code hasSameSource}) within the input and against the current context.
+     * <p>
+     * This method also handles context promotion: if a full {@code PATH} fragment is being added, any existing
+     * {@code SKELETON} fragments covering the same files are considered superseded and are removed from the context.
+     *
+     * @param toAdd         the collection of fragments to add
+     * @param actionBuilder function to generate the action description based on the net-new fragments actually added
+     * @return the updated Context
+     */
+    private Context addFragments(
+            Collection<? extends ContextFragment> toAdd,
+            Function<List<ContextFragment>, String> actionBuilder) {
+
         if (toAdd.isEmpty()) {
             return this;
         }
 
-        // filter out summaries of files that we're now adding in full
-        var filesToAdd =
-                toAdd.stream().flatMap(pf -> pf.files().join().stream()).collect(Collectors.toSet());
-        var newFragments = fragments.stream()
+        // 1. Deduplicate the input 'toAdd' collection internally first.
+        // We use a LinkedHashSet or manual stream to preserve insertion order if that matters.
+        var uniqueInputs = new ArrayList<ContextFragment>();
+        for (var f : toAdd) {
+            if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
+                uniqueInputs.add(f);
+            }
+        }
+
+        // 2. Identify files that are being added as full PATH fragments.
+        // These will "kill" any existing SKELETON fragments for the same files.
+        var incomingPathFiles = uniqueInputs.stream()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
+                .flatMap(pf -> pf.files().join().stream())
+                .collect(Collectors.toSet());
+
+        // 3. Process the CURRENT fragments:
+        //    a) Remove SUMMARY fragments if they are superseded by incoming PATHS.
+        //    b) Keep everything else (we will deduplicate against new inputs in the next step).
+        var keptExistingFragments = this.fragments.stream()
                 .filter(f -> {
-                    if (f.getType() == ContextFragment.FragmentType.SKELETON) {
-                        var summaryFiles = f.files().join();
-                        return Collections.disjoint(summaryFiles, filesToAdd);
+                    if (f instanceof ContextFragment.SummaryFragment) {
+                        var skeletonFiles = f.files().join();
+                        // If the skeleton's files overlap with incoming full paths, drop the skeleton.
+                        return Collections.disjoint(skeletonFiles, incomingPathFiles);
                     }
                     return true;
                 })
                 .collect(Collectors.toCollection(ArrayList::new));
 
-        newFragments.addAll(toAdd);
-
-        String actionDetails = toAdd.stream()
-                .map(ContextFragment::shortDescription)
-                .map(ComputedValue::join)
-                .collect(Collectors.joining(", "));
-        String action = "Edit " + actionDetails;
-        return withFragments(newFragments, CompletableFuture.completedFuture(action));
-    }
-
-    public Context addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> toAdd) {
-        if (toAdd.isEmpty()) {
-            return this;
-        }
-
-        var newFragments = new ArrayList<>(fragments);
-        var existingVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual())
-                .map(f -> (ContextFragment.VirtualFragment) f)
+        // 4. Calculate the ACTUAL new items to add.
+        //    We filter 'uniqueInputs' to ensure we don't add something that already exists
+        //    in the (cleaned) existing list.
+        var fragmentsToAdd = uniqueInputs.stream()
+                .filter(input -> keptExistingFragments.stream().noneMatch(existing -> existing.hasSameSource(input)))
                 .toList();
 
-        for (var fragment : toAdd) {
-            // Deduplicate using hasSameSource for semantic equivalence
-            boolean isDuplicate = existingVirtuals.stream().anyMatch(vf -> vf.hasSameSource(fragment))
-                    || newFragments.stream()
-                            .filter(f -> f.getType().isVirtual())
-                            .map(f -> (ContextFragment.VirtualFragment) f)
-                            .anyMatch(vf -> vf.hasSameSource(fragment));
-
-            if (!isDuplicate) {
-                newFragments.add(fragment);
-            }
+        if (fragmentsToAdd.isEmpty()) {
+            // If we filtered out skeletons but didn't actually add anything new (rare but possible),
+            // we might still want to return the updated context with skeletons removed.
+            // If strict "no-op if nothing added" is preferred, return 'this';
+            // otherwise return the keptExistingFragments.
+            // Assuming we return updated context:
+            return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(null));
         }
 
-        if (newFragments.size() == fragments.size()) {
-            return this;
-        }
+        // 5. Merge and Build Action
+        keptExistingFragments.addAll(fragmentsToAdd);
+        String action = actionBuilder.apply(fragmentsToAdd);
 
-        int addedCount = newFragments.size() - fragments.size();
-        String action = "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
-        return withFragments(newFragments, CompletableFuture.completedFuture(action));
+        return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(action));
     }
 
-    public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        return addVirtualFragments(List.of(fragment));
+    public Context addFragments(ContextFragment fragment) {
+        return addFragments(List.of(fragment));
     }
 
     private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
@@ -371,8 +411,9 @@ public class Context {
         return fragments.stream().filter(f -> f.getType().isPath());
     }
 
-    public Stream<ContextFragment.VirtualFragment> virtualFragments() {
-        return fragments.stream().filter(f -> f.getType().isVirtual()).map(f -> (ContextFragment.VirtualFragment) f);
+    public Stream<ContextFragment> virtualFragments() {
+        // Virtual fragments are non-path fragments
+        return fragments.stream().filter(f -> !f.getType().isPath());
     }
 
     /**
@@ -427,7 +468,7 @@ public class Context {
                 .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
 
         Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
+                .filter(f -> !f.getType().isPath() && f.getType().isEditable());
 
         return Streams.concat(
                         editableVirtuals,
@@ -612,7 +653,7 @@ public class Context {
 
         // Add virtual fragments, excluding the Task List to avoid duplication
         result.addAll(fragments.stream()
-                .filter(f -> f.getType().isVirtual())
+                .filter(f -> !f.getType().isPath())
                 .filter(f -> taskListFragment.isEmpty()
                         || !f.id().equals(taskListFragment.get().id()))
                 .toList());
@@ -877,184 +918,180 @@ public class Context {
             return other;
         }
 
-        var combined = addPathFragments(other.fileFragments()
-                .map(cf -> (ContextFragment.PathFragment) cf)
-                .toList());
-        combined = combined.addVirtualFragments(other.virtualFragments().toList());
-        return combined;
+        return this.addFragments(other.allFragments().toList());
     }
 
     /**
-     * Adds class definitions (CodeFragments) to the context for the given FQCNs.
-     * Skips classes whose source files are already in the workspace as ProjectPathFragments.
-     *
-     * @param context    the current context
-     * @param classNames fully qualified class names to add
-     * @param analyzer   the code analyzer
-     * @return a new context with the added class fragments
-     */
+         * Adds class definitions (CodeFragments) to the context for the given FQCNs.
+         * Skips classes whose source files are already in the workspace as ProjectPathFragments.
+         *
+         * @param context    the current context
+         * @param classNames fully qualified class names to add
+         * @param analyzer   the code analyzer
+         * @return a new context with the added class fragments
+         */
     public static Context withAddedClasses(Context context, List<String> classNames, IAnalyzer analyzer) {
-        if (classNames.isEmpty()) {
-            return context;
-        }
+                        if (classNames.isEmpty()) {
+                                            return context;
+                        }
 
-        var liveContext = context;
-        var workspaceFiles = liveContext
-                .fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
-                .collect(Collectors.toSet());
+                        var liveContext = context;
+                        var workspaceFiles = liveContext
+                                                                .fileFragments()
+                                                                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                                                                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                                                                .map(ContextFragment.ProjectPathFragment::file)
+                                                                .collect(Collectors.toSet());
 
-        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
-        for (String className : classNames.stream().distinct().toList()) {
-            if (className.isBlank()) {
-                continue;
-            }
-            var cuOpt = analyzer.getDefinitions(className).stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var codeUnit = cuOpt.get();
-                // Skip if the source file is already in workspace as a ProjectPathFragment
-                if (!workspaceFiles.contains(codeUnit.source())) {
-                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
-                }
-            } else {
-                logger.warn("Could not find definition for class: {}", className);
-            }
-        }
+                        var toAdd = new ArrayList<ContextFragment>();
+                        for (String className : classNames.stream().distinct().toList()) {
+                                            if (className.isBlank()) {
+                                                                continue;
+                                            }
+                                            var cuOpt = analyzer.getDefinitions(className).stream()
+                                                                                    .filter(CodeUnit::isClass)
+                                                                                    .findFirst();
+                                            if (cuOpt.isPresent()) {
+                                                                var codeUnit = cuOpt.get();
+                                                                // Skip if the source file is already in workspace as a ProjectPathFragment
+                                                                if (!workspaceFiles.contains(codeUnit.source())) {
+                                                                                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                                                                }
+                                            } else {
+                                                                logger.warn("Could not find definition for class: {}", className);
+                                            }
+                        }
 
-        return toAdd.isEmpty() ? context : liveContext.addVirtualFragments(toAdd);
+                        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
     }
 
     /**
-     * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
-     *
-     * @param context    the current context
-     * @param classNames fully qualified class names to summarize
-     * @return a new context with the added summary fragments
-     */
+         * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
+         *
+         * @param context    the current context
+         * @param classNames fully qualified class names to summarize
+         * @return a new context with the added summary fragments
+         */
     public static Context withAddedClassSummaries(Context context, List<String> classNames) {
-        if (classNames.isEmpty()) {
-            return context;
-        }
+                        if (classNames.isEmpty()) {
+                                            return context;
+                        }
 
-        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
-        for (String name : classNames.stream().distinct().toList()) {
-            if (name.isBlank()) {
-                continue;
-            }
-            toAdd.add(new ContextFragment.SummaryFragment(
-                    context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
-        }
+                        var toAdd = new ArrayList<ContextFragment>();
+                        for (String name : classNames.stream().distinct().toList()) {
+                                            if (name.isBlank()) {
+                                                                continue;
+                                            }
+                                            toAdd.add(new ContextFragment.SummaryFragment(
+                                                                                    context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
+                        }
 
-        return toAdd.isEmpty() ? context : context.addVirtualFragments(toAdd);
+                        return toAdd.isEmpty() ? context : context.addFragments(toAdd);
     }
 
     /**
-     * Adds file summary fragments for all classes in the given file paths (with glob support).
-     *
-     * @param context   the current context
-     * @param filePaths file paths relative to project root; supports glob patterns
-     * @param project   the project for path resolution
-     * @return a new context with the added file summary fragments
-     */
+         * Adds file summary fragments for all classes in the given file paths (with glob support).
+         *
+         * @param context   the current context
+         * @param filePaths file paths relative to project root; supports glob patterns
+         * @param project   the project for path resolution
+         * @return a new context with the added file summary fragments
+         */
     public static Context withAddedFileSummaries(Context context, List<String> filePaths, AbstractProject project) {
-        if (filePaths.isEmpty()) {
-            return context;
-        }
+                        if (filePaths.isEmpty()) {
+                                            return context;
+                        }
 
-        var resolvedFilePaths = filePaths.stream()
-                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .map(ProjectFile::toString)
-                .distinct()
-                .toList();
+                        var resolvedFilePaths = filePaths.stream()
+                                                                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                                                                .filter(ProjectFile.class::isInstance)
+                                                                .map(ProjectFile.class::cast)
+                                                                .map(ProjectFile::toString)
+                                                                .distinct()
+                                                                .toList();
 
-        if (resolvedFilePaths.isEmpty()) {
-            return context;
-        }
+                        if (resolvedFilePaths.isEmpty()) {
+                                            return context;
+                        }
 
-        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
-        for (String path : resolvedFilePaths) {
-            toAdd.add(new ContextFragment.SummaryFragment(
-                    context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
-        }
+                        var toAdd = new ArrayList<ContextFragment>();
+                        for (String path : resolvedFilePaths) {
+                                            toAdd.add(new ContextFragment.SummaryFragment(
+                                                                                    context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
+                        }
 
-        return context.addVirtualFragments(toAdd);
+                        return context.addFragments(toAdd);
     }
 
     /**
-     * Adds method source code fragments for the given FQ method names.
-     * Skips methods whose source files are already in the workspace.
-     *
-     * @param context     the current context
-     * @param methodNames fully qualified method names to add sources for
-     * @param analyzer    the code analyzer
-     * @return a new context with the added method fragments
-     */
+         * Adds method source code fragments for the given FQ method names.
+         * Skips methods whose source files are already in the workspace.
+         *
+         * @param context     the current context
+         * @param methodNames fully qualified method names to add sources for
+         * @param analyzer    the code analyzer
+         * @return a new context with the added method fragments
+         */
     public static Context withAddedMethodSources(Context context, List<String> methodNames, IAnalyzer analyzer) {
-        if (methodNames.isEmpty()) {
-            return context;
-        }
+                        if (methodNames.isEmpty()) {
+                                            return context;
+                        }
 
-        var liveContext = context;
-        var workspaceFiles = liveContext
-                .fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
-                .collect(Collectors.toSet());
+                        var liveContext = context;
+                        var workspaceFiles = liveContext
+                                                                .fileFragments()
+                                                                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                                                                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                                                                .map(ContextFragment.ProjectPathFragment::file)
+                                                                .collect(Collectors.toSet());
 
-        var toAdd = new ArrayList<ContextFragment.VirtualFragment>();
-        for (String methodName : methodNames.stream().distinct().toList()) {
-            if (methodName.isBlank()) {
-                continue;
-            }
-            var cuOpt = analyzer.getDefinitions(methodName).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-            if (cuOpt.isPresent()) {
-                var codeUnit = cuOpt.get();
-                // Skip if the source file is already in workspace as a ProjectPathFragment
-                if (!workspaceFiles.contains(codeUnit.source())) {
-                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
-                }
-            } else {
-                logger.warn("Could not find method definition for: {}", methodName);
-            }
-        }
+                        var toAdd = new ArrayList<ContextFragment>();
+                        for (String methodName : methodNames.stream().distinct().toList()) {
+                                            if (methodName.isBlank()) {
+                                                                continue;
+                                            }
+                                            var cuOpt = analyzer.getDefinitions(methodName).stream()
+                                                                                    .filter(CodeUnit::isFunction)
+                                                                                    .findFirst();
+                                            if (cuOpt.isPresent()) {
+                                                                var codeUnit = cuOpt.get();
+                                                                // Skip if the source file is already in workspace as a ProjectPathFragment
+                                                                if (!workspaceFiles.contains(codeUnit.source())) {
+                                                                                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                                                                }
+                                            } else {
+                                                                logger.warn("Could not find method definition for: {}", methodName);
+                                            }
+                        }
 
-        return toAdd.isEmpty() ? context : liveContext.addVirtualFragments(toAdd);
+                        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
     }
 
     /**
-     * Adds a URL content fragment to the context by fetching and converting to Markdown.
-     *
-     * @param context   the current context
-     * @param urlString the URL to fetch
-     * @return a new context with the added URL fragment
-     * @throws IOException        if fetching or processing fails
-     * @throws URISyntaxException if the URL string is malformed
-     */
+         * Adds a URL content fragment to the context by fetching and converting to Markdown.
+         *
+         * @param context   the current context
+         * @param urlString the URL to fetch
+         * @return a new context with the added URL fragment
+         * @throws IOException        if fetching or processing fails
+         * @throws URISyntaxException if the URL string is malformed
+         */
     public static Context withAddedUrlContent(Context context, String urlString)
-            throws IOException, URISyntaxException {
-        if (urlString.isBlank()) {
-            return context;
-        }
+                                            throws IOException, URISyntaxException {
+                        if (urlString.isBlank()) {
+                                            return context;
+                        }
 
-        var content = WorkspaceTools.fetchUrlContent(new URI(urlString));
-        content = HtmlToMarkdown.maybeConvertToMarkdown(content);
+                        var content = WorkspaceTools.fetchUrlContent(new URI(urlString));
+                        content = HtmlToMarkdown.maybeConvertToMarkdown(content);
 
-        if (content.isBlank()) {
-            return context;
-        }
+                        if (content.isBlank()) {
+                                            return context;
+                        }
 
-        var fragment = new ContextFragment.StringFragment(
-                context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
-        return context.addVirtualFragment(fragment);
+                        var fragment = new ContextFragment.StringFragment(
+                                                                context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
+                        return context.addFragments(fragment);
     }
 
     /**
@@ -1064,7 +1101,7 @@ public class Context {
     @Blocking
     public String getBuildError() {
         return getBuildFragment()
-                .map(ContextFragment.VirtualFragment::text)
+                .map(ContextFragment::text)
                 .map(ComputedValue::join)
                 .orElse("");
     }
@@ -1282,7 +1319,8 @@ public class Context {
         for (var fragment : this.allFragments().toList()) {
             ContextFragment.getFragmentExecutor().submit(() -> {
                 try {
-                    fragment.snapshot(timeout);
+                    fragment.snapshot().start();
+                    fragment.snapshot().await(timeout); // best-effort bounded await
                 } catch (Exception e) {
                     logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
                 }
