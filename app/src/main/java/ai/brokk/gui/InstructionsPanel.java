@@ -3036,11 +3036,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             addActionListener(e -> {
                 // Capture original text BEFORE wand action modifies the area
                 capturedOriginalText = promptSupplier.get();
-                // Disable undo listener before streaming starts (only if prompt is valid)
-                // This prevents intermediate streaming edits from polluting the undo stack
-                if (!capturedOriginalText.isBlank()) {
-                    disableUndoListener.run();
-                }
+                // Disable undo listener before streaming starts to prevent intermediate
+                // streaming edits from polluting the undo stack
+                disableUndoListener.run();
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
             });
