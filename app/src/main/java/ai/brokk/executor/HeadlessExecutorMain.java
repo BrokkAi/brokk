@@ -489,6 +489,9 @@ public final class HeadlessExecutorMain {
             var sessionId = contextManager.getCurrentSessionId();
             logger.info("Created new session: {} ({})", sessionName, sessionId);
 
+            System.out.println("Session created: " + sessionId + " (" + sessionName + ")");
+            System.out.println("Executor ready to accept requests.");
+
             sessionLoaded = true;
 
             var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
@@ -588,6 +591,9 @@ public final class HeadlessExecutorMain {
         } catch (TimeoutException e) {
             logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
         }
+
+        System.out.println("Session imported: " + sessionId);
+        System.out.println("Executor ready to accept requests.");
 
         // Mark executor as ready to serve requests that require a session.
         sessionLoaded = true;
@@ -1331,25 +1337,49 @@ public final class HeadlessExecutorMain {
                     workspaceDir,
                     derivedSessionsDir);
 
+            // Print startup banner and config summary to console
+            System.out.println();
+            System.out.println("Brokk Headless Executor starting...");
+            System.out.println("  execId:      " + execId);
+            System.out.println("  listenAddr:  " + listenAddr);
+            System.out.println("  workspaceDir: " + workspaceDir);
+            System.out.println();
+            System.out.println("Health check endpoints (no auth required):");
+            System.out.println("  GET /health/live  - executor liveness probe");
+            System.out.println("  GET /health/ready - returns 503 until a session is loaded");
+            System.out.println();
+
             // Create and start executor
             var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
             executor.start();
+
+            // Print effective bind address and curl example after server starts
+            var boundPort = executor.getPort();
+            var listenParts = Splitter.on(':').splitToList(listenAddr);
+            var boundHost = listenParts.get(0);
+            System.out.println("Executor listening on http://" + boundHost + ":" + boundPort);
+            System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
+            System.out.println();
 
             // Add shutdown hook
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
+                                System.out.println();
+                                System.out.println("Shutting down Brokk Headless Executor...");
                                 logger.info("Shutdown signal received, stopping executor");
                                 executor.stop(5);
+                                System.out.println("Executor stopped.");
                             },
                             "HeadlessExecutor-ShutdownHook"));
-
             logger.info("HeadlessExecutorMain is running");
             Thread.currentThread().join(); // Keep the main thread alive
         } catch (InterruptedException e) {
+            System.out.println("HeadlessExecutorMain interrupted: " + e.getMessage());
             logger.info("HeadlessExecutorMain interrupted", e);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
+            System.out.println("Fatal error starting HeadlessExecutorMain: " + e.getMessage());
             logger.error("Fatal error in HeadlessExecutorMain", e);
             System.exit(1);
         }
