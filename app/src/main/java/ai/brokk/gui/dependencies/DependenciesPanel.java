@@ -87,7 +87,7 @@ public final class DependenciesPanel extends JPanel {
      * Represents the state of a dependency's "Live" checkbox in the table.
      * Provides type safety instead of mixing Boolean and String values.
      */
-    public enum LiveState {
+    private enum LiveState {
         LIVE("Live"),
         NOT_LIVE(""),
         ENABLING("Loading..."),
@@ -179,8 +179,6 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private class LiveStateCellEditor extends DefaultCellEditor {
-        private LiveState currentState;
-
         public LiveStateCellEditor() {
             super(new JCheckBox());
             var cb = (JCheckBox) getComponent();
@@ -189,9 +187,9 @@ public final class DependenciesPanel extends JPanel {
 
         @Override
         public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            currentState = (value instanceof LiveState state) ? state : LiveState.NOT_LIVE;
-            var cb = (JCheckBox) super.getTableCellEditorComponent(table, currentState == LiveState.LIVE, isSelected, row, column);
-            cb.setSelected(currentState == LiveState.LIVE);
+            var state = (value instanceof LiveState s) ? s : LiveState.NOT_LIVE;
+            var cb = (JCheckBox) super.getTableCellEditorComponent(table, state == LiveState.LIVE, isSelected, row, column);
+            cb.setSelected(state == LiveState.LIVE);
             return cb;
         }
 
@@ -756,7 +754,8 @@ public final class DependenciesPanel extends JPanel {
         table.setRowSelectionInterval(viewRow, viewRow);
         int modelRow = table.convertRowIndexToModel(viewRow);
 
-        boolean isLive = Boolean.TRUE.equals(tableModel.getValueAt(modelRow, 0));
+        var state = tableModel.getValueAt(modelRow, 0);
+        boolean isLive = state instanceof LiveState ls && ls == LiveState.LIVE;
 
         var menu = new JPopupMenu();
         var summarizeItem = new JMenuItem("Summarize All Files");
@@ -776,7 +775,8 @@ public final class DependenciesPanel extends JPanel {
             return;
         }
         // Only allow summarizing for Live dependencies
-        if (!Boolean.TRUE.equals(tableModel.getValueAt(modelRow, 0))) {
+        var liveState = tableModel.getValueAt(modelRow, 0);
+        if (!(liveState instanceof LiveState ls && ls == LiveState.LIVE)) {
             return;
         }
 

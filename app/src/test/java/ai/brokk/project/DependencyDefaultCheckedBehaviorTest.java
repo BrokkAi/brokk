@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
@@ -265,28 +264,9 @@ class DependencyDefaultCheckedBehaviorTest {
      * models what happens when `DependencyLifecycleListener.dependencyImportFinished()` is called
      * and the UI reloads.
      */
-    private void simulateDependencyImport(AbstractProject project, String depName) throws IOException {
-        // Get current live dependencies
-        Set<IProject.Dependency> currentLiveDeps = project.getLiveDependencies();
-        Set<Path> liveDependencyTopLevelDirs = new HashSet<>();
-
-        // Add all currently live dependencies
-        for (var dep : currentLiveDeps) {
-            liveDependencyTopLevelDirs.add(dep.root().absPath());
-        }
-
-        // Add the newly imported dependency directory
-        Path newDepDir = project.getMasterRootPathForConfig()
-                .resolve(AbstractProject.BROKK_DIR)
-                .resolve(AbstractProject.DEPENDENCIES_DIR)
-                .resolve(depName);
-        liveDependencyTopLevelDirs.add(newDepDir);
-
-        // Persist the updated live set (this is what dependencyImportFinished does)
-        project.saveLiveDependencies(liveDependencyTopLevelDirs);
-
-        // Invalidate caches to force reload
-        project.invalidateAllFiles();
+    private void simulateDependencyImport(AbstractProject project, String depName) {
+        // Use the project layer's addLiveDependency (null analyzer = persistence only, CLI-friendly)
+        project.addLiveDependency(depName, null).join();
     }
 
     /**
