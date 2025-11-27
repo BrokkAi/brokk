@@ -1562,21 +1562,36 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     snapshotText != null
-                            ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8), contextManager.getAnalyzerUninterrupted())
                             : null);
             this.fullyQualifiedName = fullyQualifiedName;
             primeComputations();
         }
 
-        private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes) {
+        private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Source for " + fullyQualifiedName;
-            return new FragmentSnapshot(desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE);
+            String syntax = SyntaxConstants.SYNTAX_STYLE_NONE;
+            Set<CodeUnit> units = Set.of();
+            Set<ProjectFile> files = Set.of();
+            try {
+                var unit = analyzer.getDefinitions(fullyQualifiedName).stream()
+                        .findFirst()
+                        .orElseThrow();
+                units = Set.of(unit);
+                var file = unit.source();
+                files = Set.of(file);
+                syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+            } catch (IllegalArgumentException e) {
+                logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
+            }
+
+            return new FragmentSnapshot(desc, fullyQualifiedName, text, syntax, units, files, (List<Byte>) null);
         }
 
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(fullyQualifiedName, bytes);
+            return decodeFrozen(fullyQualifiedName, bytes, getAnalyzer());
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -1630,8 +1645,8 @@ public interface ContextFragment {
             }
 
             return new FragmentSnapshot(
-                    "Source for " + unit.shortName(),
-                    unit.shortName(),
+                    "Source for " + unit.fqName(),
+                    unit.fqName(),
                     text,
                     unit.source().getSyntaxStyle(),
                     Set.of(unit),

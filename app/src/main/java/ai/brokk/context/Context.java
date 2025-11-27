@@ -1290,16 +1290,8 @@ public class Context {
     @TestOnly
     public void awaitContextsAreComputed(Duration timeout) {
         for (var fragment : this.allFragments().toList()) {
-            fragment.description().await(timeout);
-            fragment.syntaxStyle().await(timeout);
-            fragment.text().await(timeout);
-            fragment.files().await(timeout);
-            // Only await image bytes for non-path fragments (e.g., paste images).
-            if (!(fragment instanceof ContextFragment.PathFragment)) {
-                var futureBytes = fragment.imageBytes();
-                if (futureBytes != null) {
-                    futureBytes.await(timeout);
-                }
+            if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
+                cf.snapshot().await(timeout);
             }
         }
     }
