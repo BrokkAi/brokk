@@ -17,6 +17,7 @@ import ai.brokk.util.HistoryIo.ContentReader;
 import ai.brokk.util.HistoryIo.ContentWriter;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
+import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -62,7 +63,10 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
-        // Virtual fragments have been removed from the DTO; only editable fragments are listed explicitly.
+        var virtualFragments = dto.virtuals().stream()
+                .map(fragmentCache::get)
+                .filter(Objects::nonNull)
+                .toList();
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
@@ -115,7 +119,8 @@ public class DtoMapper {
         var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
-        var combined = editableFragments;
+        var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
+                .toList();
 
         UUID groupUuid = null;
         if (dto.groupId() != null && !dto.groupId().isEmpty()) {
@@ -158,6 +163,7 @@ public class DtoMapper {
                 .toList();
 
         var editableIds = ctx.fileFragments().map(ContextFragment::id).toList();
+        var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
 
@@ -165,6 +171,7 @@ public class DtoMapper {
                 ctx.id().toString(),
                 editableIds,
                 readonlyIds,
+                virtualIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
                 action,

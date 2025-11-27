@@ -325,6 +325,7 @@ public class FragmentDtos {
             @Nullable String id, // may be null when loading V1
             List<String> editable,
             List<String> readonly,
+            List<String> virtuals,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
             String action,
@@ -334,6 +335,7 @@ public class FragmentDtos {
             // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
+            virtuals = List.copyOf(virtuals);
             tasks = List.copyOf(tasks);
         }
     }

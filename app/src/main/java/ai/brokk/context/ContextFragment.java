@@ -525,7 +525,7 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<String> format() {
-            return derived("format", s -> formatTemplate(s));
+            return derived("format", this::formatTemplate);
         }
 
         protected String formatTemplate(FragmentSnapshot s) {
@@ -686,6 +686,7 @@ public interface ContextFragment {
             try {
                 sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
             } catch (Throwable t) {
+                logger.error("Failed to analyze declarations for file {}, sources will be empty", name, t);
                 sources = Set.of();
             }
             return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
@@ -748,6 +749,11 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             return new ProjectPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            return PathFragment.super.hasSameSource(other);
         }
 
         @Override
@@ -933,6 +939,11 @@ public interface ContextFragment {
             return new ExternalPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            return PathFragment.super.hasSameSource(other);
+        }
     }
 
     final class ImageFileFragment extends AbstractComputedFragment implements PathFragment, ImageFragment {
@@ -1036,6 +1047,11 @@ public interface ContextFragment {
         public ContextFragment refreshCopy() {
             return new ImageFileFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        @Override
+        public boolean hasSameSource(ContextFragment other) {
+            return PathFragment.super.hasSameSource(other);
         }
 
         @Override
