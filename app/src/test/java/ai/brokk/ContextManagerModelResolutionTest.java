@@ -73,13 +73,14 @@ class ContextManagerModelResolutionTest {
         }
 
         @Override
-        public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
-                throws IOException {
+        public JsonNode reportClientException(
+                String stacktrace, String clientVersion, Map<String, String> optionalFields) throws IOException {
             return new ObjectMapper().createObjectNode();
         }
 
         @Override
-        public StreamingChatModel getModel(ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+        public StreamingChatModel getModel(
+                ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
             StreamingChatModel m = primary.get();
             if (m != null) {
                 return m;
@@ -185,6 +186,8 @@ class ContextManagerModelResolutionTest {
         ModelConfig cfg = new ModelConfig("missing-model", Service.ReasoningLevel.DEFAULT);
 
         StreamingChatModel resolved = cm.getModelOrDefault(cfg, "code");
-        assertNotNull(resolved, "getModelOrDefault should fall back to the UnavailableStreamingModel when service returns null");
+        assertNotNull(
+                resolved,
+                "getModelOrDefault should fall back to the UnavailableStreamingModel when service returns null");
     }
 }

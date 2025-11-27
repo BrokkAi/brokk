@@ -1495,55 +1495,55 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel) {
-         var cm = chrome.getContextManager();
-         var models = cm.getService();
+        var cm = chrome.getContextManager();
+        var models = cm.getService();
 
-         // Pre-check: is the LLM service online?
-         if (!models.isOnline()) {
-              logger.warn(
-                        "LLM service offline for action '{}': service online=false, contextHasImages={}",
-                        actionLabel,
-                        contextHasImages());
-              logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
-              chrome.toolError("LLM service is offline; please check your connection or key.");
-              return null;
-         }
+        // Pre-check: is the LLM service online?
+        if (!models.isOnline()) {
+            logger.warn(
+                    "LLM service offline for action '{}': service online=false, contextHasImages={}",
+                    actionLabel,
+                    contextHasImages());
+            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
+            chrome.toolError("LLM service is offline; please check your connection or key.");
+            return null;
+        }
 
-         Service.ModelConfig config;
-         try {
-              config = modelSelector.getModel();
-         } catch (IllegalStateException e) {
-              logger.warn(
-                        "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
-                        actionLabel,
-                        e.getMessage(),
-                        contextHasImages(),
-                        models.isOnline());
-              chrome.toolError("Please finish configuring your custom model or select a favorite first.");
-              return null;
-         }
+        Service.ModelConfig config;
+        try {
+            config = modelSelector.getModel();
+        } catch (IllegalStateException e) {
+            logger.warn(
+                    "Custom model misconfigured for action '{}': {}; contextHasImages={}, service online={}",
+                    actionLabel,
+                    e.getMessage(),
+                    contextHasImages(),
+                    models.isOnline());
+            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
+            return null;
+        }
 
-         // Use ContextManager-aware resolution so centralized fallbacks are applied
-         var selectedModel = cm.getModelOrDefault(config, "Selected");
+        // Use ContextManager-aware resolution so centralized fallbacks are applied
+        var selectedModel = cm.getModelOrDefault(config, "Selected");
 
-         if (selectedModel == null) {
-              chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
-                        + config.reasoning());
-              return null;
-         }
+        if (selectedModel == null) {
+            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
+                    + config.reasoning());
+            return null;
+        }
 
-         boolean hasImages = contextHasImages();
-         if (hasImages && !models.supportsVision(selectedModel)) {
-              logger.debug(
-                        "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
-                        actionLabel,
-                        models.nameOf(selectedModel),
-                        models.isOnline());
-              showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
-              return null;
-         }
+        boolean hasImages = contextHasImages();
+        if (hasImages && !models.supportsVision(selectedModel)) {
+            logger.debug(
+                    "Vision support missing for action '{}': model='{}', contextHasImages=true, supportsVision=false, service online={}",
+                    actionLabel,
+                    models.nameOf(selectedModel),
+                    models.isOnline());
+            showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
+            return null;
+        }
 
-         return selectedModel;
+        return selectedModel;
     }
 
     // --- Public API ---

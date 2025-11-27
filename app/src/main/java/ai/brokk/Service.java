@@ -100,7 +100,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         // Quickest model: use QUICKEST config with temperature forced to 0.0; fall back to UnavailableStreamingModel.
         try {
             var quickestCfg = mainProject.getQuickestModelConfig();
-            var qqm = getModel(quickestCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
+            var qqm =
+                    getModel(quickestCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
             quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
         } catch (Exception e) {
             LogManager.getLogger(Service.class)

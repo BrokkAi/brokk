@@ -267,21 +267,21 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public String nameOf(StreamingChatModel model) {
-                    return modelLocations.entrySet().stream()
-                                                    .filter(entry -> {
-                                                                    try {
-                                                                                    var params = model.defaultRequestParameters();
-                                                                                    String loc = (params == null) ? null : params.modelName();
-                                                                                    return Objects.equals(entry.getValue(), loc);
-                                                                    } catch (Exception ignored) {
-                                                                                    // Some test doubles or third-party implementations may throw;
-                                                                                    // in that case treat the model location as unknown (null).
-                                                                                    return Objects.equals(entry.getValue(), null);
-                                                                    }
-                                                    })
-                                                    .map(Map.Entry::getKey)
-                                                    .findFirst()
-                                                    .orElse(UNAVAILABLE);
+        return modelLocations.entrySet().stream()
+                .filter(entry -> {
+                    try {
+                        var params = model.defaultRequestParameters();
+                        String loc = (params == null) ? null : params.modelName();
+                        return Objects.equals(entry.getValue(), loc);
+                    } catch (Exception ignored) {
+                        // Some test doubles or third-party implementations may throw;
+                        // in that case treat the model location as unknown (null).
+                        return Objects.equals(entry.getValue(), null);
+                    }
+                })
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(UNAVAILABLE);
     }
 
     /**
@@ -455,7 +455,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (config.tier != ProcessingTier.DEFAULT) {
             builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
         }
-        params = config.name.startsWith("grok") ? params.maxOutputTokens(getMaxOutputTokens(location)) : params.maxCompletionTokens(getMaxOutputTokens(location));
+        params = config.name.startsWith("grok")
+                ? params.maxOutputTokens(getMaxOutputTokens(location))
+                : params.maxCompletionTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             builder = builder.apiKey("dummy-key");
