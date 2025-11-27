@@ -1568,4 +1568,74 @@ public final class PythonAnalyzerTest {
 
         project.close();
     }
+
+    @Test
+    void testCrossModuleClassNameCollisions() throws Exception {
+        // Test that two modules in the same package with identically-named classes
+        // get distinct FQNs and can be looked up correctly
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
+                .addFileContents(
+                        """
+                        class C:
+                            def method_a(self):
+                                pass
+                        """,
+                        "pkg/a.py")
+                .addFileContents(
+                        """
+                        class C:
+                            def method_b(self):
+                                pass
+                        """,
+                        "pkg/b.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+
+            // === FQNs should be distinct ===
+            var allClasses = testAnalyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(cu -> cu.identifier().equals("C"))
+                    .collect(Collectors.toList());
+
+            assertEquals(2, allClasses.size(), "Should find 2 classes named 'C'");
+
+            var fqNames = allClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+            assertTrue(fqNames.contains("pkg.a$C"), "Should have pkg.a$C");
+            assertTrue(fqNames.contains("pkg.b$C"), "Should have pkg.b$C");
+
+            // === getDefinitions with full FQN should return exactly one ===
+            var defsA = testAnalyzer.getDefinitions("pkg.a$C");
+            assertEquals(1, defsA.size(), "getDefinitions('pkg.a$C') should return exactly 1 result");
+            assertEquals("pkg.a$C", defsA.iterator().next().fqName());
+
+            var defsB = testAnalyzer.getDefinitions("pkg.b$C");
+            assertEquals(1, defsB.size(), "getDefinitions('pkg.b$C') should return exactly 1 result");
+            assertEquals("pkg.b$C", defsB.iterator().next().fqName());
+
+            // === Verify both classes can be found by identifier from getAllDeclarations ===
+            // Note: getDefinitions requires exact FQN, so simple name "C" won't work
+            // But getAllDeclarations + filter by identifier confirms both exist and are distinct
+            var allCClasses = testAnalyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(cu -> cu.identifier().equals("C"))
+                    .collect(Collectors.toList());
+            assertEquals(2, allCClasses.size(), "Should find both classes with identifier 'C'");
+            assertTrue(
+                    allCClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet())
+                            .containsAll(Set.of("pkg.a$C", "pkg.b$C")),
+                    "Both FQNs should be present");
+
+            // === Methods should be distinct too ===
+            var methodA = testAnalyzer.getDefinitions("pkg.a$C.method_a");
+            assertEquals(1, methodA.size(), "Should find method_a in pkg.a$C");
+
+            var methodB = testAnalyzer.getDefinitions("pkg.b$C.method_b");
+            assertEquals(1, methodB.size(), "Should find method_b in pkg.b$C");
+
+            // method_a should NOT exist in pkg.b$C
+            var wrongMethod = testAnalyzer.getDefinitions("pkg.b$C.method_a");
+            assertEquals(0, wrongMethod.size(), "method_a should not exist in pkg.b$C");
+        }
+    }
 }

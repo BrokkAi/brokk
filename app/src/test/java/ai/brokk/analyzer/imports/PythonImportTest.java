@@ -635,4 +635,131 @@ public class PythonImportTest {
             assertTrue(importedNames.contains("module_function"), "Should import module_function from wildcard");
         }
     }
+
+    @Test
+    public void testSamePackageModuleCollisionWithImports() throws IOException {
+        // Test: Two modules in the same package both define class 'C'
+        // Validates that "last import wins" correctly resolves ambiguity
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
+                .addFileContents(
+                        """
+                        class C:
+                            '''Class C from module a'''
+                            pass
+
+                        class OnlyInA:
+                            pass
+                        """,
+                        "pkg/a.py")
+                .addFileContents(
+                        """
+                        class C:
+                            '''Class C from module b'''
+                            pass
+
+                        class OnlyInB:
+                            pass
+                        """,
+                        "pkg/b.py");
+
+        // Case 1: Explicit import from a, then wildcard from b - b wins for C
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg.a import C        # explicit import from a
+                        from pkg.b import *        # wildcard from b - should shadow C
+
+                        class Consumer1:
+                            pass
+                        """,
+                        "consumer1.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer1$Consumer1").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var cImports = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("C"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
+            assertEquals(
+                    "pkg.b$C",
+                    cImports.getFirst().fqName(),
+                    "Wildcard from b should shadow explicit import from a");
+
+            // OnlyInA should still be imported (explicit) - wait, it wasn't imported
+            // OnlyInB should be imported via wildcard
+            assertTrue(
+                    resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInB")),
+                    "OnlyInB should be imported via wildcard from b");
+        }
+
+        // Case 2: Wildcard from a, then explicit from b - b wins for C
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg.a import *        # wildcard from a
+                        from pkg.b import C        # explicit from b - should shadow C
+
+                        class Consumer2:
+                            pass
+                        """,
+                        "consumer2.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer2$Consumer2").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var cImports = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("C"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
+            assertEquals(
+                    "pkg.b$C",
+                    cImports.getFirst().fqName(),
+                    "Explicit from b should shadow wildcard from a");
+
+            // OnlyInA should be imported via wildcard from a
+            assertTrue(
+                    resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInA")),
+                    "OnlyInA should be imported via wildcard from a");
+        }
+
+        // Case 3: Both wildcards - last wins
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg.a import *        # wildcard from a (first)
+                        from pkg.b import *        # wildcard from b (second - wins)
+
+                        class Consumer3:
+                            pass
+                        """,
+                        "consumer3.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer3$Consumer3").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var cImports = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("C"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
+            assertEquals(
+                    "pkg.b$C",
+                    cImports.getFirst().fqName(),
+                    "Second wildcard from b should shadow first wildcard from a");
+
+            // Both OnlyInA and OnlyInB should be imported (no collision)
+            assertTrue(
+                    resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInA")),
+                    "OnlyInA should be imported via wildcard from a");
+            assertTrue(
+                    resolvedImports.stream().anyMatch(cu -> cu.identifier().equals("OnlyInB")),
+                    "OnlyInB should be imported via wildcard from b");
+        }
+    }
 }
