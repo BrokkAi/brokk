@@ -622,13 +622,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 //   - Look for Class in file package/module.py or package/__init__.py
                                 //   - The FQN will be package.Class, not package.module.Class
 
-                                // Try to find the class in the module file
+                                // Try to find the symbol in the module file
                                 var moduleFile = resolveModuleFile(currentModule);
                                 if (moduleFile != null) {
                                     try {
                                         var decls = getDeclarations(moduleFile);
                                         decls.stream()
-                                                .filter(cu -> cu.identifier().equals(text) && cu.isClass())
+                                                .filter(cu -> cu.identifier().equals(text)
+                                                        && (cu.isClass() || cu.isFunction()))
                                                 .findFirst()
                                                 .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                     } catch (Exception e) {
@@ -645,7 +646,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 // For "import X" style (no module context)
                                 var definitions = getDefinitions(text);
                                 definitions.stream()
-                                        .filter(CodeUnit::isClass)
+                                        .filter(cu -> cu.isClass() || cu.isFunction())
                                         .findFirst()
                                         .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                             }
