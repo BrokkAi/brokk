@@ -639,15 +639,8 @@ public class ArchitectAgent {
                     throw new InterruptedException();
                 }
 
-                // Post-batch message
-                if (currentBatchSize > 1) {
-                    io.llmOutput(
-                            "All " + currentBatchSize + " SearchAgents are finished. " + failedCount
-                                    + " Searches failed",
-                            ChatMessageType.AI,
-                            true,
-                            false);
-                }
+                // Post-batch message with workspace merge summary
+                printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
 
                 // Build the final history entry using the full transcript
                 List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
@@ -760,6 +753,44 @@ public class ArchitectAgent {
             case "addUrlContentsToWorkspace" -> 5;
             default -> 7; // all other tools have lowest priority
         };
+    }
+
+    /**
+     * Prints a concise summary after a batch of SearchAgents complete, including whether Workspace changed.
+     * Only prints when batchSize > 1 to avoid noisy UX for single searches.
+     */
+    private void printSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
+        if (batchSize <= 1) {
+            return;
+        }
+
+        var baseFrags = baseContext.allFragments().toList();
+        var mergedFrags = mergedContext.allFragments().toList();
+
+        int addedCount = 0;
+        for (var f : mergedFrags) {
+            boolean found = false;
+            for (var bf : baseFrags) {
+                if (bf.hasSameSource(f)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                addedCount++;
+            }
+        }
+
+        String mergeSummary = (addedCount == 0)
+                ? "No Workspace changes."
+                : "Merged results into the Workspace: added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s")
+                        + ".";
+
+        io.llmOutput(
+                "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. " + mergeSummary,
+                ChatMessageType.AI,
+                true,
+                false);
     }
 
     /**
