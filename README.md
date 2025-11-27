@@ -27,6 +27,8 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
 
 Brokk documentation is at https://brokk.ai/documentation/.
 
+- [Headless Executor CLI](docs/headless-exec-cli.md) — Command-line tool to start a local executor, create a session, submit a job, and stream results. Includes examples for ASK, CODE, ARCHITECT, and LUTZ.
+
 # Contributing
 
 Brokk uses Gradle with Scala support. To build Brokk,
