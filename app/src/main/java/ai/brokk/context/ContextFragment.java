@@ -28,7 +28,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
@@ -37,7 +36,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -80,7 +78,8 @@ public interface ContextFragment {
         STACKTRACE,
         BUILD_LOG;
 
-        private static final EnumSet<FragmentType> PATH_TYPES = EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
+        private static final EnumSet<FragmentType> PATH_TYPES =
+                EnumSet.of(PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
 
         private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(HISTORY, TASK);
 
@@ -395,15 +394,13 @@ public interface ContextFragment {
             this(id, contextManager, null);
         }
 
-        protected AbstractComputedFragment(String id, IContextManager contextManager, @Nullable FragmentSnapshot initialSnapshot) {
+        protected AbstractComputedFragment(
+                String id, IContextManager contextManager, @Nullable FragmentSnapshot initialSnapshot) {
             this.id = id;
             this.contextManager = contextManager;
             this.snapshotCv = initialSnapshot != null
                     ? ComputedValue.completed("snap-" + id, initialSnapshot)
-                    : new ComputedValue<>(
-                            "snap-" + id,
-                            this::computeSnapshot,
-                            getFragmentExecutor());
+                    : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor());
         }
 
         @Override
@@ -433,14 +430,14 @@ public interface ContextFragment {
                     syntaxStyle().renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE),
                     Set.of(),
                     Set.of(),
-                    null
-            );
+                    null);
         }
 
         protected <T> ComputedValue<T> derived(String key, java.util.function.Function<FragmentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
-            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(key, k ->
-                    new ComputedValue<>(
+            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
+                    key,
+                    k -> new ComputedValue<>(
                             id + "-" + k,
                             () -> extractor.apply(snapshotCv.future().join()),
                             getFragmentExecutor()));
@@ -449,12 +446,9 @@ public interface ContextFragment {
 
         // Helper for methods that don't come from snapshot directly or have different logic
         protected <T> ComputedValue<T> derived(String key, Supplier<T> supplier) {
-             @SuppressWarnings("unchecked")
-            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(key, k ->
-                    new ComputedValue<>(
-                            id + "-" + k,
-                            supplier,
-                            getFragmentExecutor()));
+            @SuppressWarnings("unchecked")
+            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
+                    key, k -> new ComputedValue<>(id + "-" + k, supplier, getFragmentExecutor()));
             return cv;
         }
 
@@ -504,7 +498,8 @@ public interface ContextFragment {
                     <fragment description="%s" fragmentid="%s">
                     %s
                     </fragment>
-                    """.formatted(s.description(), id(), s.text());
+                    """
+                    .formatted(s.description(), id(), s.text());
         }
 
         @Override
@@ -519,7 +514,8 @@ public interface ContextFragment {
             if (this.getClass() != other.getClass()) return false;
             // Dynamic fragments use ID or repr
             if (this instanceof DynamicIdentity) {
-                return this.repr().equals(other.repr()) && !this.repr().isEmpty() || this.id().equals(other.id());
+                return this.repr().equals(other.repr()) && !this.repr().isEmpty()
+                        || this.id().equals(other.id());
             }
             // Content hashed fragments (if any computed ones are)
             return this.id().equals(other.id());
@@ -588,7 +584,8 @@ public interface ContextFragment {
                     <fragment description="%s" fragmentid="%s">
                     %s
                     </fragment>
-                    """.formatted(s.description(), id(), s.text());
+                    """
+                    .formatted(s.description(), id(), s.text());
         }
 
         @Override
@@ -602,7 +599,7 @@ public interface ContextFragment {
             if (this.getClass() != other.getClass()) return false;
             return this.id().equals(other.id());
         }
-        
+
         @Override
         public ContextFragment refreshCopy() {
             return this;
@@ -618,7 +615,7 @@ public interface ContextFragment {
             if (!(other instanceof PathFragment op)) return false;
             return this.file().absPath().normalize().equals(op.file().absPath().normalize());
         }
-        
+
         static String formatSummary(BrokkFile file) {
             return "<file source=\"%s\" />".formatted(file);
         }
@@ -634,12 +631,13 @@ public interface ContextFragment {
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
         }
-        
+
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
-             return withId(file, existingId, contextManager, null);
+            return withId(file, existingId, contextManager, null);
         }
-        
-        public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
+
+        public static ProjectPathFragment withId(
+                ProjectFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             validateNumericId(existingId);
             return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
@@ -658,23 +656,37 @@ public interface ContextFragment {
             return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), null);
         }
 
-        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
-            super(id, contextManager, snapshotText != null ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
+        private ProjectPathFragment(
+                ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    snapshotText != null
+                            ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            : null);
             this.file = file;
             primeComputations();
         }
 
         @Override
-        public ProjectFile file() { return file; }
+        public ProjectFile file() {
+            return file;
+        }
 
         @Override
-        public FragmentType getType() { return FragmentType.PROJECT_PATH; }
+        public FragmentType getType() {
+            return FragmentType.PROJECT_PATH;
+        }
 
         @Override
-        public boolean isEligibleForAutoContext() { return false; }
-        
+        public boolean isEligibleForAutoContext() {
+            return false;
+        }
+
         @Override
-        public String repr() { return "File(['%s'])".formatted(file.toString()); }
+        public String repr() {
+            return "File(['%s'])".formatted(file.toString());
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
@@ -683,25 +695,26 @@ public interface ContextFragment {
             String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources = getAnalyzer().getDeclarations(file);
-            
+
             return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), null);
         }
-        
+
         @Override
         protected String formatTemplate(FragmentSnapshot s) {
             return """
                     <file path="%s" fragmentid="%s">
                     %s
                     </file>
-                    """.formatted(file.toString(), id(), s.text());
+                    """
+                    .formatted(file.toString(), id(), s.text());
         }
 
         @Override
         public ContextFragment refreshCopy() {
-            return new ProjectPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            return new ProjectPathFragment(
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
-        
         @Override
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
@@ -710,9 +723,16 @@ public interface ContextFragment {
 
     record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
         public GitFileFragment(ProjectFile file, String revision, String content) {
-            this(file, revision, content, FragmentUtils.calculateContentHash(FragmentType.GIT_FILE,
-                    String.format("%s @%s", file.getFileName(), revision), content,
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()), GitFileFragment.class.getName()));
+            this(
+                    file,
+                    revision,
+                    content,
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.GIT_FILE,
+                            String.format("%s @%s", file.getFileName(), revision),
+                            content,
+                            FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                            GitFileFragment.class.getName()));
         }
 
         public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
@@ -720,45 +740,60 @@ public interface ContextFragment {
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.GIT_FILE; }
+        public FragmentType getType() {
+            return FragmentType.GIT_FILE;
+        }
 
         @Override
-        public @Nullable IContextManager getContextManager() { return null; }
+        public @Nullable IContextManager getContextManager() {
+            return null;
+        }
 
         // Manually implementing CV methods as this is a record and cannot extend AbstractStaticFragment
         @Override
         public ComputedValue<String> description() {
-             var parentDir = file.getParent();
-             var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
-             return ComputedValue.completed("gff-desc-" + id, parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir));
+            var parentDir = file.getParent();
+            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
+            return ComputedValue.completed(
+                    "gff-desc-" + id,
+                    parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir));
         }
 
         @Override
         public ComputedValue<String> shortDescription() {
             return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file.getFileName(), revision));
         }
-        
+
         @Override
-        public ComputedValue<String> text() { return ComputedValue.completed("gff-text-" + id, content); }
-        
+        public ComputedValue<String> text() {
+            return ComputedValue.completed("gff-text-" + id, content);
+        }
+
         @Override
-        public ComputedValue<Set<CodeUnit>> sources() { return ComputedValue.completed(Set.of()); }
-        
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return ComputedValue.completed(Set.of());
+        }
+
         @Override
-        public ComputedValue<Set<ProjectFile>> files() { return ComputedValue.completed(Set.of()); }
-        
+        public ComputedValue<Set<ProjectFile>> files() {
+            return ComputedValue.completed(Set.of());
+        }
+
         @Override
-        public ComputedValue<String> syntaxStyle() { 
-            return ComputedValue.completed(FileTypeUtil.get().guessContentType(file.absPath().toFile())); 
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed(
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()));
         }
 
         @Override
         public ComputedValue<String> format() {
-            return ComputedValue.completed("""
+            return ComputedValue.completed(
+                    """
                             <file path="%s" revision="%s">
                             %s
                             </file>
-                            """.formatted(file.toString(), revision, content));
+                            """
+                            .formatted(file.toString(), revision, content));
         }
 
         @Override
@@ -769,34 +804,41 @@ public interface ContextFragment {
             var syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             return ComputedValue.completed("gff-snap-" + id, new FragmentSnapshot(desc, shortDesc, content, syntax));
         }
-        
+
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) return false;
-            return this.file().absPath().normalize().equals(that.file().absPath().normalize()) 
-                && this.revision().equals(that.revision());
+            return this.file()
+                            .absPath()
+                            .normalize()
+                            .equals(that.file().absPath().normalize())
+                    && this.revision().equals(that.revision());
         }
-        
+
         @Override
-        public ContextFragment refreshCopy() { return this; }
+        public ContextFragment refreshCopy() {
+            return this;
+        }
     }
 
     final class ExternalPathFragment extends AbstractComputedFragment implements PathFragment {
         private final ExternalFile file;
-        
+
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
-        
+
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager, @Nullable String snapshotText) {
-             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
         }
 
-        public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager) {
-             return withId(file, existingId, contextManager, null);
+        public static ExternalPathFragment withId(
+                ExternalFile file, String existingId, IContextManager contextManager) {
+            return withId(file, existingId, contextManager, null);
         }
-        
-        public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
+
+        public static ExternalPathFragment withId(
+                ExternalFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             validateNumericId(existingId);
             return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
@@ -808,8 +850,14 @@ public interface ContextFragment {
             return new FragmentSnapshot(name, name, text, syntax);
         }
 
-        private ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
-            super(id, contextManager, snapshotText != null ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
+        private ExternalPathFragment(
+                ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    snapshotText != null
+                            ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            : null);
             this.file = file;
             primeComputations();
         }
@@ -820,31 +868,37 @@ public interface ContextFragment {
         }
 
         @Override
-        public ExternalFile file() { return file; }
+        public ExternalFile file() {
+            return file;
+        }
 
         @Override
-        public FragmentType getType() { return FragmentType.EXTERNAL_PATH; }
+        public FragmentType getType() {
+            return FragmentType.EXTERNAL_PATH;
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
-             String text = file.read().orElse("");
-             String name = file.toString();
-             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-             return new FragmentSnapshot(name, name, text, syntax);
+            String text = file.read().orElse("");
+            String name = file.toString();
+            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+            return new FragmentSnapshot(name, name, text, syntax);
         }
-        
+
         @Override
         protected String formatTemplate(FragmentSnapshot s) {
             return """
                     <file path="%s" fragmentid="%s">
                     %s
                     </file>
-                    """.formatted(file.toString(), id(), s.text());
+                    """
+                    .formatted(file.toString(), id(), s.text());
         }
-        
+
         @Override
         public ContextFragment refreshCopy() {
-             return new ExternalPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            return new ExternalPathFragment(
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
     }
 
@@ -854,52 +908,66 @@ public interface ContextFragment {
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
-        
+
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
-             super(id, contextManager);
-             this.file = file;
-             primeComputations();
+            super(id, contextManager);
+            this.file = file;
+            primeComputations();
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
             validateNumericId(existingId);
             return new ImageFileFragment(file, existingId, contextManager);
         }
-        
-        @Override
-        public BrokkFile file() { return file; }
 
         @Override
-        public FragmentType getType() { return FragmentType.IMAGE_FILE; }
+        public BrokkFile file() {
+            return file;
+        }
 
         @Override
-        public boolean isText() { return false; }
+        public FragmentType getType() {
+            return FragmentType.IMAGE_FILE;
+        }
 
         @Override
-        public String contentHash() { return id(); }
+        public boolean isText() {
+            return false;
+        }
+
+        @Override
+        public String contentHash() {
+            return id();
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
             String desc = file.toString();
             if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                 desc = "%s [%s]".formatted(file.getFileName(), pf.getParent());
+                desc = "%s [%s]".formatted(file.getFileName(), pf.getParent());
             }
-            
+
             byte[] bytes = null;
             try {
                 var imageFile = file.absPath().toFile();
-                 if (imageFile.exists() && imageFile.canRead()) {
-                      Image img = ImageIO.read(imageFile);
-                      if (img != null) bytes = ImageUtil.imageToBytes(img);
-                 }
+                if (imageFile.exists() && imageFile.canRead()) {
+                    Image img = ImageIO.read(imageFile);
+                    if (img != null) bytes = ImageUtil.imageToBytes(img);
+                }
             } catch (IOException e) {
                 // ignore
             }
-            
-            return new FragmentSnapshot(desc, file.getFileName(), "[Image content provided out of band]", 
-                SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(), bytes);
+
+            return new FragmentSnapshot(
+                    desc,
+                    file.getFileName(),
+                    "[Image content provided out of band]",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(),
+                    (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
+                    bytes);
         }
-        
+
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
             String desc = file.toString();
@@ -915,30 +983,34 @@ public interface ContextFragment {
                     (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
                     bytes);
         }
-        
+
         @Override
         public @Nullable ComputedValue<byte[]> imageBytes() {
             return derived("imageBytes", FragmentSnapshot::imageBytes);
         }
-        
+
         @Override
         protected String formatTemplate(FragmentSnapshot s) {
             return """
                     <file path="%s" fragmentid="%s">
                     [Image content provided out of band]
                     </file>
-                    """.formatted(file.toString(), id());
+                    """
+                    .formatted(file.toString(), id());
         }
-        
+
         @Override
         public ContextFragment refreshCopy() {
-            return new ImageFileFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            return new ImageFileFragment(
+                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
-        
+
         @Override
-        public String toString() { return "ImageFileFragment('%s')".formatted(file); }
+        public String toString() {
+            return "ImageFileFragment('%s')".formatted(file);
+        }
     }
-    
+
     static PathFragment toPathFragment(BrokkFile bf, IContextManager contextManager) {
         if (bf.isText()) {
             if (bf instanceof ProjectFile pf) return new ProjectPathFragment(pf, contextManager);
@@ -946,14 +1018,18 @@ public interface ContextFragment {
         } else {
             return new ImageFileFragment(bf, contextManager);
         }
-        throw new IllegalArgumentException("Unsupported BrokkFile subtype: " + bf.getClass().getName());
+        throw new IllegalArgumentException(
+                "Unsupported BrokkFile subtype: " + bf.getClass().getName());
     }
-    
+
     // StringFragmentType and getStringFragmentType helper
     record StringFragmentType(String description, String syntaxStyle) {}
-    StringFragmentType BUILD_RESULTS = new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+    StringFragmentType BUILD_RESULTS =
+            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
     StringFragmentType SEARCH_NOTES = new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    StringFragmentType DISCARDED_CONTEXT = new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+    StringFragmentType DISCARDED_CONTEXT =
+            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
 
     static @Nullable StringFragmentType getStringFragmentType(String description) {
         if (description.isBlank()) return null;
@@ -965,41 +1041,58 @@ public interface ContextFragment {
 
     class StringFragment extends AbstractStaticFragment {
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
-             this(FragmentUtils.calculateContentHash(FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
-                 contextManager, text, description, syntaxStyle);
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
+                    contextManager,
+                    text,
+                    description,
+                    syntaxStyle);
         }
-        
-        public StringFragment(String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
-             super(id, contextManager, new FragmentSnapshot(description, description, text, syntaxStyle));
+
+        public StringFragment(
+                String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
+            super(id, contextManager, new FragmentSnapshot(description, description, text, syntaxStyle));
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.STRING; }
+        public FragmentType getType() {
+            return FragmentType.STRING;
+        }
 
-        public Optional<SpecialTextType> specialType() { return SpecialTextType.fromDescription(snapshot.description()); }
-        
+        public Optional<SpecialTextType> specialType() {
+            return SpecialTextType.fromDescription(snapshot.description());
+        }
+
         public String previewSyntaxStyle() {
             return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(snapshot.syntaxStyle());
         }
 
         public String previewText() {
-            return specialType().map(st -> st.previewRenderer().apply(snapshot.text())).orElse(snapshot.text());
+            return specialType()
+                    .map(st -> st.previewRenderer().apply(snapshot.text()))
+                    .orElse(snapshot.text());
         }
-        
+
         public String textForAgent(ViewingPolicy viewPolicy) {
             var st = specialType();
             if (st.isEmpty()) return snapshot.text();
             if (!st.get().canViewContent().test(viewPolicy)) {
-                return "[%s content hidden for %s]".formatted(snapshot.description(), viewPolicy.taskType().name());
+                return "[%s content hidden for %s]"
+                        .formatted(snapshot.description(), viewPolicy.taskType().name());
             }
             return snapshot.text();
         }
-        
-        public boolean droppable() { return specialType().map(SpecialTextType::droppable).orElse(true); }
-        
+
+        public boolean droppable() {
+            return specialType().map(SpecialTextType::droppable).orElse(true);
+        }
+
         @Override
-        public String toString() { return "StringFragment('%s')".formatted(snapshot.description()); }
-        
+        public String toString() {
+            return "StringFragment('%s')".formatted(snapshot.description());
+        }
+
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
@@ -1007,138 +1100,255 @@ public interface ContextFragment {
             StringFragmentType thisType = getStringFragmentType(this.snapshot.description());
             StringFragmentType thatType = getStringFragmentType(that.snapshot.description());
             if (thisType != null && thatType != null) return Objects.equals(thisType, thatType);
-            return this.snapshot.description().equals(that.snapshot.description()) 
-                && this.snapshot.syntaxStyle().equals(that.snapshot.syntaxStyle());
+            return this.snapshot.description().equals(that.snapshot.description())
+                    && this.snapshot.syntaxStyle().equals(that.snapshot.syntaxStyle());
         }
     }
-    
+
     class PasteTextFragment extends AbstractComputedFragment {
-         private final String text;
-         private final Future<String> descriptionFuture;
-         private final Future<String> syntaxStyleFuture;
+        private final String text;
+        private final Future<String> descriptionFuture;
+        private final Future<String> syntaxStyleFuture;
 
-         public PasteTextFragment(IContextManager contextManager, String text, Future<String> descriptionFuture, Future<String> syntaxStyleFuture) {
-             this(FragmentUtils.calculateContentHash(FragmentType.PASTE_TEXT, "(Pasting text)", text, SyntaxConstants.SYNTAX_STYLE_MARKDOWN, PasteTextFragment.class.getName()),
-                  contextManager, text, descriptionFuture, syntaxStyleFuture);
-         }
-         
-         public PasteTextFragment(String id, IContextManager contextManager, String text, Future<String> descriptionFuture) {
-             this(id, contextManager, text, descriptionFuture, CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
-         }
+        public PasteTextFragment(
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.PASTE_TEXT,
+                            "(Pasting text)",
+                            text,
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            PasteTextFragment.class.getName()),
+                    contextManager,
+                    text,
+                    descriptionFuture,
+                    syntaxStyleFuture);
+        }
 
-         public PasteTextFragment(String id, IContextManager contextManager, String text, Future<String> descriptionFuture, Future<String> syntaxStyleFuture) {
-             super(id, contextManager);
-             this.text = text;
-             this.descriptionFuture = descriptionFuture;
-             this.syntaxStyleFuture = syntaxStyleFuture;
-             primeComputations();
-         }
+        public PasteTextFragment(
+                String id, IContextManager contextManager, String text, Future<String> descriptionFuture) {
+            this(
+                    id,
+                    contextManager,
+                    text,
+                    descriptionFuture,
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+        }
 
-         @Override
-         public FragmentType getType() { return FragmentType.PASTE_TEXT; }
+        public PasteTextFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
+            super(id, contextManager);
+            this.text = text;
+            this.descriptionFuture = descriptionFuture;
+            this.syntaxStyleFuture = syntaxStyleFuture;
+            primeComputations();
+        }
 
-         @Override
-         protected FragmentSnapshot computeSnapshot() {
-             String desc = "Paste of pasted content";
-             String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-             try {
-                 String d = descriptionFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                 desc = "Paste of " + d;
-             } catch (Exception e) {}
-             try {
-                 if (syntaxStyleFuture.isDone()) syntax = syntaxStyleFuture.get();
-             } catch (Exception e) {}
-             
-             return new FragmentSnapshot(desc, "pasted text", text, syntax);
-         }
-         
-         @Override
-         public ContextFragment refreshCopy() { return this; }
-         
-         public Future<String> getDescriptionFuture() { return descriptionFuture; }
-         public Future<String> getSyntaxStyleFuture() { return syntaxStyleFuture; }
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PASTE_TEXT;
+        }
+
+        @Override
+        protected FragmentSnapshot computeSnapshot() {
+            String desc = "Paste of pasted content";
+            String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+            try {
+                String d = descriptionFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                desc = "Paste of " + d;
+            } catch (Exception e) {
+            }
+            try {
+                if (syntaxStyleFuture.isDone()) syntax = syntaxStyleFuture.get();
+            } catch (Exception e) {
+            }
+
+            return new FragmentSnapshot(desc, "pasted text", text, syntax);
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return this;
+        }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
+
+        public Future<String> getSyntaxStyleFuture() {
+            return syntaxStyleFuture;
+        }
     }
-    
+
     class AnonymousImageFragment extends AbstractComputedFragment implements ImageFragment {
         private final Image image;
         final Future<String> descriptionFuture;
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
-            this(FragmentUtils.calculateContentHash(FragmentType.PASTE_IMAGE, "(Pasting image)", null, imageToBytes(image), false, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), AnonymousImageFragment.class.getName(), Map.of()),
-                 contextManager, image, descriptionFuture);
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.PASTE_IMAGE,
+                            "(Pasting image)",
+                            null,
+                            imageToBytes(image),
+                            false,
+                            SyntaxConstants.SYNTAX_STYLE_NONE,
+                            Set.of(),
+                            AnonymousImageFragment.class.getName(),
+                            Map.of()),
+                    contextManager,
+                    image,
+                    descriptionFuture);
         }
 
-        public AnonymousImageFragment(String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+        public AnonymousImageFragment(
+                String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(id, contextManager);
             this.image = image;
             this.descriptionFuture = descriptionFuture;
             primeComputations();
         }
 
-        @Nullable private static byte[] imageToBytes(@Nullable Image image) {
-            try { return ImageUtil.imageToBytes(image); } catch (IOException e) { throw new UncheckedIOException(e); }
+        @Nullable
+        private static byte[] imageToBytes(@Nullable Image image) {
+            try {
+                return ImageUtil.imageToBytes(image);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.PASTE_IMAGE; }
+        public FragmentType getType() {
+            return FragmentType.PASTE_IMAGE;
+        }
+
         @Override
-        public boolean isText() { return false; }
+        public boolean isText() {
+            return false;
+        }
+
         @Override
-        public String contentHash() { return id(); }
-        
+        public String contentHash() {
+            return id();
+        }
+
         @Override
         protected FragmentSnapshot computeSnapshot() {
             String desc = "(Error summarizing paste)";
-            try { desc = descriptionFuture.get(); } catch (Exception e) {}
+            try {
+                desc = descriptionFuture.get();
+            } catch (Exception e) {
+            }
             byte[] bytes = imageToBytes(image);
-            return new FragmentSnapshot(desc, "pasted image", "[Image content provided out of band]", 
-                    SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), bytes);
+            return new FragmentSnapshot(
+                    desc,
+                    "pasted image",
+                    "[Image content provided out of band]",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(),
+                    Set.of(),
+                    bytes);
         }
-        
+
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-             return new FragmentSnapshot("pasted image", "pasted image", 
-                     "[Image content provided out of band]", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), bytes);
+            return new FragmentSnapshot(
+                    "pasted image",
+                    "pasted image",
+                    "[Image content provided out of band]",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(),
+                    Set.of(),
+                    bytes);
         }
 
         @Override
         public @Nullable ComputedValue<byte[]> imageBytes() {
             return derived("imageBytes", FragmentSnapshot::imageBytes);
         }
-        
+
         @Override
-        public ContextFragment refreshCopy() { return this; }
-        public Future<String> getDescriptionFuture() { return descriptionFuture; }
+        public ContextFragment refreshCopy() {
+            return this;
+        }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
     }
-    
+
     class StacktraceFragment extends AbstractStaticFragment {
         private final String original;
         private final String exception;
         private final String code;
 
-        public StacktraceFragment(IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
-             this(FragmentUtils.calculateContentHash(FragmentType.STACKTRACE, "stacktrace of " + exception,
-                     original + "\n\nStacktrace methods in this project:\n\n" + code,
-                     sources.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : sources.iterator().next().source().getSyntaxStyle(),
-                     StacktraceFragment.class.getName()),
-                  contextManager, sources, original, exception, code);
+        public StacktraceFragment(
+                IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STACKTRACE,
+                            "stacktrace of " + exception,
+                            original + "\n\nStacktrace methods in this project:\n\n" + code,
+                            sources.isEmpty()
+                                    ? SyntaxConstants.SYNTAX_STYLE_NONE
+                                    : sources.iterator().next().source().getSyntaxStyle(),
+                            StacktraceFragment.class.getName()),
+                    contextManager,
+                    sources,
+                    original,
+                    exception,
+                    code);
         }
-        
-        public StacktraceFragment(String id, IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
-            super(id, contextManager, new FragmentSnapshot("stacktrace of " + exception, "stacktrace of " + exception,
-                  original + "\n\nStacktrace methods in this project:\n\n" + code,
-                  sources.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : sources.iterator().next().source().getSyntaxStyle(),
-                  sources, sources.stream().map(CodeUnit::source).collect(Collectors.toSet()), null));
+
+        public StacktraceFragment(
+                String id,
+                IContextManager contextManager,
+                Set<CodeUnit> sources,
+                String original,
+                String exception,
+                String code) {
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            "stacktrace of " + exception,
+                            "stacktrace of " + exception,
+                            original + "\n\nStacktrace methods in this project:\n\n" + code,
+                            sources.isEmpty()
+                                    ? SyntaxConstants.SYNTAX_STYLE_NONE
+                                    : sources.iterator().next().source().getSyntaxStyle(),
+                            sources,
+                            sources.stream().map(CodeUnit::source).collect(Collectors.toSet()),
+                            null));
             this.original = original;
             this.exception = exception;
             this.code = code;
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.STACKTRACE; }
-        public String getOriginal() { return original; }
-        public String getException() { return exception; }
-        public String getCode() { return code; }
+        public FragmentType getType() {
+            return FragmentType.STACKTRACE;
+        }
+
+        public String getOriginal() {
+            return original;
+        }
+
+        public String getException() {
+            return exception;
+        }
+
+        public String getCode() {
+            return code;
+        }
     }
 
     class UsageFragment extends AbstractComputedFragment implements DynamicIdentity {
@@ -1148,20 +1358,46 @@ public interface ContextFragment {
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, true, null);
         }
+
         public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             this(contextManager, targetIdentifier, includeTestFiles, null);
         }
-        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, @Nullable String snapshotText) {
-            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, targetIdentifier, includeTestFiles, snapshotText);
+
+        public UsageFragment(
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    targetIdentifier,
+                    includeTestFiles,
+                    snapshotText);
         }
+
         public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
-             this(id, contextManager, targetIdentifier, true, null);
+            this(id, contextManager, targetIdentifier, true, null);
         }
-        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
-             this(id, contextManager, targetIdentifier, includeTestFiles, null);
+
+        public UsageFragment(
+                String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, null);
         }
-        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, @Nullable String snapshotText) {
-            super(id, contextManager, snapshotText != null ? decodeFrozen(targetIdentifier, includeTestFiles, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
+
+        public UsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    snapshotText != null
+                            ? decodeFrozen(
+                                    targetIdentifier, includeTestFiles, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
             primeComputations();
@@ -1179,44 +1415,66 @@ public interface ContextFragment {
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.USAGE; }
+        public FragmentType getType() {
+            return FragmentType.USAGE;
+        }
+
         @Override
-        public String repr() { return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles); }
-        public String targetIdentifier() { return targetIdentifier; }
-        public boolean includeTestFiles() { return includeTestFiles; }
+        public String repr() {
+            return "SymbolUsages('%s', includeTestFiles=%s)".formatted(targetIdentifier, includeTestFiles);
+        }
+
+        public String targetIdentifier() {
+            return targetIdentifier;
+        }
+
+        public boolean includeTestFiles() {
+            return includeTestFiles;
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
             var analyzer = getAnalyzer();
-            FuzzyResult usageResult = FuzzyUsageFinder.create(getContextManager()).findUsages(targetIdentifier);
+            FuzzyResult usageResult =
+                    FuzzyUsageFinder.create(getContextManager()).findUsages(targetIdentifier);
             var either = usageResult.toEither();
-            
+
             String text;
             Set<CodeUnit> sources = Collections.emptySet();
-            
+
             if (either.hasErrorMessage()) {
                 text = either.getErrorMessage();
             } else {
-                 List<UsageHit> uses = either.getUsages().stream()
+                List<UsageHit> uses = either.getUsages().stream()
                         .sorted(Comparator.comparingDouble(UsageHit::confidence).reversed())
                         .toList();
                 if (!includeTestFiles) {
-                    uses = uses.stream().filter(cu -> !ContextManager.isTestFile(cu.file())).toList();
+                    uses = uses.stream()
+                            .filter(cu -> !ContextManager.isTestFile(cu.file()))
+                            .toList();
                 }
-                List<CodeWithSource> parts = AnalyzerUtil.processUsages(analyzer, uses.stream().map(UsageHit::enclosing).toList());
+                List<CodeWithSource> parts = AnalyzerUtil.processUsages(
+                        analyzer, uses.stream().map(UsageHit::enclosing).toList());
                 String formatted = CodeWithSource.text(parts);
                 text = formatted.isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : formatted;
-                sources = parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
+                sources =
+                        parts.stream().map(AnalyzerUtil.CodeWithSource::source).collect(Collectors.toSet());
             }
 
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
             if (!includeTestFiles) {
-                files = files.stream().filter(f -> !ContextManager.isTestFile(f)).collect(Collectors.toSet());
+                files = files.stream()
+                        .filter(f -> !ContextManager.isTestFile(f))
+                        .collect(Collectors.toSet());
             }
-            
-            String syntax = sources.stream().findFirst().map(s -> s.source().getSyntaxStyle()).orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
-            
-            return new FragmentSnapshot("Uses of " + targetIdentifier, "Uses of " + targetIdentifier, text, syntax, sources, files, null);
+
+            String syntax = sources.stream()
+                    .findFirst()
+                    .map(s -> s.source().getSyntaxStyle())
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            return new FragmentSnapshot(
+                    "Uses of " + targetIdentifier, "Uses of " + targetIdentifier, text, syntax, sources, files, null);
         }
 
         @Override
@@ -1232,14 +1490,27 @@ public interface ContextFragment {
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
             this(contextManager, fullyQualifiedName, null);
         }
+
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
-            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, fullyQualifiedName, snapshotText);
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    fullyQualifiedName,
+                    snapshotText);
         }
+
         public CodeFragment(String id, IContextManager contextManager, String fullyQualifiedName) {
-             this(id, contextManager, fullyQualifiedName, null);
+            this(id, contextManager, fullyQualifiedName, null);
         }
-        public CodeFragment(String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
-            super(id, contextManager, snapshotText != null ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
+
+        public CodeFragment(
+                String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
+            super(
+                    id,
+                    contextManager,
+                    snapshotText != null
+                            ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            : null);
             this.fullyQualifiedName = fullyQualifiedName;
             primeComputations();
         }
@@ -1247,13 +1518,15 @@ public interface ContextFragment {
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Source for " + fullyQualifiedName;
-            return new FragmentSnapshot(desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
+            return new FragmentSnapshot(
+                    desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
         }
 
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
             return decodeFrozen(fullyQualifiedName, bytes);
         }
+
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
             super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
             this.fullyQualifiedName = unit.fqName();
@@ -1262,19 +1535,29 @@ public interface ContextFragment {
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.CODE; }
+        public FragmentType getType() {
+            return FragmentType.CODE;
+        }
+
         @Override
-        public String repr() { return "Method(['%s'])".formatted(fullyQualifiedName); }
-        public String getFullyQualifiedName() { return fullyQualifiedName; }
+        public String repr() {
+            return "Method(['%s'])".formatted(fullyQualifiedName);
+        }
+
+        public String getFullyQualifiedName() {
+            return fullyQualifiedName;
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
             CodeUnit unit = preResolvedUnit;
             if (unit == null) {
-                unit = getAnalyzer().getDefinitions(fullyQualifiedName).stream().findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
+                unit = getAnalyzer().getDefinitions(fullyQualifiedName).stream()
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
             }
-            
+
             String text;
             var scpOpt = getAnalyzer().as(SourceCodeProvider.class);
             if (scpOpt.isEmpty()) {
@@ -1283,16 +1566,27 @@ public interface ContextFragment {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
                     String code = scp.getMethodSource(unit, true).orElse("");
-                    text = !code.isEmpty() ? new AnalyzerUtil.CodeWithSource(code, unit).text() : "No source found for method: " + fullyQualifiedName;
+                    text = !code.isEmpty()
+                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
+                            : "No source found for method: " + fullyQualifiedName;
                 } else {
                     String code = scp.getClassSource(unit, true).orElse("");
-                    text = !code.isEmpty() ? new AnalyzerUtil.CodeWithSource(code, unit).text() : "No source found for class: " + fullyQualifiedName;
+                    text = !code.isEmpty()
+                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
+                            : "No source found for class: " + fullyQualifiedName;
                 }
             }
-            
-            return new FragmentSnapshot("Source for " + unit.shortName(), unit.shortName(), text, unit.source().getSyntaxStyle(), Set.of(unit), Set.of(unit.source()), null);
+
+            return new FragmentSnapshot(
+                    "Source for " + unit.shortName(),
+                    unit.shortName(),
+                    text,
+                    unit.source().getSyntaxStyle(),
+                    Set.of(unit),
+                    Set.of(unit.source()),
+                    null);
         }
-        
+
         @Override
         public ContextFragment refreshCopy() {
             return new CodeFragment(id, contextManager, fullyQualifiedName);
@@ -1305,9 +1599,16 @@ public interface ContextFragment {
         private final boolean isCalleeGraph;
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, methodName, depth, isCalleeGraph);
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    methodName,
+                    depth,
+                    isCalleeGraph);
         }
-        public CallGraphFragment(String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
+
+        public CallGraphFragment(
+                String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(id, contextManager);
             this.methodName = methodName;
             this.depth = depth;
@@ -1316,44 +1617,62 @@ public interface ContextFragment {
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.CALL_GRAPH; }
-        public String getMethodName() { return methodName; }
-        public int getDepth() { return depth; }
-        public boolean isCalleeGraph() { return isCalleeGraph; }
+        public FragmentType getType() {
+            return FragmentType.CALL_GRAPH;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public int getDepth() {
+            return depth;
+        }
+
+        public boolean isCalleeGraph() {
+            return isCalleeGraph;
+        }
+
         @Override
-        public String repr() { return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, isCalleeGraph ? "OUT" : "IN"); }
+        public String repr() {
+            return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, isCalleeGraph ? "OUT" : "IN");
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
-             var analyzer = getAnalyzer();
-             var methodCodeUnit = analyzer.getDefinitions(methodName).stream().filter(CodeUnit::isFunction).findFirst();
-             
-             String text;
-             Set<CodeUnit> sources = Set.of();
-             if (methodCodeUnit.isPresent()) {
-                 sources = Set.of(methodCodeUnit.get());
-                 var cpgOpt = analyzer.as(CallGraphProvider.class);
-                 if (cpgOpt.isPresent()) {
-                     var cpg = cpgOpt.get();
-                     Map<String, List<CallSite>> graphData = isCalleeGraph ? 
-                        cpg.getCallgraphFrom(methodCodeUnit.get(), depth) : 
-                        cpg.getCallgraphTo(methodCodeUnit.get(), depth);
-                     
-                     text = graphData.isEmpty() ? "No call graph available for " + methodName : AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
-                 } else {
-                     text = "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-                 }
-             } else {
-                 text = "Method not found: " + methodName;
-             }
-             
-             String type = isCalleeGraph ? "Callees" : "Callers";
-             String desc = "%s of %s (depth %d)".formatted(type, methodName, depth);
-             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-             
-             return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, null);
+            var analyzer = getAnalyzer();
+            var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+
+            String text;
+            Set<CodeUnit> sources = Set.of();
+            if (methodCodeUnit.isPresent()) {
+                sources = Set.of(methodCodeUnit.get());
+                var cpgOpt = analyzer.as(CallGraphProvider.class);
+                if (cpgOpt.isPresent()) {
+                    var cpg = cpgOpt.get();
+                    Map<String, List<CallSite>> graphData = isCalleeGraph
+                            ? cpg.getCallgraphFrom(methodCodeUnit.get(), depth)
+                            : cpg.getCallgraphTo(methodCodeUnit.get(), depth);
+
+                    text = graphData.isEmpty()
+                            ? "No call graph available for " + methodName
+                            : AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
+                } else {
+                    text = "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
+                }
+            } else {
+                text = "Method not found: " + methodName;
+            }
+
+            String type = isCalleeGraph ? "Callees" : "Callers";
+            String desc = "%s of %s (depth %d)".formatted(type, methodName, depth);
+            Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
+
+            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, null);
         }
-        
+
         @Override
         public ContextFragment refreshCopy() {
             return new CallGraphFragment(id, contextManager, methodName, depth, isCalleeGraph);
@@ -1361,32 +1680,50 @@ public interface ContextFragment {
     }
 
     enum SummaryType {
-        CODEUNIT_SKELETON, FILE_SKELETONS
+        CODEUNIT_SKELETON,
+        FILE_SKELETONS
     }
-    
+
     // Formatter class kept for logic reuse
     class SkeletonFragmentFormatter {
-        public record Request(@Nullable CodeUnit primaryTarget, List<CodeUnit> ancestors, Map<CodeUnit, String> skeletons, SummaryType summaryType) {}
-        
+        public record Request(
+                @Nullable CodeUnit primaryTarget,
+                List<CodeUnit> ancestors,
+                Map<CodeUnit, String> skeletons,
+                SummaryType summaryType) {}
+
         public String format(Request request) {
-            if (request.summaryType() == SummaryType.CODEUNIT_SKELETON && request.primaryTarget() != null && request.primaryTarget().isClass()) {
+            if (request.summaryType() == SummaryType.CODEUNIT_SKELETON
+                    && request.primaryTarget() != null
+                    && request.primaryTarget().isClass()) {
                 return formatSummaryWithAncestors(request.primaryTarget(), request.ancestors(), request.skeletons());
             } else {
                 return formatSkeletonsByPackage(request.skeletons());
             }
         }
 
-        private String formatSummaryWithAncestors(CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
+        private String formatSummaryWithAncestors(
+                CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
             Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            skeletons.forEach((k, v) -> { if (k.fqName().equals(cu.fqName())) primary.put(k, v); });
+            skeletons.forEach((k, v) -> {
+                if (k.fqName().equals(cu.fqName())) primary.put(k, v);
+            });
             var sb = new StringBuilder();
             String primaryFormatted = formatSkeletonsByPackage(primary);
             if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
             if (!ancestorList.isEmpty()) {
-                String ancestorNames = ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
-                sb.append("// Direct ancestors of ").append(cu.shortName()).append(": ").append(ancestorNames).append("\n\n");
+                String ancestorNames =
+                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                sb.append("// Direct ancestors of ")
+                        .append(cu.shortName())
+                        .append(": ")
+                        .append(ancestorNames)
+                        .append("\n\n");
                 Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
-                ancestorList.forEach(anc -> { String sk = skeletons.get(anc); if (sk != null) ancestorsMap.put(anc, sk); });
+                ancestorList.forEach(anc -> {
+                    String sk = skeletons.get(anc);
+                    if (sk != null) ancestorsMap.put(anc, sk);
+                });
                 String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap);
                 if (!ancestorsFormatted.isEmpty()) sb.append(ancestorsFormatted).append("\n\n");
             }
@@ -1396,10 +1733,16 @@ public interface ContextFragment {
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
             var skeletonsByPackage = skeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(e -> e.getKey().packageName().isEmpty() ? "(default package)" : e.getKey().packageName(),
-                            Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
-            return skeletonsByPackage.entrySet().stream().sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n" + String.join("\n\n", pkgEntry.getValue().values()))
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n"
+                            + String.join("\n\n", pkgEntry.getValue().values()))
                     .collect(Collectors.joining("\n\n"));
         }
     }
@@ -1409,9 +1752,15 @@ public interface ContextFragment {
         private final SummaryType summaryType;
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, targetIdentifier, summaryType);
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    targetIdentifier,
+                    summaryType);
         }
-        public SummaryFragment(String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
+
+        public SummaryFragment(
+                String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             super(id, contextManager);
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
@@ -1419,11 +1768,23 @@ public interface ContextFragment {
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.SKELETON; }
+        public FragmentType getType() {
+            return FragmentType.SKELETON;
+        }
+
         @Override
-        public String repr() { return (summaryType == SummaryType.CODEUNIT_SKELETON ? "ClassSummary('%s')" : "FileSummary('%s')").formatted(targetIdentifier); }
-        public String getTargetIdentifier() { return targetIdentifier; }
-        public SummaryType getSummaryType() { return summaryType; }
+        public String repr() {
+            return (summaryType == SummaryType.CODEUNIT_SKELETON ? "ClassSummary('%s')" : "FileSummary('%s')")
+                    .formatted(targetIdentifier);
+        }
+
+        public String getTargetIdentifier() {
+            return targetIdentifier;
+        }
+
+        public SummaryType getSummaryType() {
+            return summaryType;
+        }
 
         @Override
         protected FragmentSnapshot computeSnapshot() {
@@ -1431,14 +1792,16 @@ public interface ContextFragment {
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
             var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
             Set<CodeUnit> primaryTargets = resolvePrimaryTargets(analyzer);
-            
+
             if (skeletonProviderOpt.isPresent()) {
                 var skeletonProvider = skeletonProviderOpt.get();
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                 }
                 var seenAncestors = new HashSet<String>();
-                primaryTargets.stream().filter(CodeUnit::isClass).flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                primaryTargets.stream()
+                        .filter(CodeUnit::isClass)
+                        .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
                         .filter(anc -> seenAncestors.add(anc.fqName()))
                         .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
             }
@@ -1447,23 +1810,26 @@ public interface ContextFragment {
             if (skeletonsMap.isEmpty()) {
                 text = "No summary found for: " + targetIdentifier;
             } else {
-                 CodeUnit primaryTarget = null;
-                 List<CodeUnit> ancestors = List.of();
-                 if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                      var maybeClassUnit = primaryTargets.stream().filter(CodeUnit::isClass).findFirst();
-                      if (maybeClassUnit.isPresent()) {
-                           primaryTarget = maybeClassUnit.get();
-                           ancestors = analyzer.getDirectAncestors(primaryTarget);
-                      }
-                 }
-                 text = new SkeletonFragmentFormatter().format(new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletonsMap, summaryType));
-                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
+                CodeUnit primaryTarget = null;
+                List<CodeUnit> ancestors = List.of();
+                if (summaryType == SummaryType.CODEUNIT_SKELETON) {
+                    var maybeClassUnit =
+                            primaryTargets.stream().filter(CodeUnit::isClass).findFirst();
+                    if (maybeClassUnit.isPresent()) {
+                        primaryTarget = maybeClassUnit.get();
+                        ancestors = analyzer.getDirectAncestors(primaryTarget);
+                    }
+                }
+                text = new SkeletonFragmentFormatter()
+                        .format(new SkeletonFragmentFormatter.Request(
+                                primaryTarget, ancestors, skeletonsMap, summaryType));
+                if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
-            
+
             String desc = "Summary of %s".formatted(targetIdentifier);
             Set<CodeUnit> sources = skeletonsMap.keySet();
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
-            
+
             return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, null);
         }
 
@@ -1473,92 +1839,159 @@ public interface ContextFragment {
                     .filter(s -> !s.isBlank())
                     .collect(Collectors.joining("\n\n"));
         }
-        
+
         private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
             if (summaryType == SummaryType.CODEUNIT_SKELETON) return analyzer.getDefinitions(targetIdentifier);
-            if (summaryType == SummaryType.FILE_SKELETONS) return new LinkedHashSet<>(analyzer.getTopLevelDeclarations(getContextManager().toFile(targetIdentifier)));
+            if (summaryType == SummaryType.FILE_SKELETONS)
+                return new LinkedHashSet<>(
+                        analyzer.getTopLevelDeclarations(getContextManager().toFile(targetIdentifier)));
             return Set.of();
         }
-        
+
         @Override
-        public boolean isEligibleForAutoContext() { return false; }
+        public boolean isEligibleForAutoContext() {
+            return false;
+        }
+
         @Override
-        public ContextFragment refreshCopy() { return new SummaryFragment(id, contextManager, targetIdentifier, summaryType); }
+        public ContextFragment refreshCopy() {
+            return new SummaryFragment(id, contextManager, targetIdentifier, summaryType);
+        }
     }
-    
+
     interface OutputFragment {
         List<TaskEntry> entries();
-        default boolean isEscapeHtml() { return true; }
+
+        default boolean isEscapeHtml() {
+            return true;
+        }
     }
-    
+
     class HistoryFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<TaskEntry> history;
-        
+
         public HistoryFragment(IContextManager contextManager, List<TaskEntry> history) {
-            this(FragmentUtils.calculateContentHash(FragmentType.HISTORY, 
-                    "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                    TaskEntry.formatMessages(history.stream().flatMap(e -> e.isCompressed() ? Stream.of(Messages.customSystem(castNonNull(e.summary()))) : castNonNull(e.log()).messages().stream()).toList()),
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN, HistoryFragment.class.getName()),
-                 contextManager, history);
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.HISTORY,
+                            "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
+                            TaskEntry.formatMessages(history.stream()
+                                    .flatMap(e -> e.isCompressed()
+                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                            : castNonNull(e.log()).messages().stream())
+                                    .toList()),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            HistoryFragment.class.getName()),
+                    contextManager,
+                    history);
         }
-        
+
         public HistoryFragment(String id, IContextManager contextManager, List<TaskEntry> history) {
-            super(id, contextManager, new FragmentSnapshot(
-                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                    TaskEntry.formatMessages(history.stream().flatMap(e -> e.isCompressed() ? Stream.of(Messages.customSystem(castNonNull(e.summary()))) : castNonNull(e.log()).messages().stream()).toList()),
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
+                            "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
+                            TaskEntry.formatMessages(history.stream()
+                                    .flatMap(e -> e.isCompressed()
+                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                            : castNonNull(e.log()).messages().stream())
+                                    .toList()),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
             this.history = List.copyOf(history);
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.HISTORY; }
+        public FragmentType getType() {
+            return FragmentType.HISTORY;
+        }
+
         @Override
-        public List<TaskEntry> entries() { return history; }
+        public List<TaskEntry> entries() {
+            return history;
+        }
+
         @Override
-        public String toString() { return "ConversationFragment(" + history.size() + " tasks)"; }
-        
+        public String toString() {
+            return "ConversationFragment(" + history.size() + " tasks)";
+        }
+
         @Override
         protected String formatTemplate(FragmentSnapshot s) {
-             return """
+            return """
                     <taskhistory fragmentid="%s">
                     %s
                     </taskhistory>
-                    """.formatted(id(), s.text());
+                    """
+                    .formatted(id(), s.text());
         }
     }
 
     class TaskFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<ChatMessage> messages;
         private final boolean escapeHtml;
-        
+
         // EditBlockParser removed as it was unused in original
-        
+
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
-             this(contextManager, messages, description, true);
+            this(contextManager, messages, description, true);
         }
-        
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
-             this(FragmentUtils.calculateContentHash(FragmentType.TASK, description, TaskEntry.formatMessages(messages), SyntaxConstants.SYNTAX_STYLE_MARKDOWN, TaskFragment.class.getName()),
-                  contextManager, messages, description, escapeHtml);
+
+        public TaskFragment(
+                IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.TASK,
+                            description,
+                            TaskEntry.formatMessages(messages),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                            TaskFragment.class.getName()),
+                    contextManager,
+                    messages,
+                    description,
+                    escapeHtml);
         }
-        
+
         public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description) {
-             this(id, contextManager, messages, description, true);
+            this(id, contextManager, messages, description, true);
         }
-        
-        public TaskFragment(String id, IContextManager contextManager, List<ChatMessage> messages, String description, boolean escapeHtml) {
-             super(id, contextManager, new FragmentSnapshot(description, description, TaskEntry.formatMessages(messages), SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
-             this.messages = List.copyOf(messages);
-             this.escapeHtml = escapeHtml;
+
+        public TaskFragment(
+                String id,
+                IContextManager contextManager,
+                List<ChatMessage> messages,
+                String description,
+                boolean escapeHtml) {
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            description,
+                            description,
+                            TaskEntry.formatMessages(messages),
+                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+            this.messages = List.copyOf(messages);
+            this.escapeHtml = escapeHtml;
         }
 
         @Override
-        public FragmentType getType() { return FragmentType.TASK; }
+        public FragmentType getType() {
+            return FragmentType.TASK;
+        }
+
         @Override
-        public boolean isEscapeHtml() { return escapeHtml; }
-        public List<ChatMessage> messages() { return messages; }
+        public boolean isEscapeHtml() {
+            return escapeHtml;
+        }
+
+        public List<ChatMessage> messages() {
+            return messages;
+        }
+
         @Override
-        public List<TaskEntry> entries() { return List.of(new TaskEntry(-1, this, null)); }
+        public List<TaskEntry> entries() {
+            return List.of(new TaskEntry(-1, this, null));
+        }
     }
 }

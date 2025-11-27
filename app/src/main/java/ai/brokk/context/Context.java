@@ -204,24 +204,20 @@ public class Context {
         }
 
         Context newCtx = this;
-        if (!pathCandidates.isEmpty()){
-            newCtx = newCtx.addFragments(
-                    pathCandidates,
-                    added -> {
-                        String actionDetails = toAdd.stream()
-                                .map(ContextFragment::shortDescription)
-                                .map(ComputedValue::join)
-                                .collect(Collectors.joining(", "));
-                        return "Edit " + actionDetails;
-                    });
+        if (!pathCandidates.isEmpty()) {
+            newCtx = newCtx.addFragments(pathCandidates, added -> {
+                String actionDetails = toAdd.stream()
+                        .map(ContextFragment::shortDescription)
+                        .map(ComputedValue::join)
+                        .collect(Collectors.joining(", "));
+                return "Edit " + actionDetails;
+            });
         }
-        if (!otherCandidates.isEmpty()){
-            newCtx = newCtx.addFragments(
-                    pathCandidates,
-                    added -> {
-                        int addedCount = added.size();
-                        return "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
-                    });
+        if (!otherCandidates.isEmpty()) {
+            newCtx = newCtx.addFragments(pathCandidates, added -> {
+                int addedCount = added.size();
+                return "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
+            });
         }
         return newCtx;
     }
@@ -239,8 +235,7 @@ public class Context {
      * @return the updated Context
      */
     private Context addFragments(
-            Collection<? extends ContextFragment> toAdd,
-            Function<List<ContextFragment>, String> actionBuilder) {
+            Collection<? extends ContextFragment> toAdd, Function<List<ContextFragment>, String> actionBuilder) {
 
         if (toAdd.isEmpty()) {
             return this;
@@ -922,176 +917,176 @@ public class Context {
     }
 
     /**
-         * Adds class definitions (CodeFragments) to the context for the given FQCNs.
-         * Skips classes whose source files are already in the workspace as ProjectPathFragments.
-         *
-         * @param context    the current context
-         * @param classNames fully qualified class names to add
-         * @param analyzer   the code analyzer
-         * @return a new context with the added class fragments
-         */
+     * Adds class definitions (CodeFragments) to the context for the given FQCNs.
+     * Skips classes whose source files are already in the workspace as ProjectPathFragments.
+     *
+     * @param context    the current context
+     * @param classNames fully qualified class names to add
+     * @param analyzer   the code analyzer
+     * @return a new context with the added class fragments
+     */
     public static Context withAddedClasses(Context context, List<String> classNames, IAnalyzer analyzer) {
-                        if (classNames.isEmpty()) {
-                                            return context;
-                        }
+        if (classNames.isEmpty()) {
+            return context;
+        }
 
-                        var liveContext = context;
-                        var workspaceFiles = liveContext
-                                                                .fileFragments()
-                                                                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                                                                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                                                                .map(ContextFragment.ProjectPathFragment::file)
-                                                                .collect(Collectors.toSet());
+        var liveContext = context;
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
 
-                        var toAdd = new ArrayList<ContextFragment>();
-                        for (String className : classNames.stream().distinct().toList()) {
-                                            if (className.isBlank()) {
-                                                                continue;
-                                            }
-                                            var cuOpt = analyzer.getDefinitions(className).stream()
-                                                                                    .filter(CodeUnit::isClass)
-                                                                                    .findFirst();
-                                            if (cuOpt.isPresent()) {
-                                                                var codeUnit = cuOpt.get();
-                                                                // Skip if the source file is already in workspace as a ProjectPathFragment
-                                                                if (!workspaceFiles.contains(codeUnit.source())) {
-                                                                                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
-                                                                }
-                                            } else {
-                                                                logger.warn("Could not find definition for class: {}", className);
-                                            }
-                        }
+        var toAdd = new ArrayList<ContextFragment>();
+        for (String className : classNames.stream().distinct().toList()) {
+            if (className.isBlank()) {
+                continue;
+            }
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
+                var codeUnit = cuOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                }
+            } else {
+                logger.warn("Could not find definition for class: {}", className);
+            }
+        }
 
-                        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
+        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
     }
 
     /**
-         * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
-         *
-         * @param context    the current context
-         * @param classNames fully qualified class names to summarize
-         * @return a new context with the added summary fragments
-         */
+     * Adds class summary fragments (SkeletonFragments) for the given FQCNs.
+     *
+     * @param context    the current context
+     * @param classNames fully qualified class names to summarize
+     * @return a new context with the added summary fragments
+     */
     public static Context withAddedClassSummaries(Context context, List<String> classNames) {
-                        if (classNames.isEmpty()) {
-                                            return context;
-                        }
+        if (classNames.isEmpty()) {
+            return context;
+        }
 
-                        var toAdd = new ArrayList<ContextFragment>();
-                        for (String name : classNames.stream().distinct().toList()) {
-                                            if (name.isBlank()) {
-                                                                continue;
-                                            }
-                                            toAdd.add(new ContextFragment.SummaryFragment(
-                                                                                    context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
-                        }
+        var toAdd = new ArrayList<ContextFragment>();
+        for (String name : classNames.stream().distinct().toList()) {
+            if (name.isBlank()) {
+                continue;
+            }
+            toAdd.add(new ContextFragment.SummaryFragment(
+                    context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
+        }
 
-                        return toAdd.isEmpty() ? context : context.addFragments(toAdd);
+        return toAdd.isEmpty() ? context : context.addFragments(toAdd);
     }
 
     /**
-         * Adds file summary fragments for all classes in the given file paths (with glob support).
-         *
-         * @param context   the current context
-         * @param filePaths file paths relative to project root; supports glob patterns
-         * @param project   the project for path resolution
-         * @return a new context with the added file summary fragments
-         */
+     * Adds file summary fragments for all classes in the given file paths (with glob support).
+     *
+     * @param context   the current context
+     * @param filePaths file paths relative to project root; supports glob patterns
+     * @param project   the project for path resolution
+     * @return a new context with the added file summary fragments
+     */
     public static Context withAddedFileSummaries(Context context, List<String> filePaths, AbstractProject project) {
-                        if (filePaths.isEmpty()) {
-                                            return context;
-                        }
+        if (filePaths.isEmpty()) {
+            return context;
+        }
 
-                        var resolvedFilePaths = filePaths.stream()
-                                                                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
-                                                                .filter(ProjectFile.class::isInstance)
-                                                                .map(ProjectFile.class::cast)
-                                                                .map(ProjectFile::toString)
-                                                                .distinct()
-                                                                .toList();
+        var resolvedFilePaths = filePaths.stream()
+                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .map(ProjectFile::toString)
+                .distinct()
+                .toList();
 
-                        if (resolvedFilePaths.isEmpty()) {
-                                            return context;
-                        }
+        if (resolvedFilePaths.isEmpty()) {
+            return context;
+        }
 
-                        var toAdd = new ArrayList<ContextFragment>();
-                        for (String path : resolvedFilePaths) {
-                                            toAdd.add(new ContextFragment.SummaryFragment(
-                                                                                    context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
-                        }
+        var toAdd = new ArrayList<ContextFragment>();
+        for (String path : resolvedFilePaths) {
+            toAdd.add(new ContextFragment.SummaryFragment(
+                    context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
+        }
 
-                        return context.addFragments(toAdd);
+        return context.addFragments(toAdd);
     }
 
     /**
-         * Adds method source code fragments for the given FQ method names.
-         * Skips methods whose source files are already in the workspace.
-         *
-         * @param context     the current context
-         * @param methodNames fully qualified method names to add sources for
-         * @param analyzer    the code analyzer
-         * @return a new context with the added method fragments
-         */
+     * Adds method source code fragments for the given FQ method names.
+     * Skips methods whose source files are already in the workspace.
+     *
+     * @param context     the current context
+     * @param methodNames fully qualified method names to add sources for
+     * @param analyzer    the code analyzer
+     * @return a new context with the added method fragments
+     */
     public static Context withAddedMethodSources(Context context, List<String> methodNames, IAnalyzer analyzer) {
-                        if (methodNames.isEmpty()) {
-                                            return context;
-                        }
+        if (methodNames.isEmpty()) {
+            return context;
+        }
 
-                        var liveContext = context;
-                        var workspaceFiles = liveContext
-                                                                .fileFragments()
-                                                                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                                                                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                                                                .map(ContextFragment.ProjectPathFragment::file)
-                                                                .collect(Collectors.toSet());
+        var liveContext = context;
+        var workspaceFiles = liveContext
+                .fileFragments()
+                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
+                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
 
-                        var toAdd = new ArrayList<ContextFragment>();
-                        for (String methodName : methodNames.stream().distinct().toList()) {
-                                            if (methodName.isBlank()) {
-                                                                continue;
-                                            }
-                                            var cuOpt = analyzer.getDefinitions(methodName).stream()
-                                                                                    .filter(CodeUnit::isFunction)
-                                                                                    .findFirst();
-                                            if (cuOpt.isPresent()) {
-                                                                var codeUnit = cuOpt.get();
-                                                                // Skip if the source file is already in workspace as a ProjectPathFragment
-                                                                if (!workspaceFiles.contains(codeUnit.source())) {
-                                                                                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
-                                                                }
-                                            } else {
-                                                                logger.warn("Could not find method definition for: {}", methodName);
-                                            }
-                        }
+        var toAdd = new ArrayList<ContextFragment>();
+        for (String methodName : methodNames.stream().distinct().toList()) {
+            if (methodName.isBlank()) {
+                continue;
+            }
+            var cuOpt = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
+                var codeUnit = cuOpt.get();
+                // Skip if the source file is already in workspace as a ProjectPathFragment
+                if (!workspaceFiles.contains(codeUnit.source())) {
+                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                }
+            } else {
+                logger.warn("Could not find method definition for: {}", methodName);
+            }
+        }
 
-                        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
+        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
     }
 
     /**
-         * Adds a URL content fragment to the context by fetching and converting to Markdown.
-         *
-         * @param context   the current context
-         * @param urlString the URL to fetch
-         * @return a new context with the added URL fragment
-         * @throws IOException        if fetching or processing fails
-         * @throws URISyntaxException if the URL string is malformed
-         */
+     * Adds a URL content fragment to the context by fetching and converting to Markdown.
+     *
+     * @param context   the current context
+     * @param urlString the URL to fetch
+     * @return a new context with the added URL fragment
+     * @throws IOException        if fetching or processing fails
+     * @throws URISyntaxException if the URL string is malformed
+     */
     public static Context withAddedUrlContent(Context context, String urlString)
-                                            throws IOException, URISyntaxException {
-                        if (urlString.isBlank()) {
-                                            return context;
-                        }
+            throws IOException, URISyntaxException {
+        if (urlString.isBlank()) {
+            return context;
+        }
 
-                        var content = WorkspaceTools.fetchUrlContent(new URI(urlString));
-                        content = HtmlToMarkdown.maybeConvertToMarkdown(content);
+        var content = WorkspaceTools.fetchUrlContent(new URI(urlString));
+        content = HtmlToMarkdown.maybeConvertToMarkdown(content);
 
-                        if (content.isBlank()) {
-                                            return context;
-                        }
+        if (content.isBlank()) {
+            return context;
+        }
 
-                        var fragment = new ContextFragment.StringFragment(
-                                                                context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
-                        return context.addFragments(fragment);
+        var fragment = new ContextFragment.StringFragment(
+                context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
+        return context.addFragments(fragment);
     }
 
     /**
