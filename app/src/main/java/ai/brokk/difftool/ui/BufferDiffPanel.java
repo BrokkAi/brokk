@@ -412,6 +412,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rows = "6px, pref, 3px, fill:0:grow, pref";
 
         setLayout(new BorderLayout());
+        // Set background on this panel itself (not just child containers)
+        setBackground(UIManager.getColor("Panel.background"));
 
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
@@ -1269,6 +1271,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         // Update container panel backgrounds for theme changes
         var bg = UIManager.getColor("Panel.background");
+        setBackground(bg); // Update this panel's own background
         if (searchBarContainer != null) {
             searchBarContainer.setBackground(bg);
         }

@@ -50,6 +50,7 @@
     },
 
     "TabbedPane": {
+      "background": "#1a1a1a",
       "underlineColor": "#42a5f5",
       "tabSelectionHeight": 4,
       "contentAreaColor": "#3a3a3a",
