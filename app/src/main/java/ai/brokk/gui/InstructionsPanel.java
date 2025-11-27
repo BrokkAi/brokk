@@ -2112,7 +2112,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> {
             // Check if WandButton captured the original text (before streaming modified the area)
             String capturedOldText = wandButton.getCapturedOriginalText();
-            if (!capturedOldText.isEmpty()) {
+            if (!capturedOldText.isBlank()) {
                 wandButton.clearCapturedOriginalText(); // Clear after use
             } else {
                 // Fallback: capture from area (works for history selection, voice input)
