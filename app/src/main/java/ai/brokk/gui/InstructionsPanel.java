@@ -17,6 +17,7 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
@@ -1813,6 +1814,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 try (var scope = cm.beginTask(input, false)) {
                     var result = task.call();
                     scope.append(result);
+                    
+                    if (!GlobalUiSettings.isAdvancedMode()
+                            && GlobalUiSettings.isBypassCommitGateEzMode()
+                            && ACTION_CODE.equals(action)
+                            && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                        try {
+                            new GitWorkflow(cm).performAutoCommit(input);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                         populateInstructionsArea(input);
                     }

@@ -55,6 +55,7 @@ public final class GlobalUiSettings {
     private static final String KEY_UI_ADVANCED_MODE = "ui.advancedMode";
     private static final String KEY_UI_VERTICAL_ACTIVITY_LAYOUT = "ui.verticalActivityLayout";
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
+    private static final String KEY_UI_BYPASS_COMMIT_GATE_EZ_MODE = "ui.bypassCommitGateEzMode";
     private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
     private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
 
@@ -118,7 +119,8 @@ public final class GlobalUiSettings {
             boolean verticalActivityLayout,
             boolean persistPerProjectBounds,
             boolean instructionsTabInsertIndentation,
-            boolean diffUnifiedView) {
+            boolean diffUnifiedView,
+            boolean bypassCommitGateEzMode) {
         public void applyTo(Properties props) {
             props.setProperty(KEY_UI_ADVANCED_MODE, Boolean.toString(advancedMode));
             props.setProperty(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, Boolean.toString(verticalActivityLayout));
@@ -126,6 +128,7 @@ public final class GlobalUiSettings {
             props.setProperty(
                     KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, Boolean.toString(instructionsTabInsertIndentation));
             props.setProperty(KEY_DIFF_UNIFIED_VIEW, Boolean.toString(diffUnifiedView));
+            props.setProperty(KEY_UI_BYPASS_COMMIT_GATE_EZ_MODE, Boolean.toString(bypassCommitGateEzMode));
         }
     }
 
@@ -425,6 +428,14 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
+
+    public static boolean isBypassCommitGateEzMode() {
+        return getBoolean(KEY_UI_BYPASS_COMMIT_GATE_EZ_MODE, false);
+    }
+
+    public static void saveBypassCommitGateEzMode(boolean bypass) {
+        setBoolean(KEY_UI_BYPASS_COMMIT_GATE_EZ_MODE, bypass);
     }
 
     // Vertical layout split positions (pixels)

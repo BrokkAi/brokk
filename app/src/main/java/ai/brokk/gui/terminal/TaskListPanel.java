@@ -1191,6 +1191,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Bypass commit gate when in EZ Mode with auto-commit preference enabled
+        if (!GlobalUiSettings.isAdvancedMode() && GlobalUiSettings.isBypassCommitGateEzMode()) {
+            action.run();
+            return;
+        }
+
         var owner = SwingUtilities.getWindowAncestor(this);
         var dialog = new JDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
 
@@ -1274,7 +1280,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
             try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+                boolean useAutoCommit = (!GlobalUiSettings.isAdvancedMode() && GlobalUiSettings.isBypassCommitGateEzMode()) || queueActive;
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx), useAutoCommit, queueActive);
             } catch (RuntimeException ex) {
                 logger.error("Internal error running architect", ex);
                 SwingUtilities.invokeLater(this::finishQueueOnError);

@@ -145,6 +145,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
 
+    // EZ Mode commit bypass (General tab)
+    private JCheckBox bypassCommitGateEzModeCheckbox = new JCheckBox("Bypass commit gate in EZ Mode (auto-commit)");
+
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     /**
@@ -238,6 +241,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // EZ Mode auto-commit
+        bypassCommitGateEzModeCheckbox.setSelected(GlobalUiSettings.isBypassCommitGateEzMode());
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -1038,6 +1044,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5);
+
+        // EZ Mode auto-commit
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("EZ Mode:"), gbc);
+
+        bypassCommitGateEzModeCheckbox.setToolTipText(
+                "When enabled, Brokk will skip the pre-run commit step in EZ Mode and automatically commit changes after the agent finishes running.");
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(bypassCommitGateEzModeCheckbox, gbc);
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -2030,6 +2053,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
         boolean diffUnified = diffUnifiedRadio.isSelected();
+        boolean bypassCommitGateEzMode = bypassCommitGateEzModeCheckbox.isSelected();
 
         // Capture "before" values for change detection (must be done before saving)
         String previousTheme = MainProject.getTheme();
@@ -2054,7 +2078,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 showConfirmNotificationsCheckbox.isSelected(),
                 showInfoNotificationsCheckbox.isSelected());
         var uiPreferences = new GlobalUiSettings.UiPreferences(
-                advancedMode, verticalLayout, persistPerProject, instructionsIndent, diffUnified);
+                advancedMode, verticalLayout, persistPerProject, instructionsIndent, diffUnified, bypassCommitGateEzMode);
 
         // === PHASE 4: Atomic save (2 writes total) ===
 
