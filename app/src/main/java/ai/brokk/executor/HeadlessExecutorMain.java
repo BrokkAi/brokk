@@ -6,6 +6,7 @@ import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -883,7 +884,7 @@ public final class HeadlessExecutorMain {
             }
 
             var root = contextManager.getProject().getRoot();
-            var validProjectFiles = new HashSet<ai.brokk.analyzer.ProjectFile>();
+            var validProjectFiles = new HashSet<ProjectFile>();
             var invalidPaths = new ArrayList<String>();
 
             // Validate and collect valid paths
