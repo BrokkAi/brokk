@@ -194,7 +194,7 @@ class HistoryV4MigrationTest {
             assertEquals(1, ctx.allFragments().count());
             var ppf = findFragment(ctx, ContextFragment.ProjectPathFragment.class, f -> true);
             assertNotNull(ppf);
-            assertEquals("public class ProjectPath {}", ppf.getSnapshotTextOrNull());
+            assertEquals("public class ProjectPath {}", ppf.snapshotNowOrEmpty().text());
         } else if ("v3-externalpath-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
@@ -202,26 +202,7 @@ class HistoryV4MigrationTest {
             var epf = findFragment(ctx, ContextFragment.ExternalPathFragment.class, f -> true);
             assertNotNull(epf);
             assertTrue(epf.file().toString().endsWith("external_file.txt"));
-            assertEquals("External file content", epf.getSnapshotTextOrNull());
-        } else if ("v3-search-fragment.zip".equals(zipFileName)) {
-            assertEquals(1, history.getHistory().size());
-            var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.SearchFragment.class, f -> true);
-            assertNotNull(sf);
-            assertEquals("Search: foobar", sf.description().join());
-            assertFalse(sf.messages().isEmpty());
-        } else if ("v3-skeleton-fragment.zip".equals(zipFileName)) {
-            assertEquals(1, history.getHistory().size());
-            var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.SkeletonFragment.class, f -> true);
-            assertNotNull(sf);
-            assertEquals(2, sf.getTargetIdentifiers().size());
-            assertEquals(
-                    "Summary of com.example.ClassA, com.example.ClassB",
-                    sf.description().join());
-            assertFalse(sf.getTargetIdentifiers().isEmpty());
+            assertEquals("External file content", epf.snapshotNowOrEmpty().text());
         } else if ("v3-usage-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

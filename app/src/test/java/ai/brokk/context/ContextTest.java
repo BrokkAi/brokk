@@ -59,7 +59,7 @@ class ContextTest {
     }
 
     @Test
-    void testAddPathFragmentsDedupAndAction() throws Exception {
+    void testaddFragmentsDedupAndAction() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Foo.java");
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "public class Foo {}");
@@ -68,7 +68,7 @@ class ContextTest {
         var p2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager, "init");
-        ctx = ctx.addPathFragments(List.of(p1, p2));
+        ctx = ctx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
         assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
@@ -84,8 +84,8 @@ class ContextTest {
                 contextManager, "same text", "desc-1", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager, "init");
-        ctx = ctx.addVirtualFragment(v1);
-        ctx = ctx.addVirtualFragment(v2);
+        ctx = ctx.addFragments(v1);
+        ctx = ctx.addFragments(v2);
 
         assertEquals(1, ctx.virtualFragments().count(), "Duplicate virtual fragments should be deduped by id/source");
     }
@@ -117,9 +117,9 @@ class ContextTest {
         var codeFrag = new ContextFragment.CodeFragment(contextManager, cu);
 
         var ctx = new Context(contextManager, "init")
-                .addPathFragments(List.of(projectFragA, projectFragB))
-                .addPathFragments(List.of(extFrag))
-                .addVirtualFragment(codeFrag);
+                .addFragments(List.of(projectFragA, projectFragB))
+                .addFragments(List.of(extFrag))
+                .addFragments(codeFrag);
 
         // Order: editable virtuals first (CodeFragment), then other editable path fragments (External),
         // then project path fragments ordered by mtime (older A then newer B).
@@ -146,7 +146,7 @@ class ContextTest {
         Files.writeString(pf.absPath(), "class Rm {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
+        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isReadOnly(ppf));
 
@@ -155,7 +155,7 @@ class ContextTest {
         assertEquals(0, ctxRemoved.fileFragments().count(), "Fragment should be removed");
 
         // Re-add the same instance; read-only should not persist
-        var ctxReadded = ctxRemoved.addPathFragments(List.of(ppf));
+        var ctxReadded = ctxRemoved.addFragments(List.of(ppf));
         assertEquals(1, ctxReadded.fileFragments().count());
         assertFalse(ctxReadded.isReadOnly(ppf), "Read-only should be cleared after removal");
     }
@@ -213,9 +213,7 @@ class ContextTest {
 
         var sf = new ContextFragment.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(contextManager, "init")
-                .addPathFragments(List.of(ppf))
-                .addVirtualFragment(sf);
+        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf)).addFragments(sf);
 
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
@@ -241,7 +239,7 @@ class ContextTest {
         Files.writeString(pf.absPath(), "class RefreshRO {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
+        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
         // Mark the fragment read-only
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isReadOnly(ppf), "Precondition: fragment should be read-only");
@@ -267,12 +265,8 @@ class ContextTest {
         var s1 = new ContextFragment.StringFragment(contextManager, "Text-1", "D1", SyntaxConstants.SYNTAX_STYLE_NONE);
         var s2 = new ContextFragment.StringFragment(contextManager, "Text-2", "D2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx1 = new Context(contextManager, "c1")
-                .addPathFragments(List.of(ppf1))
-                .addVirtualFragment(s1);
-        var ctx2 = new Context(contextManager, "c2")
-                .addPathFragments(List.of(ppf1))
-                .addVirtualFragment(s2);
+        var ctx1 = new Context(contextManager, "c1").addFragments(List.of(ppf1)).addFragments(s1);
+        var ctx2 = new Context(contextManager, "c2").addFragments(List.of(ppf1)).addFragments(s2);
 
         var merged = ctx1.union(ctx2);
 
@@ -284,7 +278,7 @@ class ContextTest {
     @Test
     void testGetAllFragmentsInDisplayOrderIncludesHistoryFirst() {
         var s1 = new ContextFragment.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var ctx = new Context(contextManager, "init").addVirtualFragment(s1);
+        var ctx = new Context(contextManager, "init").addFragments(s1);
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
@@ -318,8 +312,8 @@ class ContextTest {
         var f1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var f2 = new ContextFragment.ProjectPathFragment(pf, contextManager); // different instance, same source
 
-        var c1 = new Context(contextManager, "c1").addPathFragments(List.of(f1));
-        var c2 = new Context(contextManager, "c2").addPathFragments(List.of(f2));
+        var c1 = new Context(contextManager, "c1").addFragments(List.of(f1));
+        var c2 = new Context(contextManager, "c2").addFragments(List.of(f2));
 
         assertTrue(c1.workspaceContentEquals(c2), "Contexts with same sources should be equivalent");
     }
@@ -333,7 +327,7 @@ class ContextTest {
         var ppf = new ContextFragment.ProjectPathFragment(pfWorkspace, contextManager);
 
         // Another class not in workspace should be added as CodeFragment
-        var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
+        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
         ctx = Context.withAddedClasses(
                 ctx, List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"), analyzer);
 

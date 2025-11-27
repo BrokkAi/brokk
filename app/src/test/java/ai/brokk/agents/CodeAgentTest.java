@@ -891,7 +891,7 @@ class CodeAgentTest {
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
         var roFrag = new ContextFragment.ProjectPathFragment(roFile, contextManager);
-        var ctx = contextManager.liveContext().addPathFragments(List.of(roFrag));
+        var ctx = contextManager.liveContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
         ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
@@ -933,7 +933,7 @@ class CodeAgentTest {
         var file = contextManager.toFile("file.txt");
         file.write("hello");
         var editFrag = new ContextFragment.ProjectPathFragment(file, contextManager);
-        var ctx = contextManager.liveContext().addPathFragments(List.of(editFrag));
+        var ctx = contextManager.liveContext().addFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
         // In practice, Code/Usage fragments would be read-only; here we just ensure the logic

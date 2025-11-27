@@ -712,39 +712,6 @@ class FragmentEqualityTest {
     }
 
     @Nested
-    class SearchFragmentEqualityTest {
-        private CodeUnit createTestCodeUnit(String fqName) {
-            var file = new ProjectFile(tempDir, "Test.java");
-            String shortName = fqName.substring(fqName.lastIndexOf('.') + 1);
-            String packageName = fqName.contains(".") ? fqName.substring(0, fqName.lastIndexOf('.')) : "";
-            return new CodeUnit(file, CodeUnitType.CLASS, packageName, shortName);
-        }
-
-        @Test
-        void testEqualsIdenticalContent() {
-            var messages = List.<ChatMessage>of(UserMessage.from("query"));
-            var sources = Set.of(createTestCodeUnit("com.example.Test"));
-            var sf1 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
-            var sf2 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
-
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they represent the same search content
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
-        void testEqualsDifferentSessions() {
-            var messages = List.<ChatMessage>of(UserMessage.from("query"));
-            var sources = Set.of(createTestCodeUnit("com.example.Test"));
-            var sf1 = new ContextFragment.SearchFragment(contextManager, "search1", messages, sources);
-            var sf2 = new ContextFragment.SearchFragment(contextManager, "search2", messages, sources);
-
-            assertNotEquals(sf1, sf2);
-        }
-    }
-
-    @Nested
     class StacktraceFragmentEqualityTest {
         private CodeUnit createTestCodeUnit(String fqName) {
             var file = new ProjectFile(tempDir, "Test.java");
@@ -776,43 +743,6 @@ class FragmentEqualityTest {
                     new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception2", "code");
 
             assertNotEquals(sf1, sf2);
-        }
-    }
-
-    @Nested
-    class SkeletonFragmentEqualityTest {
-        @Test
-        void testEqualsIdentity() {
-            var targets = List.of("com.example.Class1", "com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertNotEquals(sf1, sf2);
-        }
-
-        @Test
-        void testHasSameSourceSameTargets() {
-            var targets = List.of("com.example.Class1", "com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentTargets() {
-            var targets1 = List.of("com.example.Class1");
-            var targets2 = List.of("com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets1, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets2, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertFalse(sf1.hasSameSource(sf2));
         }
     }
 

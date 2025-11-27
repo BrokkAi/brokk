@@ -111,9 +111,8 @@ public class SessionManagerTest {
         ContextFragment.StringFragment sf = new ContextFragment.StringFragment(
                 mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
         ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
-        Context context2 = new Context(mockContextManager, "Second context with fragments")
-                .addVirtualFragment(sf)
-                .addPathFragments(List.of(pf));
+        Context context2 =
+                new Context(mockContextManager, "Second context with fragments").addFragments(List.of(sf, pf));
         originalHistory.pushContext(context2);
 
         // Get initial modified time

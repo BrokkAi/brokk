@@ -786,11 +786,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     @Override
     public void addFiles(Collection<ProjectFile> files) {
-        addFragments(toPathFragments(files));
+        addPathFragments(toPathFragments(files));
     }
 
     /** Add the given files to editable. */
-    public void addFragments(List<? extends PathFragment> fragments) {
+    public void addPathFragments(List<? extends PathFragment> fragments) {
         if (fragments.isEmpty()) {
             return;
         }

@@ -26,15 +26,14 @@ public class UndoRedoRestoreTest {
         var pf = new ProjectFile(tempDir, "sample.txt");
         pf.write("v1");
 
-        var live =
-                new Context(cm, "Initial").addPathFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
+        var live = new Context(cm, "Initial").addFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
         live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // 2) Build history with the initial snapshot
         var history = new ContextHistory(live);
 
         // 3) Push a second snapshot (e.g., adding a virtual fragment) to enable undo
-        history.push(ctx -> ctx.addVirtualFragment(
+        history.push(ctx -> ctx.addFragments(
                 new ContextFragment.StringFragment(cm, "hello", "desc", SyntaxConstants.SYNTAX_STYLE_NONE)));
 
         // 4) Modify the file externally to a different value
