@@ -783,7 +783,7 @@ public class ArchitectAgent {
 
         String mergeSummary = (addedCount == 0)
                 ? "No Workspace changes."
-                : "Merged results into the Workspace: added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s")
+                : "Merged results from all searches into the Workspace: added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s")
                         + ".";
 
         io.llmOutput(
