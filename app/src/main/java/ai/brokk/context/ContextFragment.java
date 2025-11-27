@@ -252,52 +252,6 @@ public interface ContextFragment {
     }
 
     /**
-     * Retrieves the frozen contents, if any. Returns <code>null</code> if none is persisted.
-     */
-    byte @Nullable [] getFrozenContentBytes();
-
-    /**
-     * Retrieves the frozen contents, if any as a UTF-8 string. Returns <code>null</code> if none is persisted.
-     */
-    default @Nullable String getSnapshotTextOrNull() {
-        var bytes = getFrozenContentBytes();
-        if (bytes != null) {
-            return new String(bytes, StandardCharsets.UTF_8);
-        }
-        return null;
-    }
-
-    /**
-     * Sets the persisted immutable snapshot content for this fragment.
-     * Implementations should treat this as write-once and ignore subsequent calls when already set.
-     * Default implementation is a no-op.
-     */
-    default void setFrozenContentBytes(byte[] bytes) {
-        // no-op by default
-    }
-
-    /**
-     * Explicitly capture a snapshot of this fragment's content within the provided timeout.
-     * For image fragments, captures image bytes; otherwise captures text as UTF-8 bytes.
-     *
-     * Best-effort; timeouts or failures are logged and do not throw.
-     */
-    @Blocking
-    default void snapshot(Duration timeout) {
-        try {
-            if (isText()) {
-                text().await(timeout).ifPresent(text -> setFrozenContentBytes(text.getBytes(StandardCharsets.UTF_8)));
-            }
-            var ib = imageBytes();
-            if (ib != null) {
-                ib.await(timeout).ifPresent(this::setFrozenContentBytes);
-            }
-        } catch (Exception e) {
-            logger.warn("Snapshot failed for fragment {}: {}", id(), e.toString());
-        }
-    }
-
-    /**
      * Return a string that can be provided to the appropriate WorkspaceTools method to recreate this fragment. Returns
      * an empty string for fragments that cannot be re-added without serializing their entire contents.
      */
@@ -320,6 +274,12 @@ public interface ContextFragment {
      * Syntax highlight style.
      */
     ComputedValue<String> syntaxStyle();
+
+    /**
+     * Exposes the full fragment snapshot as a ComputedValue.
+     * Static fragments are completed immediately; computed fragments complete when ready.
+     */
+    ComputedValue<FragmentSnapshot> snapshot();
 
     default List<TaskEntry> entries() {
         return List.of();
@@ -443,12 +403,23 @@ public interface ContextFragment {
         private final ConcurrentMap<String, ComputedValue<?>> derivedCvs = new ConcurrentHashMap<>();
 
         protected AbstractComputedFragment(String id, IContextManager contextManager) {
+            this(id, contextManager, null);
+        }
+
+        protected AbstractComputedFragment(String id, IContextManager contextManager, @Nullable FragmentSnapshot initialSnapshot) {
             this.id = id;
             this.contextManager = contextManager;
-            this.snapshotCv = new ComputedValue<>(
-                    "snap-" + id,
-                    this::computeSnapshot,
-                    getFragmentExecutor());
+            this.snapshotCv = initialSnapshot != null
+                    ? ComputedValue.completed("snap-" + id, initialSnapshot)
+                    : new ComputedValue<>(
+                            "snap-" + id,
+                            this::computeSnapshot,
+                            getFragmentExecutor());
+        }
+
+        @Override
+        public ComputedValue<FragmentSnapshot> snapshot() {
+            return snapshotCv;
         }
 
         @Override
@@ -632,13 +603,8 @@ public interface ContextFragment {
         }
 
         @Override
-        public void setFrozenContentBytes(byte[] bytes) {
-            // Static fragments are immutable/frozen by definition
-        }
-
-        @Override
-        public byte @Nullable [] getFrozenContentBytes() {
-            return snapshot.text().getBytes(StandardCharsets.UTF_8);
+        public ComputedValue<FragmentSnapshot> snapshot() {
+            return ComputedValue.completed("snap-" + id, snapshot);
         }
 
         @Override
@@ -671,14 +637,13 @@ public interface ContextFragment {
 
     final class ProjectPathFragment extends AbstractComputedFragment implements PathFragment, DynamicIdentity {
         private final ProjectFile file;
-        private final boolean suppressSnapshot;
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, false);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
         }
         
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
@@ -687,16 +652,26 @@ public interface ContextFragment {
         
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             validateNumericId(existingId);
-            return new ProjectPathFragment(file, existingId, contextManager, snapshotText, false);
+            return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText, boolean suppressSnapshot) {
-            super(id, contextManager);
-            this.file = file;
-            this.suppressSnapshot = suppressSnapshot;
-            if (snapshotText != null) {
-                setFrozenContentBytes(snapshotText.getBytes(StandardCharsets.UTF_8));
+        private static FragmentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            String name = file.getFileName();
+            String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+            Set<CodeUnit> sources;
+            try {
+                sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
+            } catch (Throwable t) {
+                sources = Set.of();
             }
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), null);
+        }
+
+        private ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            super(id, contextManager, snapshotText != null ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
+            this.file = file;
             primeComputations();
         }
 
@@ -734,14 +709,9 @@ public interface ContextFragment {
 
         @Override
         public ContextFragment refreshCopy() {
-            return new ProjectPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
+            return new ProjectPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
 
-        @Override
-        public void snapshot(Duration timeout) {
-            if (suppressSnapshot) return;
-            super.snapshot(timeout);
-        }
         
         @Override
         public String toString() {
@@ -770,13 +740,13 @@ public interface ContextFragment {
         @Override
         public ComputedValue<String> description() {
              var parentDir = file.getParent();
-             var shortDesc = "%s @%s".formatted(file.getFileName(), id);
+             var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
              return ComputedValue.completed("gff-desc-" + id, parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir));
         }
 
         @Override
         public ComputedValue<String> shortDescription() {
-            return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file.getFileName(), id));
+            return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file.getFileName(), revision));
         }
         
         @Override
@@ -803,7 +773,13 @@ public interface ContextFragment {
         }
 
         @Override
-        public byte @Nullable [] getFrozenContentBytes() { return content.getBytes(StandardCharsets.UTF_8); }
+        public ComputedValue<FragmentSnapshot> snapshot() {
+            var parentDir = file.getParent();
+            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
+            var desc = parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
+            var syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+            return ComputedValue.completed("gff-snap-" + id, new FragmentSnapshot(desc, shortDesc, content, syntax));
+        }
         
         @Override
         public boolean hasSameSource(ContextFragment other) {
@@ -820,11 +796,11 @@ public interface ContextFragment {
         private final ExternalFile file;
         
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, true);
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
         
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager, @Nullable String snapshotText) {
-             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText, true);
+             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
         }
 
         public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager) {
@@ -833,14 +809,25 @@ public interface ContextFragment {
         
         public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
             validateNumericId(existingId);
-            return new ExternalPathFragment(file, existingId, contextManager, snapshotText, true);
+            return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText, boolean eagerPrime) {
-            super(id, contextManager);
+        private static FragmentSnapshot decodeFrozen(ExternalFile file, IContextManager contextManager, byte[] bytes) {
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            String name = file.toString();
+            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+            return new FragmentSnapshot(name, name, text, syntax);
+        }
+
+        private ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            super(id, contextManager, snapshotText != null ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.file = file;
-            if (snapshotText != null) setFrozenContentBytes(snapshotText.getBytes(StandardCharsets.UTF_8));
-            if (eagerPrime) primeComputations();
+            primeComputations();
+        }
+
+        @Override
+        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
+            return decodeFrozen(file, contextManager, bytes);
         }
 
         @Override
@@ -868,7 +855,7 @@ public interface ContextFragment {
         
         @Override
         public ContextFragment refreshCopy() {
-             return new ExternalPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null, false);
+             return new ExternalPathFragment(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
     }
 
@@ -926,14 +913,18 @@ public interface ContextFragment {
         
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-             // For image fragments, frozen bytes are image bytes
-             return new FragmentSnapshot(description().renderNowOr(file.toString()), 
-                shortDescription().renderNowOr(file.getFileName()), 
-                "[Image content provided out of band]", 
-                SyntaxConstants.SYNTAX_STYLE_NONE, 
-                Set.of(), 
-                (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(), 
-                bytes);
+            String desc = file.toString();
+            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
+                desc = "%s [%s]".formatted(file.getFileName(), pf.getParent());
+            }
+            return new FragmentSnapshot(
+                    desc,
+                    file.getFileName(),
+                    "[Image content provided out of band]",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(),
+                    (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
+                    bytes);
         }
         
         @Override
@@ -1081,7 +1072,7 @@ public interface ContextFragment {
     
     class AnonymousImageFragment extends AbstractComputedFragment implements ImageFragment {
         private final Image image;
-        private final Future<String> descriptionFuture;
+        final Future<String> descriptionFuture;
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             this(FragmentUtils.calculateContentHash(FragmentType.PASTE_IMAGE, "(Pasting image)", null, imageToBytes(image), false, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), AnonymousImageFragment.class.getName(), Map.of()),
@@ -1117,7 +1108,7 @@ public interface ContextFragment {
         
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-             return new FragmentSnapshot(description().renderNowOr("(restored)"), "pasted image", 
+             return new FragmentSnapshot("pasted image", "pasted image", 
                      "[Image content provided out of band]", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), bytes);
         }
 
@@ -1181,11 +1172,21 @@ public interface ContextFragment {
              this(id, contextManager, targetIdentifier, includeTestFiles, null);
         }
         public UsageFragment(String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles, @Nullable String snapshotText) {
-            super(id, contextManager);
+            super(id, contextManager, snapshotText != null ? decodeFrozen(targetIdentifier, includeTestFiles, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
-            if (snapshotText != null) setFrozenContentBytes(snapshotText.getBytes(StandardCharsets.UTF_8));
             primeComputations();
+        }
+
+        private static FragmentSnapshot decodeFrozen(String targetIdentifier, boolean includeTestFiles, byte[] bytes) {
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            String desc = "Uses of " + targetIdentifier;
+            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
+        }
+
+        @Override
+        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
+            return decodeFrozen(targetIdentifier, includeTestFiles, bytes);
         }
 
         @Override
@@ -1249,10 +1250,20 @@ public interface ContextFragment {
              this(id, contextManager, fullyQualifiedName, null);
         }
         public CodeFragment(String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
-            super(id, contextManager);
+            super(id, contextManager, snapshotText != null ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.fullyQualifiedName = fullyQualifiedName;
-            if (snapshotText != null) setFrozenContentBytes(snapshotText.getBytes(StandardCharsets.UTF_8));
             primeComputations();
+        }
+
+        private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes) {
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            String desc = "Source for " + fullyQualifiedName;
+            return new FragmentSnapshot(desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
+        }
+
+        @Override
+        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
+            return decodeFrozen(fullyQualifiedName, bytes);
         }
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
             super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
@@ -1465,6 +1476,13 @@ public interface ContextFragment {
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
             
             return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, null);
+        }
+
+        public static String combinedText(List<SummaryFragment> fragments) {
+            return fragments.stream()
+                    .map(sf -> sf.text().join())
+                    .filter(s -> !s.isBlank())
+                    .collect(Collectors.joining("\n\n"));
         }
         
         private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
