@@ -198,22 +198,10 @@ public class LlmTest {
     }
 
     // uncomment when you need it, this makes live API calls
-    // Verifies that the build error extraction prompt includes all causally related errors
-    // To use real Brokk LLM: set useLiveLlm = true (requires Brokk account/keys)
     // @Test
     void testBuildErrorExtractionIncludesAllErrors() throws InterruptedException {
-        boolean useLiveLlm = true; // Set to true to use real Brokk LLM proxy
-
-        IContextManager cm;
-        if (useLiveLlm) {
-            // Use real ContextManager with Brokk's LLM proxy
-            var project = new ai.brokk.project.MainProject(tempDir);
-            cm = new ContextManager(project);
-            System.out.println("Using LIVE LLM via Brokk proxy");
-        } else {
-            cm = contextManager; // Use stub model
-            System.out.println("Using STUB model (no real LLM)");
-        }
+        var project = new ai.brokk.project.MainProject(tempDir);
+        var cm = new ContextManager(project);
 
         var models = cm.getService();
         var availableModels = models.getAvailableModels();
@@ -243,9 +231,6 @@ public class LlmTest {
 
                 > Task :app:compileJavaErrorProne FAILED
                 """;
-
-        // Use quickest model for the extraction
-        var model = models.quickestModel();
 
         // Call the preprocessor which uses the LLM to extract errors
         String result = BuildOutputPreprocessor.processForLlm(buildOutput, cm);
