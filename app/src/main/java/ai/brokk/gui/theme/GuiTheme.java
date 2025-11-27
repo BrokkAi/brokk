@@ -261,14 +261,11 @@ public class GuiTheme {
                     }
                 };
 
-        var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
-
-        if (inputStream == null) {
-            logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
-            return Optional.empty();
-        }
-
-        try {
+        try (var inputStream = GuiTheme.class.getResourceAsStream(themeResource)) {
+            if (inputStream == null) {
+                logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
+                return Optional.empty();
+            }
             var theme = Theme.load(inputStream);
             applyFlatLafColorsToTheme(theme);
             return Optional.of(theme);
