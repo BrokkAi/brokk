@@ -401,11 +401,22 @@ public class SearchAgent {
     private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
             throws InterruptedException {
         metrics.recordToolCall(req.name());
+
+        // Pre-sync: ensure WorkspaceTools sees the freshest Context before executing any tool.
+        // This hardens against future tools that might mutate context between calls, preventing
+        // wst from operating on a stale snapshot.
+        wst.setContext(context);
+
         var result = registry.executeTool(req);
-        // Only copy context back if this was a workspace tool
+
+        // If this was a WorkspaceTools call, copy its immutable update back to the agent-local Context.
         if (isWorkspaceTool(req, registry)) {
             context = wst.getContext();
         }
+
+        // Post-sync: keep both sides in lockstep even if non-Workspace tools begin mutating Context in the future.
+        wst.setContext(context);
+
         return result;
     }
 
