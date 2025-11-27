@@ -157,7 +157,6 @@ public class SearchAgent {
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
         var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
-        this.summarizer.setOutput(this.io);
 
         this.beastMode = false;
         this.codeAgentJustSucceeded = false;
@@ -866,6 +865,8 @@ public class SearchAgent {
             metrics.recordContextScan(0, false, Set.of(), md);
             if (appendToScope) {
                 context = scope.append(contextAgentResult);
+            } else {
+                context = contextAgentResult.context();
             }
             return context;
         }
@@ -902,6 +903,8 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         if (appendToScope) {
             context = scope.append(contextAgentResult);
+        } else {
+            context = contextAgentResult.context();
         }
         return context;
     }
