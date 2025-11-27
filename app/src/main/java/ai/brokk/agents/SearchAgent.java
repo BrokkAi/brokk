@@ -145,18 +145,37 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             @Nullable IConsoleIO io,
             boolean echo) {
+        // Deprecated echo flag; output streaming is controlled by IO instance.
+        this(initialContext, goal, model, objective, scope, io);
+    }
+
+    /**
+     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     *
+     * @param initialContext the initial context
+     * @param goal the search goal
+     * @param model the LLM model to use
+     * @param objective the search objective
+     * @param scope the task scope for history recording
+     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            @Nullable IConsoleIO io) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
         this.io = io != null ? io : cm.getIo();
-        var llmOptions = new Llm.Options(model, "Search: " + goal);
-        if (echo) {
-            llmOptions = llmOptions.withEcho();
-        }
+        var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
+
         var summarizeConfig = new Service.ModelConfig(
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
         var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
@@ -192,7 +211,7 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope) {
-        this(initialContext, goal, model, objective, scope, null, true);
+        this(initialContext, goal, model, objective, scope, null);
     }
 
     /**
@@ -207,7 +226,8 @@ public class SearchAgent {
             Objective objective,
             ContextManager.TaskScope scope,
             boolean echo) {
-        this(initialContext, goal, model, objective, scope, null, echo);
+        // Deprecated echo flag; output streaming is controlled by IO instance.
+        this(initialContext, goal, model, objective, scope, null);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -805,7 +825,9 @@ public class SearchAgent {
         var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
-        var jLlm = cm.getLlm(new Llm.Options(model, "Janitor: " + goal).withEcho());
+        var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
+        var jLlm = cm.getLlm(janitorOpts);
+        jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
         if (result.error() != null || result.isEmpty()) {
             return;

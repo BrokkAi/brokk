@@ -10,7 +10,7 @@ import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A wrapper around IConsoleIO that mutes streaming output (llmOutput) while delegating
+ * A wrapper around IConsoleIO that mutes streaming output (llmOutput) to the MOP while delegating
  * all notifications, errors, and other UI operations to the wrapped IO.
  *
  * This is useful for running agents in parallel where only one should produce visible
@@ -46,22 +46,22 @@ public class MutedConsoleIO implements IConsoleIO {
 
     @Override
     public void backgroundOutput(String taskDescription) {
-        // Mute background output
+        delegate.backgroundOutput(taskDescription);
     }
 
     @Override
     public void backgroundOutput(String summary, String details) {
-        // Mute background output
+        delegate.backgroundOutput(summary, details);
     }
 
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        delegate.setLlmAndHistoryOutput(history, taskEntry);
+        // No-op for muted background agents
     }
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        delegate.prepareOutputForNextStream(history);
+        // No-op for muted background agents
     }
 
     @Override
@@ -86,12 +86,12 @@ public class MutedConsoleIO implements IConsoleIO {
 
     @Override
     public void showOutputSpinner(String message) {
-        delegate.showOutputSpinner(message);
+        // No-op for muted background agents
     }
 
     @Override
     public void hideOutputSpinner() {
-        delegate.hideOutputSpinner();
+        // No-op for muted background agents
     }
 
     @Override
@@ -106,7 +106,8 @@ public class MutedConsoleIO implements IConsoleIO {
 
     @Override
     public List<ChatMessage> getLlmRawMessages() {
-        return delegate.getLlmRawMessages();
+        // Return empty to avoid transcript contamination for background agents
+        return List.of();
     }
 
     @Override
