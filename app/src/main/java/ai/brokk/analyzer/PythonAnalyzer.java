@@ -512,6 +512,32 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
+     * Resolves a module path to a ProjectFile, checking both module.py and package __init__.py.
+     *
+     * @param modulePath The dotted module path (e.g., "pkg.subpkg" or "module")
+     * @return The resolved ProjectFile, or null if neither exists
+     */
+    private @Nullable ProjectFile resolveModuleFile(String modulePath) {
+        var basePath = modulePath.replace('.', '/');
+
+        // Try module.py first
+        var moduleFilePath = basePath + ".py";
+        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+        if (Files.exists(moduleFile.absPath())) {
+            return moduleFile;
+        }
+
+        // Fall back to package __init__.py
+        var initFilePath = basePath + "/__init__.py";
+        var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
+        if (Files.exists(initFile.absPath())) {
+            return initFile;
+        }
+
+        return null;
+    }
+
+    /**
      * Resolves import statements into a set of {@link CodeUnit}s, matching Python's native import semantics.
      * In Python, imports are executed in order and later imports override earlier ones with the same name.
      * This means a wildcard import that comes after an explicit import will shadow the explicit import
@@ -565,23 +591,25 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         case IMPORT_WILDCARD -> {
                             // Wildcard import - expand and add all public classes (may overwrite previous imports)
                             if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                var moduleFilePath = wildcardModule.replace('.', '/') + ".py";
-                                try {
-                                    var moduleFile =
-                                            new ProjectFile(getProject().getRoot(), moduleFilePath);
-                                    var decls = getDeclarations(moduleFile);
-                                    for (CodeUnit child : decls) {
-                                        // Only import public classes (no underscore prefix)
-                                        if (child.isClass()
-                                                && !child.identifier().startsWith("_")) {
-                                            resolvedByName.put(child.identifier(), child);
+                                var moduleFile = resolveModuleFile(wildcardModule);
+                                if (moduleFile != null) {
+                                    try {
+                                        var decls = getDeclarations(moduleFile);
+                                        for (CodeUnit child : decls) {
+                                            // Only import public classes (no underscore prefix)
+                                            if (child.isClass()
+                                                    && !child.identifier().startsWith("_")) {
+                                                resolvedByName.put(child.identifier(), child);
+                                            }
                                         }
+                                    } catch (Exception e) {
+                                        log.warn(
+                                                "Could not expand wildcard import from {}: {}",
+                                                wildcardModule,
+                                                e.getMessage());
                                     }
-                                } catch (Exception e) {
-                                    log.warn(
-                                            "Could not expand wildcard import from {}: {}",
-                                            wildcardModule,
-                                            e.getMessage());
+                                } else {
+                                    log.warn("Could not find module file for wildcard import: {}", wildcardModule);
                                 }
                             }
                         }
@@ -590,25 +618,27 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             if (currentModule != null) {
                                 // In Python, modules (files) don't add a level to class FQNs
                                 // "from package.module import Class" means:
-                                //   - Look for Class in file package/module.py
+                                //   - Look for Class in file package/module.py or package/__init__.py
                                 //   - The FQN will be package.Class, not package.module.Class
 
                                 // Try to find the class in the module file
-                                var moduleFilePath = currentModule.replace('.', '/') + ".py";
-                                try {
-                                    var moduleFile =
-                                            new ProjectFile(getProject().getRoot(), moduleFilePath);
-                                    var decls = getDeclarations(moduleFile);
-                                    decls.stream()
-                                            .filter(cu -> cu.identifier().equals(text) && cu.isClass())
-                                            .findFirst()
-                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                } catch (Exception e) {
-                                    log.warn(
-                                            "Could not resolve import '{}' from module {}: {}",
-                                            text,
-                                            currentModule,
-                                            e.getMessage());
+                                var moduleFile = resolveModuleFile(currentModule);
+                                if (moduleFile != null) {
+                                    try {
+                                        var decls = getDeclarations(moduleFile);
+                                        decls.stream()
+                                                .filter(cu -> cu.identifier().equals(text) && cu.isClass())
+                                                .findFirst()
+                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                                    } catch (Exception e) {
+                                        log.warn(
+                                                "Could not resolve import '{}' from module {}: {}",
+                                                text,
+                                                currentModule,
+                                                e.getMessage());
+                                    }
+                                } else {
+                                    log.debug("Could not find module file for import: {}", currentModule);
                                 }
                             } else if (currentModule == null && wildcardModule == null) {
                                 // For "import X" style (no module context)
