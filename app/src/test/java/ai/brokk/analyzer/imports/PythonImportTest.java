@@ -350,4 +350,168 @@ public class PythonImportTest {
                     "Should NOT import __dunder_function (underscore prefix)");
         }
     }
+
+    @Test
+    public void testRelativePackageWildcardFromInit() throws IOException {
+        // Test: from .. import * should import from parent package's __init__.py
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class ParentClass:
+                            pass
+
+                        class _PrivateParentClass:
+                            pass
+
+                        def parent_function():
+                            pass
+                        """,
+                        "pkg/__init__.py")
+                .addFileContents("# Subpackage marker\n", "pkg/sub/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from .. import *
+
+                        class Child:
+                            pass
+                        """,
+                        "pkg/sub/child.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var childFile = AnalyzerUtil.getFileFor(analyzer, "pkg.sub.Child").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(childFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(importedNames.contains("ParentClass"), "Should import ParentClass from parent __init__.py");
+            assertTrue(
+                    importedNames.contains("parent_function"), "Should import parent_function from parent __init__.py");
+            assertFalse(
+                    importedNames.contains("_PrivateParentClass"),
+                    "Should NOT import _PrivateParentClass (underscore prefix)");
+        }
+    }
+
+    @Test
+    public void testAliasLastWins() throws IOException {
+        // Test: from pkg1.m import A as X then from pkg2.m import A as X
+        // Last import wins on the alias name X
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg1/__init__.py")
+                .addFileContents("# Package marker\n", "pkg2/__init__.py")
+                .addFileContents(
+                        """
+                        class A:
+                            pass
+                        """,
+                        "pkg1/m.py")
+                .addFileContents(
+                        """
+                        class A:
+                            pass
+                        """,
+                        "pkg2/m.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg1.m import A as X  # first
+                        from pkg2.m import A as X  # second - wins
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            // Note: Current implementation resolves the original name (A), not the alias (X)
+            // This test documents the expected behavior - last import wins
+            var aCUs = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("A"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, aCUs.size(), "Should resolve only one 'A' class (last wins)");
+            assertEquals(
+                    "pkg2.A",
+                    aCUs.getFirst().fqName(),
+                    "Last import wins: second aliased import should shadow the first");
+        }
+    }
+
+    @Test
+    public void testCurrentPackageWildcard() throws IOException {
+        // Test: from . import * within a package should import from current package's __init__.py
+        var builder = InlineTestProjectCreator.code(
+                """
+                        class SiblingClass:
+                            pass
+
+                        def sibling_function():
+                            pass
+                        """,
+                "pkg/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from . import *
+
+                        class Consumer:
+                            pass
+                        """,
+                        "pkg/consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "pkg.Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(
+                    importedNames.contains("SiblingClass"),
+                    "Should import SiblingClass from current package __init__.py");
+            assertTrue(
+                    importedNames.contains("sibling_function"),
+                    "Should import sibling_function from current package __init__.py");
+        }
+    }
+
+    @Test
+    public void testModuleAndPackageWildcardCoexistence() throws IOException {
+        // Test: from pkg import module as m followed by from pkg.module import *
+        // Verify wildcard expansion works correctly with package vs module handling
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
+                .addFileContents(
+                        """
+                        class ModuleClass:
+                            pass
+
+                        def module_function():
+                            pass
+                        """,
+                        "pkg/module.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg import module as m
+                        from pkg.module import *
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(importedNames.contains("ModuleClass"), "Should import ModuleClass from wildcard");
+            assertTrue(importedNames.contains("module_function"), "Should import module_function from wildcard");
+        }
+    }
 }
