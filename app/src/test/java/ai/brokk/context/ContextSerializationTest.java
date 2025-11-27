@@ -961,7 +961,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = (ContextFragment.HistoryFragment) loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
                 .findFirst()
                 .orElseThrow();
@@ -992,7 +992,7 @@ public class ContextSerializationTest {
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
         Context loadedCtx = loadedHistory.getHistory().get(0);
         var loadedFragment = (ContextFragment.PasteTextFragment) loadedCtx
-                .virtualFragments()
+                .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
                 .findFirst()
                 .orElseThrow();

@@ -275,12 +275,6 @@ public final class DiffService {
      */
     private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
         try {
-            // Prefer snapshot text if available
-            String snap = fragment.getSnapshotTextOrNull();
-            if (snap != null) {
-                return CompletableFuture.completedFuture(snap);
-            }
-
             var computedTextFuture = fragment.text().future();
             return computedTextFuture.exceptionally(ex -> {
                 logger.warn(
@@ -324,13 +318,13 @@ public final class DiffService {
             ContextFragment thisFragment, ContextFragment otherFragment) {
         try {
             // Prefer frozen bytes (snapshot), fall back to computed image bytes
-            byte[] oldImageBytes = otherFragment.getFrozenContentBytes();
+            byte[] oldImageBytes = otherFragment.snapshotNowOrEmpty().imageBytes();
             if (oldImageBytes == null) {
                 var oldCv = otherFragment.imageBytes();
                 oldImageBytes = oldCv == null ? null : oldCv.join();
             }
 
-            byte[] newImageBytes = thisFragment.getFrozenContentBytes();
+            byte[] newImageBytes = thisFragment.snapshotNowOrEmpty().imageBytes();
             if (newImageBytes == null) {
                 var newCv = thisFragment.imageBytes();
                 newImageBytes = newCv == null ? null : newCv.join();
