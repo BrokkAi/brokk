@@ -417,7 +417,7 @@ public class MenuBar {
                             var pathFrag = ContextFragment.toPathFragment(bf, cm);
                             fragments.add(pathFrag);
                         }
-                        cm.addPathFragments(fragments);
+                        cm.addFragments(fragments);
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Attached " + fragments.size() + " files.");
                     });
