@@ -267,4 +267,87 @@ public class PythonImportTest {
                     "Last import wins: relative wildcard after explicit should shadow the explicit");
         }
     }
+
+    @Test
+    public void testWildcardImportFromPackageInit() throws IOException {
+        // Test that wildcard imports can find exports in __init__.py
+        // This tests the __init__.py fallback when no module.py exists
+        var builder = InlineTestProjectCreator.code(
+                        """
+                        class PackageClass:
+                            pass
+
+                        def package_function():
+                            pass
+                        """,
+                        "mypkg/__init__.py")
+                .addFileContents("# Package marker\n", "mypkg/subpkg/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from mypkg import *
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(importedNames.contains("PackageClass"), "Should import PackageClass from __init__.py");
+            assertTrue(importedNames.contains("package_function"), "Should import package_function from __init__.py");
+        }
+    }
+
+    @Test
+    public void testWildcardImportsPublicFunctions() throws IOException {
+        // Wildcard imports should include public functions (not just classes)
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
+                .addFileContents(
+                        """
+                        class PublicClass:
+                            pass
+
+                        def public_function():
+                            pass
+
+                        def _private_function():
+                            pass
+
+                        def __dunder_function():
+                            pass
+                        """,
+                        "pkg/module.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg.module import *
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var importedNames =
+                    resolvedImports.stream().map(cu -> cu.identifier()).collect(Collectors.toSet());
+
+            assertTrue(importedNames.contains("PublicClass"), "Should import PublicClass");
+            assertTrue(importedNames.contains("public_function"), "Should import public_function");
+            assertFalse(
+                    importedNames.contains("_private_function"),
+                    "Should NOT import _private_function (underscore prefix)");
+            assertFalse(
+                    importedNames.contains("__dunder_function"),
+                    "Should NOT import __dunder_function (underscore prefix)");
+        }
+    }
 }
