@@ -63,16 +63,16 @@ public class TreeSitterRepoRunner {
                         "https://chromium.googlesource.com/chromium/src.git",
                         "main",
                         Map.of(
-                                "cpp", List.of("**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
-                                "javascript", List.of("**/*.js"),
-                                "python", List.of("**/*.py")),
+                                Languages.C_CPP, List.of("**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
+                                Languages.JAVASCRIPT, List.of("**/*.js"),
+                                Languages.PYTHON, List.of("**/*.py")),
                         List.of("third_party/**", "out/**", "build/**", "node_modules/**")));
         projects.put(
                 "llvm",
                 new ProjectConfig(
                         "https://github.com/llvm/llvm-project.git",
                         "main",
-                        Map.of("cpp", List.of("**/*.cpp", "**/*.h", "**/*.c")),
+                        Map.of(Languages.C_CPP, List.of("**/*.cpp", "**/*.h", "**/*.c")),
                         List.of("**/test/**", "**/examples/**")));
         projects.put(
                 "vscode",
@@ -80,61 +80,61 @@ public class TreeSitterRepoRunner {
                         "https://github.com/microsoft/vscode.git",
                         "main",
                         Map.of(
-                                "typescript", List.of("**/*.ts"),
-                                "javascript", List.of("**/*.js")),
+                                Languages.TYPESCRIPT, List.of("**/*.ts"),
+                                Languages.JAVASCRIPT, List.of("**/*.js")),
                         List.of("node_modules/**", "out/**", "extensions/**/node_modules/**")));
         projects.put(
                 "openjdk",
                 new ProjectConfig(
                         "https://github.com/openjdk/jdk.git",
                         "master",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/gensrc/**")));
         projects.put(
                 "spring-framework",
                 new ProjectConfig(
                         "https://github.com/spring-projects/spring-framework.git",
                         "main",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/testData/**")));
         projects.put(
                 "kafka",
                 new ProjectConfig(
                         "https://github.com/apache/kafka.git",
                         "trunk",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/target/**")));
         projects.put(
                 "elasticsearch",
                 new ProjectConfig(
                         "https://github.com/elastic/elasticsearch.git",
                         "main",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/target/**")));
         projects.put(
                 "intellij-community",
                 new ProjectConfig(
                         "https://github.com/JetBrains/intellij-community.git",
                         "master",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/testData/**")));
         projects.put(
                 "hibernate-orm",
                 new ProjectConfig(
                         "https://github.com/hibernate/hibernate-orm.git",
                         "main",
-                        Map.of("java", List.of("**/*.java")),
+                        Map.of(Languages.JAVA, List.of("**/*.java")),
                         List.of("**/test/**", "build/**", "**/target/**")));
         PROJECTS = Map.copyOf(projects);
     }
 
     // Default glob patterns per language, used when stressing an arbitrary directory
-    private static final Map<String, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.of(
-            "java", List.of("**/*.java"),
-            "cpp", List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
-            "typescript", List.of("**/*.ts"),
-            "javascript", List.of("**/*.js"),
-            "python", List.of("**/*.py"));
+    private static final Map<Language, List<String>> DEFAULT_LANGUAGE_PATTERNS = Map.of(
+            Languages.JAVA, List.of("**/*.java"),
+            Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
+            Languages.TYPESCRIPT, List.of("**/*.ts"),
+            Languages.JAVASCRIPT, List.of("**/*.js"),
+            Languages.PYTHON, List.of("**/*.py"));
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
@@ -148,9 +148,9 @@ public class TreeSitterRepoRunner {
     private boolean cleanupReports = false;
     private int maxFiles = 1000;
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
-    private String testProject = null;
-    private String testLanguage = null;
-    private Path testDirectory = null;
+    private @Nullable String testProject = null;
+    private @Nullable Language testLanguage = null;
+    private @Nullable Path testDirectory = null;
 
     public static void main(String[] args) {
         new TreeSitterRepoRunner().run(args);
@@ -233,86 +233,97 @@ public class TreeSitterRepoRunner {
         System.out.println("Running comprehensive baselines...");
 
         var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var resultFile = outputDir.resolve("baseline-" + timestamp + ".json");
         var results = new BaselineResults();
 
         // Test each project with primary language (ordered by complexity)
-        var projectTests = new LinkedHashMap<String, String>();
-        projectTests.put("kafka", "java"); // Start with medium Java project
-        projectTests.put("hibernate-orm", "java"); // ORM framework complexity
-        projectTests.put("vscode", "typescript"); // TypeScript complexity
-        projectTests.put("spring-framework", "java"); // Enterprise framework patterns
-        projectTests.put("elasticsearch", "java"); // Large search engine
-        projectTests.put("intellij-community", "java"); // IDE complexity
-        projectTests.put("openjdk", "java"); // Massive Java runtime
-        projectTests.put("llvm", "cpp"); // Large C++ complexity
-        projectTests.put("chromium", "cpp"); // Largest - expect failure/OOM
+        var projectTests = new LinkedHashMap<String, Language>();
+        projectTests.put("kafka", Languages.JAVA); // Start with medium Java project
+        projectTests.put("hibernate-orm", Languages.JAVA); // ORM framework complexity
+        projectTests.put("vscode", Languages.TYPESCRIPT); // TypeScript complexity
+        projectTests.put("spring-framework", Languages.JAVA); // Enterprise framework patterns
+        projectTests.put("elasticsearch", Languages.JAVA); // Large search engine
+        projectTests.put("intellij-community", Languages.JAVA); // IDE complexity
+        projectTests.put("openjdk", Languages.JAVA); // Massive Java runtime
+        projectTests.put("llvm", Languages.C_CPP); // Large C++ complexity
+        projectTests.put("chromium", Languages.C_CPP); // Largest - expect failure/OOM
 
         for (var entry : projectTests.entrySet()) {
             String project = entry.getKey();
-            String language = entry.getValue();
-
-            System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
-
-            try {
-                System.out.println("Project path: " + getProjectPath(project));
-                var discovery = getProjectFiles(project, language, maxFiles);
-                var result = runProjectBaseline(project, language, discovery);
-                results.addResult(project, language, result);
-
-                // Write incremental reports immediately
-                try {
-                    results.saveIncrementalResult(project, language, result, outputDir, timestamp);
-                    System.out.println("📊 Incremental results saved");
-                } catch (Exception e) {
-                    System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
-                }
-
-                // Print immediate results
-                System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-                System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-                System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-                System.out.printf(
-                        "Total time: %.2f seconds%n",
-                        (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-                System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
-                System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
-
-                if (result.failed) {
-                    System.out.println("❌ Analysis failed: " + result.failureReason);
-                    results.recordFailure(project, language, result.failureReason);
-                } else {
-                    System.out.println("✓ Analysis completed successfully");
-                }
-
-            } catch (OutOfMemoryError e) {
-                System.out.println("❌ OutOfMemoryError - scalability limit reached");
-                results.recordOOM(project, language, maxFiles);
-                // Write incremental results for OOM failure
-                try {
-                    var failedResult = new BaselineResult(
-                            maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
-                    results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
-                } catch (Exception ex) {
-                    System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
-                }
-            } catch (Exception e) {
-                System.out.println("❌ Failed: " + e.getMessage());
-                results.recordError(project, language, e.getMessage());
-                // Write incremental results for general failure
-                try {
-                    var failedResult = new BaselineResult(
-                            0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
-                    results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
-                    System.out.println("📊 Incremental failure result saved");
-                } catch (Exception ex) {
-                    System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
-                }
-            }
+            Language language = entry.getValue();
+            runAndRecordBaseline(project, language, results, timestamp);
         }
 
+        saveFinalReports(results, timestamp);
+    }
+
+    private void runAndRecordBaseline(String project, Language language, BaselineResults results, String timestamp) {
+        System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
+
+        try {
+            System.out.println("Project path: " + getProjectPath(project));
+            var discovery = getProjectFiles(project, language, maxFiles);
+            var result = runProjectBaseline(project, language, discovery);
+            results.addResult(project, language, result);
+
+            // Write incremental reports immediately
+            try {
+                results.saveIncrementalResult(project, language, result, outputDir, timestamp);
+                System.out.println("📊 Incremental results saved");
+            } catch (Exception e) {
+                System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
+            }
+
+            // Print immediate results
+            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Total time: %.2f seconds%n",
+                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+
+            if (result.failed) {
+                System.out.println("❌ Analysis failed: " + result.failureReason);
+                results.recordFailure(project, language, result.failureReason);
+            } else {
+                System.out.println("✓ Analysis completed successfully");
+            }
+
+        } catch (OutOfMemoryError e) {
+            System.out.println("❌ OutOfMemoryError - scalability limit reached");
+            results.recordOOM(project, language, maxFiles);
+            // Write incremental results for OOM failure
+            try {
+                var failedResult = new BaselineResult(
+                        maxFiles, 0, Duration.ZERO, 0, 0, true, "OutOfMemoryError", 0, 0, Duration.ZERO, 0, null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.out.println("❌ Failed: " + e.getMessage());
+            results.recordError(project, language, e.getMessage());
+            // Write incremental results for general failure
+            try {
+                var failedResult = new BaselineResult(
+                        0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void saveFinalReports(BaselineResults results, String timestamp) throws IOException {
         // Save comprehensive results
+        var resultFile = outputDir.resolve("baseline-" + timestamp + ".json");
         results.saveToFile(resultFile);
 
         // Save additional format files
@@ -331,12 +342,12 @@ public class TreeSitterRepoRunner {
         printBaselineSummary(results);
     }
 
-    private BaselineResult runProjectBaseline(String projectName, String language) throws Exception {
+    private BaselineResult runProjectBaseline(String projectName, Language language) throws Exception {
         var discovery = getProjectFiles(projectName, language, maxFiles);
         return runProjectBaseline(projectName, language, discovery);
     }
 
-    private BaselineResult runProjectBaseline(String projectName, String language, FileDiscoveryResult discovery)
+    private BaselineResult runProjectBaseline(String projectName, Language language, FileDiscoveryResult discovery)
             throws Exception {
         var projectPath = getProjectPath(projectName);
         var files = discovery.files();
@@ -503,13 +514,17 @@ public class TreeSitterRepoRunner {
             var target = testProject != null ? testProject : testDirectory.toString();
             System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
             System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-            System.out.printf("Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-            System.out.printf("Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
             System.out.printf(
+                    Locale.ROOT,
                     "Total time: %.2f seconds%n",
                     (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-            System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
-            System.out.printf("Memory per file: %.1f KB%n", result.peakMemoryMB * 1024 / result.filesProcessed);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
 
             // Print stage timing diagram if --stats flag is set
             if (showStats && result.stageTiming != null) {
@@ -536,14 +551,14 @@ public class TreeSitterRepoRunner {
 
         // Determine project and language based on CLI inputs or defaults
         var project = (testProject != null) ? testProject : "chromium";
-        String language;
+        Language language;
         if (testLanguage != null) {
             language = testLanguage;
         } else {
             var cfg = PROJECTS.get(project);
             language = (cfg != null && !cfg.languagePatterns.isEmpty())
                     ? cfg.languagePatterns.keySet().iterator().next()
-                    : "cpp";
+                    : Languages.C_CPP;
         }
 
         System.out.printf("Stressing project: %s, language: %s%n", project, language);
@@ -587,11 +602,11 @@ public class TreeSitterRepoRunner {
                 // Format timing with appropriate precision
                 String timingInfo;
                 if (durationMs < 10) {
-                    timingInfo = String.format("%d ms", durationMs);
+                    timingInfo = String.format(Locale.ROOT, "%d ms", durationMs);
                 } else if (durationMs < 1000) {
-                    timingInfo = String.format("%.0f ms", (double) durationMs);
+                    timingInfo = String.format(Locale.ROOT, "%.0f ms", (double) durationMs);
                 } else {
-                    timingInfo = String.format("%.2f seconds", durationSeconds);
+                    timingInfo = String.format(Locale.ROOT, "%.2f seconds", durationSeconds);
                 }
 
                 long discoveryMs = discovery.discoveryTime().toMillis();
@@ -599,6 +614,7 @@ public class TreeSitterRepoRunner {
 
                 // Format detailed results matching baseline report
                 String detailedResults = String.format(
+                        Locale.ROOT,
                         "✓ Success: %d files (of %d) in %d ms (discovery %d ms + analysis %s), %.1f MB peak memory\n"
                                 + "  Code units found: %d (functions, classes, variables, etc.)\n"
                                 + "  Memory consumed: %.1f MB\n"
@@ -613,7 +629,7 @@ public class TreeSitterRepoRunner {
                         result.peakMemoryMB,
                         result.declarationsFound,
                         result.memoryDeltaMB,
-                        result.peakMemoryMB * 1024 / result.filesProcessed,
+                        result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0,
                         processingRate,
                         durationMs < 10 ? " (likely cached results)" : "",
                         result.gcCollections,
@@ -625,6 +641,7 @@ public class TreeSitterRepoRunner {
                 // Check for exponential growth
                 if (fileCount > 1000 && result.peakMemoryMB > fileCount * 2.0) { // >2 MB per file indicates trouble
                     String warn = String.format(
+                            Locale.ROOT,
                             "⚠ Warning: High memory usage detected (%.1f KB per file)\n",
                             result.peakMemoryMB * 1024 / fileCount);
                     System.out.print(warn);
@@ -659,31 +676,22 @@ public class TreeSitterRepoRunner {
     private void multiLanguageAnalysis() throws Exception {
         System.out.println("Running multi-language analysis...");
 
+        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        var results = new BaselineResults();
+
         // Test Chromium with multiple languages
         var project = "chromium";
-        var languages = List.of("cpp", "javascript", "python");
+        var languages = List.of(Languages.C_CPP, Languages.JAVASCRIPT, Languages.PYTHON);
 
-        for (String language : languages) {
-            System.out.printf("\n--- Chromium %s Analysis ---\n", language.toUpperCase());
-
-            try {
-                var discovery = getProjectFiles(project, language, maxFiles);
-                var result = runProjectBaseline(project, language, discovery);
-                System.out.printf(
-                        "Files: %d of %d, Discovery: %.2fs, Analysis: %.2fs, Memory: %.1fMB\n",
-                        result.filesProcessed,
-                        result.totalMatched,
-                        result.discoveryTime.toMillis() / 1000.0,
-                        result.duration.toMillis() / 1000.0,
-                        result.peakMemoryMB);
-
-            } catch (Exception e) {
-                System.out.println("Failed: " + e.getMessage());
-            }
+        for (Language language : languages) {
+            runAndRecordBaseline(project, language, results, timestamp);
         }
+
+        saveFinalReports(results, timestamp);
     }
 
-    private FileDiscoveryResult getProjectFiles(String projectName, String language, int maxFiles) throws IOException {
+    private FileDiscoveryResult getProjectFiles(String projectName, Language language, int maxFiles)
+            throws IOException {
         var t0 = System.nanoTime();
         var projectPath = getProjectPath(projectName);
         var config = PROJECTS.get(projectName);
@@ -704,7 +712,7 @@ public class TreeSitterRepoRunner {
                 throw new IllegalArgumentException(
                         "Unknown project: " + projectName + " (use --directory to specify a path)");
             }
-            includePatterns = DEFAULT_LANGUAGE_PATTERNS.get(language.toLowerCase());
+            includePatterns = DEFAULT_LANGUAGE_PATTERNS.get(language);
             if (includePatterns == null) {
                 throw new IllegalArgumentException("No default include patterns for language " + language);
             }
@@ -746,81 +754,9 @@ public class TreeSitterRepoRunner {
         return new FileDiscoveryResult(List.copyOf(selected), totalMatched, discoveryTime);
     }
 
-    private IAnalyzer createAnalyzer(Path projectRoot, String language, List<ProjectFile> files) {
-        var project = new SimpleProject(projectRoot, parseLanguage(language), files);
-
-        return switch (language.toLowerCase()) {
-            case "cpp" -> {
-                // Try to create CppTreeSitterAnalyzer if available
-                try {
-                    Class<?> cppAnalyzerClass = Class.forName("ai.brokk.analyzer.CppAnalyzer");
-                    var constructor = cppAnalyzerClass.getConstructor(IProject.class);
-                    yield (IAnalyzer) constructor.newInstance(project);
-                } catch (Exception e) {
-                    System.err.println("Warning: CppTreeSitterAnalyzer not available: " + e.getMessage());
-                    yield null;
-                }
-            }
-            case "java" -> {
-                try {
-                    Class<?> javaAnalyzerClass = Class.forName("ai.brokk.analyzer.JavaAnalyzer");
-                    var constructor = javaAnalyzerClass.getConstructor(IProject.class);
-                    yield (IAnalyzer) constructor.newInstance(project);
-                } catch (Exception e) {
-                    System.err.println("Warning: JavaAnalyzer not available: " + e.getMessage());
-                    yield null;
-                }
-            }
-            case "typescript" -> {
-                try {
-                    Class<?> tsAnalyzerClass = Class.forName("ai.brokk.analyzer.TypescriptAnalyzer");
-                    var constructor = tsAnalyzerClass.getConstructor(IProject.class);
-                    yield (IAnalyzer) constructor.newInstance(project);
-                } catch (Exception e) {
-                    System.err.println("Warning: TypescriptAnalyzer not available: " + e.getMessage());
-                    yield null;
-                }
-            }
-            case "javascript" -> {
-                try {
-                    Class<?> jsAnalyzerClass = Class.forName("ai.brokk.analyzer.JavascriptAnalyzer");
-                    var constructor = jsAnalyzerClass.getConstructor(IProject.class);
-                    yield (IAnalyzer) constructor.newInstance(project);
-                } catch (Exception e) {
-                    System.err.println("Warning: JavascriptAnalyzer not available: " + e.getMessage());
-                    yield null;
-                }
-            }
-            case "python" -> {
-                try {
-                    Class<?> pyAnalyzerClass = Class.forName("ai.brokk.analyzer.PythonAnalyzer");
-                    var constructor = pyAnalyzerClass.getConstructor(IProject.class);
-                    yield (IAnalyzer) constructor.newInstance(project);
-                } catch (Exception e) {
-                    System.err.println("Warning: PythonAnalyzer not available: " + e.getMessage());
-                    yield null;
-                }
-            }
-            default -> null;
-        };
-    }
-
-    private Language parseLanguage(String languageStr) {
-        return switch (languageStr.toLowerCase()) {
-            case "cpp" -> {
-                try {
-                    // Try CPP_TREESITTER first, fall back to C_CPP
-                    yield Languages.valueOf("CPP_TREESITTER");
-                } catch (IllegalArgumentException e) {
-                    yield Languages.C_CPP;
-                }
-            }
-            case "java" -> Languages.JAVA;
-            case "typescript" -> Languages.TYPESCRIPT;
-            case "javascript" -> Languages.JAVASCRIPT;
-            case "python" -> Languages.PYTHON;
-            default -> null;
-        };
+    private IAnalyzer createAnalyzer(Path projectRoot, Language language, List<ProjectFile> files) {
+        var project = new SimpleProject(projectRoot, language, files);
+        return language.createAnalyzer(project);
     }
 
     private MemoryMonitor startMemoryMonitoring() {
@@ -903,7 +839,7 @@ public class TreeSitterRepoRunner {
         int remainingSpace = diagramWidth - startPos - barWidth;
         sb.append(" ".repeat(Math.max(0, remainingSpace)));
         sb.append(" │ ");
-        sb.append(String.format("%.1fs (%.1f%%)", stageDurationSecs, percentageOfTotal));
+        sb.append(String.format(Locale.ROOT, "%.1fs (%.1f%%)", stageDurationSecs, percentageOfTotal));
         sb.append("\n");
     }
 
@@ -911,12 +847,6 @@ public class TreeSitterRepoRunner {
         if (timing == null) {
             return "";
         }
-
-        // Extract timing values (in nanos)
-        long readNanos = timing.readNanos();
-        long parseNanos = timing.parseNanos();
-        long processNanos = timing.processNanos();
-        long mergeNanos = timing.mergeNanos();
 
         // Extract wall-clock boundaries
         long readStart = timing.readStartNanos();
@@ -979,7 +909,7 @@ public class TreeSitterRepoRunner {
         sb.append("│ ").append(String.format("%-15s", "Total Wall-Clock"));
         sb.append(" ".repeat(diagramWidth));
         sb.append(" │ ");
-        sb.append(String.format("%.1fs", totalWallNanos / 1_000_000_000.0));
+        sb.append(String.format(Locale.ROOT, "%.1fs", totalWallNanos / 1_000_000_000.0));
         sb.append("\n");
 
         sb.append("└").append("─".repeat(diagramWidth)).append("─┘\n");
@@ -1059,7 +989,7 @@ public class TreeSitterRepoRunner {
                 }
                 case "--language" -> {
                     if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testLanguage = args[++i];
+                        testLanguage = Languages.valueOf(args[++i].toUpperCase(Locale.ROOT));
                     }
                 }
                 case "--projects-dir" -> {
@@ -1199,7 +1129,7 @@ public class TreeSitterRepoRunner {
 
     // Helper classes
     private record ProjectConfig(
-            String gitUrl, String branch, Map<String, List<String>> languagePatterns, List<String> excludePatterns) {}
+            String gitUrl, String branch, Map<Language, List<String>> languagePatterns, List<String> excludePatterns) {}
 
     private record FileDiscoveryResult(List<ProjectFile> files, int totalMatched, Duration discoveryTime) {}
 
@@ -1218,75 +1148,79 @@ public class TreeSitterRepoRunner {
             @Nullable TreeSitterAnalyzer.StageTiming stageTiming) {}
 
     private static class BaselineResults {
-        private final Map<String, Map<String, BaselineResult>> results = new HashMap<>();
+        private final Map<String, Map<Language, BaselineResult>> results = new HashMap<>();
         private final List<String> failures = new ArrayList<>();
 
-        void addResult(String project, String language, BaselineResult result) {
+        void addResult(String project, Language language, BaselineResult result) {
             results.computeIfAbsent(project, k -> new HashMap<>()).put(language, result);
         }
 
-        void recordFailure(String project, String language, String reason) {
+        void recordFailure(String project, Language language, String reason) {
             failures.add(project + ":" + language + " - " + reason);
         }
 
-        void recordOOM(String project, String language, int fileCount) {
+        void recordOOM(String project, Language language, int fileCount) {
             failures.add(project + ":" + language + " - OOM at " + fileCount + " files");
         }
 
-        void recordError(String project, String language, String error) {
+        void recordError(String project, Language language, String error) {
             failures.add(project + ":" + language + " - " + error);
         }
 
         void saveIncrementalResult(
-                String project, String language, BaselineResult result, Path baseOutputDir, String timestamp)
+                String project, Language language, BaselineResult result, Path baseOutputDir, String timestamp)
                 throws IOException {
             // Simplified incremental saving
             var summaryFile = baseOutputDir.resolve("baseline-" + timestamp + "-summary.txt");
             appendToTextSummary(project, language, result, summaryFile);
         }
 
-        private void appendToTextSummary(String project, String language, BaselineResult result, Path file)
+        private void appendToTextSummary(String project, Language language, BaselineResult result, Path file)
                 throws IOException {
             boolean fileExists = Files.exists(file);
 
-            var header = fileExists
-                    ? ""
-                    : """
-                    TreeSitter Performance Baseline Summary (Incremental - Simplified)
-                    ==============================================================
-                    Generated: %s
-                    JVM Heap Max: %dMB
-                    Processors: %d
+            var header = "";
+            if (!fileExists) {
+                header = String.format(
+                        Locale.ROOT,
+                        """
+                        TreeSitter Performance Baseline Summary (Incremental - Simplified)
+                        ==============================================================
+                        Generated: %s
+                        JVM Heap Max: %dMB
+                        Processors: %d
 
-                    RESULTS (as completed):
-                    ======================
-                    %-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s
-                    %s
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    "PROJECT",
-                                    "LANGUAGE",
-                                    "FILES",
-                                    "TIME(sec)",
-                                    "MEMORY(MB)",
-                                    "MB/FILE",
-                                    "-".repeat(100));
+                        RESULTS (as completed):
+                        ======================
+                        %-20s %-12s %-8s %-12s %-12s %-15s %-6s
+                        %s
+                        """,
+                        LocalDateTime.now(),
+                        Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                        Runtime.getRuntime().availableProcessors(),
+                        "PROJECT",
+                        "LANGUAGE",
+                        "FILES",
+                        "TIME(sec)",
+                        "MEMORY(MB)",
+                        "MB/FILE",
+                        "STATUS",
+                        "-".repeat(100));
+            }
 
             var status = result.failed ? "YES" : "NO";
             var reason = result.failed && result.failureReason != null ? result.failureReason : "";
             if (reason.length() > 20) reason = reason.substring(0, 17) + "...";
 
             var resultLine = String.format(
+                    Locale.ROOT,
                     "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f %-6s %-20s\n",
                     project,
                     language,
                     result.filesProcessed,
                     result.duration.toMillis() / 1000.0,
                     result.peakMemoryMB,
-                    result.peakMemoryMB / result.filesProcessed,
+                    result.filesProcessed > 0 ? result.peakMemoryMB / result.filesProcessed : 0.0,
                     status,
                     reason);
 
@@ -1298,7 +1232,8 @@ public class TreeSitterRepoRunner {
             var resultsJson =
                     results.entrySet().stream().map(this::formatProjectJson).collect(Collectors.joining(",\n"));
 
-            var json =
+            var json = String.format(
+                    Locale.ROOT,
                     """
                     {
                       "timestamp": "%s",
@@ -1313,35 +1248,36 @@ public class TreeSitterRepoRunner {
                     %s
                       ]
                     }
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    resultsJson,
-                                    formatFailuresJson());
+                    """,
+                    LocalDateTime.now(),
+                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                    Runtime.getRuntime().availableProcessors(),
+                    resultsJson,
+                    formatFailuresJson());
             Files.writeString(file, json);
         }
 
-        private String formatProjectJson(Map.Entry<String, Map<String, BaselineResult>> projectEntry) {
+        private String formatProjectJson(Map.Entry<String, Map<Language, BaselineResult>> projectEntry) {
             var languageResults = projectEntry.getValue().entrySet().stream()
                     .map(this::formatLanguageJson)
                     .collect(Collectors.joining(",\n"));
 
             return """
-                      "%s": {
-                    %s
-                      }"""
+                        "%s": {
+                        %s
+                        }"""
                     .formatted(projectEntry.getKey(), languageResults);
         }
 
-        private String formatLanguageJson(Map.Entry<String, BaselineResult> langEntry) {
+        private String formatLanguageJson(Map.Entry<Language, BaselineResult> langEntry) {
             var result = langEntry.getValue();
             var failureReason = result.failureReason != null
                     ? ",\n        \"failure_reason\": \"" + result.failureReason.replace("\"", "\\\"") + "\""
                     : "";
 
-            return """
+            return String.format(
+                    Locale.ROOT,
+                    """
                         "%s": {
                           "files_processed": %d,
                           "total_matched_files": %d,
@@ -1357,24 +1293,25 @@ public class TreeSitterRepoRunner {
                           "gc_collections": %d,
                           "gc_time_ms": %d,
                           "failed": %s%s
-                        }"""
-                    .formatted(
-                            langEntry.getKey(),
-                            result.filesProcessed,
-                            result.totalMatched,
-                            result.declarationsFound,
-                            result.discoveryTime.toMillis(),
-                            result.duration.toMillis(),
-                            result.duration.toMillis() / 1000.0,
-                            result.discoveryTime.toMillis() + result.duration.toMillis(),
-                            result.memoryDeltaMB,
-                            result.peakMemoryMB,
-                            result.peakMemoryMB * 1024 / result.filesProcessed,
-                            result.filesProcessed / (result.duration.toMillis() / 1000.0),
-                            result.gcCollections(),
-                            result.gcTimeMs(),
-                            result.failed,
-                            failureReason);
+                        }""",
+                    langEntry.getKey().internalName(),
+                    result.filesProcessed,
+                    result.totalMatched,
+                    result.declarationsFound,
+                    result.discoveryTime.toMillis(),
+                    result.duration.toMillis(),
+                    result.duration.toMillis() / 1000.0,
+                    result.discoveryTime.toMillis() + result.duration.toMillis(),
+                    result.memoryDeltaMB,
+                    result.peakMemoryMB,
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0,
+                    result.duration.toMillis() > 0
+                            ? result.filesProcessed / (result.duration.toMillis() / 1000.0)
+                            : 0.0,
+                    result.gcCollections(),
+                    result.gcTimeMs(),
+                    result.failed,
+                    failureReason);
         }
 
         private String formatFailuresJson() {
@@ -1395,7 +1332,7 @@ public class TreeSitterRepoRunner {
             Files.writeString(file, header + "\n" + csvBody + "\n");
         }
 
-        private String formatCsvRow(String projectName, Map.Entry<String, BaselineResult> langEntry) {
+        private String formatCsvRow(String projectName, Map.Entry<Language, BaselineResult> langEntry) {
             var result = langEntry.getValue();
             var failureReason =
                     result.failureReason != null ? "\"" + result.failureReason.replace("\"", "\"\"") + "\"" : "";
@@ -1403,16 +1340,27 @@ public class TreeSitterRepoRunner {
             return String.join(
                     ",",
                     projectName,
-                    langEntry.getKey(),
+                    langEntry.getKey().internalName(),
                     String.valueOf(result.filesProcessed),
                     String.valueOf(result.totalMatched),
                     String.valueOf(result.declarationsFound),
-                    String.format("%.2f", result.discoveryTime.toMillis() / 1000.0),
-                    String.format("%.2f", result.duration.toMillis() / 1000.0),
-                    String.format("%.2f", (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0),
-                    String.format("%.1f", result.peakMemoryMB),
-                    String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed),
-                    String.format("%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)),
+                    String.format(Locale.ROOT, "%.2f", result.discoveryTime.toMillis() / 1000.0),
+                    String.format(Locale.ROOT, "%.2f", result.duration.toMillis() / 1000.0),
+                    String.format(
+                            Locale.ROOT,
+                            "%.2f",
+                            (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0),
+                    String.format(Locale.ROOT, "%.1f", result.peakMemoryMB),
+                    String.format(
+                            Locale.ROOT,
+                            "%.1f",
+                            result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0),
+                    String.format(
+                            Locale.ROOT,
+                            "%.2f",
+                            result.duration.toMillis() > 0
+                                    ? result.filesProcessed / (result.duration.toMillis() / 1000.0)
+                                    : 0.0),
                     String.valueOf(result.gcCollections()),
                     String.valueOf(result.gcTimeMs()),
                     String.valueOf(result.failed),
@@ -1437,7 +1385,8 @@ public class TreeSitterRepoRunner {
                             + failures.stream().map(failure -> "❌ " + failure).collect(Collectors.joining("\n"))
                             + "\n";
 
-            var summary =
+            var summary = String.format(
+                    Locale.ROOT,
                     """
                     TreeSitter Performance Baseline Summary (Simplified)
                     ==================================================
@@ -1455,37 +1404,39 @@ public class TreeSitterRepoRunner {
                     Total successful: %d
                     Total failed: %d
                     Success rate: %.1f%%
-                    """
-                            .formatted(
-                                    LocalDateTime.now(),
-                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                                    Runtime.getRuntime().availableProcessors(),
-                                    "PROJECT",
-                                    "LANGUAGE",
-                                    "FILES",
-                                    "TIME(sec)",
-                                    "MEMORY(MB)",
-                                    "MB/FILE",
-                                    "-".repeat(80),
-                                    String.join("\n", successfulResults),
-                                    failedSection,
-                                    totalSuccessful,
-                                    totalFailed,
-                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed));
+                    """,
+                    LocalDateTime.now(),
+                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                    Runtime.getRuntime().availableProcessors(),
+                    "PROJECT",
+                    "LANGUAGE",
+                    "FILES",
+                    "TIME(sec)",
+                    "MEMORY(MB)",
+                    "MB/FILE",
+                    "-".repeat(80),
+                    String.join("\n", successfulResults),
+                    failedSection,
+                    totalSuccessful,
+                    totalFailed,
+                    (totalSuccessful + totalFailed) > 0
+                            ? 100.0 * totalSuccessful / (totalSuccessful + totalFailed)
+                            : 0.0);
 
             Files.writeString(file, summary);
         }
 
-        private String formatSuccessfulRow(String projectName, Map.Entry<String, BaselineResult> langEntry) {
+        private String formatSuccessfulRow(String projectName, Map.Entry<Language, BaselineResult> langEntry) {
             var result = langEntry.getValue();
             return String.format(
+                    Locale.ROOT,
                     "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f",
                     projectName,
-                    langEntry.getKey(),
+                    langEntry.getKey().internalName(),
                     result.filesProcessed,
                     result.duration.toMillis() / 1000.0,
                     result.peakMemoryMB,
-                    result.peakMemoryMB / result.filesProcessed);
+                    result.filesProcessed > 0 ? result.peakMemoryMB / result.filesProcessed : 0.0);
         }
     }
 
@@ -1547,9 +1498,9 @@ public class TreeSitterRepoRunner {
         // Configure runner to use the temporary directory and default patterns
         this.testDirectory = tmp;
         this.testProject = null; // ensure custom path logic is used
-        this.testLanguage = "java";
+        this.testLanguage = Languages.JAVA;
 
-        var discovery = getProjectFiles("custom", "java", 10);
+        var discovery = getProjectFiles("custom", Languages.JAVA, 10);
 
         assertEquals(1, discovery.totalMatched(), "Should match exactly one Java file");
         assertEquals(1, discovery.files().size(), "Should add exactly one Java file for analysis");

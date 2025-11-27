@@ -42,6 +42,7 @@ import java.io.StringWriter;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.RowSorter;
@@ -83,6 +84,12 @@ public class BlitzForgeDialog extends JDialog {
 
     // Cache (file -> token count) to avoid recomputation on every UI refresh
     private final Map<ProjectFile, Long> tokenCountCache = new ConcurrentHashMap<>();
+
+    // Tracks the latest cost estimation request; used to ignore stale async results.
+    private final AtomicInteger costEstimateGeneration = new AtomicInteger();
+
+    // Tracks the latest token warning computation; used to ignore stale async results.
+    private final AtomicInteger tokenWarningGeneration = new AtomicInteger();
 
     @SuppressWarnings("NullAway.Init")
     private JComboBox<String> languageComboBox;
@@ -836,13 +843,32 @@ public class BlitzForgeDialog extends JDialog {
 
         // Wire actions
         addEntireButton.addActionListener(e -> {
-            var files = chrome.getProject().getRepo().getTrackedFiles().stream().filter(ProjectFile::isText);
+            // Capture language selection on EDT before offloading to background
             String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
-            var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
-                    ? files
-                    : files.filter(pf -> langSel.equals(
-                            Languages.fromExtension(pf.extension()).toString()));
-            addProjectFilesToTable(filtered.toList());
+
+            // Disable button while operation is in progress to prevent duplicate requests
+            addEntireButton.setEnabled(false);
+
+            // Offload expensive file enumeration and filtering to background thread
+            var cm = chrome.getContextManager();
+            cm.submitBackgroundTask("Enumerate project files", () -> {
+                        var files = chrome.getProject().getRepo().getTrackedFiles().stream()
+                                .filter(ProjectFile::isText);
+                        var filtered = ALL_LANGUAGES_OPTION.equals(langSel)
+                                ? files.toList()
+                                : files.filter(pf -> langSel.equals(Languages.fromExtension(pf.extension())
+                                                .toString()))
+                                        .toList();
+                        return filtered;
+                    })
+                    .thenAccept(fileList -> SwingUtil.runOnEdt(() -> {
+                        addProjectFilesToTable(fileList);
+                        addEntireButton.setEnabled(true);
+                    }))
+                    .exceptionally(ex -> {
+                        SwingUtil.runOnEdt(() -> addEntireButton.setEnabled(true));
+                        return null;
+                    });
         });
         attachFilesButton.addActionListener(e -> openAttachFilesDialog());
 
@@ -901,49 +927,112 @@ public class BlitzForgeDialog extends JDialog {
         popup.show(invoker, 0, invoker.getHeight());
     }
 
+    /**
+     * Asynchronously recomputes the cost estimate based on the current dialog state.
+     *
+     * <p>This method is called from the EDT (e.g., action listeners, constructor) but
+     * performs all token counting and file I/O on a background thread via the
+     * ContextManager's background executor. Only the final label updates run on the EDT.
+     */
     private void updateCostEstimate() {
+        assert SwingUtilities.isEventDispatchThread() : "updateCostEstimate must be called on EDT";
+
         var cm = chrome.getContextManager();
         var service = cm.getService();
         var fav = (Service.FavoriteModel) modelComboBox.getSelectedItem();
-        requireNonNull(fav);
-
-        var pricing = service.getModelPricing(fav.config().name());
-
-        List<ProjectFile> files = getSelectedFilesForCost();
-        int n = files.size();
-        selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
-        if (n == 0) {
+        if (fav == null) {
+            // No model selected; clear estimate.
+            estimatedCost = 0.0;
             costEstimateLabel.setText(" ");
             return;
         }
 
-        long tokensFiles = files.parallelStream().mapToLong(this::getTokenCount).sum();
-        double avgTokens = tokensFiles / (double) n;
-
-        long workspaceTokens = includeWorkspaceCheckbox.isSelected()
-                ? Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                        cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)))
-                : 0;
-        long workspaceAdd = includeWorkspaceCheckbox.isSelected() ? workspaceTokens * n : 0;
-
-        int relatedK = 0;
-        try {
-            var txt = Objects.toString(relatedClassesCombo.getEditor().getItem(), "")
-                    .trim();
-            if (!txt.isEmpty()) {
-                relatedK = Integer.parseInt(txt);
-            }
-        } catch (NumberFormatException ex) {
-            // Invalid number → treat as zero related classes
+        // Snapshot current dialog state on EDT.
+        List<ProjectFile> files = getSelectedFilesForCost();
+        int n = files.size();
+        selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
+        if (n == 0) {
+            estimatedCost = 0.0;
+            costEstimateLabel.setText(" ");
+            return;
         }
-        long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
 
-        long totalInput = tokensFiles + workspaceAdd + relatedAdd;
-        long estOutput = Math.min(4000, totalInput / 2);
-        double cost = pricing.estimateCost(totalInput, 0, estOutput);
-        estimatedCost = cost;
+        boolean includeWorkspace = includeWorkspaceCheckbox.isSelected();
+        String relatedText =
+                Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
+        String modelName = fav.config().name();
 
-        costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", cost));
+        // Increment generation so that older tasks become stale.
+        int generation = costEstimateGeneration.incrementAndGet();
+
+        // Show interim state while computing.
+        costEstimateLabel.setText("Calculating...");
+        Color disabled = UIManager.getColor("Label.disabledForeground");
+        if (disabled != null) {
+            costEstimateLabel.setForeground(disabled);
+        }
+
+        // Run heavy work off the EDT using the background executor.
+        cm.getBackgroundTasks().submit(() -> {
+            double cost;
+            boolean hadError = false;
+            try {
+                var pricing = service.getModelPricing(modelName);
+
+                // Token counting and any file I/O happen in this background thread.
+                long tokensFiles =
+                        files.parallelStream().mapToLong(this::getTokenCount).sum();
+                double avgTokens = tokensFiles / (double) n;
+
+                long workspaceTokens = 0;
+                long workspaceAdd = 0;
+                if (includeWorkspace) {
+                    workspaceTokens =
+                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
+                                    cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    workspaceAdd = workspaceTokens * n;
+                }
+
+                int relatedK = 0;
+                if (!relatedText.isEmpty()) {
+                    try {
+                        relatedK = Integer.parseInt(relatedText);
+                    } catch (NumberFormatException ex) {
+                        // Invalid number -> treat as zero related classes
+                        relatedK = 0;
+                    }
+                }
+                long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
+
+                long totalInput = tokensFiles + workspaceAdd + relatedAdd;
+                long estOutput = Math.min(4000, totalInput / 2);
+                cost = pricing.estimateCost(totalInput, 0, estOutput);
+            } catch (Throwable t) {
+                logger.debug("Failed to compute BlitzForge cost estimate", t);
+                hadError = true;
+                cost = 0.0;
+            }
+
+            final double finalCost = cost;
+            final boolean finalHadError = hadError;
+            SwingUtilities.invokeLater(() -> {
+                // Ignore stale results: only apply if this is still the latest generation.
+                if (generation != costEstimateGeneration.get()) {
+                    return;
+                }
+                estimatedCost = finalCost;
+                // Restore normal label foreground color.
+                Color fg = UIManager.getColor("Label.foreground");
+                if (fg != null) {
+                    costEstimateLabel.setForeground(fg);
+                }
+                if (finalHadError) {
+                    costEstimateLabel.setText("Cost Estimate: N/A");
+                } else {
+                    costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", finalCost));
+                }
+            });
+        });
     }
 
     private void fetchUserBalance() {
@@ -952,11 +1041,15 @@ public class BlitzForgeDialog extends JDialog {
                 .thenAccept(balance -> userBalance = balance);
     }
 
-    /** Returns the cached token count of a file, computing it once if necessary. */
+    /**
+     * Returns the cached token count of a file, computing it once if necessary.
+     *
+     * <p>Must be invoked only from a background thread. {@link #updateCostEstimate()} ensures
+     * that calls to this method are made off the EDT so that disk I/O does not block the UI.
+     */
     private long getTokenCount(ProjectFile pf) {
-        return tokenCountCache.computeIfAbsent(pf, file -> {
-            return (long) Messages.getApproximateTokens(file.read().orElse(""));
-        });
+        return tokenCountCache.computeIfAbsent(
+                pf, file -> (long) Messages.getApproximateTokens(file.read().orElse("")));
     }
 
     /** Gather the currently selected files (no validation). */
@@ -973,8 +1066,16 @@ public class BlitzForgeDialog extends JDialog {
         }
     }
 
-    /* ---------------- existing method ------------------------------ */
+    /**
+     * Asynchronously recomputes the token warning based on the current dialog state.
+     *
+     * <p>This method is called from the EDT (e.g., action listeners) and performs all token
+     * counting and message construction on a background thread via the ContextManager's
+     * background executor. Only the final label updates run on the EDT.
+     */
     private void updateTokenWarningLabel() {
+        assert SwingUtilities.isEventDispatchThread() : "updateTokenWarningLabel must be called on EDT";
+
         if (!includeWorkspaceCheckbox.isSelected()) {
             tokenWarningLabel.setVisible(false);
             return;
@@ -995,25 +1096,56 @@ public class BlitzForgeDialog extends JDialog {
             tokenWarningLabel.setVisible(false);
             return;
         }
-        var maxTokens = service.getMaxInputTokens(model);
+        int maxTokens = service.getMaxInputTokens(model);
 
-        var workspaceTokens = Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
-        var historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
+        // Increment generation so that older tasks become stale.
+        int generation = tokenWarningGeneration.incrementAndGet();
 
-        long remaining = (long) maxTokens - workspaceTokens - historyTokens;
+        // Run heavy work off the EDT using the background executor.
+        cm.getBackgroundTasks().submit(() -> {
+            long workspaceTokens = 0L;
+            long historyTokens = 0L;
+            boolean hadError = false;
+            try {
+                // Token counting and message construction happen in this background thread.
+                workspaceTokens =
+                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
+                                cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
+            } catch (Throwable t) {
+                logger.debug("Failed to compute token warning", t);
+                hadError = true;
+            }
 
-        if (remaining < TOKEN_SAFETY_MARGIN) {
-            tokenWarningLabel.setText(
-                    "<html><b>Warning:</b> The selected model has a " + maxTokens + "-token window. Your workspace ("
-                            + workspaceTokens + " tokens) " + "+ history ("
-                            + historyTokens + " tokens) leaves only " + remaining + " tokens, which is below the "
+            final long finalWorkspaceTokens = workspaceTokens;
+            final long finalHistoryTokens = historyTokens;
+            final boolean finalHadError = hadError;
+            SwingUtilities.invokeLater(() -> {
+                // Ignore stale results: only apply if this is still the latest generation.
+                if (generation != tokenWarningGeneration.get()) {
+                    return;
+                }
+
+                if (finalHadError) {
+                    tokenWarningLabel.setVisible(false);
+                    return;
+                }
+
+                long remaining = (long) maxTokens - finalWorkspaceTokens - finalHistoryTokens;
+
+                if (remaining < TOKEN_SAFETY_MARGIN) {
+                    tokenWarningLabel.setText("<html><b>Warning:</b> The selected model has a " + maxTokens
+                            + "-token window. Your workspace ("
+                            + finalWorkspaceTokens + " tokens) " + "+ history ("
+                            + finalHistoryTokens + " tokens) leaves only " + remaining + " tokens, which is below the "
                             + TOKEN_SAFETY_MARGIN + " token safety margin. "
                             + "Trim your workspace or choose a model with a larger context window.</html>");
-            tokenWarningLabel.setVisible(true);
-        } else {
-            tokenWarningLabel.setVisible(false);
-        }
+                    tokenWarningLabel.setVisible(true);
+                } else {
+                    tokenWarningLabel.setVisible(false);
+                }
+            });
+        });
     }
 
     private void setupKeyBindings() {
@@ -1143,9 +1275,10 @@ public class BlitzForgeDialog extends JDialog {
 
             var perFileModelSelection = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
 
-            // Refresh cost estimate and warn if it is more than half the balance
-            updateCostEstimate();
-            if (!Float.isNaN(userBalance) && estimatedCost > userBalance / 2.0) {
+            // Warn if estimated cost exceeds half the remaining balance.
+            // Use the last-known estimatedCost (updated asynchronously as user interacts with dialog)
+        // rather than calling updateCostEstimate() here, which would race and use stale results.
+            if (!Float.isNaN(userBalance) && estimatedCost > 0.0 &&estimatedCost > userBalance / 2.0) {
                     int choice = chrome.showConfirmDialog(
                                     this,
                                     String.format(

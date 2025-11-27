@@ -583,6 +583,13 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     systemProperty("brokk.devmode", "false")
 }
 
+tasks.register<JavaExec>("runHeadlessCli") {
+    group = "application"
+    description = "Runs the HeadlessExecCli"
+    mainClass.set("ai.brokk.tools.HeadlessExecCli")
+    classpath = sourceSets.main.get().runtimeClasspath
+}
+
 tasks.register<JavaExec>("runSkeletonPrinter") {
     group = "application"
     description = "Runs the SkeletonPrinter tool"

@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.tasks.TaskList;
 import com.google.common.base.Splitter;
@@ -44,7 +45,8 @@ public final class JobRunner {
     private enum Mode {
         ARCHITECT,
         CODE,
-        ASK
+        ASK,
+        LUTZ
     }
 
     private static Mode parseMode(JobSpec spec) {
@@ -135,15 +137,14 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
 
                 final StreamingChatModel architectPlannerModel =
-                        mode == Mode.ARCHITECT ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel architectCodeModel = mode == Mode.ARCHITECT
+                        mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
                                 : defaultCodeModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel askCodeModel = mode == Mode.ASK ? defaultCodeModel() : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
@@ -153,7 +154,7 @@ public final class JobRunner {
                 var service = cm.getService();
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
@@ -162,13 +163,13 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT -> service.nameOf(Objects.requireNonNull(architectCodeModel));
-                            case ASK -> service.nameOf(Objects.requireNonNull(askCodeModel));
+                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ASK -> "(default, ignored for ASK)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ -> !hasCodeModelOverride;
                             case ASK -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
@@ -177,7 +178,7 @@ public final class JobRunner {
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
@@ -211,6 +212,82 @@ public final class JobRunner {
                                                     spec.autoCommit(),
                                                     spec.autoCompress());
                                         }
+                                        case LUTZ -> {
+                                            // Phase 1: Use SearchAgent to generate a task list from the initial task
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for LUTZ jobs"),
+                                                        SearchAgent.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
+                                            }
+                                            // Task list is now in the live context and persisted by the scope
+                                            logger.debug("LUTZ Phase 1 complete: task list generated");
+
+                                            // Phase 2: Check if task list was generated; if empty, mark job complete
+                                            var generatedTasks =
+                                                    cm.getTaskList().tasks();
+                                            if (generatedTasks.isEmpty()) {
+                                                var msg = "SearchAgent generated no tasks for: " + task.text();
+                                                logger.info("LUTZ job {}: {}", jobId, msg);
+                                                if (console != null) {
+                                                    try {
+                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                    } catch (Throwable ignore) {
+                                                        // Non-critical: event writing failed
+                                                    }
+                                                }
+                                                // No tasks generated; outer loop will handle completion/progress
+                                            } else {
+                                                // Phase 3: Execute each generated incomplete task sequentially
+                                                logger.debug(
+                                                        "LUTZ Phase 2 complete: {} task(s) to execute",
+                                                        generatedTasks.size());
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+                                                logger.debug(
+                                                        "LUTZ will execute {} incomplete task(s)",
+                                                        incompleteTasks.size());
+
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) {
+                                                        logger.info(
+                                                                "LUTZ job {} execution cancelled during task iteration",
+                                                                jobId);
+                                                        return; // Exit submitLlmAction to avoid outer completion
+                                                        // increment
+                                                    }
+
+                                                    logger.info(
+                                                            "LUTZ job {} executing generated task: {}",
+                                                            jobId,
+                                                            generatedTask.text());
+                                                    try {
+                                                        cm.executeTask(
+                                                                generatedTask,
+                                                                architectPlannerModel,
+                                                                Objects.requireNonNull(architectCodeModel),
+                                                                spec.autoCommit(),
+                                                                spec.autoCompress());
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Generated task execution failed for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage());
+                                                        throw e;
+                                                    }
+                                                }
+
+                                                logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                            }
+                                        }
                                         case CODE -> {
                                             var agent = new CodeAgent(
                                                     cm,
@@ -222,15 +299,19 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution: never auto-commit; allow compression if requested
-                                            cm.executeTask(
-                                                    new TaskList.TaskItem(task.title(), task.text(), false),
-                                                    Objects.requireNonNull(
-                                                            askPlannerModel, "plannerModel required for ASK jobs"),
-                                                    Objects.requireNonNull(
-                                                            askCodeModel, "code model unavailable for ASK jobs"),
-                                                    false,
-                                                    spec.autoCompress());
+                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                askPlannerModel, "plannerModel required for ASK jobs"),
+                                                        SearchAgent.Objective.ANSWER_ONLY,
+                                                        scope);
+                                                var result = searchAgent.execute();
+                                                scope.append(result);
+                                            }
                                         }
                                     }
 
@@ -258,9 +339,10 @@ public final class JobRunner {
                         .join();
 
                 // Optional compress after execution:
-                // - For ARCHITECT: per-task compression already honored via spec.autoCompress().
-                // - For CODE/ASK: run a single compression pass if requested.
-                if (mode != Mode.ARCHITECT && spec.autoCompress()) {
+                // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
+                // - For CODE: run a single compression pass if requested.
+                // - For ASK: no compression (read-only mode).
+                if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
                     try {
                         cm.compressHistoryAsync().join();

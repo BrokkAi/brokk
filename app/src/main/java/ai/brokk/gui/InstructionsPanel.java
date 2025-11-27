@@ -71,6 +71,9 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
+import javax.swing.undo.AbstractUndoableEdit;
+import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -308,8 +311,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Initialize components
         this.historyDropdown = createHistoryDropdown();
         instructionsArea = buildCommandInputField(); // Build first to add listener
+        // Disable undo listener while initial placeholder is showing
+        disableUndoListener();
         wandButton = new WandButton(
-                contextManager, chrome, instructionsArea, this::getInstructions, this::populateInstructionsArea);
+                contextManager,
+                chrome,
+                instructionsArea,
+                this::getInstructions,
+                this::populateInstructionsArea,
+                this::disableUndoListener);
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -317,6 +327,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     activateCommandInput();
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Recording");
                 },
+                null,
+                this::isPlaceholderText,
+                this::populateInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -477,6 +490,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public UndoManager getCommandInputUndoManager() {
         return commandInputUndoManager;
+    }
+
+    /**
+     * Disables the undo listener on the instructions area.
+     * Call this before programmatic text changes that should not be captured (e.g., wand streaming).
+     * The listener will be re-enabled when setTextWithUndo is called.
+     */
+    private void disableUndoListener() {
+        assert SwingUtilities.isEventDispatchThread();
+        instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+    }
+
+    private void enableUndoListener() {
+        assert SwingUtilities.isEventDispatchThread();
+        // Remove first to avoid duplicate listeners
+        instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+        instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
     }
 
     public JTextArea getInstructionsArea() {
@@ -1366,11 +1396,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     historyMenuItem.setToolTipText(item);
 
                     historyMenuItem.addActionListener(ev -> {
+                        // Capture old text before any modifications
+                        String oldText = instructionsArea.getText();
+                        if (isPlaceholderText(oldText)) {
+                            oldText = "";
+                        }
+
                         commandInputOverlay.hideOverlay();
                         instructionsArea.setEnabled(true);
 
-                        instructionsArea.setText(item);
-                        commandInputUndoManager.discardAllEdits();
+                        setTextWithUndo(item, oldText); // Use undo-preserving helper
                         instructionsArea.requestFocusInWindow();
                     });
                     menu.add(historyMenuItem);
@@ -2003,15 +2038,79 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
+    /**
+     * Sets text in the instructions area while preserving undo capability.
+     * The entire text replacement is captured as a single undoable edit,
+     * and previous undo history (e.g., user typing) is preserved.
+     *
+     * For wand streaming, the caller (WandButton) disables the undo listener
+     * before streaming starts, so no intermediate edits are captured.
+     *
+     * @param newText the new text to set
+     * @param oldText the original text to restore on undo (must be captured before any clearing)
+     */
+    private void setTextWithUndo(String newText, String oldText) {
+        // Skip no-op edits (e.g., when wand fails and restores original)
+        if (newText.equals(oldText)) {
+            // Still need to ensure undo listener is enabled (WandButton may have disabled it)
+            enableUndoListener();
+            return;
+        }
+
+        // Ensure undo listener is disabled (may already be disabled for wand streaming)
+        disableUndoListener();
+
+        instructionsArea.setText(newText);
+
+        // Re-enable undo listener for future user typing
+        enableUndoListener();
+
+        // Add a single edit representing the entire text replacement
+        commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
+            @Override
+            public void undo() throws CannotUndoException {
+                super.undo();
+                disableUndoListener();
+                instructionsArea.setText(oldText);
+                enableUndoListener();
+            }
+
+            @Override
+            public void redo() throws CannotRedoException {
+                super.redo();
+                disableUndoListener();
+                instructionsArea.setText(newText);
+                enableUndoListener();
+            }
+
+            @Override
+            public String getPresentationName() {
+                return "Text Replacement";
+            }
+        });
+    }
+
     public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
+            // Check if WandButton captured the original text (before streaming modified the area)
+            String capturedOldText = wandButton.getCapturedOriginalText();
+            if (!capturedOldText.isBlank()) {
+                wandButton.clearCapturedOriginalText(); // Clear after use
+            } else {
+                // Fallback: capture from area (works for history selection, voice input)
+                capturedOldText = instructionsArea.getText();
+                if (isPlaceholderText(capturedOldText)) {
+                    capturedOldText = "";
+                }
+            }
+            String finalOldText = capturedOldText;
+
             // If placeholder is active or area is disabled, activate input first
             if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
             SwingUtilities.invokeLater(() -> {
-                instructionsArea.setText(text);
-                commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+                setTextWithUndo(text, finalOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
             });
@@ -2023,6 +2122,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * present, and requests focus for the input field.
      */
     private void activateCommandInput() {
+        assert SwingUtilities.isEventDispatchThread();
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
@@ -2030,6 +2130,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (isPlaceholderText(instructionsArea.getText())) {
             clearCommandInput();
         }
+        // Enable undo listener now that real content can be entered
+        enableUndoListener();
         instructionsArea.requestFocusInWindow(); // Give it focus
     }
 
@@ -2038,12 +2140,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * This is called when focus is lost and no text has been entered.
      */
     private void deactivateCommandInput() {
+        assert SwingUtilities.isEventDispatchThread();
         String currentText = instructionsArea.getText();
         // Only restore placeholder if text is empty or whitespace-only
         if (currentText == null || currentText.trim().isEmpty()) {
             instructionsArea.setText(getCurrentPlaceholder());
             instructionsArea.setEnabled(false);
             commandInputOverlay.showOverlay();
+            // Disable undo listener while placeholder is showing
+            disableUndoListener();
         }
         // If user typed something, leave it as-is (don't restore placeholder)
     }
@@ -2898,20 +3003,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static class WandButton extends MaterialButton {
         private static final String WAND_TOOLTIP = "Refine Prompt: rewrites your prompt for clarity and specificity.";
+        private String capturedOriginalText = "";
 
         public WandButton(
                 ContextManager contextManager,
                 IConsoleIO consoleIO,
                 JTextArea instructionsArea,
                 Supplier<String> promptSupplier,
-                Consumer<String> promptConsumer) {
+                Consumer<String> promptConsumer,
+                Runnable disableUndoListener) {
             super();
             SwingUtilities.invokeLater(() -> setIcon(Icons.WAND));
             setToolTipText(WAND_TOOLTIP);
             addActionListener(e -> {
+                // Capture original text BEFORE wand action modifies the area
+                capturedOriginalText = promptSupplier.get();
+                // Disable undo listener before streaming starts to prevent intermediate
+                // streaming edits from polluting the undo stack
+                disableUndoListener.run();
                 var wandAction = new WandAction(contextManager);
                 wandAction.execute(promptSupplier, promptConsumer, consoleIO, instructionsArea);
             });
+        }
+
+        public String getCapturedOriginalText() {
+            return capturedOriginalText;
+        }
+
+        public void clearCapturedOriginalText() {
+            capturedOriginalText = "";
         }
 
         @Override
