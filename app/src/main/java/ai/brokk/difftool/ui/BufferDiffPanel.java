@@ -167,6 +167,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Nullable
     private GenericSearchBar rightSearchBar;
 
+    // Container panels for theme-aware background updates
+    @Nullable
+    private JPanel searchBarContainer;
+
+    @Nullable
+    private JPanel filePanelContainer;
+
     // The left & right "file panels" using type-safe enum map
     private final EnumMap<PanelSide, FilePanel> filePanels = new EnumMap<>(PanelSide.class);
     private PanelSide selectedPanelSide = PanelSide.LEFT;
@@ -459,7 +466,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rows = "6px, pref";
         var layout = new FormLayout(columns, rows);
         var cc = new CellConstraints();
-        var barContainer = new JPanel(layout);
+        searchBarContainer = new JPanel(layout);
+        searchBarContainer.setBackground(UIManager.getColor("Panel.background"));
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
         var leftFilePanel = getFilePanel(PanelSide.LEFT);
@@ -472,21 +480,22 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         // Add search bars aligned with the text areas below
         // Left search bar spans the same columns as the left text area (columns 4-6)
         if (leftSearchBar != null) {
-            barContainer.add(leftSearchBar, cc.xyw(4, 2, 3)); // Same span as left text area
+            searchBarContainer.add(leftSearchBar, cc.xyw(4, 2, 3)); // Same span as left text area
         }
         // Right search bar spans the same columns as the right text area (columns 8-10)
         if (rightSearchBar != null) {
-            barContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
+            searchBarContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
         }
 
-        return barContainer;
+        return searchBarContainer;
     }
 
     /** Build the actual file-panels and the center "diff scroll curves". */
     private JPanel buildFilePanel(String columns, String rows) {
         var layout = new FormLayout(columns, rows);
         var cc = new CellConstraints();
-        var panel = new JPanel(layout);
+        filePanelContainer = new JPanel(layout);
+        filePanelContainer.setBackground(UIManager.getColor("Panel.background"));
 
         // Create file panels using enum-based approach
         filePanels.put(PanelSide.LEFT, new FilePanel(this, PanelSide.LEFT.getDocumentType()));
@@ -496,21 +505,21 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightPanel = requireFilePanel(PanelSide.RIGHT);
 
         // Left side revision bar
-        panel.add(new RevisionBar(this, leftPanel, true), cc.xy(2, 4));
-        panel.add(new JLabel(""), cc.xy(2, 2)); // for spacing
+        filePanelContainer.add(new RevisionBar(this, leftPanel, true), cc.xy(2, 4));
+        filePanelContainer.add(new JLabel(""), cc.xy(2, 2)); // for spacing
 
-        panel.add(leftPanel.getVisualComponent(), cc.xyw(4, 4, 3));
+        filePanelContainer.add(leftPanel.getVisualComponent(), cc.xyw(4, 4, 3));
 
         // The middle area for drawing the linking curves
         var diffScrollComponent = new DiffScrollComponent(this, PanelSide.LEFT.getIndex(), PanelSide.RIGHT.getIndex());
-        panel.add(diffScrollComponent, cc.xy(7, 4));
+        filePanelContainer.add(diffScrollComponent, cc.xy(7, 4));
 
         // Right side revision bar
-        panel.add(new RevisionBar(this, rightPanel, false), cc.xy(12, 4));
-        panel.add(rightPanel.getVisualComponent(), cc.xyw(8, 4, 3));
+        filePanelContainer.add(new RevisionBar(this, rightPanel, false), cc.xy(12, 4));
+        filePanelContainer.add(rightPanel.getVisualComponent(), cc.xyw(8, 4, 3));
 
-        panel.setMinimumSize(new Dimension(300, 200));
-        return panel;
+        filePanelContainer.setMinimumSize(new Dimension(300, 200));
+        return filePanelContainer;
     }
 
     @Nullable
@@ -1256,6 +1265,23 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var leftPanel = getFilePanel(PanelSide.LEFT);
         if (leftPanel != null) {
             leftPanel.applyTheme(guiTheme);
+        }
+
+        // Update container panel backgrounds for theme changes
+        var bg = UIManager.getColor("Panel.background");
+        if (searchBarContainer != null) {
+            searchBarContainer.setBackground(bg);
+        }
+        if (filePanelContainer != null) {
+            filePanelContainer.setBackground(bg);
+        }
+
+        // Update search bar backgrounds
+        if (leftSearchBar != null) {
+            leftSearchBar.updateThemeColors();
+        }
+        if (rightSearchBar != null) {
+            rightSearchBar.updateThemeColors();
         }
 
         // Let the Look-and-Feel repaint every child component (headers, scroll-bars, etc.)
