@@ -250,19 +250,22 @@ public class ContextAgent {
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesLlmAnalyzed = cm.getLlm(
-                new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
-                        .withForceReasoningEcho()
-                        .withEcho());
+        var filesOpts = new Llm.Options(
+                        cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
+                .withForceReasoningEcho()
+                .withEcho();
+        var filesLlmAnalyzed = cm.getLlm(filesOpts);
         filesLlmAnalyzed.setOutput(io);
+
         var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(
                 cm.getService().quickestModel(), "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
         filesLlmUnanalyzed.setOutput(io);
 
-        var llmAnalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
-                .withForceReasoningEcho()
-                .withEcho());
+        var analyzedOpts =
+                new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal)).withForceReasoningEcho().withEcho();
+        var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
+
         var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
         llmUnanalyzed.setOutput(io);
 

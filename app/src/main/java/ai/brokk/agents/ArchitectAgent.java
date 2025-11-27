@@ -337,7 +337,7 @@ public class ArchitectAgent {
             }
 
             var searchAgent = new SearchAgent(
-                    context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo, shouldEcho);
+                    context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo);
             // Ensure all SAs scan, but do not append individual history entries during batch
             searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
             var result = searchAgent.execute();
