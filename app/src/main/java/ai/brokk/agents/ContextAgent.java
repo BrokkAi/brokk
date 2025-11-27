@@ -261,8 +261,9 @@ public class ContextAgent {
                 cm.getService().quickestModel(), "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
         filesLlmUnanalyzed.setOutput(io);
 
-        var analyzedOpts =
-                new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal)).withForceReasoningEcho().withEcho();
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
+                .withForceReasoningEcho()
+                .withEcho();
         var llmAnalyzed = cm.getLlm(analyzedOpts);
         llmAnalyzed.setOutput(io);
 

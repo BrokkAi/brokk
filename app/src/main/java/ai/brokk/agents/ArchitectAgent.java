@@ -336,8 +336,8 @@ public class ArchitectAgent {
                 io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
             }
 
-            var searchAgent = new SearchAgent(
-                    context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo);
+            var searchAgent =
+                    new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo);
             // Ensure all SAs scan, but do not append individual history entries during batch
             searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
             var result = searchAgent.execute();
