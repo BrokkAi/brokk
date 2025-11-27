@@ -214,7 +214,7 @@ public class Context {
             });
         }
         if (!otherCandidates.isEmpty()) {
-            newCtx = newCtx.addFragments(pathCandidates, added -> {
+            newCtx = newCtx.addFragments(otherCandidates, added -> {
                 int addedCount = added.size();
                 return "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
             });
