@@ -313,7 +313,7 @@ public class PythonImportTest {
     @Test
     public void testInitPyClassFqName() throws IOException {
         // Test the FQN of a class defined in __init__.py
-        // This documents/validates the current mypackage.__init__$ClassName representation
+        // FQN matches Python import semantics: from mypackage import ClassName
         var builder = InlineTestProjectCreator.code(
                 """
                 class InitClass:
@@ -325,16 +325,16 @@ public class PythonImportTest {
         try (var testProject = builder.build()) {
             var analyzer = new PythonAnalyzer(testProject);
 
-            // Find the InitClass code unit by trying the expected FQN pattern
-            var initClassDefinitions = analyzer.getDefinitions("mypackage.__init__$InitClass");
+            // Find the InitClass code unit - FQN uses package name as module (no __init__)
+            var initClassDefinitions = analyzer.getDefinitions("mypackage$InitClass");
             assertEquals(1, initClassDefinitions.size(), "Should find exactly one InitClass defined in __init__.py");
 
             var initClass = initClassDefinitions.iterator().next();
-            // Document the current FQN representation
+            // FQN matches Python import semantics
             assertEquals(
-                    "mypackage.__init__$InitClass",
+                    "mypackage$InitClass",
                     initClass.fqName(),
-                    "Class in __init__.py should have FQN: package.__init__$ClassName");
+                    "Class in __init__.py should have FQN: package$ClassName (matching Python import semantics)");
             assertEquals("InitClass", initClass.identifier(), "identifier() should return simple class name");
         }
     }
@@ -371,7 +371,7 @@ public class PythonImportTest {
 
             assertEquals(1, initClassImports.size(), "Should resolve InitClass from 'from mypackage import InitClass'");
             assertEquals(
-                    "mypackage.__init__$InitClass",
+                    "mypackage$InitClass",
                     initClassImports.getFirst().fqName(),
                     "'from mypackage import InitClass' should resolve to class in __init__.py");
         }
@@ -414,8 +414,8 @@ public class PythonImportTest {
                     "import mypackage style does not resolve to specific symbols - " +
                     "use 'from mypackage import ClassName' for import resolution");
 
-            // Verify the class itself still has the correct FQN
-            var initClassDefinitions = analyzer.getDefinitions("mypackage.__init__$InitClass");
+            // Verify the class itself still has the correct FQN (matches Python import semantics)
+            var initClassDefinitions = analyzer.getDefinitions("mypackage$InitClass");
             assertEquals(1, initClassDefinitions.size(), "InitClass should still be findable by FQN");
         }
     }

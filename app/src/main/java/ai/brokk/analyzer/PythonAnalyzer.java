@@ -90,6 +90,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             moduleName = moduleName.substring(0, moduleName.length() - 3); // e.g., "A"
         }
 
+        // For __init__.py, use the package name as the module name (matching Python import semantics)
+        // e.g., from mypackage import ClassName works when ClassName is in mypackage/__init__.py
+        String effectivePackageName = packageName;
+        if (moduleName.equals("__init__") && !packageName.isEmpty()) {
+            int lastDot = packageName.lastIndexOf('.');
+            if (lastDot == -1) {
+                // Single-component package: "mypackage" -> module="mypackage", pkg=""
+                moduleName = packageName;
+                effectivePackageName = "";
+            } else {
+                // Multi-component: "mypackage.subpkg" -> module="subpkg", pkg="mypackage"
+                moduleName = packageName.substring(lastDot + 1);
+                effectivePackageName = packageName.substring(0, lastDot);
+            }
+        }
+
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
@@ -135,7 +151,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     }
                 }
 
-                yield CodeUnit.cls(file, packageName, finalShortName);
+                yield CodeUnit.cls(file, effectivePackageName, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // Functions use . throughout: "module.func" or "module$Class.method"
@@ -170,7 +186,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     }
                 }
 
-                yield CodeUnit.fn(file, packageName, finalShortName);
+                yield CodeUnit.fn(file, effectivePackageName, finalShortName);
             }
             case CaptureNames.FIELD_DEFINITION -> {
                 // Fields use . for member access: "module.var" or "module$Class.field"
@@ -204,7 +220,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     }
                 }
 
-                yield CodeUnit.field(file, packageName, finalShortName);
+                yield CodeUnit.field(file, effectivePackageName, finalShortName);
             }
             default -> {
                 log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
@@ -399,6 +415,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         String moduleName = cu.source().getFileName();
         if (moduleName.endsWith(".py")) {
             moduleName = moduleName.substring(0, moduleName.length() - 3);
+        }
+
+        // For __init__.py, derive the module name from the CodeUnit's shortName
+        // since the effective module is the package name, not "__init__"
+        if (moduleName.equals("__init__")) {
+            // Extract module name from shortName (e.g., "mypackage$Class" -> "mypackage")
+            var shortName = cu.shortName();
+            int firstBoundary = shortName.indexOf('$');
+            if (firstBoundary == -1) {
+                firstBoundary = shortName.indexOf('.');
+            }
+            if (firstBoundary > 0) {
+                moduleName = shortName.substring(0, firstBoundary);
+            }
         }
 
         // Determine the first segment to know if we're in function or class scope

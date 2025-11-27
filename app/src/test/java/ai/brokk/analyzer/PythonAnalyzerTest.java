@@ -1638,4 +1638,64 @@ public final class PythonAnalyzerTest {
             assertEquals(0, wrongMethod.size(), "method_a should not exist in pkg.b$C");
         }
     }
+
+    @Test
+    void testInitPyFqnSemantics() throws Exception {
+        // Test that __init__.py classes/functions get FQNs matching Python import semantics
+        // e.g., "from mypackage import ClassName" works for ClassName in __init__.py
+        // FQN should be "mypackage$ClassName" NOT "mypackage.__init__$ClassName"
+        var builder = InlineTestProjectCreator.code(
+                """
+                class PackageClass:
+                    def class_method(self):
+                        pass
+
+                def package_function():
+                    pass
+
+                TOP_LEVEL_VAR = 42
+                """,
+                "mypkg/__init__.py")
+                .addFileContents(
+                        """
+                        class SubpkgClass:
+                            def method(self):
+                                pass
+                        """,
+                        "mypkg/subpkg/__init__.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+
+            // === Top-level package __init__.py ===
+            // Classes: package name becomes module name in FQN
+            var pkgClass = testAnalyzer.getDefinitions("mypkg$PackageClass");
+            assertEquals(1, pkgClass.size(), "Class in __init__.py should have FQN mypkg$ClassName");
+            assertEquals("mypkg$PackageClass", pkgClass.iterator().next().fqName());
+            assertEquals("PackageClass", pkgClass.iterator().next().identifier());
+
+            // Methods in classes
+            var classMethod = testAnalyzer.getDefinitions("mypkg$PackageClass.class_method");
+            assertEquals(1, classMethod.size(), "Method should have FQN mypkg$PackageClass.method");
+
+            // Functions: use . separator
+            var pkgFunc = testAnalyzer.getDefinitions("mypkg.package_function");
+            assertEquals(1, pkgFunc.size(), "Function in __init__.py should have FQN mypkg.func_name");
+            assertEquals("mypkg.package_function", pkgFunc.iterator().next().fqName());
+
+            // Fields/variables
+            var pkgVar = testAnalyzer.getDefinitions("mypkg.TOP_LEVEL_VAR");
+            assertEquals(1, pkgVar.size(), "Variable in __init__.py should have FQN mypkg.var_name");
+
+            // === Nested package __init__.py ===
+            // subpkg classes should have parent package in their FQN
+            var subpkgClass = testAnalyzer.getDefinitions("mypkg.subpkg$SubpkgClass");
+            assertEquals(1, subpkgClass.size(), "Class in nested __init__.py should have FQN parent.pkg$ClassName");
+            assertEquals("mypkg.subpkg$SubpkgClass", subpkgClass.iterator().next().fqName());
+
+            // Verify the old FQN format does NOT work
+            var oldFormat = testAnalyzer.getDefinitions("mypkg.__init__$PackageClass");
+            assertEquals(0, oldFormat.size(), "Old __init__ FQN format should not work anymore");
+        }
+    }
 }
