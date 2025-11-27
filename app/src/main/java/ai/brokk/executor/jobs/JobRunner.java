@@ -5,8 +5,8 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.tasks.TaskList;
@@ -59,7 +59,7 @@ public final class JobRunner {
         ARCHITECT,
         CODE,
         ASK,
-        REVIEW
+        REVIEW,
         LUTZ
     }
 
