@@ -1343,8 +1343,6 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
-            var logFileLocation = System.getProperty("user.home") + "/.brokk/debug.log";
-            System.out.println("  logFile:     " + logFileLocation);
             System.out.println();
             System.out.println("Health check endpoints (no auth required):");
             System.out.println("  GET /health/live  - executor liveness probe");
