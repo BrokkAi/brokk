@@ -330,50 +330,20 @@ public final class DependenciesPanel extends JPanel {
                 @Override
                 public void dependencyImportStarted(String name) {
                     setControlsLocked(true);
-                    // Pause watcher to avoid churn during import I/O
-                    try {
-                        chrome.getContextManager().getAnalyzerWrapper().pause();
-                    } catch (Exception ex) {
-                        logger.debug("Error pausing watcher before dependency import", ex);
-                    }
                     addPendingDependencyRow(name);
                 }
 
                 @Override
                 public void dependencyImportFinished(String name) {
-                    // Add the newly imported dependency to the live set by default
+                    // Add the new dependency to the live set (project layer handles persistence and analyzer update)
                     var project = chrome.getProject();
-                    var currentLiveDeps = project.getLiveDependencies();
-                    var liveDependencyTopLevelDirs = new HashSet<Path>();
-
-                    // Add all currently live dependencies
-                    for (var dep : currentLiveDeps) {
-                        liveDependencyTopLevelDirs.add(dep.root().absPath());
-                    }
-
-                    // Add the newly imported dependency directory
-                    var newDepDir = project.getMasterRootPathForConfig()
-                            .resolve(AbstractProject.BROKK_DIR)
-                            .resolve(AbstractProject.DEPENDENCIES_DIR)
-                            .resolve(name);
-                    liveDependencyTopLevelDirs.add(newDepDir);
-
-                    // Persist the updated live set
-                    project.saveLiveDependencies(liveDependencyTopLevelDirs);
-
-                    // Reload the UI - the table will reflect the saved state
-                    // Note: Do NOT call saveChangesAsync() here - it would read the old table state
-                    // before loadDependenciesAsync() completes, causing a race condition that
-                    // overwrites our saved state with stale data.
-                    loadDependenciesAsync();
-
-                    // Resume watcher after import completes
-                    try {
-                        chrome.getContextManager().getAnalyzerWrapper().resume();
-                    } catch (Exception e2) {
-                        logger.debug("Error resuming watcher after dependency import", e2);
-                    }
-                    setControlsLocked(false);
+                    var analyzer = chrome.getContextManager().getAnalyzerWrapper();
+                    project.addLiveDependency(name, analyzer)
+                            .whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+                                // Reload the UI after the dependency is added
+                                loadDependenciesAsync();
+                                setControlsLocked(false);
+                            }));
                 }
             };
             var parentWindow = SwingUtilities.getWindowAncestor(DependenciesPanel.this);
@@ -649,69 +619,9 @@ public final class DependenciesPanel extends JPanel {
             }
         }
 
-        var cm = chrome.getContextManager();
-        return cm.submitBackgroundTask("Save dependency configuration", () -> {
-                    var project = chrome.getProject();
-                    var analyzer = cm.getAnalyzerWrapper();
-                    analyzer.pause();
-                    try {
-
-                        // Snapshot union of files from currently live dependencies before saving
-                        var prevLiveDeps = project.getLiveDependencies();
-                        var prevFiles = new HashSet<ProjectFile>();
-                        for (var d : prevLiveDeps) {
-                            prevFiles.addAll(d.files());
-                        }
-
-                        long t0 = System.currentTimeMillis();
-                        project.saveLiveDependencies(newLiveDependencyTopLevelDirs);
-                        long t1 = System.currentTimeMillis();
-
-                        // Compute union of files from live dependencies after saving
-                        var nextLiveDeps = project.getLiveDependencies();
-                        var nextFiles = new HashSet<ProjectFile>();
-                        for (var d : nextLiveDeps) {
-                            nextFiles.addAll(d.files());
-                        }
-
-                        // Symmetric difference between before/after dependency files
-                        var changedFiles = new HashSet<>(nextFiles);
-                        changedFiles.removeAll(prevFiles);
-                        var removedFiles = new HashSet<>(prevFiles);
-                        removedFiles.removeAll(nextFiles);
-                        changedFiles.addAll(removedFiles);
-
-                        long t2 = System.currentTimeMillis();
-
-                        logger.info(
-                                "Dependencies save timing: saveLiveDependencies={} ms, diff={} ms, changedFiles={}",
-                                (t1 - t0),
-                                (t2 - t1),
-                                changedFiles.size());
-
-                        if (!changedFiles.isEmpty()) {
-                            long t3 = System.currentTimeMillis();
-                            try {
-                                cm.getAnalyzerWrapper()
-                                        .updateFiles(changedFiles)
-                                        .get();
-                            } catch (InterruptedException e) {
-                                throw new AssertionError(e);
-                            } catch (ExecutionException e) {
-                                throw new RuntimeException(e);
-                            }
-                            long t4 = System.currentTimeMillis();
-                            logger.info(
-                                    "Dependencies save timing: updateFiles={} ms for {} files",
-                                    (t4 - t3),
-                                    changedFiles.size());
-                        } else {
-                            logger.info("Dependencies save timing: no changed files detected");
-                        }
-                    } finally {
-                        analyzer.resume();
-                    }
-                })
+        var project = chrome.getProject();
+        var analyzer = chrome.getContextManager().getAnalyzerWrapper();
+        return project.updateLiveDependencies(newLiveDependencyTopLevelDirs, analyzer)
                 .whenComplete((result, ex) -> {
                     // Notify listeners on EDT after save completes (success or failure)
                     SwingUtilities.invokeLater(() -> {
