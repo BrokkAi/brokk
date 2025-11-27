@@ -1044,7 +1044,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
 
-        skipCommitGateEzCheckbox.setToolTipText("When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
+        skipCommitGateEzCheckbox.setToolTipText(
+                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
         skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
         gbc.gridx = 1;
         gbc.gridy = row++;
