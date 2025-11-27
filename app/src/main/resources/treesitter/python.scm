@@ -28,6 +28,16 @@
     name: (dotted_name) @import.name
     alias: (identifier) @import.alias))
 
+; Wildcard imports: from X import *
+(import_from_statement
+  module_name: (dotted_name) @import.module.wildcard
+  (wildcard_import) @import.wildcard)
+
+; Wildcard imports with relative paths: from . import *
+(import_from_statement
+  module_name: (relative_import) @import.relative.wildcard
+  (wildcard_import) @import.wildcard)
+
 ; Captures: import <module>
 (import_statement
   name: (dotted_name) @import.name)
