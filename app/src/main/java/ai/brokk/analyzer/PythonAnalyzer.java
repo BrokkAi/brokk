@@ -610,8 +610,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                             currentModule,
                                             e.getMessage());
                                 }
-                            } else if (wildcardModule == null) {
-                                // For "import X" style (no module context at all)
+                            } else if (currentModule == null && wildcardModule == null) {
+                                // For "import X" style (no module context)
                                 var definitions = getDefinitions(text);
                                 definitions.stream()
                                         .filter(CodeUnit::isClass)
