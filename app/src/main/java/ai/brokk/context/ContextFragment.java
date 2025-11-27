@@ -111,6 +111,8 @@ public interface ContextFragment {
         public FragmentSnapshot(String description, String shortDescription, String text, String syntaxStyle) {
             this(description, shortDescription, text, syntaxStyle, Set.of(), Set.of(), null);
         }
+
+        public static FragmentSnapshot EMPTY = new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), null);
     }
 
     static String describe(Collection<ContextFragment> fragments) {
@@ -260,6 +262,13 @@ public interface ContextFragment {
      * Static fragments are completed immediately; computed fragments complete when ready.
      */
     ComputedValue<FragmentSnapshot> snapshot();
+
+    /**
+     * Exposes the full fragment snapshot if ready, or returns the FragmentSnapshot.EMPTY instance.
+     */
+    default FragmentSnapshot snapshotNowOrEmpty() {
+        return snapshot().renderNowOr(ContextFragment.FragmentSnapshot.EMPTY);
+    }
 
     default List<TaskEntry> entries() {
         return List.of();
