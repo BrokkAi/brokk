@@ -280,7 +280,7 @@ public abstract class CodePrompts {
 
         var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
+        messages.addAll(getWorkspaceMessagesInAddedOrder(cm.liveContext(), viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -907,7 +907,6 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
      * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
      * - Preserves insertion order and multimodal content.
      */
