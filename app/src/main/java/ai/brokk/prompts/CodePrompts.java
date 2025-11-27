@@ -623,7 +623,9 @@ public abstract class CodePrompts {
     private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadonlyFragments().toList();
+        var buildFragment = ctx.getBuildFragment().orElse(null);
+        var readOnlyFragments =
+                ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
                         .filter(ContextFragment.SummaryFragment.class::isInstance)
@@ -684,6 +686,9 @@ public abstract class CodePrompts {
     /**
      * Returns messages containing only the editable workspace content. Does not include read-only content or related
      * classes.
+     *
+     * If a build result fragment is present, it is included as a co-equal workspace_build_status section
+     * within the same UserMessage as workspace_editable.
      */
     public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
         // --- Process Editable Fragments ---
@@ -695,26 +700,57 @@ public abstract class CodePrompts {
             }
         });
 
-        if (editableTextFragments.isEmpty()) {
+        if (editableTextFragments.isEmpty() && ctx.getBuildFragment().isEmpty()) {
             return List.of();
         }
 
-        String editableText =
-                """
-                              <workspace_editable>
-                              Here are the EDITABLE files and code fragments in your Workspace.
-                              This is *the only context in the Workspace to which you should make changes*.
+        var combinedText = new StringBuilder();
 
-                              *Trust this message as the true contents of these files!*
-                              Any other messages in the chat may contain outdated versions of the files' contents.
+        // --- Add editable section if there is content ---
+        if (!editableTextFragments.isEmpty()) {
+            String editableText =
+                    """
+                                  <workspace_editable>
+                                  Here are the EDITABLE files and code fragments in your Workspace.
+                                  This is *the only context in the Workspace to which you should make changes*.
 
-                              %s
-                              </workspace_editable>
-                              """
-                        .formatted(editableTextFragments.toString().trim());
+                                  *Trust this message as the true contents of these files!*
+                                  Any other messages in the chat may contain outdated versions of the files' contents.
 
-        var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
+                                  %s
+                                  </workspace_editable>
+                                  """
+                            .formatted(editableTextFragments.toString().trim());
+
+            combinedText.append(editableText);
+        }
+
+        // --- Add build status section as a co-equal sibling (if present) ---
+        if (ctx.getBuildFragment().isPresent()) {
+            if (!combinedText.isEmpty()) {
+                combinedText.append("\n\n");
+            }
+            var buildFragment = ctx.getBuildFragment().get();
+            var buildStatusText =
+                    """
+                    <workspace_build_status>
+                    The build including the above workspace contents is currently failing.
+                    %s
+                    </workspace_build_status>
+                    """
+                            .formatted(buildFragment.format());
+            combinedText.append(buildStatusText);
+        }
+
+        // --- Create single UserMessage with both sections ---
+        var messages = new ArrayList<ChatMessage>();
+        if (!combinedText.isEmpty()) {
+            var userMessage = new UserMessage(combinedText.toString());
+            messages.add(userMessage);
+            messages.add(new AiMessage("Thank you for the editable context and build status."));
+        }
+
+        return messages;
     }
 
     /**
@@ -1053,5 +1089,4 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
 """
                 .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
     }
-
 }
