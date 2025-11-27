@@ -32,8 +32,10 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
@@ -105,13 +107,49 @@ public interface ContextFragment {
             String syntaxStyle,
             Set<CodeUnit> sources,
             Set<ProjectFile> files,
-            byte @Nullable [] imageBytes) {
+            @Nullable List<Byte> imageByteList
+            // may not be a byte[] object as records require immutability which cannot be enforced by arrays
+            ) {
 
-        public FragmentSnapshot(String description, String shortDescription, String text, String syntaxStyle) {
-            this(description, shortDescription, text, syntaxStyle, Set.of(), Set.of(), null);
+        public FragmentSnapshot(
+                String description,
+                String shortDescription,
+                String text,
+                String syntaxStyle,
+                Set<CodeUnit> sources,
+                Set<ProjectFile> files,
+                byte @Nullable [] imageBytes) {
+            this(description, shortDescription, text, syntaxStyle, sources, files, convertToList(imageBytes));
         }
 
-        public static FragmentSnapshot EMPTY = new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), null);
+        public FragmentSnapshot(String description, String shortDescription, String text, String syntaxStyle) {
+            this(description, shortDescription, text, syntaxStyle, Set.of(), Set.of(), (List<Byte>) null);
+        }
+
+        public byte @Nullable [] imageBytes() {
+            return convertToByteArray(imageByteList);
+        }
+
+        public static FragmentSnapshot EMPTY =
+                new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), (List<Byte>) null);
+    }
+
+    private static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
+        if (imageBytes == null) {
+            return null;
+        }
+
+        byte[] result = new byte[imageBytes.size()];
+        for (int i = 0; i < imageBytes.size(); i++) {
+            result[i] = imageBytes.get(i);
+        }
+        return result;
+    }
+
+    private static @Nullable List<Byte> convertToList(byte @Nullable [] arr) {
+        if (arr == null) return null;
+
+        return IntStream.range(0, arr.length).mapToObj(i -> arr[i]).toList(); // Creates an unmodifiable list
     }
 
     static String describe(Collection<ContextFragment> fragments) {
@@ -427,13 +465,10 @@ public interface ContextFragment {
                     description().renderNowOr("(restored)"),
                     shortDescription().renderNowOr("(restored)"),
                     text,
-                    syntaxStyle().renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE),
-                    Set.of(),
-                    Set.of(),
-                    null);
+                    syntaxStyle().renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        protected <T> ComputedValue<T> derived(String key, java.util.function.Function<FragmentSnapshot, T> extractor) {
+        protected <T> ComputedValue<T> derived(String key, Function<FragmentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
             ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
                     key,
@@ -514,7 +549,7 @@ public interface ContextFragment {
             if (this.getClass() != other.getClass()) return false;
             // Dynamic fragments use ID or repr
             if (this instanceof DynamicIdentity) {
-                return this.repr().equals(other.repr()) && !this.repr().isEmpty()
+                return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
                         || this.id().equals(other.id());
             }
             // Content hashed fragments (if any computed ones are)
@@ -653,7 +688,7 @@ public interface ContextFragment {
             } catch (Throwable t) {
                 sources = Set.of();
             }
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), null);
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
         }
 
         private ProjectPathFragment(
@@ -696,7 +731,7 @@ public interface ContextFragment {
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources = getAnalyzer().getDeclarations(file);
 
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), null);
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
         }
 
         @Override
@@ -843,7 +878,7 @@ public interface ContextFragment {
             return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private static FragmentSnapshot decodeFrozen(ExternalFile file, IContextManager contextManager, byte[] bytes) {
+        private static FragmentSnapshot decodeFrozen(ExternalFile file, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.toString();
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
@@ -855,16 +890,14 @@ public interface ContextFragment {
             super(
                     id,
                     contextManager,
-                    snapshotText != null
-                            ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
-                            : null);
+                    snapshotText != null ? decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.file = file;
             primeComputations();
         }
 
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(file, contextManager, bytes);
+            return decodeFrozen(file, bytes);
         }
 
         @Override
@@ -1164,13 +1197,15 @@ public interface ContextFragment {
                 String d = descriptionFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 desc = "Paste of " + d;
             } catch (Exception e) {
+                logger.error("Unable to compute PasteTextFragment description within specified timeout period", e);
             }
             try {
                 if (syntaxStyleFuture.isDone()) syntax = syntaxStyleFuture.get();
             } catch (Exception e) {
+                logger.error("Unable to compute PasteTextFragment syntax style within specified timeout period", e);
             }
 
-            return new FragmentSnapshot(desc, "pasted text", text, syntax);
+            return new FragmentSnapshot(desc, desc, text, syntax);
         }
 
         @Override
@@ -1246,11 +1281,12 @@ public interface ContextFragment {
             try {
                 desc = descriptionFuture.get();
             } catch (Exception e) {
+                logger.error("Unable to compute AnonymousImageFragment description", e);
             }
             byte[] bytes = imageToBytes(image);
             return new FragmentSnapshot(
                     desc,
-                    "pasted image",
+                    desc,
                     "[Image content provided out of band]",
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     Set.of(),
@@ -1261,8 +1297,8 @@ public interface ContextFragment {
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
             return new FragmentSnapshot(
-                    "pasted image",
-                    "pasted image",
+                    "Pasted image",
+                    "Pasted image",
                     "[Image content provided out of band]",
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     Set.of(),
@@ -1327,7 +1363,7 @@ public interface ContextFragment {
                                     : sources.iterator().next().source().getSyntaxStyle(),
                             sources,
                             sources.stream().map(CodeUnit::source).collect(Collectors.toSet()),
-                            null));
+                            (List<Byte>) null));
             this.original = original;
             this.exception = exception;
             this.code = code;
@@ -1395,23 +1431,22 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     snapshotText != null
-                            ? decodeFrozen(
-                                    targetIdentifier, includeTestFiles, snapshotText.getBytes(StandardCharsets.UTF_8))
+                            ? decodeFrozen(targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8))
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
             primeComputations();
         }
 
-        private static FragmentSnapshot decodeFrozen(String targetIdentifier, boolean includeTestFiles, byte[] bytes) {
+        private static FragmentSnapshot decodeFrozen(String targetIdentifier, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Uses of " + targetIdentifier;
-            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
+            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         @Override
         protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(targetIdentifier, includeTestFiles, bytes);
+            return decodeFrozen(targetIdentifier, bytes);
         }
 
         @Override
@@ -1474,7 +1509,9 @@ public interface ContextFragment {
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
             return new FragmentSnapshot(
-                    "Uses of " + targetIdentifier, "Uses of " + targetIdentifier, text, syntax, sources, files, null);
+                    "Uses of " + targetIdentifier, "Uses of " + targetIdentifier, text, syntax, sources, files, (List<
+                                    Byte>)
+                            null);
         }
 
         @Override
@@ -1518,8 +1555,7 @@ public interface ContextFragment {
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Source for " + fullyQualifiedName;
-            return new FragmentSnapshot(
-                    desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), null);
+            return new FragmentSnapshot(desc, fullyQualifiedName, text, SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         @Override
@@ -1584,7 +1620,7 @@ public interface ContextFragment {
                     unit.source().getSyntaxStyle(),
                     Set.of(unit),
                     Set.of(unit.source()),
-                    null);
+                    (List<Byte>) null);
         }
 
         @Override
@@ -1670,7 +1706,8 @@ public interface ContextFragment {
             String desc = "%s of %s (depth %d)".formatted(type, methodName, depth);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
 
-            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, null);
+            return new FragmentSnapshot(
+                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, (List<Byte>) null);
         }
 
         @Override
@@ -1830,7 +1867,8 @@ public interface ContextFragment {
             Set<CodeUnit> sources = skeletonsMap.keySet();
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
 
-            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, null);
+            return new FragmentSnapshot(
+                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null);
         }
 
         public static String combinedText(List<SummaryFragment> fragments) {

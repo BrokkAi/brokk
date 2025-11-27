@@ -224,7 +224,7 @@ public class DtoMapper {
         }
     }
 
-    private static ContextFragment _buildReferencedFragment(
+    private static @Nullable ContextFragment _buildReferencedFragment(
             ReferencedFragmentDto dto, IContextManager mgr, ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd -> {
@@ -453,7 +453,7 @@ public class DtoMapper {
         return new ExternalFile(path);
     }
 
-    public static VirtualFragmentDto toVirtualFragmentDto(ContextFragment fragment, ContentWriter writer) {
+    public static @Nullable VirtualFragmentDto toVirtualFragmentDto(ContextFragment fragment, ContentWriter writer) {
         return switch (fragment) {
             case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
             case ContextFragment.StringFragment sf ->

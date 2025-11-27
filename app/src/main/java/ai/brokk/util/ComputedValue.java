@@ -72,7 +72,7 @@ public final class ComputedValue<T> {
      * @param supplier computation to run
      * @param executor optional executor on which to run the supplier; if null, a dedicated daemon thread is used on start()
      */
-    public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
+    public ComputedValue(String name, Supplier<@Nullable T> supplier, @Nullable Executor executor) {
         this(name, supplier, executor, new CompletableFuture<>());
         // Autostart when an executor is provided to preserve existing eager semantics for fragment computations.
         if (executor != null) {
