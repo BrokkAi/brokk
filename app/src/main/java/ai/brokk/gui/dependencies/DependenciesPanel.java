@@ -82,8 +82,35 @@ public final class DependenciesPanel extends JPanel {
     private final List<DependencyStateChangeListener> stateChangeListeners = new ArrayList<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
-    private static final String LOADING = "Loading...";
-    private static final String UNLOADING = "Unloading...";
+
+    /**
+     * Represents the state of a dependency's "Live" checkbox in the table.
+     * Provides type safety instead of mixing Boolean and String values.
+     */
+    public enum LiveState {
+        LIVE("Live"),
+        NOT_LIVE(""),
+        ENABLING("Loading..."),
+        DISABLING("Unloading...");
+
+        private final String displayText;
+
+        LiveState(String displayText) {
+            this.displayText = displayText;
+        }
+
+        public String getDisplayText() {
+            return displayText;
+        }
+
+        public boolean isLive() {
+            return this == LIVE || this == ENABLING;
+        }
+
+        public boolean isTransitioning() {
+            return this == ENABLING || this == DISABLING;
+        }
+    }
 
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
@@ -111,16 +138,31 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private static boolean isTruthyLive(Object v) {
-        return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
+        return v instanceof LiveState state && state.isLive();
     }
 
     private class LiveCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            if (value instanceof Boolean b) {
+            if (!(value instanceof LiveState state)) {
+                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            }
+
+            if (state.isTransitioning()) {
+                // Show text label for transitioning states
+                var lbl = new JLabel(state.getDisplayText());
+                lbl.setHorizontalAlignment(CENTER);
+                lbl.setOpaque(isSelected);
+                if (isSelected) {
+                    lbl.setBackground(table.getSelectionBackground());
+                    lbl.setForeground(table.getSelectionForeground());
+                }
+                return lbl;
+            } else {
+                // Show checkbox for stable states
                 var cb = new JCheckBox();
-                cb.setSelected(b);
+                cb.setSelected(state == LiveState.LIVE);
                 cb.setHorizontalAlignment(CENTER);
                 cb.setOpaque(true);
                 cb.setEnabled(!controlsLocked);
@@ -132,17 +174,31 @@ public final class DependenciesPanel extends JPanel {
                     cb.setForeground(table.getForeground());
                 }
                 return cb;
-            } else {
-                var text = Objects.toString(value, "");
-                var lbl = new JLabel(text);
-                lbl.setHorizontalAlignment(CENTER);
-                lbl.setOpaque(isSelected);
-                if (isSelected) {
-                    lbl.setBackground(table.getSelectionBackground());
-                    lbl.setForeground(table.getSelectionForeground());
-                }
-                return lbl;
             }
+        }
+    }
+
+    private class LiveStateCellEditor extends DefaultCellEditor {
+        private LiveState currentState;
+
+        public LiveStateCellEditor() {
+            super(new JCheckBox());
+            var cb = (JCheckBox) getComponent();
+            cb.setHorizontalAlignment(SwingConstants.CENTER);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+            currentState = (value instanceof LiveState state) ? state : LiveState.NOT_LIVE;
+            var cb = (JCheckBox) super.getTableCellEditorComponent(table, currentState == LiveState.LIVE, isSelected, row, column);
+            cb.setSelected(currentState == LiveState.LIVE);
+            return cb;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            var cb = (JCheckBox) getComponent();
+            return cb.isSelected() ? LiveState.LIVE : LiveState.NOT_LIVE;
         }
     }
 
@@ -163,7 +219,7 @@ public final class DependenciesPanel extends JPanel {
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 0) return Boolean.class;
+                if (columnIndex == 0) return LiveState.class;
                 if (columnIndex >= 2) return Long.class;
                 return String.class;
             }
@@ -173,7 +229,8 @@ public final class DependenciesPanel extends JPanel {
                 if (column != 0) return false;
                 if (controlsLocked) return false;
                 Object v = getValueAt(row, 0);
-                return v instanceof Boolean;
+                // Only editable when in stable state (not transitioning)
+                return v instanceof LiveState state && !state.isTransitioning();
             }
         };
 
@@ -221,7 +278,8 @@ public final class DependenciesPanel extends JPanel {
         // Live checkbox column (keep narrow)
         columnModel.getColumn(0).setMaxWidth(columnModel.getColumn(0).getPreferredWidth());
         columnModel.getColumn(0).setCellRenderer(new LiveCellRenderer());
-        // Ensure sorting treats "Loading..." as enabled for grouping purposes
+        columnModel.getColumn(0).setCellEditor(new LiveStateCellEditor());
+        // Sort by live status (LIVE/ENABLING first, then NOT_LIVE/DISABLING)
         sorter.setComparator(0, (a, b) -> Boolean.compare(isTruthyLive(a), isTruthyLive(b)));
         // Name column width
         columnModel.getColumn(1).setPreferredWidth(200);
@@ -383,16 +441,17 @@ public final class DependenciesPanel extends JPanel {
                 int last = e.getLastRow();
                 for (int row = first; row <= last; row++) {
                     Object v = tableModel.getValueAt(row, 0);
-                    if (v instanceof Boolean bool) {
+                    // Only handle stable states (LIVE/NOT_LIVE) - ignore transitioning states
+                    if (v instanceof LiveState state && !state.isTransitioning()) {
                         String depName = (String) tableModel.getValueAt(row, 1);
-                        boolean prev = !bool;
+                        var prevState = state == LiveState.LIVE ? LiveState.NOT_LIVE : LiveState.LIVE;
 
-                        // If an operation is already in-flight or any row is Loading, revert this toggle.
+                        // If an operation is already in-flight or any row is transitioning, revert this toggle.
                         if (controlsLocked
                                 || (inFlightToggleSave != null && !inFlightToggleSave.isDone())
-                                || anyRowLoading()) {
+                                || anyRowTransitioning()) {
                             isProgrammaticChange = true;
-                            tableModel.setValueAt(prev, row, 0);
+                            tableModel.setValueAt(prevState, row, 0);
                             isProgrammaticChange = false;
                             return;
                         }
@@ -400,15 +459,16 @@ public final class DependenciesPanel extends JPanel {
                         // Lock UI early and stop editing to ensure renderer updates.
                         setControlsLocked(true);
 
-                        // Show progress text while saving: "Loading..." when enabling, "Unloading..." when disabling.
+                        // Show transitioning state while saving
+                        var transitionState = state == LiveState.LIVE ? LiveState.ENABLING : LiveState.DISABLING;
                         isProgrammaticChange = true;
-                        tableModel.setValueAt(bool ? LOADING : UNLOADING, row, 0);
+                        tableModel.setValueAt(transitionState, row, 0);
                         isProgrammaticChange = false;
 
                         final int rowIndex = row;
-                        final boolean newVal = bool;
-                        final boolean prevVal = prev;
-                        inFlightToggleSave = saveChangesAsync(Map.of(depName, Boolean.valueOf(bool)))
+                        final var newState = state;
+                        final var revertState = prevState;
+                        inFlightToggleSave = saveChangesAsync(Map.of(depName, state == LiveState.LIVE))
                                 .whenComplete((r, ex) -> SwingUtilities.invokeLater(() -> {
                                     isProgrammaticChange = true;
                                     if (ex != null) {
@@ -417,9 +477,9 @@ public final class DependenciesPanel extends JPanel {
                                                 "Failed to save dependency changes:\n" + ex.getMessage(),
                                                 "Error Saving Dependencies",
                                                 JOptionPane.ERROR_MESSAGE);
-                                        tableModel.setValueAt(prevVal, rowIndex, 0);
+                                        tableModel.setValueAt(revertState, rowIndex, 0);
                                     } else {
-                                        tableModel.setValueAt(newVal, rowIndex, 0);
+                                        tableModel.setValueAt(newState, rowIndex, 0);
                                     }
                                     isProgrammaticChange = false;
                                     inFlightToggleSave = null;
@@ -470,10 +530,10 @@ public final class DependenciesPanel extends JPanel {
         table.repaint();
     }
 
-    private boolean anyRowLoading() {
+    private boolean anyRowTransitioning() {
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             Object v = tableModel.getValueAt(i, 0);
-            if (LOADING.equals(v) || UNLOADING.equals(v)) {
+            if (v instanceof LiveState state && state.isTransitioning()) {
                 return true;
             }
         }
@@ -525,7 +585,7 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private void addPendingDependencyRow(String name) {
-        tableModel.addRow(new Object[] {true, name, 0L});
+        tableModel.addRow(new Object[] {LiveState.ENABLING, name, 0L});
     }
 
     private void loadDependenciesAsync() {
@@ -552,7 +612,7 @@ public final class DependenciesPanel extends JPanel {
 
                 map.put(displayName, dep);
                 boolean isLive = liveDeps.stream().anyMatch(d -> d.root().equals(dep));
-                rows.add(new Object[] {Boolean.valueOf(isLive), displayName, Long.valueOf(0L)});
+                rows.add(new Object[] {isLive ? LiveState.LIVE : LiveState.NOT_LIVE, displayName, Long.valueOf(0L)});
             }
 
             return new AsyncLoadResult(map, rows);
