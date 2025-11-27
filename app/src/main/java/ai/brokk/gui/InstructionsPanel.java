@@ -2071,35 +2071,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Skip no-op edits (e.g., when wand fails and restores original)
         if (newText.equals(oldText)) {
             // Still need to ensure undo listener is enabled (WandButton may have disabled it)
-            instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
-            instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+            enableUndoListener();
             return;
         }
 
         // Ensure undo listener is disabled (may already be disabled for wand streaming)
-        instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+        disableUndoListener();
 
         instructionsArea.setText(newText);
 
         // Re-enable undo listener for future user typing
-        instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+        enableUndoListener();
 
         // Add a single edit representing the entire text replacement
         commandInputUndoManager.addEdit(new AbstractUndoableEdit() {
             @Override
             public void undo() throws CannotUndoException {
                 super.undo();
-                instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+                disableUndoListener();
                 instructionsArea.setText(oldText);
-                instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+                enableUndoListener();
             }
 
             @Override
             public void redo() throws CannotRedoException {
                 super.redo();
-                instructionsArea.getDocument().removeUndoableEditListener(commandInputUndoManager);
+                disableUndoListener();
                 instructionsArea.setText(newText);
-                instructionsArea.getDocument().addUndoableEditListener(commandInputUndoManager);
+                enableUndoListener();
             }
 
             @Override
