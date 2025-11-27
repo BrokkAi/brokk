@@ -422,7 +422,7 @@ public final class BrokkCli implements Callable<Integer> {
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
             var fragment = new ContextFragment.ProjectPathFragment(pf, cm);
-            context = context.addPathFragments(List.of(fragment));
+            context = context.addFragments(fragment);
             context = context.setReadonly(fragment, true);
         }
 
@@ -446,15 +446,15 @@ public final class BrokkCli implements Callable<Integer> {
         // Add usages, callers, callees (simple fragment creation)
         for (var symbol : addUsages) {
             var fragment = new ContextFragment.UsageFragment(cm, symbol);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallers.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallees.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
 
         // Push accumulated context changes back to ContextManager
@@ -505,7 +505,7 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                            cm.addFragments(fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
                         default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());

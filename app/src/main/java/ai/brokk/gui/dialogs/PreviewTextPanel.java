@@ -171,7 +171,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                cm.addPathFragmentAsync(ghf);
+                cm.addFragmentAsync(ghf);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
@@ -1220,7 +1220,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
-                        var ctx = cm.liveContext().addPathFragments(cm.toPathFragments(List.of(file)));
+                        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
 
                         // Determine TaskMeta only if there was LLM activity in quick edits.
                         TaskResult.TaskMeta meta = null;

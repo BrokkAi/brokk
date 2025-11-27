@@ -94,7 +94,7 @@ public class CodeAgent {
     /** Implicitly includes the DEFER_BUILD option. */
     public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager, null)
-                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+                .addFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
@@ -286,7 +286,7 @@ public class CodeAgent {
                 var newFrags = newlyCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                context = context.addPathFragments(newFrags);
+                context = context.addFragments(newFrags);
             }
 
             if (applyOutcome instanceof Step.Retry retryApply) {

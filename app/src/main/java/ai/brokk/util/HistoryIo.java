@@ -260,7 +260,7 @@ public final class HistoryIo {
             });
             ctx.virtualFragments().forEach(vf -> {
                 if (vf instanceof ContextFragment.TaskFragment taskFragment
-                        && !(vf instanceof ContextFragment.SearchFragment)) {
+                        ) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));
                     }

@@ -17,7 +17,6 @@ import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragment.PathFragment;
-import ai.brokk.context.ContextFragment.VirtualFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -787,16 +786,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     @Override
     public void addFiles(Collection<ProjectFile> files) {
-        addPathFragments(toPathFragments(files));
+        addFragments(toPathFragments(files));
     }
 
     /** Add the given files to editable. */
-    public void addPathFragments(List<? extends PathFragment> fragments) {
+    public void addFragments(List<? extends PathFragment> fragments) {
         if (fragments.isEmpty()) {
             return;
         }
-        // addPathFragments already handles semantic deduplication via hasSameSource
-        pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(fragments));
+        // addFragments already handles semantic deduplication via hasSameSource
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
@@ -1009,30 +1008,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             List<TaskEntry> newHistory = List.copyOf(finalHistory);
 
-            // Categorize fragments to add (should all be live already from migration logic)
-            List<ContextFragment.ProjectPathFragment> pathsToAdd = new ArrayList<>();
-            List<VirtualFragment> virtualFragmentsToAdd = new ArrayList<>();
-
-            List<ContextFragment> sourceEditableFragments =
-                    sourceContext.fileFragments().toList();
-            List<ContextFragment> sourceVirtualFragments = sourceContext
-                    .virtualFragments()
-                    .map(ContextFragment.class::cast)
-                    .toList();
+            // Collect fragments to add (should all be live already from migration logic)
+            List<ContextFragment> fragmentsToAdd = new ArrayList<>();
+            List<ContextFragment> sourceFragments = sourceContext.allFragments().toList();
 
             for (ContextFragment fragment : fragmentsToKeep) {
                 // Use semantic comparison (hasSameSource) to identify which category this fragment belongs to
-                boolean isEditableMatch = sourceEditableFragments.stream().anyMatch(fragment::hasSameSource);
-                boolean isVirtualMatch = sourceVirtualFragments.stream()
+                boolean isMatch = sourceFragments.stream()
                         .anyMatch(f -> !(f instanceof ContextFragment.HistoryFragment) && fragment.hasSameSource(f));
 
-                if (isEditableMatch && fragment instanceof ContextFragment.ProjectPathFragment ppf) {
-                    pathsToAdd.add(ppf);
-                } else if (isVirtualMatch && fragment instanceof VirtualFragment vf) {
-                    virtualFragmentsToAdd.add(vf);
-                } else if (fragment instanceof ContextFragment.HistoryFragment) {
-                    // Handled by selectedHistoryFragmentOpt
-                } else if (!isEditableMatch && !isVirtualMatch) {
+                if (isMatch) {
+                    fragmentsToAdd.add(fragment);
+                } else if (!(fragment instanceof ContextFragment.HistoryFragment)) {
+                    // HistoryFragment is handled by selectedHistoryFragmentOpt
                     logger.warn(
                             "Fragment '{}' (ID: {}) from fragmentsToKeep does not match any source fragments. Type: {}",
                             fragment.description(),
@@ -1043,11 +1031,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             pushContext(currentLiveCtx -> {
                 Context modifiedCtx = currentLiveCtx;
-                if (!pathsToAdd.isEmpty()) {
-                    modifiedCtx = modifiedCtx.addPathFragments(pathsToAdd);
-                }
-                for (VirtualFragment vfToAdd : virtualFragmentsToAdd) {
-                    modifiedCtx = modifiedCtx.addVirtualFragment(vfToAdd);
+                if (!fragmentsToAdd.isEmpty()) {
+                    modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
                 }
                 return Context.createWithId(
                         Context.newContextId(),
@@ -1082,7 +1067,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Must be final for lambda capture in pushContext
         final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         return fragment;
     }
 
@@ -1128,17 +1113,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 contextActionExecutor);
 
         var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
-        addVirtualFragment(fragment);
+        addFragments(fragment);
     }
 
     /**
-     * Adds a specific PathFragment (like GitHistoryFragment) to the read-only part of the live context.
+     * Adds a specific ContextFragment (like GitHistoryFragment) to the live context.
      *
      * @param fragment The PathFragment to add.
      */
-    public void addPathFragmentAsync(PathFragment fragment) {
+    public void addFragmentAsync(ContextFragment fragment) {
         submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addPathFragments(List.of(fragment)));
+            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
         });
     }
 
@@ -1157,7 +1142,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var last = history.getLast();
             var log = last.log();
             if (log != null) {
-                addVirtualFragment(log);
+                addFragments(log);
                 return;
             }
             io.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
@@ -1167,7 +1152,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
         var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
@@ -1183,7 +1168,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     sourceCode,
                     "Source code for " + codeUnit.fqName(),
                     codeUnit.source().getSyntaxStyle());
-            pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
             String message = "Add source code for " + codeUnit.shortName();
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         } else {
@@ -1205,7 +1190,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Add call graph for callers of " + methodName + " with depth " + depth);
@@ -1219,7 +1204,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
         var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Add call graph for methods called by " + methodName + " with depth " + depth);
@@ -1259,7 +1244,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         var fragment = new ContextFragment.StacktraceFragment(
                 this, sources, stacktrace.getOriginalText(), exception, content.toString());
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         return true;
     }
 
@@ -1284,7 +1269,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (var pf : files) {
                 var fragment = new ContextFragment.SummaryFragment(
                         this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                addVirtualFragment(fragment);
+                addFragments(fragment);
             }
             String message = "Summarize " + joinFilesForOutput(files);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -1297,7 +1282,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (var fqn : classFqns) {
                 var fragment =
                         new ContextFragment.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                addVirtualFragment(fragment);
+                addFragments(fragment);
             }
             String message = "Summarize " + joinClassesForOutput(classFqns);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);

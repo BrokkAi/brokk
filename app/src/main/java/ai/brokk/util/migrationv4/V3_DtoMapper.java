@@ -50,7 +50,7 @@ public class V3_DtoMapper {
                 .toList();
 
         var virtualFragments = dto.virtuals().stream()
-                .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
+                .map(fragmentCache::get)
                 .filter(Objects::nonNull)
                 .toList();
 
@@ -126,7 +126,7 @@ public class V3_DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
-    private static ContextFragment _buildReferencedFragment(
+    private static @Nullable ContextFragment _buildReferencedFragment(
             V3_FragmentDtos.ReferencedFragmentDto dto, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         return switch (dto) {
             case V3_FragmentDtos.ProjectFileDto pfd ->
@@ -177,7 +177,7 @@ public class V3_DtoMapper {
         return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
     }
 
-    private static ContextFragment fromFrozenDtoToLiveFragment(
+    private static @Nullable ContextFragment fromFrozenDtoToLiveFragment(
             V3_FragmentDtos.FrozenFragmentDto ffd, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         var original = ffd.originalClassName();
         var meta = ffd.meta();
@@ -240,17 +240,8 @@ public class V3_DtoMapper {
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment",
                         "ai.brokk.context.ContextFragment$SkeletonFragment" -> {
-                    var targetIdentifiersStr = meta.get("targetIdentifiers");
-                    var summaryTypeStr = meta.get("summaryType");
-                    if (targetIdentifiersStr == null || summaryTypeStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'targetIdentifiers' or 'summaryType' for SkeletonFragment");
-                    }
-                    var targets = targetIdentifiersStr.isEmpty()
-                            ? List.<String>of()
-                            : List.of(targetIdentifiersStr.split(";"));
-                    var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                    return new ContextFragment.SkeletonFragment(mgr, targets, summaryType);
+                    logger.warn("Skeleton fragments are no longer supported, dropping fragment");
+                    return null;
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SummaryFragment",
                         "ai.brokk.context.ContextFragment$SummaryFragment" -> {
@@ -312,7 +303,7 @@ public class V3_DtoMapper {
         }
     }
 
-    private static @Nullable ContextFragment.VirtualFragment _buildVirtualFragment(
+    private static @Nullable ContextFragment _buildVirtualFragment(
             @Nullable V3_FragmentDtos.VirtualFragmentDto dto,
             IContextManager mgr,
             Map<String, ContextFragment> fragmentCacheForRecursion,
@@ -329,16 +320,11 @@ public class V3_DtoMapper {
                 }
                 // FrozenFragmentDto is treated as a ReferencedFragmentDto and unfrozen during deserialization.
                 // No fallback to frozen objects; _buildReferencedFragment() will fail fast if unfreezing fails.
-                yield (ContextFragment.VirtualFragment) _buildReferencedFragment(ffd, mgr, reader);
+                yield _buildReferencedFragment(ffd, mgr, reader);
             }
-            case V3_FragmentDtos.SearchFragmentDto searchDto -> {
-                var sources = searchDto.sources().stream()
-                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
-                        .collect(Collectors.toSet());
-                var messages = searchDto.messages().stream()
-                        .map(msgDto -> fromChatMessageDto(msgDto, reader))
-                        .toList();
-                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
+            case V3_FragmentDtos.SearchFragmentDto ignored -> {
+                logger.warn("Search fragments are no longer supported, dropping fragment");
+                yield null;
             }
             case V3_FragmentDtos.TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
             case V3_FragmentDtos.StringFragmentDto stringDto ->
@@ -348,12 +334,10 @@ public class V3_DtoMapper {
                         reader.readContent(stringDto.contentId()),
                         stringDto.description(),
                         stringDto.syntaxStyle());
-            case V3_FragmentDtos.SkeletonFragmentDto skeletonDto ->
-                new ContextFragment.SkeletonFragment(
-                        skeletonDto.id(),
-                        mgr,
-                        skeletonDto.targetIdentifiers(),
-                        mapSummaryType(skeletonDto.summaryType()));
+            case V3_FragmentDtos.SkeletonFragmentDto ignored -> {
+                logger.warn("Skeleton fragments are no longer supported, dropping fragment");
+                yield null;
+            }
             case V3_FragmentDtos.SummaryFragmentDto summaryDto ->
                 new ContextFragment.SummaryFragment(
                         summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));

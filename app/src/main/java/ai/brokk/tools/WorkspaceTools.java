@@ -115,7 +115,7 @@ public class WorkspaceTools {
                 .toList();
 
         var fragments = context.getContextManager().toPathFragments(toAddFiles);
-        context = context.addPathFragments(fragments);
+        context = context.addFragments(fragments);
 
         String addedNames =
                 toAddFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
@@ -281,7 +281,7 @@ public class WorkspaceTools {
         }
 
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addVirtualFragments(List.of(fragment));
+        context = context.addFragments(List.of(fragment));
 
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
     }

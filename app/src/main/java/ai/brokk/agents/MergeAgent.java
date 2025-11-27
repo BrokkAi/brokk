@@ -287,7 +287,7 @@ public class MergeAgent {
         // to verification
         var testFiles = testFilesReferencedInOursAndTheirs();
         logger.debug("Test files referenced in changes: {}", testFiles);
-        var buildContext = new Context(cm, "").addPathFragments(cm.toPathFragments(testFiles));
+        var buildContext = new Context(cm, "").addFragments(cm.toPathFragments(testFiles));
 
         // Run verification step if configured
         logger.debug("Running verification step.");
@@ -309,7 +309,7 @@ public class MergeAgent {
             logger.debug(msg);
             cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
-            var ctx = new Context(cm, "Resolved conflicts").addPathFragments(cm.toPathFragments(changedFiles));
+            var ctx = new Context(cm, "Resolved conflicts").addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
                     cm,
                     "Merge",
@@ -438,7 +438,7 @@ public class MergeAgent {
 
     private void addTextToWorkspace(String title, String text) {
         var fragment = new ContextFragment.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
-        cm.addVirtualFragment(fragment);
+        cm.addFragments(fragment);
     }
 
     /** Metadata describing non-textual aspects of a conflict detected from the git index and trees. */
@@ -731,7 +731,7 @@ public class MergeAgent {
                 .filter(pf -> !existingEditableFiles.contains(pf))
                 .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
                 .toList();
-        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addPathFragments(fragmentsToAdd);
+        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addFragments(fragmentsToAdd);
 
         return new TaskResult(
                 cm,

@@ -848,7 +848,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
+            context = context.addFragments(List.of(new ContextFragment.StringFragment(
                     cm,
                     "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
                             + summaries,
@@ -898,7 +898,7 @@ public class SearchAgent {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            context = context.addPathFragments(pathFragments);
+            context = context.addFragments(pathFragments);
         }
 
         // Process SkeletonFragments
@@ -906,7 +906,7 @@ public class SearchAgent {
                 .map(ContextFragment.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
-            context = context.addVirtualFragments(skeletonFragments);
+            context = context.addFragments(skeletonFragments);
         }
 
         // Emit pseudo-tool explanation for UX parity

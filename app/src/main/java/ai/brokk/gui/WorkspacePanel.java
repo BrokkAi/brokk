@@ -2111,10 +2111,10 @@ public class WorkspacePanel extends JPanel {
                         var files = pathFrag.files().join(); // we are in a background task so we may block
                         contextManager.addSummaries(files, Collections.emptySet());
                     } else {
-                        contextManager.addPathFragmentAsync(pathFrag);
+                        contextManager.addFragmentAsync(pathFrag);
                     }
                 } else {
-                    contextManager.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                    contextManager.addFragments(fragment);
                 }
             }
         });
