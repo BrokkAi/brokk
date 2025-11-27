@@ -311,6 +311,116 @@ public class PythonImportTest {
     }
 
     @Test
+    public void testInitPyClassFqName() throws IOException {
+        // Test the FQN of a class defined in __init__.py
+        // This documents/validates the current mypackage.__init__$ClassName representation
+        var builder = InlineTestProjectCreator.code(
+                """
+                class InitClass:
+                    def method(self):
+                        pass
+                """,
+                "mypackage/__init__.py");
+
+        try (var testProject = builder.build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+
+            // Find the InitClass code unit by trying the expected FQN pattern
+            var initClassDefinitions = analyzer.getDefinitions("mypackage.__init__$InitClass");
+            assertEquals(1, initClassDefinitions.size(), "Should find exactly one InitClass defined in __init__.py");
+
+            var initClass = initClassDefinitions.iterator().next();
+            // Document the current FQN representation
+            assertEquals(
+                    "mypackage.__init__$InitClass",
+                    initClass.fqName(),
+                    "Class in __init__.py should have FQN: package.__init__$ClassName");
+            assertEquals("InitClass", initClass.identifier(), "identifier() should return simple class name");
+        }
+    }
+
+    @Test
+    public void testFromPackageImportClassName() throws IOException {
+        // Test: from mypackage import ClassName where ClassName is in __init__.py
+        // Verifies resolveImports can find it when referenced this way
+        var builder = InlineTestProjectCreator.code(
+                """
+                class InitClass:
+                    pass
+                """,
+                "mypackage/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from mypackage import InitClass
+
+                        class Consumer:
+                            def use_it(self):
+                                obj = InitClass()
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            var initClassImports = resolvedImports.stream()
+                    .filter(cu -> cu.identifier().equals("InitClass"))
+                    .collect(Collectors.toList());
+
+            assertEquals(1, initClassImports.size(), "Should resolve InitClass from 'from mypackage import InitClass'");
+            assertEquals(
+                    "mypackage.__init__$InitClass",
+                    initClassImports.getFirst().fqName(),
+                    "'from mypackage import InitClass' should resolve to class in __init__.py");
+        }
+    }
+
+    @Test
+    public void testImportPackageAttributeAccess() throws IOException {
+        // Test: import mypackage followed by mypackage.ClassName usage
+        // This pattern uses attribute access rather than direct import
+        var builder = InlineTestProjectCreator.code(
+                """
+                class InitClass:
+                    pass
+                """,
+                "mypackage/__init__.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        import mypackage
+
+                        class Consumer:
+                            def use_it(self):
+                                obj = mypackage.InitClass()
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+
+            // For 'import mypackage' style, resolveImports only tracks the import statement itself
+            // The attribute access mypackage.InitClass is NOT resolved via importedCodeUnitsOf -
+            // it's a different kind of reference (qualified name lookup, not import resolution)
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            // Document expected behavior: 'import mypackage' does not bring InitClass into
+            // the resolved imports - only 'from mypackage import InitClass' would do that
+            // The class IS accessible at runtime via mypackage.InitClass, but that's not import resolution
+            assertTrue(resolvedImports.isEmpty(),
+                    "import mypackage style does not resolve to specific symbols - " +
+                    "use 'from mypackage import ClassName' for import resolution");
+
+            // Verify the class itself still has the correct FQN
+            var initClassDefinitions = analyzer.getDefinitions("mypackage.__init__$InitClass");
+            assertEquals(1, initClassDefinitions.size(), "InitClass should still be findable by FQN");
+        }
+    }
+
+    @Test
     public void testWildcardImportsPublicFunctions() throws IOException {
         // Wildcard imports should include public functions (not just classes)
         var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
