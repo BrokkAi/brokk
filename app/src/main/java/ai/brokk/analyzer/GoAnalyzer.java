@@ -402,4 +402,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     protected boolean requiresSemicolons() {
         return false;
     }
+
+    // TODO
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return Optional.empty();
+    }
 }
