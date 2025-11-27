@@ -127,29 +127,6 @@ public class SearchAgent {
     private boolean codeAgentJustSucceeded;
 
     /**
-     * Creates a SearchAgent with explicit control over output streaming and IO routing.
-     *
-     * @param initialContext the initial context
-     * @param goal the search goal
-     * @param model the LLM model to use
-     * @param objective the search objective
-     * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
-     * @param echo if true, LLM output is streamed to the UI; if false, output is silent
-     */
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            Objective objective,
-            ContextManager.TaskScope scope,
-            @Nullable IConsoleIO io,
-            boolean echo) {
-        // Deprecated echo flag; output streaming is controlled by IO instance.
-        this(initialContext, goal, model, objective, scope, io);
-    }
-
-    /**
      * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
      *
      * @param initialContext the initial context
@@ -211,22 +188,6 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope) {
-        this(initialContext, goal, model, objective, scope, null);
-    }
-
-    /**
-     * Creates a SearchAgent with explicit control over output streaming but default IO.
-     *
-     * @param echo if true, LLM output is streamed to the UI; if false, output is silent
-     */
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            Objective objective,
-            ContextManager.TaskScope scope,
-            boolean echo) {
-        // Deprecated echo flag; output streaming is controlled by IO instance.
         this(initialContext, goal, model, objective, scope, null);
     }
 
