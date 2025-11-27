@@ -543,7 +543,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
      * This means a wildcard import that comes after an explicit import will shadow the explicit import
      * if both provide the same name.
      * <p>
-     * Wildcard imports only include public classes (those without leading underscore).
+     * Wildcard imports include public classes and functions (those without leading underscore).
      */
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
@@ -589,15 +589,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             wildcardModule = absolutePath.orElse(null);
                         }
                         case IMPORT_WILDCARD -> {
-                            // Wildcard import - expand and add all public classes (may overwrite previous imports)
+                            // Wildcard import - expand and add all public symbols (may overwrite previous imports)
                             if (wildcardModule != null && !wildcardModule.isEmpty()) {
                                 var moduleFile = resolveModuleFile(wildcardModule);
                                 if (moduleFile != null) {
                                     try {
                                         var decls = getDeclarations(moduleFile);
                                         for (CodeUnit child : decls) {
-                                            // Only import public classes (no underscore prefix)
-                                            if (child.isClass()
+                                            // Import public classes and functions (no underscore prefix)
+                                            // TODO: Consider including public top-level constants (fields)
+                                            if ((child.isClass() || child.isFunction())
                                                     && !child.identifier().startsWith("_")) {
                                                 resolvedByName.put(child.identifier(), child);
                                             }
