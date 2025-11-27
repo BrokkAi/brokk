@@ -99,123 +99,116 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         packageName,
                         moduleName);
 
-                // New design: module goes in packageName, shortName is just class name/hierarchy
-                // For function-local classes, function scope also goes in packageName
-                String basePackage = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
-                String finalPackage;
+                // Design: Use $ for class boundaries, . for scope boundaries
+                // shortName = "module$Class" or "module$Outer$Inner" or "module.func$LocalClass"
                 String finalShortName;
 
                 if (classChain.isEmpty()) {
-                    // Top-level class: packageName = module, shortName = ClassName
-                    finalPackage = basePackage;
-                    finalShortName = simpleName;
+                    // Top-level class: "module$ClassName"
+                    finalShortName = moduleName + "$" + simpleName;
                 } else {
-                    String firstSegment =
-                            classChain.contains(".") ? classChain.substring(0, classChain.indexOf('.')) : classChain;
+                    String firstSegment = classChain.contains(".")
+                            ? classChain.substring(0, classChain.indexOf('.'))
+                            : (classChain.contains("$")
+                                    ? classChain.substring(0, classChain.indexOf('$'))
+                                    : classChain);
 
                     if (isLowercaseIdentifier(firstSegment)) {
-                        // Function-local class: function scope goes into packageName
-                        // classChain pattern: "func" or "func.Class1" or "func.Class1.Class2"
+                        // Function-local class: "module.func$LocalClass" or "module.func$Outer$Inner"
                         int firstDot = classChain.indexOf('.');
-                        if (firstDot == -1) {
+                        if (firstDot == -1 && !classChain.contains("$")) {
                             // Just "func" - direct child of function
-                            finalPackage = basePackage + "." + classChain;
-                            finalShortName = simpleName;
+                            finalShortName = moduleName + "." + classChain + "$" + simpleName;
                         } else {
-                            // "func.RestOfChain" where RestOfChain is class hierarchy
-                            String funcScope = firstSegment;
-                            String classHierarchy = classChain.substring(firstDot + 1);
-                            finalPackage = basePackage + "." + funcScope;
-                            finalShortName = classHierarchy + "." + simpleName;
+                            // "func.Outer" or "func$Outer" -> "module.func$Outer$simpleName"
+                            String funcPart = firstSegment;
+                            String rest = classChain.substring(firstSegment.length());
+                            if (rest.startsWith(".")) rest = rest.substring(1);
+                            if (rest.startsWith("$")) rest = rest.substring(1);
+                            String classPart = rest.isEmpty() ? "" : rest.replace(".", "$") + "$";
+                            finalShortName = moduleName + "." + funcPart + "$" + classPart + simpleName;
                         }
                     } else {
-                        // Class-nested (not function-local): all classes stay in shortName
-                        finalPackage = basePackage;
-                        finalShortName = classChain + "." + simpleName;
+                        // Class-nested: "module$Outer$Inner"
+                        String normalizedChain = classChain.replace(".", "$");
+                        finalShortName = moduleName + "$" + normalizedChain + "$" + simpleName;
                     }
                 }
 
-                yield CodeUnit.cls(file, finalPackage, finalShortName);
+                yield CodeUnit.cls(file, packageName, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
-                // Same design as CLASS: module in packageName, shortName is local
-                String basePackage = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
-                String finalPackage;
+                // Functions use . throughout: "module.func" or "module$Class.method"
                 String finalShortName;
 
                 if (classChain.isEmpty()) {
-                    // Top-level function: packageName = module, shortName = function
-                    finalPackage = basePackage;
-                    finalShortName = simpleName;
-                } else {
-                    String firstSegment =
-                            classChain.contains(".") ? classChain.substring(0, classChain.indexOf('.')) : classChain;
-
-                    if (isLowercaseIdentifier(firstSegment)) {
-                        // Method in function-local class: function scope in packageName
-                        int firstDot = classChain.indexOf('.');
-                        if (firstDot == -1) {
-                            // Nested function inside function (rare but valid Python)
-                            finalPackage = basePackage + "." + classChain;
-                            finalShortName = simpleName;
-                        } else {
-                            String funcScope = firstSegment;
-                            String classHierarchy = classChain.substring(firstDot + 1);
-                            finalPackage = basePackage + "." + funcScope;
-                            finalShortName = classHierarchy + "." + simpleName;
-                        }
-                    } else {
-                        // Method in regular class: packageName = module
-                        finalPackage = basePackage;
-                        finalShortName = classChain + "." + simpleName;
-                    }
-                }
-
-                yield CodeUnit.fn(file, finalPackage, finalShortName);
-            }
-            case CaptureNames.FIELD_DEFINITION -> { // For class attributes or top-level variables
-                // Fields require shortName to be "Container.field" format
-                // For top-level fields, module IS the container so stays in shortName
-                String basePackage = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
-                String finalPackage;
-                String finalShortName;
-
-                if (classChain.isEmpty()) {
-                    // Top-level variable: module is the container, kept in shortName
-                    // packageName = Python package (if any), shortName = module.varName
-                    finalPackage = packageName;
+                    // Top-level function: "module.func"
                     finalShortName = moduleName + "." + simpleName;
                 } else {
-                    String firstSegment =
-                            classChain.contains(".") ? classChain.substring(0, classChain.indexOf('.')) : classChain;
+                    String firstSegment = classChain.contains(".")
+                            ? classChain.substring(0, classChain.indexOf('.'))
+                            : (classChain.contains("$")
+                                    ? classChain.substring(0, classChain.indexOf('$'))
+                                    : classChain);
 
                     if (isLowercaseIdentifier(firstSegment)) {
-                        // Field in function-local class
+                        // Nested function or method in function-local class
                         int firstDot = classChain.indexOf('.');
-                        if (firstDot == -1) {
-                            // Field in function scope (not in a class)
-                            finalPackage = basePackage + "." + classChain;
-                            finalShortName = simpleName;
+                        int firstDollar = classChain.indexOf('$');
+                        if (firstDot == -1 && firstDollar == -1) {
+                            // Nested function inside function: "module.outer.inner"
+                            finalShortName = moduleName + "." + classChain + "." + simpleName;
                         } else {
-                            String funcScope = firstSegment;
-                            String classHierarchy = classChain.substring(firstDot + 1);
-                            finalPackage = basePackage + "." + funcScope;
-                            finalShortName = classHierarchy + "." + simpleName;
+                            // Method in function-local class: "module.func$Class.method"
+                            String normalizedChain = classChain.replace(".", "$");
+                            finalShortName = moduleName + "." + normalizedChain + "." + simpleName;
                         }
                     } else {
-                        // Field in regular class
-                        finalPackage = basePackage;
-                        finalShortName = classChain + "." + simpleName;
+                        // Method in regular class: "module$Class.method" or "module$Outer$Inner.method"
+                        String normalizedChain = classChain.replace(".", "$");
+                        finalShortName = moduleName + "$" + normalizedChain + "." + simpleName;
                     }
                 }
 
-                // Duplicates handled by addTopLevelCodeUnit() ("last wins" for Python)
-                yield CodeUnit.field(file, finalPackage, finalShortName);
+                yield CodeUnit.fn(file, packageName, finalShortName);
+            }
+            case CaptureNames.FIELD_DEFINITION -> {
+                // Fields use . for member access: "module.var" or "module$Class.field"
+                String finalShortName;
+
+                if (classChain.isEmpty()) {
+                    // Top-level variable: "module.varName"
+                    finalShortName = moduleName + "." + simpleName;
+                } else {
+                    String firstSegment = classChain.contains(".")
+                            ? classChain.substring(0, classChain.indexOf('.'))
+                            : (classChain.contains("$")
+                                    ? classChain.substring(0, classChain.indexOf('$'))
+                                    : classChain);
+
+                    if (isLowercaseIdentifier(firstSegment)) {
+                        // Field in function-local class: "module.func$Class.field"
+                        int firstDot = classChain.indexOf('.');
+                        int firstDollar = classChain.indexOf('$');
+                        if (firstDot == -1 && firstDollar == -1) {
+                            // Variable in function scope (unusual): "module.func.var"
+                            finalShortName = moduleName + "." + classChain + "." + simpleName;
+                        } else {
+                            String normalizedChain = classChain.replace(".", "$");
+                            finalShortName = moduleName + "." + normalizedChain + "." + simpleName;
+                        }
+                    } else {
+                        // Field in regular class: "module$Class.field"
+                        String normalizedChain = classChain.replace(".", "$");
+                        finalShortName = moduleName + "$" + normalizedChain + "." + simpleName;
+                    }
+                }
+
+                yield CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
-                // Log or handle unexpected captures if necessary
                 log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                yield null; // Returning null ignores the capture
+                yield null;
             }
         };
     }
@@ -388,9 +381,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
-        // New design: All hierarchies use dots. Module is in packageName.
-        // For function-local classes, function scope is already in packageName.
-        // For nested classes, we add the class hierarchy to packageName.
+        // Design: $ for class boundaries, . for function/module scope
+        // The classChain represents the nesting structure above this symbol
+        // - Top-level class: module$Class -> parent = packageName (module level)
+        // - Nested class: module$Outer$Inner -> parent fqName = pkg.module$Outer
+        // - Function-local: module.func$Local -> parent fqName = pkg.module.func
+        // - Nested in func-local: module.func$Outer$Inner -> parent = pkg.module.func$Outer
 
         String packageName = cu.packageName();
 
@@ -399,39 +395,53 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             return packageName;
         }
 
-        // Extract first segment of classChain
+        // Get module name from file
+        String moduleName = cu.source().getFileName();
+        if (moduleName.endsWith(".py")) {
+            moduleName = moduleName.substring(0, moduleName.length() - 3);
+        }
+
+        // Determine the first segment to know if we're in function or class scope
         int firstDot = classChain.indexOf('.');
         String firstSegment = (firstDot == -1) ? classChain : classChain.substring(0, firstDot);
 
+        String base = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
+
         if (isLowercaseIdentifier(firstSegment)) {
-            // First segment is a function - it's already incorporated into packageName
+            // Function scope: module.func or module.func$Class
             if (firstDot == -1) {
-                // classChain = "func" only - parent is the function itself
-                // packageName already contains module.func, so just return it
+                // Just function: parent fqName = pkg.module.func
+                String parentFqn = base + "." + classChain;
                 log.trace(
-                        "Python parent lookup: classChain='{}', packageName='{}', returning packageName (function parent)",
+                        "Python parent lookup: classChain='{}', base='{}', returning '{}' (function parent)",
                         classChain,
-                        packageName);
-                return packageName;
+                        base,
+                        parentFqn);
+                return parentFqn;
             } else {
-                // classChain = "func.ClassName..." - skip the function part, append class hierarchy
-                String classHierarchy = classChain.substring(firstDot + 1);
-                String parentFqn = packageName + "." + classHierarchy;
+                // Function + classes: convert class parts to $
+                // classChain = "func.Class" -> parent = pkg.module.func$Class
+                String funcPart = firstSegment;
+                String classPart = classChain.substring(firstDot + 1).replace(".", "$");
+                String parentFqn = base + "." + funcPart + "$" + classPart;
                 log.trace(
-                        "Python parent lookup: classChain='{}', packageName='{}', classHierarchy='{}', returning '{}'",
+                        "Python parent lookup: classChain='{}', base='{}', funcPart='{}', classPart='{}', returning '{}'",
                         classChain,
-                        packageName,
-                        classHierarchy,
+                        base,
+                        funcPart,
+                        classPart,
                         parentFqn);
                 return parentFqn;
             }
         } else {
-            // First segment is a class - append the whole classChain to packageName
-            String parentFqn = packageName + "." + classChain;
+            // Class scope: module$Class or module$Outer$Inner
+            String classPath = classChain.replace(".", "$");
+            String parentFqn = base + "$" + classPath;
             log.trace(
-                    "Python parent lookup: classChain='{}', packageName='{}', returning '{}' (class parent)",
+                    "Python parent lookup: classChain='{}', base='{}', classPath='{}', returning '{}' (class parent)",
                     classChain,
-                    packageName,
+                    base,
+                    classPath,
                     parentFqn);
             return parentFqn;
         }

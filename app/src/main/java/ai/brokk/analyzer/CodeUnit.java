@@ -80,10 +80,11 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public String identifier() {
         return switch (kind) {
             case CLASS -> {
-                // Extract simple class name after last dot (same as FUNCTION/FIELD)
-                // e.g., "Outer.Inner" -> "Inner", "MyClass" -> "MyClass"
-                int lastDot = shortName.lastIndexOf('.');
-                yield lastDot >= 0 ? shortName.substring(lastDot + 1) : shortName;
+                // Extract simple class name after last $ (for Python module$Class notation)
+                // Java classes have no $ in shortName, so returns full shortName
+                // e.g., "module$Outer$Inner" -> "Inner", "Do.Re" -> "Do.Re"
+                int lastDollar = shortName.lastIndexOf('$');
+                yield lastDollar >= 0 ? shortName.substring(lastDollar + 1) : shortName;
             }
             case MODULE -> shortName; // The module's own short name, e.g., "_module_"
             default -> { // FUNCTION or FIELD
