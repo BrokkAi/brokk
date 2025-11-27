@@ -63,14 +63,14 @@ public final class PythonAnalyzerTest {
         // Skeletons are now reconstructed. We check CodeUnits first.
         // Note: Classes use $ for class boundary, functions use . for member/scope
         var classesInFileA = analyzer.getDeclarations(fileA);
-        var classA_CU = CodeUnit.cls(fileA, "a", "A$A");  // packageName="a", shortName="module$ClassName"
+        var classA_CU = CodeUnit.cls(fileA, "a", "A$A"); // packageName="a", shortName="module$ClassName"
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
         var topLevelDeclsInA = analyzer.withFileProperties(tld -> tld.get(fileA))
                 .topLevelCodeUnits(); // Accessing internal for test validation
         assertNotNull(topLevelDeclsInA, "Top level declarations for file A should exist.");
 
-        var funcA_CU = CodeUnit.fn(fileA, "a", "A.funcA");  // packageName="a", shortName="module.funcName"
+        var funcA_CU = CodeUnit.fn(fileA, "a", "A.funcA"); // packageName="a", shortName="module.funcName"
         assertTrue(topLevelDeclsInA.contains(funcA_CU), "File A should contain function funcA as top-level.");
         assertTrue(topLevelDeclsInA.contains(classA_CU), "File A should contain class A as top-level.");
 
@@ -1333,7 +1333,8 @@ public final class PythonAnalyzerTest {
         // --- Verify top-level classes include module name ---
         var topLevelClasses = declarations.stream()
                 .filter(CodeUnit::isClass)
-                .filter(cu -> !cu.fqName().contains(".test_backend_variable_cls$")) // exclude function-local (uses $ for class boundary)
+                .filter(cu -> !cu.fqName()
+                        .contains(".test_backend_variable_cls$")) // exclude function-local (uses $ for class boundary)
                 .collect(Collectors.toList());
 
         // ExampleTestState should be tests.units.utils.test_utils$ExampleTestState ($ for class boundary)
