@@ -1399,4 +1399,173 @@ public final class PythonAnalyzerTest {
                 topLevelVars.stream().anyMatch(cu -> cu.fqName().equals("tests.units.utils.test_utils.V059")),
                 "V059 should have FQ name including module");
     }
+
+    @Test
+    void testNonStandardNamingConventions() {
+        // Tests the isLowercaseIdentifier heuristic with non-PEP8 compliant names
+        // KEY INSIGHT: TreeSitter correctly identifies classes vs functions from AST node types.
+        // The isLowercaseIdentifier heuristic ONLY affects FQN construction for nested symbols,
+        // NOT the classification of code units as class vs function.
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "nonstandard_naming.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(file);
+
+        var classes = declarations.stream().filter(CodeUnit::isClass).collect(Collectors.toList());
+        var functions = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
+
+        // === UPPERCASE FUNCTION NAMES (HTTPServer, GetData, URL) ===
+        // Functions are CORRECTLY identified as functions from AST regardless of naming.
+        // The FQN uses "." for function scope even though name is uppercase.
+
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer")),
+                "HTTPServer is correctly identified as FUNCTION despite uppercase name");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.GetData")),
+                "GetData is correctly identified as FUNCTION despite PascalCase name");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.URL")),
+                "URL is correctly identified as FUNCTION despite uppercase name");
+
+        // ServerHandler (class inside HTTPServer function) - heuristic affects FQN:
+        // Since "HTTPServer" starts with uppercase, it's treated as class-like in parent FQN,
+        // so ServerHandler gets "$HTTPServer$ServerHandler" instead of ".HTTPServer$ServerHandler"
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$HTTPServer$ServerHandler")),
+                "ServerHandler uses $ boundary because HTTPServer looks like a class to the heuristic");
+
+        // === LOWERCASE CLASS NAMES (myClass, my_class, _privateClass) ===
+        // Classes are CORRECTLY identified as classes from AST regardless of naming.
+        // The FQN uses "$" for class boundary even though name starts lowercase.
+
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$myClass")),
+                "myClass is correctly identified as CLASS despite lowercase start");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$my_class")),
+                "my_class is correctly identified as CLASS despite snake_case name");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$_privateClass")),
+                "_privateClass is correctly identified as CLASS");
+
+        // Methods inside lowercase classes - uses "." for method boundary
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.myClass.method")),
+                "method() inside myClass uses . boundary - but parent uses incorrect . too");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.my_class.my_method")),
+                "my_method() inside my_class - heuristic thinks parent is function, uses . boundary");
+
+        // Nested class inside lowercase parent - heuristic affects FQN:
+        // Since "my_class" starts lowercase, heuristic treats it as function scope,
+        // so Nested gets ".my_class$Nested" (function-local class pattern)
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.my_class$Nested")),
+                "Nested class inside lowercase my_class uses function-local pattern");
+
+        // === MIXED SCENARIOS ===
+
+        // createFactory (camelCase function) - correctly identified as function
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.createFactory")),
+                "createFactory is correctly identified as function");
+
+        // product (lowercase class inside createFactory) - heuristic affects FQN:
+        // createFactory starts lowercase so treated as function scope -> ".createFactory$product"
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.createFactory$product")),
+                "product inside createFactory uses function-local class pattern");
+
+        // process_data (normal function) with DataProcessor (normal class)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.process_data")),
+                "process_data is correctly identified as function");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.process_data$DataProcessor")),
+                "DataProcessor inside process_data is correctly a function-local class");
+
+        // === NORMAL PASCALCASE CLASS FOR COMPARISON ===
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$XMLParser")),
+                "XMLParser is correctly identified as class with $ boundary");
+
+        project.close();
+    }
+
+    @Test
+    void testNonStandardNamingMethodResolution() {
+        // Tests that methods and nested classes resolve correctly despite naming conventions
+        // NOTE: The heuristic causes FQN mismatches between parent and child when naming is non-standard.
+        // This documents the current behavior which may cause parent-child lookups to fail.
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "nonstandard_naming.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(file);
+
+        // === METHODS EXIST WITH CORRECT FQNS ===
+
+        // HTTPServer's ServerHandler.handle() method exists
+        var serverHandlerMethod = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming$HTTPServer$ServerHandler.handle"))
+                .findFirst();
+        assertTrue(serverHandlerMethod.isPresent(),
+                "handle() method of ServerHandler should exist with correct FQN");
+
+        // my_class's Nested.nested_method() exists
+        var nestedMethod = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming.my_class$Nested.nested_method"))
+                .findFirst();
+        assertTrue(nestedMethod.isPresent(),
+                "nested_method() should exist in Nested class inside my_class");
+
+        // XMLParser.parse() method exists
+        var parseMethod = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming$XMLParser.parse"))
+                .findFirst();
+        assertTrue(parseMethod.isPresent(),
+                "parse() method of XMLParser should exist");
+
+        // === PARENT-CHILD RELATIONSHIPS FOR NORMALLY-NAMED SYMBOLS ===
+
+        // XMLParser (correctly identified class) should have parse method as child
+        var xmlParser = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming$XMLParser"))
+                .findFirst()
+                .orElseThrow();
+        var xmlParserChildren = testAnalyzer.getDirectChildren(xmlParser);
+        assertTrue(
+                xmlParserChildren.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$XMLParser.parse")),
+                "XMLParser should have parse() method as child");
+
+        // process_data (normal function) should have DataProcessor as child
+        var processData = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming.process_data"))
+                .findFirst()
+                .orElseThrow();
+        var processDataChildren = testAnalyzer.getDirectChildren(processData);
+        assertTrue(
+                processDataChildren.stream().anyMatch(cu ->
+                        cu.fqName().equals("nonstandard_naming.process_data$DataProcessor")),
+                "process_data should have DataProcessor as child");
+
+        // === KNOWN LIMITATION: Parent-child mismatch for non-standard naming ===
+        // HTTPServer (function, FQN uses ".") has child ServerHandler (class, FQN uses "$")
+        // The FQN prefix mismatch means getDirectChildren may not find the relationship.
+        // This is documented behavior - a limitation of the heuristic approach.
+
+        var httpServer = declarations.stream()
+                .filter(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer"))
+                .findFirst()
+                .orElseThrow();
+        var httpServerChildren = testAnalyzer.getDirectChildren(httpServer);
+        // Document the limitation: children may be empty or have mismatched FQNs
+        // This is expected when function names don't follow lowercase convention
+        System.out.println("HTTPServer children: " + httpServerChildren.stream()
+                .map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+
+        project.close();
+    }
 }
