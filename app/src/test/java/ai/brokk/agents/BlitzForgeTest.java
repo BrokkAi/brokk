@@ -4,15 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.HeadlessConsole;
-import ai.brokk.context.Context;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.*;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -79,7 +76,8 @@ class BlitzForgeTest {
         var service = new TestService(project);
         var testAnalyzer = new TestAnalyzer(List.of(), Map.of());
         var testIo = new TestConsoleIO();
-        var engine = new BlitzForge(new TestContextManager(project.getRoot(),testIo, testAnalyzer), service, cfg, listener);
+        var engine =
+                new BlitzForge(new TestContextManager(project.getRoot(), testIo, testAnalyzer), service, cfg, listener);
         engine.executeParallel(
                 List.of(f1, f2), file -> new BlitzForge.FileResult(file, true, null, "OK " + file.getFileName()));
 
