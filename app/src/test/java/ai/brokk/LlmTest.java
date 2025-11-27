@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.BuildOutputPreprocessor;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
@@ -194,6 +195,75 @@ public class LlmTest {
                     .collect(Collectors.joining("\n"));
             fail("One or more models failed the tool calling test:\n" + failureSummary);
         }
+    }
+
+    // uncomment when you need it, this makes live API calls
+    // Verifies that the build error extraction prompt includes all causally related errors
+    // To use real Brokk LLM: set useLiveLlm = true (requires Brokk account/keys)
+    // @Test
+    void testBuildErrorExtractionIncludesAllErrors() throws InterruptedException {
+        boolean useLiveLlm = true; // Set to true to use real Brokk LLM proxy
+
+        IContextManager cm;
+        if (useLiveLlm) {
+            // Use real ContextManager with Brokk's LLM proxy
+            var project = new ai.brokk.project.MainProject(tempDir);
+            cm = new ContextManager(project);
+            System.out.println("Using LIVE LLM via Brokk proxy");
+        } else {
+            cm = contextManager; // Use stub model
+            System.out.println("Using STUB model (no real LLM)");
+        }
+
+        var models = cm.getService();
+        var availableModels = models.getAvailableModels();
+        Assumptions.assumeFalse(availableModels.isEmpty(), "No models available, skipping test.");
+
+        // Simulated build output with causally related errors:
+        // - NullAway error at line 707 (ROOT CAUSE: method returns null without @Nullable)
+        // - RedundantNullCheck warning at line 291 (SYMPTOM: null check appears redundant)
+        // The LLM should extract BOTH, not just the first one
+        String buildOutput =
+                """
+                /home/user/project/src/main/java/com/example/Service.java:291: warning: [RedundantNullCheck] Null check on an expression that is statically determined to be non-null according to language semantics or nullness annotations.
+                        if (menu != null) {
+                                 ^
+                    (see https://errorprone.info/bugpattern/RedundantNullCheck)
+                /home/user/project/src/main/java/com/example/Service.java:707: error: [NullAway] returning @Nullable expression from method with @NonNull return type
+                            return null;
+                            ^
+                    (see http://t.uber.com/nullaway )
+                /home/user/project/src/main/java/com/example/Util.java:129: warning: [MissingOverride] ancestorAdded implements method in AncestorListener; expected @Override
+                        public void ancestorAdded(AncestorEvent event) {
+                                    ^
+                    (see https://errorprone.info/bugpattern/MissingOverride)
+                  Did you mean '@Override public void ancestorAdded(AncestorEvent event) {'?
+                1 error
+                2 warnings
+
+                > Task :app:compileJavaErrorProne FAILED
+                """;
+
+        // Use quickest model for the extraction
+        var model = models.quickestModel();
+
+        // Call the preprocessor which uses the LLM to extract errors
+        String result = BuildOutputPreprocessor.processForLlm(buildOutput, cm);
+
+        System.out.println("=== Extracted errors ===");
+        System.out.println(result);
+        System.out.println("========================");
+
+        // The key assertion: the NullAway error (root cause) must be included
+        // Previously, the prompt said "fix the error" (singular) which caused LLMs to skip it
+        assertTrue(
+                result.contains("NullAway") || result.contains("returning @Nullable"),
+                "Should include the NullAway error - this is the ROOT CAUSE that needs @Nullable annotation");
+
+        // The warning should also be present since it's related
+        assertTrue(
+                result.contains("RedundantNullCheck") || result.contains("Null check"),
+                "Should include the RedundantNullCheck warning - related to the NullAway error");
     }
 
     @Test
