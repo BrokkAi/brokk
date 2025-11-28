@@ -787,58 +787,106 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return false;
     }
 
-    /** Fetches open GitHub issues and populates the issue table. */
+    /** Fetches GitHub issues with streaming pagination and populates the issue table. */
     private void updateIssueList() {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
 
-        searchBox.setLoading(true, "Searching issues");
+        searchBox.setLoading(true, "Loading issues...");
+
+        // Clear the table and prepare for streaming updates
+        SwingUtilities.invokeLater(() -> {
+            allIssuesFromApi.clear();
+            displayedIssues.clear();
+            issueTableModel.setRowCount(0);
+        });
+
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
-            List<IssueHeader> fetchedIssueHeaders;
             try {
-                // Read filter values on EDT or before submitting task. searchBox can be null during early init.
+                // Read filter values
                 final String currentSearchQuery = searchBox.getText().strip();
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
-                final String authorVal =
-                        getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
-                final String labelVal = getBaseFilterValue(labelFilter.getSelected()); // For GitHub server-side search
-                final String assigneeVal =
-                        getBaseFilterValue(assigneeFilter.getSelected()); // For GitHub server-side search
+                final String authorVal = getBaseFilterValue(authorFilter.getSelected());
+                final String labelVal = getBaseFilterValue(labelFilter.getSelected());
+                final String assigneeVal = getBaseFilterValue(assigneeFilter.getSelected());
 
                 FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
                     String resolutionVal = (resolutionFilter != null)
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
-                    // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
-                    logger.debug(
-                            "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
-                            statusVal,
-                            resolutionVal,
-                            queryForApi);
-                } else { // GitHub or default
-                    // For GitHub, all filters including query are passed for server-side search if query is present.
-                    // If query is null, service handles client-side filtering for author/label/assignee.
-                    apiFilterOptions =
-                            new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
-                    logger.debug(
-                            "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
-                            statusVal,
-                            authorVal,
-                            labelVal,
-                            assigneeVal,
-                            queryForApi);
+                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'",
+                                 statusVal, resolutionVal, queryForApi);
+                } else {
+                    apiFilterOptions = new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
 
-                fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
-                logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
+                // Use streaming pagination
+                var pageIterator = this.issueService.listIssuesPaginated(
+                        apiFilterOptions, IssueService.DEFAULT_PAGE_SIZE, IssueService.MAX_ISSUES_LIMIT);
+
+                var accumulatedIssues = new ArrayList<IssueHeader>();
+                boolean isFirstPage = true;
+
+                while (pageIterator.hasNext()) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        logger.debug("Issue fetch interrupted after {} issues", accumulatedIssues.size());
+                        break;
+                    }
+
+                    List<IssueHeader> page = pageIterator.next();
+                    if (page.isEmpty()) {
+                        continue;
+                    }
+
+                    accumulatedIssues.addAll(page);
+                    final int totalSoFar = accumulatedIssues.size();
+                    final boolean hasMore = pageIterator.hasNext() && totalSoFar < IssueService.MAX_ISSUES_LIMIT;
+                    final boolean firstPage = isFirstPage;
+                    isFirstPage = false;
+
+                    // Create a sorted snapshot for display
+                    var sortedSnapshot = new ArrayList<>(accumulatedIssues);
+                    sortedSnapshot.sort(Comparator.comparing(IssueHeader::updated,
+                                                             Comparator.nullsLast(Comparator.reverseOrder())));
+
+                    // Update UI on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        allIssuesFromApi = new ArrayList<>(sortedSnapshot);
+                        displayedIssues = sortedSnapshot;
+                        updateTableFromDisplayedIssues();
+
+                        // Update loading message
+                        if (hasMore) {
+                            String limitNote = totalSoFar >= IssueService.MAX_ISSUES_LIMIT ? " (limit)" : "+";
+                            searchBox.setLoading(true, "Loaded " + totalSoFar + limitNote + " issues...");
+                        } else {
+                            searchBox.setLoading(false, "");
+                        }
+
+                        // On first page, ensure table is visible
+                        if (firstPage && !sortedSnapshot.isEmpty()) {
+                            issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
+                        }
+                    });
+
+                    logger.debug("Streamed page with {} issues, total: {}", page.size(), totalSoFar);
+                }
+
+                // Final update - loading complete
+                SwingUtilities.invokeLater(() -> {
+                    searchBox.setLoading(false, "");
+                    logger.debug("Issue streaming complete. Total: {} issues", allIssuesFromApi.size());
+                });
+
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
-                    // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
                     SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
@@ -847,22 +895,52 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
                         disableIssueActionsAndClearDetails();
-                        searchBox.setLoading(false, ""); // Stop loading on error
+                        searchBox.setLoading(false, "");
                     });
                 }
-                return null;
             }
-
-            if (Thread.currentThread().isInterrupted()) {
-                // If interrupted after successful fetch but before processing, ensure loading is stopped.
-                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-                return null;
-            }
-            // Perform filtering and display processing in the background
-            processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
         });
         trackCancellableFuture(currentSearchFuture);
+    }
+
+    /** Updates the table model from displayedIssues. Must be called on EDT. */
+    private void updateTableFromDisplayedIssues() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Remember selection
+        int selectedRow = issueTable.getSelectedRow();
+        String selectedId = null;
+        if (selectedRow >= 0 && selectedRow < displayedIssues.size()) {
+            selectedId = displayedIssues.get(selectedRow).id();
+        }
+
+        issueTableModel.setRowCount(0);
+        if (displayedIssues.isEmpty()) {
+            disableIssueActions();
+        } else {
+            var today = LocalDate.now(ZoneId.systemDefault());
+            for (var header : displayedIssues) {
+                String updated = header.updated() == null
+                        ? ""
+                        : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
+                issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
+            }
+
+            // Restore selection if possible
+            if (selectedId != null) {
+                for (int i = 0; i < displayedIssues.size(); i++) {
+                    if (displayedIssues.get(i).id().equals(selectedId)) {
+                        issueTable.setRowSelectionInterval(i, i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (issueTable.getSelectedRow() == -1) {
+            disableIssueActions();
+        }
     }
 
     private void triggerClientSideFilterUpdate() {
@@ -873,106 +951,51 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             return;
         }
         searchBox.setLoading(true, "Filtering issues");
-        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
+        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi);
 
         contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
-            logger.debug(
-                    "Client-side filter update triggered. Processing {} issues from current API list.",
-                    currentIssuesToFilter.size());
-            processAndDisplayWorker(
-                    currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
+            logger.debug("Client-side filter update triggered. Processing {} issues.", currentIssuesToFilter.size());
+
+            // Read filter values
+            String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
+            String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
+            String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
+
+            // Apply client-side filters
+            List<IssueHeader> filteredIssues = new ArrayList<>();
+            for (var header : currentIssuesToFilter) {
+                boolean matches = true;
+                if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
+                    matches = false;
+                }
+                if (matches && selectedLabelActual != null) {
+                    if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
+                        matches = false;
+                    }
+                }
+                if (matches && selectedAssigneeActual != null) {
+                    if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
+                        matches = false;
+                    }
+                }
+                if (matches) {
+                    filteredIssues.add(header);
+                }
+            }
+
+            // Sort by update date, newest first
+            filteredIssues.sort(Comparator.comparing(IssueHeader::updated,
+                                                      Comparator.nullsLast(Comparator.reverseOrder())));
+
+            final List<IssueHeader> finalFiltered = filteredIssues;
+            SwingUtilities.invokeLater(() -> {
+                displayedIssues = finalFiltered;
+                updateTableFromDisplayedIssues();
+                searchBox.setLoading(false, "");
+                logger.debug("Client-side filter complete. Showing {} of {} issues.",
+                            displayedIssues.size(), allIssuesFromApi.size());
+            });
             return null;
-        });
-    }
-
-    private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
-        if (Thread.currentThread().isInterrupted()) {
-            // Ensure searchBox loading state is reset correctly on the EDT.
-            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-            return;
-        }
-        // This method runs on a background thread.
-        logger.debug(
-                "processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}",
-                sourceList.size(),
-                isFullUpdate);
-
-        // Read filter values. These are assumed to be safe to read from a background thread
-        // as FilterBox.getSelected() should be a simple getter.
-        String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
-        String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
-        String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
-        logger.debug(
-                "processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
-                selectedAuthorActual,
-                selectedLabelActual,
-                selectedAssigneeActual);
-
-        List<IssueHeader> filteredIssues = new ArrayList<>();
-        // Guard against null sourceList
-        for (var header : sourceList) {
-            boolean matches = true;
-            if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
-                matches = false;
-            }
-            if (matches && selectedLabelActual != null) {
-                if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
-                    matches = false;
-                }
-            }
-            if (matches && selectedAssigneeActual != null) {
-                if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
-                    matches = false;
-                }
-            }
-            if (matches) {
-                filteredIssues.add(header);
-            }
-        }
-        logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
-
-        // Sort issues by update date, newest first
-        filteredIssues.sort(
-                Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-        logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
-
-        // Data for EDT update
-        final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
-
-        SwingUtilities.invokeLater(() -> {
-            // This part runs on the EDT
-            logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate) {
-                allIssuesFromApi = new ArrayList<>(sourceList);
-                logger.debug(
-                        "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
-                        allIssuesFromApi.size());
-                // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
-                // when the user interacts with them.
-            }
-            displayedIssues = finalFilteredIssuesForDisplay;
-            logger.debug("processAndDisplayWorker (EDT): Set displayedIssues with {} issues.", displayedIssues.size());
-
-            // Update table model
-            issueTableModel.setRowCount(0);
-            if (displayedIssues.isEmpty()) {
-                disableIssueActions();
-            } else {
-                var today = LocalDate.now(ZoneId.systemDefault());
-                for (var header : displayedIssues) {
-                    String updated = header.updated() == null
-                            ? ""
-                            : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
-                    issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
-                }
-            }
-
-            // Manage button states based on selection
-            if (issueTable.getSelectedRow() == -1) {
-                disableIssueActions();
-            }
-            searchBox.setLoading(false, ""); // Stop loading after UI updates
-            logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
         });
     }
 
