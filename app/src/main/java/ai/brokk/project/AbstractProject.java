@@ -61,17 +61,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        boolean hasGit = GitRepoFactory.hasGitRepo(this.root);
+        this.repo = hasGit ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            this.masterRootPathForConfig = determineMasterRootPath(this.root, gitRepoInstance);
         } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by caller
+            this.masterRootPathForConfig = this.root;
         }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
@@ -95,6 +95,39 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public Path getMasterRootPathForConfig() {
         return masterRootPathForConfig;
+    }
+
+    /**
+     * Returns the .brokk configuration directory path.
+     * This directory contains project configuration, sessions, and llm-history.
+     * Uses masterRootPathForConfig, so may be shared across worktrees.
+     */
+    public final Path getConfigDir() {
+        return masterRootPathForConfig.resolve(BROKK_DIR);
+    }
+
+    /**
+     * Returns the sessions directory path.
+     * Sessions are stored under the shared config location.
+     */
+    public final Path getSessionsDir() {
+        return getConfigDir().resolve(SESSIONS_DIR);
+    }
+
+    /**
+     * Returns the dependencies directory path.
+     * Dependencies are stored under the shared config location.
+     */
+    public final Path getDependenciesDir() {
+        return getConfigDir().resolve(DEPENDENCIES_DIR);
+    }
+
+    /**
+     * Returns the LLM history directory path.
+     * LLM history is stored under the shared config location.
+     */
+    public final Path getLlmHistoryDir() {
+        return getConfigDir().resolve("llm-history");
     }
 
     @Override
@@ -546,7 +579,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     public Set<ProjectFile> getAllOnDiskDependencies() {
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -616,7 +649,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return trackedFiles;
         }
@@ -680,7 +713,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var exclusions = new HashSet<String>();
         exclusions.addAll(loadBuildDetails().excludedDirectories());
 
-        var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesDir = getDependenciesDir();
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
         }
@@ -701,5 +734,66 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    /**
+     * Checks if projectRoot is a subdirectory of workTreeRoot (i.e., not at the worktree root itself).
+     *
+     * <p>Uses toRealPath() for robust symlink resolution, with fallback to normalize() if
+     * toRealPath() fails (e.g., on non-existent paths or permission issues).
+     *
+     * @param projectRoot The project root path to check
+     * @param workTreeRoot The git working tree root path
+     * @return true if projectRoot differs from workTreeRoot (indicating a subdirectory),
+     *         false if they point to the same location
+     */
+    static boolean isSubdirectoryProject(Path projectRoot, Path workTreeRoot) {
+        try {
+            return !projectRoot.toRealPath().equals(workTreeRoot.toRealPath());
+        } catch (IOException e) {
+            logger.debug("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
+            return !projectRoot
+                    .toAbsolutePath()
+                    .normalize()
+                    .equals(workTreeRoot.toAbsolutePath().normalize());
+        }
+    }
+
+    /**
+     * Determines the master root path for configuration based on project root and git repository.
+     * This is the canonical location for .brokk config, sessions, and llm-history.
+     *
+     * <p><b>Config Location Rules:</b>
+     * <ul>
+     *   <li><b>Regular git project</b> (not a worktree) → {@code projectRoot}
+     *       <br>Config stored at the project root</li>
+     *   <li><b>Worktree opened at worktree root</b> (projectRoot == workTreeRoot) → {@code gitTopLevel}
+     *       <br>Config shared with main repository</li>
+     *   <li><b>Worktree opened at subdirectory</b> (projectRoot is subdir of workTreeRoot) → {@code projectRoot}
+     *       <br>Config stored at subdirectory, independent from main repo</li>
+     *   <li><b>Subdirectory project</b> (regular repo opened at subdirectory) → {@code projectRoot}
+     *       <br>Config stored at subdirectory</li>
+     * </ul>
+     *
+     * <p>In summary: worktrees opened at their root share config with the main repo;
+     * all other cases use the project root for independent configuration.
+     *
+     * @param projectRoot The project root path (must be absolute and normalized)
+     * @param gitRepo The git repository instance
+     * @return The path where config should be stored
+     */
+    public static Path determineMasterRootPath(Path projectRoot, GitRepo gitRepo) {
+        Path workTreeRoot = gitRepo.getWorkTreeRoot();
+        boolean isSubdirectory = isSubdirectoryProject(projectRoot, workTreeRoot);
+
+        if (gitRepo.isWorktree() && !isSubdirectory) {
+            // Worktree opened at root → share config with main repo
+            return gitRepo.getGitTopLevel().toAbsolutePath().normalize();
+        } else {
+            // All other cases: use project root for config
+            // - Regular projects (worktree or not)
+            // - Worktrees opened at subdirectory
+            return projectRoot;
+        }
     }
 }
