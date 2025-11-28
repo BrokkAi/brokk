@@ -418,6 +418,80 @@ public class ExtractClassNameTest {
     }
 
     @Test
+    @DisplayName("Go analyzer - extractClassName with packages and structs")
+    void testGoAnalyzerExtractClassName() {
+        var analyzer = new GoAnalyzer(mockProject);
+
+        // Package.Function patterns (lowercase package, PascalCase function)
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.ListenAndServe"));
+        assertEquals(Optional.of("fmt"), analyzer.extractClassName("fmt.Println"));
+        assertEquals(Optional.of("strings"), analyzer.extractClassName("strings.Contains"));
+        assertEquals(Optional.of("os"), analyzer.extractClassName("os.Open"));
+
+        // Package.Type patterns (struct references)
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.Server"));
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.Request"));
+        assertEquals(Optional.of("strings"), analyzer.extractClassName("strings.Builder"));
+        assertEquals(Optional.of("sync"), analyzer.extractClassName("sync.Mutex"));
+        assertEquals(Optional.of("context"), analyzer.extractClassName("context.Context"));
+
+        // Receiver.Method patterns (instance method calls)
+        assertEquals(Optional.of("myServer"), analyzer.extractClassName("myServer.ListenAndServe"));
+        assertEquals(Optional.of("builder"), analyzer.extractClassName("builder.WriteString"));
+        assertEquals(Optional.of("mutex"), analyzer.extractClassName("mutex.Lock"));
+
+        // Nested package references
+        assertEquals(Optional.of("net.http"), analyzer.extractClassName("net.http.Get"));
+        assertEquals(Optional.of("encoding.json"), analyzer.extractClassName("encoding.json.Marshal"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("fmt"), analyzer.extractClassName("fmt.Printf(format, args)"));
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.HandleFunc(pattern, handler)"));
+
+        // Unexported (lowercase) methods - valid in Go
+        assertEquals(Optional.of("myPackage"), analyzer.extractClassName("myPackage.internalFunc"));
+        assertEquals(Optional.of("server"), analyzer.extractClassName("server.handleRequest"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("http"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("Server"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("http."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".Server"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // Whitespace handling
+        assertEquals(Optional.of("http"), analyzer.extractClassName("  http.Server  "));
+    }
+
+    @Test
+    @DisplayName("Go extractForGo - handles standard library patterns")
+    void testGoExtractsStdLibPatterns() {
+        // io package
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Reader"));
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Writer"));
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Copy"));
+
+        // bufio package
+        assertEquals(Optional.of("bufio"), ClassNameExtractor.extractForGo("bufio.Scanner"));
+        assertEquals(Optional.of("bufio"), ClassNameExtractor.extractForGo("bufio.NewReader"));
+
+        // time package
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Duration"));
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Now"));
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Sleep"));
+    }
+
+    @Test
+    @DisplayName("Go extractForGo - handles interface types")
+    void testGoExtractsInterfaceTypes() {
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.ReadWriter"));
+        assertEquals(Optional.of("http"), ClassNameExtractor.extractForGo("http.Handler"));
+        assertEquals(Optional.of("http"), ClassNameExtractor.extractForGo("http.ResponseWriter"));
+        assertEquals(Optional.of("sort"), ClassNameExtractor.extractForGo("sort.Interface"));
+    }
+
+    @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);

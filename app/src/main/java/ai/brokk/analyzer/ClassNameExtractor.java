@@ -380,6 +380,54 @@ public final class ClassNameExtractor {
         return Optional.of(beforeLast);
     }
 
+    /* Go heuristics ------------------------------------------------------- */
+
+    /**
+     * Extract a Go type/struct name from a method or field reference like "http.Server" or "myServer.ListenAndServe".
+     *
+     * <p>Go uses dot notation with specific naming conventions:
+     * <ul>
+     *   <li>Package names are lowercase: http, fmt, strings
+     *   <li>Exported types/structs use PascalCase: Server, Request, Builder
+     *   <li>Exported methods/functions use PascalCase: ListenAndServe, Printf
+     *   <li>Unexported identifiers use camelCase: handle, internal
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"http.Server" → "http" (package containing Server struct)
+     *   <li>"http.ListenAndServe" → "http" (package containing function)
+     *   <li>"myServer.ListenAndServe" → "myServer" (receiver with method)
+     *   <li>"strings.Builder" → "strings" (package containing type)
+     *   <li>"fmt.Println" → "fmt"
+     * </ul>
+     */
+    public static Optional<String> extractForGo(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(trimmed);
+        if (lastDot <= 0 || lastDot >= trimmed.length() - 1) return Optional.empty();
+
+        var lastPart = trimmed.substring(lastDot + 1);
+        var beforeLast = trimmed.substring(0, lastDot);
+
+        // Method/field/type name heuristic: Go identifiers start with letter or underscore
+        // Can be PascalCase (exported) or camelCase (unexported)
+        // Optionally followed by parameters
+        if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+        // Package/receiver segment heuristic: must be a valid Go identifier
+        // Go packages are typically lowercase, but receivers can be any case
+        var segLastDot = beforeLast.lastIndexOf('.');
+        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
+        if (!lastSegment.matches("[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
     /* Normalization helpers ----------------------------------------------- */
 
     /**

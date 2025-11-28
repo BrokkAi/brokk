@@ -411,9 +411,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
-    // TODO
     @Override
     public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+        return ClassNameExtractor.extractForGo(reference);
     }
 }
