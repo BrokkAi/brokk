@@ -115,8 +115,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     // Sliding window pagination state
     private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
 
-    @Nullable
-    private Iterator<List<IssueHeader>> activeIssueIterator;
+    private volatile @Nullable Iterator<List<IssueHeader>> activeIssueIterator;
+    private long searchGeneration = 0; // Incremented on each new search to detect stale results
 
     private MaterialButton loadMoreButton;
 
@@ -840,6 +840,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         loadMoreButton.setVisible(false);
         loadMoreButton.setEnabled(false);
 
+        // Increment generation to invalidate any in-flight loadMore tasks
+        final long capturedGeneration = ++searchGeneration;
+
         // Clear state and prepare for new load
         SwingUtilities.invokeLater(() -> {
             slidingWindow.clear();
@@ -887,7 +890,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 var pageIterator = this.issueService.listIssuesPaginated(
                         apiFilterOptions,
                         StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                        Integer.MAX_VALUE); // No hard limit - we control via batching
+                        StreamingPaginationHelper.MAX_ISSUES);
 
                 var result = StreamingPaginationHelper.loadPrebatchedBatch(
                         pageIterator, StreamingPaginationHelper.BATCH_SIZE);
@@ -896,7 +899,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 activeIssueIterator = pageIterator;
 
                 SwingUtilities.invokeLater(() -> {
-                    // Sort by update date, newest first
+                    // Check if a new search was started while we were loading
+                    if (capturedGeneration != searchGeneration) {
+                        return; // Stale result, discard
+                    }
+
+                    // Sort by update date, newest first (relies on API returning items in order)
                     var sortedItems = new ArrayList<>(result.items());
                     sortedItems.sort(Comparator.comparing(
                             IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
@@ -945,6 +953,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
 
         var iterator = activeIssueIterator; // Capture for use in lambda (NullAway)
+        final long capturedGeneration = searchGeneration; // Capture to detect stale results
         loadMoreButton.setEnabled(false);
         searchBox.setLoading(true, "Loading more issues...");
 
@@ -954,7 +963,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Sort new items
+                    // Check if a new search was started while we were loading
+                    if (capturedGeneration != searchGeneration) {
+                        return; // Stale result, discard
+                    }
+
+                    // Sort new items (relies on API returning items in order by updated)
                     var sortedItems = new ArrayList<>(result.items());
                     sortedItems.sort(Comparator.comparing(
                             IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
@@ -1032,6 +1046,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
         searchBox.setLoading(true, "Filtering issues");
         final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi);
+        final long capturedGeneration = searchGeneration; // Capture to detect stale results
 
         contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
             logger.debug("Client-side filter update triggered. Processing {} issues.", currentIssuesToFilter.size());
@@ -1069,6 +1084,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
             final List<IssueHeader> finalFiltered = filteredIssues;
             SwingUtilities.invokeLater(() -> {
+                // Check if a new search was started while we were filtering
+                if (capturedGeneration != searchGeneration) {
+                    return; // Stale result, discard
+                }
+
                 displayedIssues = finalFiltered;
                 updateTableFromDisplayedIssues();
                 searchBox.setLoading(false, "");

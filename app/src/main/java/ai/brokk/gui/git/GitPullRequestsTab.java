@@ -111,8 +111,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     // Sliding window pagination state
     private final SlidingWindowState<GHPullRequest> slidingWindow = new SlidingWindowState<>();
 
-    @Nullable
-    private Iterator<GHPullRequest> activePrIterator;
+    private volatile @Nullable Iterator<GHPullRequest> activePrIterator;
+    private long searchGeneration = 0; // Incremented on each new search to detect stale results
 
     private MaterialButton loadMoreButton;
 
@@ -1002,6 +1002,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         loadMoreButton.setVisible(false);
         loadMoreButton.setEnabled(false);
 
+        // Increment generation to invalidate any in-flight loadMore tasks
+        final long capturedGeneration = ++searchGeneration;
+
         // Clear state and prepare for new load
         slidingWindow.clear();
         activePrIterator = null;
@@ -1039,6 +1042,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 activePrIterator = iterator;
 
                 SwingUtilities.invokeLater(() -> {
+                    // Check if a new search was started while we were loading
+                    if (capturedGeneration != searchGeneration) {
+                        return; // Stale result, discard
+                    }
+
+                    // API returns PRs ordered by updated descending
                     slidingWindow.appendBatch(result.items(), result.hasMore());
                     allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
                     populateDynamicFilterChoices(allPrsFromApi);
@@ -1092,6 +1101,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         var iterator = activePrIterator; // Capture for use in lambda (NullAway)
+        final long capturedGeneration = searchGeneration; // Capture to detect stale results
         loadMoreButton.setEnabled(false);
         refreshPrButton.setToolTipText("Loading more PRs...");
 
@@ -1101,6 +1111,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
+                    // Check if a new search was started while we were loading
+                    if (capturedGeneration != searchGeneration) {
+                        return; // Stale result, discard
+                    }
+
+                    // API returns PRs ordered by updated descending
                     slidingWindow.appendBatch(result.items(), result.hasMore());
                     allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
                     populateDynamicFilterChoices(allPrsFromApi);
