@@ -159,9 +159,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     /** Convenience overload to accept a TaskEntry as the main content. */
     public CompletableFuture<Void> setMainThenHistoryAsync(TaskEntry main, List<TaskEntry> history) {
-        List<? extends ChatMessage> mainMessages = main.isCompressed()
-                ? List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")))
-                : castNonNull(main.log()).messages();
+        // Prefer full messages when available (even if compressed); fall back to summary only if log is unavailable
+        List<? extends ChatMessage> mainMessages = main.hasLog()
+                ? castNonNull(main.log()).messages()
+                : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
         return setMainThenHistoryAsync(mainMessages, history);
     }
 
