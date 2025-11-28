@@ -492,6 +492,90 @@ public class ExtractClassNameTest {
     }
 
     @Test
+    @DisplayName("PHP analyzer - extractClassName with :: and -> operators")
+    void testPhpAnalyzerExtractClassName() {
+        var analyzer = new PhpAnalyzer(mockProject);
+
+        // Static method calls (::)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::staticMethod"));
+        assertEquals(Optional.of("DateTime"), analyzer.extractClassName("DateTime::createFromFormat"));
+        assertEquals(Optional.of("PDO"), analyzer.extractClassName("PDO::prepare"));
+        assertEquals(Optional.of("Exception"), analyzer.extractClassName("Exception::getMessage"));
+
+        // Static method calls with parameters
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::staticMethod()"));
+        assertEquals(Optional.of("Str"), analyzer.extractClassName("Str::random(16)"));
+
+        // Class constants (also use ::)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::CONSTANT"));
+        assertEquals(Optional.of("PDO"), analyzer.extractClassName("PDO::FETCH_ASSOC"));
+
+        // Namespaced class references
+        assertEquals(Optional.of("Illuminate\\Support\\Str"), analyzer.extractClassName("Illuminate\\Support\\Str::random"));
+        assertEquals(Optional.of("App\\Models\\User"), analyzer.extractClassName("App\\Models\\User::find"));
+        assertEquals(Optional.of("Symfony\\Component\\HttpFoundation\\Request"), analyzer.extractClassName("Symfony\\Component\\HttpFoundation\\Request::create"));
+
+        // Instance method calls (->)
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("$user->getName"));
+        assertEquals(Optional.of("$this"), analyzer.extractClassName("$this->processRequest"));
+        assertEquals(Optional.of("$request"), analyzer.extractClassName("$request->input"));
+        assertEquals(Optional.of("$response"), analyzer.extractClassName("$response->json"));
+
+        // Instance method calls with parameters
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("$user->save()"));
+        assertEquals(Optional.of("$query"), analyzer.extractClassName("$query->where(column, value)"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("$user"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass::"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("::staticMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("$user->"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("->method"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // PHP doesn't use dots for method calls
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.method"));
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass::staticMethod  "));
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("  $user->getName  "));
+    }
+
+    @Test
+    @DisplayName("PHP extractForPhp - handles Laravel/Symfony patterns")
+    void testPhpExtractsFrameworkPatterns() {
+        // Laravel patterns
+        assertEquals(Optional.of("Route"), ClassNameExtractor.extractForPhp("Route::get"));
+        assertEquals(Optional.of("DB"), ClassNameExtractor.extractForPhp("DB::table"));
+        assertEquals(Optional.of("Auth"), ClassNameExtractor.extractForPhp("Auth::user"));
+        assertEquals(Optional.of("Cache"), ClassNameExtractor.extractForPhp("Cache::remember"));
+
+        // Eloquent ORM
+        assertEquals(Optional.of("User"), ClassNameExtractor.extractForPhp("User::find"));
+        assertEquals(Optional.of("Post"), ClassNameExtractor.extractForPhp("Post::where"));
+        assertEquals(Optional.of("$model"), ClassNameExtractor.extractForPhp("$model->save"));
+
+        // Symfony patterns
+        assertEquals(Optional.of("Response"), ClassNameExtractor.extractForPhp("Response::create"));
+        assertEquals(Optional.of("$container"), ClassNameExtractor.extractForPhp("$container->get"));
+    }
+
+    @Test
+    @DisplayName("PHP extractForPhp - handles special PHP identifiers")
+    void testPhpExtractsSpecialIdentifiers() {
+        // $this reference
+        assertEquals(Optional.of("$this"), ClassNameExtractor.extractForPhp("$this->render"));
+        assertEquals(Optional.of("$this"), ClassNameExtractor.extractForPhp("$this->validate"));
+
+        // self and static (would need :: not ->)
+        assertEquals(Optional.of("self"), ClassNameExtractor.extractForPhp("self::getInstance"));
+        assertEquals(Optional.of("static"), ClassNameExtractor.extractForPhp("static::create"));
+        assertEquals(Optional.of("parent"), ClassNameExtractor.extractForPhp("parent::__construct"));
+    }
+
+    @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);
