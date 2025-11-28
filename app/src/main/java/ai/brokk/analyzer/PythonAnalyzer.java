@@ -78,50 +78,65 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         return "treesitter/python.scm";
     }
 
+    /**
+     * Encapsulates Python package/module resolution, handling __init__.py semantics in one place.
+     * For __init__.py files, the last package segment becomes the module name to match Python import semantics
+     * (e.g., "from mypackage import ClassName" works when ClassName is in mypackage/__init__.py).
+     */
+    private record PythonModuleInfo(String packageName, String moduleName) {
+        /**
+         * Returns the fully qualified module path (packageName.moduleName or just moduleName).
+         * This is the prefix for all FQNs in this file.
+         */
+        String moduleQualifiedPackage() {
+            return packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
+        }
+    }
+
+    /**
+     * Resolves the package and module name for a Python file, handling __init__.py semantics.
+     */
+    private PythonModuleInfo resolveModuleInfo(ProjectFile file) {
+        String rawPackage = getPackageNameForFile(file);
+
+        // Extract module name from filename
+        String moduleName = file.getFileName();
+        if (moduleName.endsWith(".py")) {
+            moduleName = moduleName.substring(0, moduleName.length() - 3);
+        }
+
+        // For __init__.py, fold last package segment into module name
+        if (moduleName.equals("__init__") && !rawPackage.isEmpty()) {
+            int lastDot = rawPackage.lastIndexOf('.');
+            if (lastDot == -1) {
+                // "mypackage" -> module="mypackage", pkg=""
+                return new PythonModuleInfo("", rawPackage);
+            } else {
+                // "mypackage.subpkg" -> module="subpkg", pkg="mypackage"
+                return new PythonModuleInfo(rawPackage.substring(0, lastDot), rawPackage.substring(lastDot + 1));
+            }
+        }
+
+        return new PythonModuleInfo(rawPackage, moduleName);
+    }
+
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        // The packageName parameter is now supplied by determinePackageName.
-        // The classChain parameter is used for Joern-style short name generation.
-
-        // Extract module name from filename using the inherited getFileName() method
-        String moduleName = file.getFileName();
-        if (moduleName.endsWith(".py")) {
-            moduleName = moduleName.substring(0, moduleName.length() - 3); // e.g., "A"
-        }
-
-        // For __init__.py, use the package name as the module name (matching Python import semantics)
-        // e.g., from mypackage import ClassName works when ClassName is in mypackage/__init__.py
-        String effectivePackageName = packageName;
-        if (moduleName.equals("__init__") && !packageName.isEmpty()) {
-            int lastDot = packageName.lastIndexOf('.');
-            if (lastDot == -1) {
-                // Single-component package: "mypackage" -> module="mypackage", pkg=""
-                moduleName = packageName;
-                effectivePackageName = "";
-            } else {
-                // Multi-component: "mypackage.subpkg" -> module="subpkg", pkg="mypackage"
-                moduleName = packageName.substring(lastDot + 1);
-                effectivePackageName = packageName.substring(0, lastDot);
-            }
-        }
+        // Resolve package and module info (handles __init__.py semantics)
+        var moduleInfo = resolveModuleInfo(file);
+        String moduleQualifiedPackage = moduleInfo.moduleQualifiedPackage();
 
         // Parse classChain once - centralizes scope detection logic
         var parser = new ClassChainParser(classChain);
 
-        // Build the effective package name that includes the module for proper fqName construction
-        // This keeps shortName language-agnostic (just the class/function hierarchy)
-        String moduleQualifiedPackage =
-                effectivePackageName.isEmpty() ? moduleName : effectivePackageName + "." + moduleName;
-
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
-                        "Creating class: simpleName='{}', classChain='{}', packageName='{}', moduleName='{}'",
+                        "Creating class: simpleName='{}', classChain='{}', moduleQualifiedPackage='{}'",
                         simpleName,
                         classChain,
-                        packageName,
-                        moduleName);
+                        moduleQualifiedPackage);
 
                 // Design: shortName = class hierarchy only (no module prefix)
                 // Module is included in packageName for proper fqName construction
@@ -378,7 +393,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         String packageName = cu.packageName();
 
         if (classChain.isBlank()) {
-            // Top-level: no parent to find within the file structure
+            // Defensive: TreeSitterAnalyzer only calls buildParentFqName for nested symbols
+            // (classChain is non-empty), but this handles edge cases gracefully.
             return packageName;
         }
 
@@ -463,6 +479,34 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
      * <p>Recognizes ":F" (function) and ":C" (class) markers added by
      * {@link #determineClassChainSegmentName} to identify symbol types by AST node type
      * rather than relying on the naming heuristic.
+     *
+     * <h3>ClassChain Format Examples</h3>
+     * <pre>
+     * Input classChain            isFunctionScope  firstSegment   rest            normalizedChain()
+     * ────────────────────────────────────────────────────────────────────────────────────────────────
+     * ""                          false            ""             ""              ""
+     * "MyClass:C"                 false            "MyClass"      ""              "MyClass"
+     * "Outer:C.Inner:C"           false            "Outer"        "Inner"         "Outer$Inner"
+     * "my_func:F"                 true             "my_func"      ""              "my_func"
+     * "my_func:F.LocalClass:C"    true             "my_func"      "LocalClass"    "my_func$LocalClass"
+     * "outer_func:F.inner:F"      true             "outer_func"   "inner"         "outer_func$inner"
+     * "MyClass" (no marker)       false (heuristic) "MyClass"     ""              "MyClass"
+     * "my_func" (no marker)       true (heuristic)  "my_func"     ""              "my_func"
+     * </pre>
+     *
+     * <h3>Resulting FQNs</h3>
+     * For a symbol named "foo" in module "pkg.mod":
+     * <pre>
+     * classChain                  Symbol Type    FQN
+     * ────────────────────────────────────────────────────────────────────────
+     * ""                          class          pkg.mod.foo
+     * ""                          function       pkg.mod.foo
+     * "MyClass:C"                 method         pkg.mod.MyClass.foo
+     * "MyClass:C"                 nested class   pkg.mod.MyClass$foo
+     * "my_func:F"                 local class    pkg.mod.my_func$foo
+     * "my_func:F.Local:C"         method         pkg.mod.my_func$Local.foo
+     * "Outer:C.Inner:C"           method         pkg.mod.Outer$Inner.foo
+     * </pre>
      */
     private static class ClassChainParser {
         static final String FUNCTION_MARKER = ":F";
@@ -692,6 +736,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
      * <p>
      * Wildcard imports include public classes and functions (those without leading underscore).
      */
+    // TODO: Performance optimization opportunity - This method re-parses each import line with
+    // TreeSitter, even though the full AST was available during analyzeFileContent. A cleaner
+    // approach would collect structured ImportInfo during the initial pass (while processing
+    // import_statement/import_from_statement nodes) and store it in FileProperties. This would
+    // eliminate redundant parsing. However, TreeSitter parsing is fast (~microseconds per line)
+    // and Python files typically have few imports, so this is low priority unless profiling
+    // shows it's a bottleneck.
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
@@ -700,7 +751,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
-            // Parse the import statement with TreeSitter
+            // Re-parse the import statement with TreeSitter (see TODO above)
             var parser = getTSParser();
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
