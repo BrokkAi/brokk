@@ -44,7 +44,7 @@ class BlitzForgeInterruptedTest {
 
     @Test
     @DisplayName("TaskResult with live context succeeds and assertion is enforced")
-    void testTaskResultRequiresLiveContext() {
+    void testTaskResultRequiresLiveContext() throws InterruptedException {
         // Get the live top context
         Context liveContext = contextManager.liveContext();
         liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
@@ -66,7 +66,7 @@ class BlitzForgeInterruptedTest {
 
     @Test
     @DisplayName("TaskResult with unfrozen context should succeed")
-    void testUnfrozenContextSucceeds() {
+    void testUnfrozenContextSucceeds() throws InterruptedException {
         // Get the live top context
         Context liveContext = contextManager.liveContext();
         liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
@@ -119,7 +119,7 @@ class BlitzForgeInterruptedTest {
 
     @Test
     @DisplayName("Context.unfreeze is idempotent on live contexts")
-    void testUnfreezeIdempotency() {
+    void testUnfreezeIdempotency() throws InterruptedException {
         Context liveContext = contextManager.liveContext();
         liveContext.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 

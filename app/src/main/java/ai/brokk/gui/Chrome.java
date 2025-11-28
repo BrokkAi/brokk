@@ -1816,6 +1816,18 @@ public class Chrome
         JFrame previewFrame = activePreviewWindows.get(windowKey);
         boolean isNewWindow = false;
 
+        // Fallback: if not found via primary key, try alternate key form to reuse placeholder/file-based windows
+        if (previewFrame == null || !previewFrame.isDisplayable()) {
+            String altKey = computeAlternatePreviewKey(title, contentComponent, windowKey);
+            if (altKey != null) {
+                JFrame altFrame = activePreviewWindows.get(altKey);
+                if (altFrame != null && altFrame.isDisplayable()) {
+                    previewFrame = altFrame;
+                    windowKey = altKey;
+                }
+            }
+        }
+
         if (previewFrame == null || !previewFrame.isDisplayable()) {
             // Create new window if none exists or existing one was disposed
             previewFrame = newFrame(title);
@@ -1991,12 +2003,13 @@ public class Chrome
         previewFrame.setVisible(true);
     }
 
-    /**
-     * Generates a key for identifying and reusing preview windows based on content type and context. For file previews
-     * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
-     */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        // Prefer stable file-based keys when a ProjectFile is present on the preview component
+        // When showing a loading placeholder, always use a stable preview-based key so that
+        // subsequent async content replacement targets the same window regardless of file association.
+        if (title.endsWith("Loading...")) {
+            return "preview:" + title;
+        }
+
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
             return "file:" + textPanel.getFile().toString();
         }
@@ -2011,6 +2024,40 @@ public class Chrome
     }
 
     /**
+     * Computes the alternate preview window key for cases where a placeholder (preview-based key)
+     * is followed by a final content panel (file-based key), or vice versa. This allows reusing
+     * the same window even if the content component switches between file/non-file variants.
+     */
+    private @Nullable String computeAlternatePreviewKey(String title, JComponent contentComponent, String primaryKey) {
+        try {
+            String strippedTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
+
+            if (primaryKey.startsWith("file:")) {
+                // Attempt preview-based variant
+                return "preview:" + title;
+            }
+
+            if (primaryKey.startsWith("preview:")) {
+                // Attempt file-based variant only if we actually have a file-associated component
+                if (contentComponent instanceof PreviewTextPanel ptp) {
+                    var file = ptp.getFile();
+                    if (file != null) {
+                        return "file:" + strippedTitle;
+                    }
+                } else if (contentComponent instanceof PreviewImagePanel img) {
+                    var f = img.getFile();
+                    if (f instanceof ProjectFile) {
+                        return "file:" + strippedTitle;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            logger.debug("computeAlternatePreviewKey failed", ex);
+        }
+        return null;
+    }
+
+    /**
      * Update the window title for an existing preview in a safe EDT manner and repaint.
      */
     private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
@@ -2018,6 +2065,12 @@ public class Chrome
             try {
                 String key = generatePreviewWindowKey(initialTitle, contentComponent);
                 JFrame previewFrame = activePreviewWindows.get(key);
+                if (previewFrame == null) {
+                    String altKey = computeAlternatePreviewKey(initialTitle, contentComponent, key);
+                    if (altKey != null) {
+                        previewFrame = activePreviewWindows.get(altKey);
+                    }
+                }
                 if (previewFrame != null) {
                     previewFrame.setTitle(newTitle);
                     if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
@@ -2199,11 +2252,8 @@ public class Chrome
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
-            var latestCtx = contextManager.getContextHistory().liveContext();
-            boolean isCurrentContext = latestCtx.allFragments().anyMatch(f -> f.id().equals(fragment.id()));
-
             // Resolve title once and cache it for reuse
-            String computedDescNow = resolveFragmentDescription(fragment);
+            String computedDescNow = fragment.description().renderNowOrNull();
             final String initialTitle = (computedDescNow != null && !computedDescNow.isBlank())
                     ? "Preview: " + computedDescNow
                     : "Preview: Loading...";
@@ -2228,32 +2278,9 @@ public class Chrome
                 }
             }
 
-            // Git-history snapshot: non-blocking, show immediately
-            if (fragment.getType() == ContextFragment.FragmentType.GIT_FILE
-                    && fragment instanceof ContextFragment.GitFileFragment ghf) {
-                var previewPanel = new PreviewTextPanel(
-                        contextManager, ghf.file(), ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
-                showPreviewFrame(contextManager, ghf.description(), previewPanel);
-                return;
-            }
-
             // Live path fragments: load asynchronously to avoid I/O on EDT
-            if (fragment.getType().isPath()) {
-                if (isCurrentContext && fragment instanceof ContextFragment.PathFragment pf) {
-                    previewPathFragment(pf, initialTitle, computedDescNow);
-                    return;
-                }
-
-                // Fallback snapshot view for non-current path fragments
-                if (!(fragment instanceof ContextFragment.ComputedFragment)) {
-                    previewSnapshotFragment(fragment, initialTitle, computedDescNow);
-                    return;
-                }
-            }
-
-            // Computed fragments: show computed-now values or placeholder; complete in background.
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                previewComputedFragment(cf, initialTitle, computedDescNow);
+            if (fragment instanceof ContextFragment.PathFragment pf) {
+                previewPathFragment(pf, initialTitle, computedDescNow);
                 return;
             }
 
@@ -2279,31 +2306,12 @@ public class Chrome
                 // Update title asynchronously if needed (for computed descriptions)
                 updateDescriptionAsync(initialTitle, null, computedDescNow, sf);
             } else {
-                // Non-computed virtual fragment: show placeholder and load in background
+                // Virtual fragment: show placeholder and load in background
                 previewVirtualFragment(fragment, initialTitle, computedDescNow);
             }
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
-        }
-    }
-
-    /**
-     * Resolves the description for a fragment, preferring computed non-blocking values.
-     */
-    @Nullable
-    private String resolveFragmentDescription(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            String desc = cf.computedDescription().renderNowOrNull();
-            if (desc != null) {
-                return desc;
-            }
-        }
-        try {
-            return fragment.description();
-        } catch (Exception e) {
-            logger.warn("Failed to resolve fragment description for {}", fragment.id(), e);
-            return null;
         }
     }
 
@@ -2337,12 +2345,10 @@ public class Chrome
         showPreviewFrame(contextManager, initialTitle, previewContentPanel);
 
         // Update title asynchronously if needed
-        if ((computedDescNow == null || computedDescNow.isBlank())
-                && of instanceof ContextFragment.ComputedFragment cf) {
-            cf.computedDescription().onComplete((description, e) -> {
+        if ((computedDescNow == null || computedDescNow.isBlank()) && of instanceof ContextFragment cf) {
+            cf.description().onComplete((description, e) -> {
                 if (e != null) {
-                    logger.warn(
-                            "Failed to render computed description for fragment {}", ((ContextFragment) of).id(), e);
+                    logger.warn("Failed to render computed description for fragment {}", cf.id(), e);
                 } else {
                     updateTitleIfNeeded(initialTitle, previewContentPanel, description);
                 }
@@ -2357,7 +2363,7 @@ public class Chrome
         var imagePanel = new PreviewImagePanel(null);
         showPreviewFrame(contextManager, initialTitle, imagePanel);
 
-        var futureImageBytes = pif.computedImageBytes();
+        var futureImageBytes = pif.imageBytes();
         if (futureImageBytes != null) {
             futureImageBytes.onComplete((bytes, e) -> {
                 if (e != null) {
@@ -2376,7 +2382,7 @@ public class Chrome
                 }
             });
         }
-        pif.computedDescription().onComplete((description, e) -> {
+        pif.description().onComplete((description, e) -> {
             if (e != null) {
                 logger.warn("Failed to render computed description for fragment {}", pif.id(), e);
             } else {
@@ -2416,9 +2422,6 @@ public class Chrome
         updateDescriptionAsync(initialTitle, placeholder, computedDescNow, pf);
     }
 
-    /**
-     * Loads a file asynchronously and previews it. Works for both ProjectFile and ExternalFile.
-     */
     private void loadAndPreviewFile(
             @Nullable ProjectFile projectFile, String style, String initialTitle, ContextFragment fragment) {
         contextManager.submitBackgroundTask("Load file preview", () -> {
@@ -2428,60 +2431,45 @@ public class Chrome
                     txt = projectFile.read().orElse("");
                 } else {
                     // Fragment must be a PathFragment; get text from fragment itself
-                    txt = fragment.text();
+                    txt = fragment.text().join();
                 }
             } catch (Exception e) {
                 txt = "Error loading preview: " + e.getMessage();
                 logger.debug("Error reading file for preview", e);
             }
             final String fTxt = txt;
+            final String initialStyle = style;
+
             SwingUtilities.invokeLater(() -> {
-                var panel = new PreviewTextPanel(contextManager, projectFile, fTxt, style, themeManager, fragment);
+                var panel =
+                        new PreviewTextPanel(contextManager, projectFile, fTxt, initialStyle, themeManager, fragment);
                 showPreviewFrame(contextManager, initialTitle, panel);
+                // Ensure title updates are also bound to the actual content panel,
+                // so when the description resolves, the window title updates appropriately.
+                updateDescriptionAsync(initialTitle, panel, null, fragment);
+            });
+
+            // Also resolve syntax style asynchronously and re-render if it differs
+            fragment.syntaxStyle().onComplete((resolvedStyle, ex) -> {
+                if (ex != null) {
+                    logger.debug("Failed to resolve syntax style for fragment {}", fragment.id(), ex);
+                    return;
+                }
+                if (!Objects.equals(resolvedStyle, initialStyle)) {
+                    SwingUtilities.invokeLater(() -> renderAndShowPreview(fTxt, resolvedStyle, initialTitle));
+                }
             });
         });
     }
 
     /**
-     * Preview for snapshot (non-computed) fragments.
-     */
-    private void previewSnapshotFragment(
-            ContextFragment fragment, String initialTitle, @Nullable String computedDescNow) {
-        var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, fragment);
-        showPreviewFrame(contextManager, initialTitle, placeholder);
-
-        contextManager.submitBackgroundTask("Load snapshot preview", () -> {
-            String txt;
-            String style = SyntaxConstants.SYNTAX_STYLE_NONE;
-            try {
-                txt = fragment.text();
-            } catch (Exception e) {
-                txt = "Error loading preview: " + e.getMessage();
-                logger.debug("Error loading snapshot text", e);
-            }
-            try {
-                style = fragment.syntaxStyle();
-            } catch (Exception e) {
-                logger.debug("Error resolving syntax style for snapshot", e);
-            }
-            final String fTxt = txt;
-            final String fStyle = style;
-            SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle));
-        });
-
-        updateDescriptionAsync(initialTitle, placeholder, computedDescNow, fragment);
-    }
-
-    /**
      * Preview for computed fragments with immediate or placeholder-based display.
      */
-    private void previewComputedFragment(
-            ContextFragment.ComputedFragment cf, String initialTitle, @Nullable String computedDescNow) {
-        String styleNow = cf.computedSyntaxStyle().renderNowOrNull();
+    private void previewVirtualFragment(ContextFragment cf, String initialTitle, @Nullable String computedDescNow) {
+        String styleNow = cf.syntaxStyle().renderNowOrNull();
         final String syntaxNow = (styleNow != null) ? styleNow : SyntaxConstants.SYNTAX_STYLE_NONE;
 
-        String textNow = cf.computedText().renderNowOrNull();
+        String textNow = cf.text().renderNowOrNull();
 
         if (textNow != null) {
             // Immediate display possible
@@ -2490,7 +2478,7 @@ public class Chrome
                 showPreviewFrame(contextManager, initialTitle, contentPanel);
                 if (styleNow == null) {
                     // Syntax might have been inferred; let it resolve in background
-                    cf.computedSyntaxStyle().onComplete((resolvedStyle, e) -> {
+                    cf.syntaxStyle().onComplete((resolvedStyle, e) -> {
                         if (e == null
                                 && !Objects.equals(resolvedStyle, syntaxNow)
                                 && !SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(resolvedStyle)) {
@@ -2505,7 +2493,7 @@ public class Chrome
                 showPreviewFrame(contextManager, initialTitle, previewPanel);
                 if (styleNow == null) {
                     // Style was inferred; resolve in background for possible re-render
-                    cf.computedSyntaxStyle().onComplete((resolvedStyle, e) -> {
+                    cf.syntaxStyle().onComplete((resolvedStyle, e) -> {
                         if (e == null && !Objects.equals(resolvedStyle, syntaxNow)) {
                             SwingUtilities.invokeLater(
                                     () -> renderAndShowPreview(textNow, resolvedStyle, initialTitle));
@@ -2521,9 +2509,9 @@ public class Chrome
 
             contextManager.submitBackgroundTask("Load computed fragment preview", () -> {
                 String txt;
-                String style = cf.syntaxStyle();
+                String style = cf.syntaxStyle().join();
                 try {
-                    txt = cf.text();
+                    txt = cf.text().join();
                 } catch (Exception e) {
                     txt = "Error loading preview: " + e.getMessage();
                     logger.debug("Error computing fragment text", e);
@@ -2538,37 +2526,6 @@ public class Chrome
     }
 
     /**
-     * Preview for non-computed virtual fragments.
-     */
-    private void previewVirtualFragment(
-            ContextFragment fragment, String initialTitle, @Nullable String computedDescNow) {
-        var placeholder = new PreviewTextPanel(
-                contextManager, null, "Loading...", SyntaxConstants.SYNTAX_STYLE_NONE, themeManager, fragment);
-        showPreviewFrame(contextManager, initialTitle, placeholder);
-
-        contextManager.submitBackgroundTask("Load virtual fragment preview", () -> {
-            String txt = "";
-            String style = SyntaxConstants.SYNTAX_STYLE_NONE;
-            try {
-                txt = fragment.text();
-            } catch (Exception e) {
-                txt = "Error loading preview: " + e.getMessage();
-                logger.debug("Error loading fragment text", e);
-            }
-            try {
-                style = fragment.syntaxStyle();
-            } catch (Exception e) {
-                logger.debug("Error resolving syntax style", e);
-            }
-            final String fTxt = txt;
-            final String fStyle = style;
-            SwingUtilities.invokeLater(() -> renderPreviewContent(fTxt, fStyle, initialTitle));
-        });
-
-        updateDescriptionAsync(initialTitle, placeholder, computedDescNow, fragment);
-    }
-
-    /**
      * Updates the fragment description asynchronously if the computed description is not yet available.
      */
     private void updateDescriptionAsync(
@@ -2576,9 +2533,8 @@ public class Chrome
             @Nullable PreviewTextPanel placeholder,
             @Nullable String computedDescNow,
             ContextFragment fragment) {
-        if ((computedDescNow == null || computedDescNow.isBlank())
-                && fragment instanceof ContextFragment.ComputedFragment cf) {
-            cf.computedDescription().onComplete((description, e) -> {
+        if ((computedDescNow == null || computedDescNow.isBlank())) {
+            fragment.description().onComplete((description, e) -> {
                 if (e != null) {
                     logger.warn("Failed to render computed description for fragment {}", fragment.id(), e);
                 } else if (placeholder != null) {

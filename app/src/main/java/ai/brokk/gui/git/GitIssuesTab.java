@@ -1066,11 +1066,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
                 ContextFragment.TaskFragment issueTextFragment =
                         createIssueTextFragmentFromDetails(details, issueTextMessages);
-                contextManager.addVirtualFragment(issueTextFragment);
+                contextManager.addFragments(issueTextFragment);
 
                 List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
                 if (!commentChatMessages.isEmpty()) {
-                    contextManager.addVirtualFragment(createCommentsFragmentFromDetails(details, commentChatMessages));
+                    contextManager.addFragments(createCommentsFragmentFromDetails(details, commentChatMessages));
                 }
 
                 int capturedImageCount = processAndCaptureImagesFromDetails(details);

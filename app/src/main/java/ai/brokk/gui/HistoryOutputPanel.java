@@ -82,6 +82,7 @@ import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class HistoryOutputPanel extends JPanel implements ThemeAware {
@@ -584,7 +585,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Builds the Activity history panel that shows past contexts */
+    /**
+     * Builds the Activity history panel that shows past contexts
+     */
     private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
@@ -765,7 +768,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Shows the context menu for the context history table (supports Context and GroupRow). */
+    /**
+     * Shows the context menu for the context history table (supports Context and GroupRow).
+     */
     private void showContextHistoryPopupMenu(MouseEvent e) {
         int row = historyTable.rowAtPoint(e.getPoint());
         if (row < 0) return;
@@ -866,7 +871,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         popup.show(historyTable, x, y);
     }
 
-    /** Restore context to a specific point in history */
+    /**
+     * Restore context to a specific point in history
+     */
     private void undoHistoryUntil(Context targetContext) {
         contextManager.undoContextUntilAsync(targetContext);
     }
@@ -879,7 +886,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         contextManager.resetContextToAsync(targetContext);
     }
 
-    /** Creates a new context based on the files, fragments, and history from a historical context */
+    /**
+     * Creates a new context based on the files, fragments, and history from a historical context
+     */
     private void resetContextToIncludingHistory(Context targetContext) {
         contextManager.resetContextToIncludingHistoryAsync(targetContext);
     }
@@ -908,10 +917,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // (Re)bind computed fragment subscriptions for all contexts shown in the table.
             ComputedSubscription.disposeAll(historyTable);
             for (var ctx1 : contexts) {
-                ctx1.allFragments()
-                        .filter(f -> f instanceof ContextFragment.ComputedFragment)
-                        .forEach(f -> ComputedSubscription.bind(
-                                (ContextFragment.ComputedFragment) f, historyTable, historyTable::repaint));
+                ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
             }
 
             // Warm up diffs centrally via ContextHistory.DiffService
@@ -1133,7 +1139,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return sessionHeaderPanel;
     }
 
-    /** Builds the LLM streaming area where markdown output is displayed */
+    /**
+     * Builds the LLM streaming area where markdown output is displayed
+     */
     private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
         // Wrap it in a scroll pane for layout purposes, but disable scrollbars
         // as scrolling is handled by the WebView inside MarkdownOutputPanel.
@@ -1151,7 +1159,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // buildCommandResultLabel removed
 
-    /** Builds the "Capture Output" panel with a horizontal layout: [Capture Text] */
+    /**
+     * Builds the "Capture Output" panel with a horizontal layout: [Capture Text]
+     */
     private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
@@ -2081,7 +2091,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
 
-    /** Appends text to the LLM output area */
+    /**
+     * Appends text to the LLM output area
+     */
     public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         // Apply any staged preset exactly once before the first token of the next stream
         applyPresetIfNeeded();
@@ -2091,41 +2103,55 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage, isReasoning));
     }
 
-    /** Sets the enabled state of the copy text button */
+    /**
+     * Sets the enabled state of the copy text button
+     */
     public void setCopyButtonEnabled(boolean enabled) {
         copyButton.setEnabled(enabled);
     }
 
-    /** Sets the enabled state of the clear output button */
+    /**
+     * Sets the enabled state of the clear output button
+     */
     public void setClearButtonEnabled(boolean enabled) {
         clearButton.setEnabled(enabled);
     }
 
-    /** Sets the enabled state of the capture (add to context) button */
+    /**
+     * Sets the enabled state of the capture (add to context) button
+     */
     public void setCaptureButtonEnabled(boolean enabled) {
         captureButton.setEnabled(enabled);
     }
 
-    /** Sets the enabled state of the open-in-new-window button */
+    /**
+     * Sets the enabled state of the open-in-new-window button
+     */
     public void setOpenWindowButtonEnabled(boolean enabled) {
         openWindowButton.setEnabled(enabled);
     }
 
-    /** Shows the loading spinner with a message in the Markdown area. */
+    /**
+     * Shows the loading spinner with a message in the Markdown area.
+     */
     public void showSpinner(String message) {
         llmStreamArea.showSpinner(message);
         lastSpinnerMessage = message;
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
 
-    /** Hides the loading spinner in the Markdown area. */
+    /**
+     * Hides the loading spinner in the Markdown area.
+     */
     public void hideSpinner() {
         llmStreamArea.hideSpinner();
         lastSpinnerMessage = null;
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
 
-    /** Shows the session switching spinner. */
+    /**
+     * Shows the session switching spinner.
+     */
     public void showSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
@@ -2190,7 +2216,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Hides the session switching spinner. */
+    /**
+     * Hides the session switching spinner.
+     */
     public void hideSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
             if (sessionSwitchPanel != null) {
@@ -2289,7 +2317,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Gets the LLM scroll pane */
+    /**
+     * Gets the LLM scroll pane
+     */
     public JScrollPane getLlmScrollPane() {
         return llmScrollPane;
     }
@@ -2372,7 +2402,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Presents a choice to capture output to Workspace or to Task List. */
+    /**
+     * Presents a choice to capture output to Workspace or to Task List.
+     */
     private void presentCaptureChoice() {
         var options = new Object[] {"Workspace", "Task List", "Cancel"};
         int choice = JOptionPane.showOptionDialog(
@@ -2392,7 +2424,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } // else Cancel -> do nothing
     }
 
-    /** Creates a task list from the currently selected output using the quick model and the createTaskList tool. */
+    /**
+     * Creates a task list from the currently selected output using the quick model and the createTaskList tool.
+     */
     private void createTaskListFromOutputAsync() {
         var selected = contextManager.selectedContext();
         if (selected == null) {
@@ -2407,104 +2441,110 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var last = history.getLast();
-        String captureText = (last.log() != null) ? last.log().text() : last.summary();
+        CompletableFuture<String> captureTextFuture =
+                (last.log() != null) ? last.log().text().future() : CompletableFuture.completedFuture(last.summary());
 
-        if (captureText == null || captureText.isBlank()) {
-            chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
+        captureTextFuture.thenAccept(captureText -> {
+            if (captureText == null || captureText.isBlank()) {
+                chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
 
-        chrome.showOutputSpinner("Creating task list...");
-        contextManager.submitLlmAction(() -> {
-            try {
-                var model = contextManager.getService().getScanModel();
-                var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
-                llm.setOutput(chrome);
+            chrome.showOutputSpinner("Creating task list...");
+            contextManager.submitLlmAction(() -> {
+                try {
+                    var model = contextManager.getService().getScanModel();
+                    var llm = contextManager.getLlm(new Llm.Options(model, "Create Task List"));
+                    llm.setOutput(chrome);
 
-                var system = new SystemMessage(
-                        """
+                    var system = new SystemMessage(
+                            """
     You are generating an actionable, incremental task list based on the provided capture. Do not speculate beyond it.
     You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>).
-    Do not output free-form text.
+                                    Do not output free-form text.
     """);
-                var user = new UserMessage(
-                        """
-    <capture>
-    %s
-    </capture>
+                    var user = new UserMessage(
+                            """
+                                    <capture>
+                                    %s
+                                    </capture>
 
-    Instructions:
-    - Prefer using tasks that are already defined in the capture.
-    - If no such tasks exist, use your best judgement with the following guidelines:
-    - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
-    - Prefer tasks that keep the project buildable and testable after each step.
-    - Avoid multi-goal items; split if needed.
-    - Avoid external/non-code tasks.
-    - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
+                                    Instructions:
+                                    - Prefer using tasks that are already defined in the capture.
+                                    - If no such tasks exist, use your best judgement with the following guidelines:
+                                    - Extract 3-8 tasks that are right-sized (~2 hours each), each with a single concrete goal.
+                                    - Prefer tasks that keep the project buildable and testable after each step.
+                                    - Avoid multi-goal items; split if needed.
+                                    - Avoid external/non-code tasks.
+                                    - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>) with your final list. Do not include any explanation outside the tool call.
+                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks:List<String>) with your final list. Do not include any explanation outside the tool call.
 
-    Guidance:
+        Guidance:
     %s
     """
-                                .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
+                                    .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
 
-                // Register tool providers
-                var ws = new WorkspaceTools(contextManager.liveContext());
-                var tr = contextManager
-                        .getToolRegistry()
-                        .builder()
-                        .register(this)
-                        .register(ws)
-                        .build();
+                    // Register tool providers
+                    var ws = new WorkspaceTools(contextManager.liveContext());
+                    var tr = contextManager
+                            .getToolRegistry()
+                            .builder()
+                            .register(this)
+                            .register(ws)
+                            .build();
 
-                var toolSpecs = new ArrayList<ToolSpecification>();
-                toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
-                if (toolSpecs.isEmpty()) {
-                    chrome.toolError(
-                            "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
-                            "Task List");
-                    return;
-                }
+                    var toolSpecs = new ArrayList<ToolSpecification>();
+                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
+                    if (toolSpecs.isEmpty()) {
+                        chrome.toolError(
+                                "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
+                                "Task List");
+                        return;
+                    }
 
-                var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
-                var result = llm.sendRequest(List.of(system, user), toolContext);
-                if (result.error() != null || result.isEmpty()) {
-                    var msg = result.error() != null
-                            ? String.valueOf(result.error().getMessage())
-                            : "Empty response";
-                    chrome.toolError("Failed to create task list: " + msg, "Task List");
-                } else {
-                    var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-                    assert ai.hasToolExecutionRequests(); // LLM enforces
-                    for (var req : ai.toolExecutionRequests()) {
-                        if (!"createOrReplaceTaskList".equals(req.name()) && !"appendTaskList".equals(req.name())) {
-                            continue;
-                        }
-                        var ter = tr.executeTool(req);
-                        if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
-                            chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
-                        } else {
-                            this.contextManager.pushContext(ctx ->
-                                    ws.getContext().withAction(CompletableFuture.completedFuture("Task List created")));
+                    var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
+                    var result = llm.sendRequest(List.of(system, user), toolContext);
+                    if (result.error() != null || result.isEmpty()) {
+                        var msg = result.error() != null
+                                ? String.valueOf(result.error().getMessage())
+                                : "Empty response";
+                        chrome.toolError("Failed to create task list: " + msg, "Task List");
+                    } else {
+                        var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+                        assert ai.hasToolExecutionRequests(); // LLM enforces
+                        for (var req : ai.toolExecutionRequests()) {
+                            if (!"createOrReplaceTaskList".equals(req.name()) && !"appendTaskList".equals(req.name())) {
+                                continue;
+                            }
+                            var ter = tr.executeTool(req);
+                            if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
+                                chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
+                            } else {
+                                this.contextManager.pushContext(ctx -> ws.getContext()
+                                        .withAction(CompletableFuture.completedFuture("Task List created")));
+                            }
                         }
                     }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    chrome.systemNotify(
+                            "Task list creation was interrupted.", "Task List", JOptionPane.WARNING_MESSAGE);
+                } catch (Throwable t) {
+                    chrome.systemNotify(
+                            "Unexpected error creating task list: " + t.getMessage(),
+                            "Task List",
+                            JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    chrome.hideOutputSpinner();
                 }
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                chrome.systemNotify("Task list creation was interrupted.", "Task List", JOptionPane.WARNING_MESSAGE);
-            } catch (Throwable t) {
-                chrome.systemNotify(
-                        "Unexpected error creating task list: " + t.getMessage(),
-                        "Task List",
-                        JOptionPane.ERROR_MESSAGE);
-            } finally {
-                chrome.hideOutputSpinner();
-            }
+            });
         });
     }
 
-    /** Inner class representing a detached window for viewing output text */
+    /**
+     * Inner class representing a detached window for viewing output text
+     */
     private static class OutputWindow extends JFrame {
         private final IProject project;
         private final MarkdownOutputPanel outputPanel;
@@ -2642,13 +2682,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return windowTitle;
         }
 
-        /** Gets the MarkdownOutputPanel used by this window. */
+        /**
+         * Gets the MarkdownOutputPanel used by this window.
+         */
         public MarkdownOutputPanel getMarkdownOutputPanel() {
             return outputPanel;
         }
     }
 
-    /** Disables the history panel components. */
+    /**
+     * Disables the history panel components.
+     */
     public void disableHistory() {
         SwingUtilities.invokeLater(() -> {
             historyTable.setEnabled(false);
@@ -2662,7 +2706,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /** Enables the history panel components. */
+    /**
+     * Enables the history panel components.
+     */
     public void enableHistory() {
         SwingUtilities.invokeLater(() -> {
             historyTable.setEnabled(true);
@@ -2728,7 +2774,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
 
-    /** Returns the last TaskMeta in the given Context's task history, or null if not present. */
+    /**
+     * Returns the last TaskMeta in the given Context's task history, or null if not present.
+     */
     private @Nullable TaskResult.TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
         var history = ctx.getTaskHistory();
         if (history.isEmpty()) return null;
@@ -2736,7 +2784,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return last.meta();
     }
 
-    /** Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable. */
+    /**
+     * Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable.
+     */
     private @Nullable Service.ModelConfig modelOf(ai.brokk.context.Context ctx) {
         var meta = lastMetaOf(ctx);
         return (meta == null) ? null : meta.primaryModel();
@@ -2747,7 +2797,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return (meta == null) ? null : meta.type().displayName();
     }
 
-    /** Returns a short, human-friendly model string: "name (reasoning)" or just "name". */
+    /**
+     * Returns a short, human-friendly model string: "name (reasoning)" or just "name".
+     */
     private static String summarizeModel(Service.ModelConfig spec) {
         var name = spec.name();
         var rl = spec.reasoning().name();
@@ -2774,7 +2826,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return "<html>" + escapeHtml(tt + header) + "<br/>" + escapeHtml(base) + "</html>";
     }
 
-    /** Icon renderer that mirrors the Action column's indentation for nested rows. */
+    /**
+     * Icon renderer that mirrors the Action column's indentation for nested rows.
+     */
     private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
         @Override
         public Component getTableCellRendererComponent(
@@ -2989,44 +3043,63 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
+
+        record BufferedSourcePair(BufferSource left, BufferSource right) {}
+
         if (diffs.isEmpty()) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No changes to show.");
             return;
         }
 
-        // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle("Diff: " + ctx.getAction())
-                .setInitialFileIndex(0);
+        contextManager.submitBackgroundTask("Compute diff window entries", () -> {
+            // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
+            var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                    .setMultipleCommitsContext(false)
+                    .setRootTitle("Diff: " + ctx.getAction())
+                    .setInitialFileIndex(0);
 
-        for (var de : diffs) {
-            String pathDisplay;
-            try {
-                var files = de.fragment().files();
-                if (!files.isEmpty()) {
-                    var pf = files.iterator().next();
-                    pathDisplay = pf.getRelPath().toString();
-                } else {
-                    pathDisplay = de.fragment().shortDescription();
-                }
-            } catch (Exception ex) {
-                pathDisplay = de.fragment().shortDescription();
+            var diffPairFutures = new ArrayList<CompletableFuture<BufferedSourcePair>>();
+            for (var de : diffs) {
+                var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
+                    String pathDisplay;
+                    try {
+                        var files = de.fragment().files().join();
+                        if (!files.isEmpty()) {
+                            var pf = files.iterator().next();
+                            pathDisplay = pf.getRelPath().toString();
+                        } else {
+                            pathDisplay = de.fragment().shortDescription().join();
+                        }
+                    } catch (Exception ex) {
+                        pathDisplay = de.fragment().shortDescription().join();
+                    }
+
+                    // Use the typed API matching buildAggregatedChangesPanel: BufferSource.StringSource +
+                    // addComparison(BufferSource, BufferSource)
+                    String leftContent = de.oldContent();
+                    String rightContent = safeFragmentText(de);
+                    BufferSource left = new BufferSource.StringSource(leftContent, "Previous", pathDisplay, null);
+                    BufferSource right = new BufferSource.StringSource(rightContent, "Current", pathDisplay, null);
+                    return new BufferedSourcePair(left, right);
+                });
+                diffPairFutures.add(task);
             }
 
-            // Use the typed API matching buildAggregatedChangesPanel: BufferSource.StringSource +
-            // addComparison(BufferSource, BufferSource)
-            String leftContent = de.oldContent();
-            String rightContent = safeFragmentText(de);
-            BufferSource left = new BufferSource.StringSource(leftContent, "Previous", pathDisplay, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "Current", pathDisplay, null);
-            builder.addComparison(left, right);
-        }
+            var allDone = CompletableFuture.allOf(diffPairFutures.toArray(new CompletableFuture[0]));
+            allDone.join(); // Block together
 
-        // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
-        // user's choice when they toggle view (Fixes #1679)
-        var panel = builder.build();
-        panel.showInFrame("Diff: " + ctx.getAction());
+            diffPairFutures.stream().map(CompletableFuture::join).forEach(pair -> {
+                builder.addComparison(pair.left(), pair.right());
+            });
+
+            SwingUtilities.invokeLater(() -> {
+                // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists
+                // the
+                // user's choice when they toggle view (Fixes #1679)
+                var panel = builder.build();
+                panel.showInFrame("Diff: " + ctx.getAction());
+            });
+        });
     }
 
     // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
@@ -3395,9 +3468,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return new int[] {result.added(), result.deleted()};
     }
 
+    @Blocking
     private static String safeFragmentText(Context.DiffEntry de) {
         try {
-            return de.fragment().text();
+            return de.fragment().text().join();
         } catch (Throwable t) {
             return "";
         }
@@ -3435,7 +3509,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             List<PerFileChange> perFileChanges,
             @Nullable GitWorkflow.PushPullState pushPullState) {}
 
-    /** A LayerUI that paints reset-from-history arrows over the history table. */
+    /**
+     * A LayerUI that paints reset-from-history arrows over the history table.
+     */
     private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         private final JTable table;
         private List<ContextHistory.ResetEdge> resetEdges = List.of();
@@ -3763,7 +3839,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return count;
     }
 
-    /** Returns the Git repository for the current project, if available. */
+    /**
+     * Returns the Git repository for the current project, if available.
+     */
     private Optional<IGitRepo> repo() {
         try {
             return Optional.ofNullable(contextManager.getProject().getRepo());
@@ -3789,7 +3867,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return true;
     }
 
-    /** Modes for determining the baseline reference for showing changes. */
+    /**
+     * Modes for determining the baseline reference for showing changes.
+     */
     private enum BaselineMode {
         NON_DEFAULT_BRANCH,
         DEFAULT_WITH_UPSTREAM,
@@ -3798,7 +3878,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         NO_BASELINE
     }
 
-    /** Information about the computed baseline for showing changes. */
+    /**
+     * Information about the computed baseline for showing changes.
+     */
     private record BaselineInfo(BaselineMode mode, String baselineRef, String displayLabel) {}
 
     /**

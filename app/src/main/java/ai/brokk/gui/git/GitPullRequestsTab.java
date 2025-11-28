@@ -1587,7 +1587,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 descriptionText,
                                 PrTitleFormatter.formatDescriptionTitle(prNumber),
                                 "markdown");
-                        contextManager.addVirtualFragment(descriptionFragment);
+                        contextManager.addFragments(descriptionFragment);
                         logger.info("Added PR description fragment for PR #{}", prNumber);
                     } catch (Exception e) {
                         logger.warn("Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());

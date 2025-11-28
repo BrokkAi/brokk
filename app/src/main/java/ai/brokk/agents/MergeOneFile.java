@@ -406,7 +406,7 @@ public final class MergeOneFile {
             var desc = "Merge instructions for " + file;
             var fragment =
                     new ContextFragment.StringFragment(cm, instructions, desc, SyntaxConstants.SYNTAX_STYLE_NONE);
-            cm.addVirtualFragment(fragment);
+            cm.addFragments(fragment);
         } catch (Exception e) {
             logger.warn("Failed to persist merge instructions for {}: {}", file, e.toString(), e);
         }

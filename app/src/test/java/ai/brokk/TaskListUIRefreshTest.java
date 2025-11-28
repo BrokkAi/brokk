@@ -137,7 +137,7 @@ public class TaskListUIRefreshTest {
         assertTrue(frag.isPresent());
 
         // Verify fragment metadata is correct for UI refresh
-        assertEquals("Task List", frag.get().description());
+        assertEquals("Task List", frag.get().description().join());
         assertNotNull(frag.get().syntaxStyle());
     }
 

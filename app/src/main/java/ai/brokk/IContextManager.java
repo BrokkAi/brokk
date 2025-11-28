@@ -244,16 +244,16 @@ public interface IContextManager {
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> fragments) {
+    default void addFragments(Collection<? extends ContextFragment> fragments) {
         if (fragments.isEmpty()) {
             return;
         }
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        addVirtualFragments(List.of(fragment));
+    default void addFragments(ContextFragment fragment) {
+        addFragments(List.of(fragment));
     }
 
     /** Create a new LLM instance for the given model and description */

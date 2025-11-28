@@ -104,4 +104,19 @@ public class ComputedValueTest {
         assertNotNull(threadName.get());
         assertTrue(threadName.get().startsWith("cv-nameCheck-"));
     }
+
+    @Test
+    public void join_isIdempotent() {
+        var cv = new ComputedValue<>("joinTest", () -> {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException ignored) {
+            }
+            return "Hello, world!";
+        });
+
+        assertEquals("Hello, world!", cv.join());
+        // Check for same result again
+        assertEquals("Hello, world!", cv.join());
+    }
 }

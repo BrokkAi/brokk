@@ -39,7 +39,7 @@ class DiffServiceTest {
 
         var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Pre-compute and cache old content
-        oldFrag.computedText().await(Duration.ofSeconds(2));
+        oldFrag.text().await(Duration.ofSeconds(2));
 
         var oldCtx = new Context(
                 contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
@@ -106,7 +106,7 @@ class DiffServiceTest {
 
         var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
         // Seed cache for old content
-        oldFrag.computedText().await(Duration.ofSeconds(2));
+        oldFrag.text().await(Duration.ofSeconds(2));
 
         var oldCtx = new Context(
                 contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));

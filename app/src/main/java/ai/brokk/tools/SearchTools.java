@@ -345,7 +345,7 @@ public class SearchTools {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
+                    var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");
@@ -431,7 +431,7 @@ public class SearchTools {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
+                    var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");

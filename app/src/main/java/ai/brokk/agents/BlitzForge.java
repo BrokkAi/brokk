@@ -279,7 +279,7 @@ public final class BlitzForge {
                 : new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
 
         // Build a resulting Context that represents the current topContext with any changed files added as editable
-        var resultingCtx = cm.liveContext().addPathFragments(cm.toPathFragments(changedFiles));
+        var resultingCtx = cm.liveContext().addFragments(cm.toPathFragments(changedFiles));
 
         var meta =
                 new TaskResult.TaskMeta(TaskResult.Type.BLITZFORGE, Service.ModelConfig.from(config.model(), service));
