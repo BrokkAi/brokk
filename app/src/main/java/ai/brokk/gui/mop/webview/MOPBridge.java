@@ -226,6 +226,20 @@ public final class MOPBridge {
         scheduleSend();
     }
 
+    /**
+     * Sends a live summary event to the frontend for the current in-progress task.
+     * This allows the frontend to display a summary toggle in the live area.
+     *
+     * @param threadId The thread/task identifier
+     * @param compressed Whether the task is compressed (AI uses summary)
+     * @param summary The summary text
+     */
+    public void sendLiveSummary(int threadId, boolean compressed, String summary) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.LiveSummary(e, threadId, compressed, summary));
+        scheduleSend();
+    }
+
     private void scheduleSend() {
         if (pending.compareAndSet(false, true)) {
             xmit.schedule(this::processQueue, 20, TimeUnit.MILLISECONDS);
