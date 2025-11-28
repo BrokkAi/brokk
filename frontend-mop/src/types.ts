@@ -25,6 +25,13 @@ export type BrokkEvent =
       compressed: boolean;
       summary?: string;
       messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean }[];
+    }
+  | {
+      type: 'live-summary';
+      epoch: number;
+      threadId: number;
+      compressed: boolean;
+      summary: string;
     };
 
 export type Bubble = {
