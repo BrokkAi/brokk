@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -57,8 +56,10 @@ public final class WorkspacePrompts {
     }
 
     public static String formatWorkspaceToc(Context ctx) {
-        var editableContents = ctx.getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-        var readOnlyContents = ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var editableContents =
+                ctx.getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var readOnlyContents =
+                ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var buildFragment = ctx.getBuildFragment();
         var workspaceBuilder = new StringBuilder();
 
@@ -93,7 +94,8 @@ public final class WorkspacePrompts {
         workspaceBuilder.append("  <workspace_editable_changed>\n  </workspace_editable_changed>\n");
 
         if (buildFragment.isPresent()) {
-            workspaceBuilder.append("  <workspace_build_status>\n  Build status information may be included.\n  </workspace_build_status>\n");
+            workspaceBuilder.append(
+                    "  <workspace_build_status>\n  Build status information may be included.\n  </workspace_build_status>\n");
         } else {
             workspaceBuilder.append("  <workspace_build_status>\n  </workspace_build_status>\n");
         }

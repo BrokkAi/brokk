@@ -987,8 +987,8 @@ public class BlitzForgeDialog extends JDialog {
                 long workspaceTokens = 0;
                 long workspaceAdd = 0;
                 if (includeWorkspace) {
-                    workspaceTokens =
-                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
+                    workspaceTokens = Messages.getApproximateMessageTokens(
+                            CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                                     cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     workspaceAdd = workspaceTokens * n;
                 }
@@ -1108,8 +1108,8 @@ public class BlitzForgeDialog extends JDialog {
             boolean hadError = false;
             try {
                 // Token counting and message construction happen in this background thread.
-                workspaceTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
+                workspaceTokens = Messages.getApproximateMessageTokens(
+                        CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                                 cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
