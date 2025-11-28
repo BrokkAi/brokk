@@ -110,8 +110,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     // Sliding window pagination state
     private final SlidingWindowState<GHPullRequest> slidingWindow = new SlidingWindowState<>();
+
     @Nullable
     private Iterator<GHPullRequest> activePrIterator;
+
     private MaterialButton loadMoreButton;
 
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
@@ -259,37 +261,57 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         filtersContainer.add(filterLabel);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
-        statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
+        var project = contextManager.getProject();
+
+        String savedStatus = project.getUiFilterProperty("prs.status");
+        String defaultStatus = savedStatus != null ? savedStatus : "Open";
+        statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, defaultStatus);
         statusFilter.setToolTipText("Filter by PR status");
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch
+            project.setUiFilterProperty("prs.status", getBaseFilterValue(statusFilter.getSelected()));
             updatePrList();
         });
         filtersContainer.add(statusFilter);
 
-        authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions);
+        String savedAuthor = project.getUiFilterProperty("prs.author");
+        authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions, savedAuthor);
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        authorFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.author", getBaseFilterValue(authorFilter.getSelected()));
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(authorFilter);
 
-        labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions);
+        String savedLabel = project.getUiFilterProperty("prs.label");
+        labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions, savedLabel);
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        labelFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.label", getBaseFilterValue(labelFilter.getSelected()));
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(labelFilter);
 
-        assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions);
+        String savedAssignee = project.getUiFilterProperty("prs.assignee");
+        assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions, savedAssignee);
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        assigneeFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.assignee", getBaseFilterValue(assigneeFilter.getSelected()));
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(assigneeFilter);
 
-        reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS);
+        String savedReview = project.getUiFilterProperty("prs.review");
+        reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS, savedReview);
         reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
         reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        reviewFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        reviewFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.review", getBaseFilterValue(reviewFilter.getSelected()));
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(reviewFilter);
 
         // Wrap filters in a scroll pane so they can overflow cleanly
@@ -1011,8 +1033,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
                 var iterator = pagedIterable.iterator();
 
-                var result = StreamingPaginationHelper.loadBatch(
-                        iterator, StreamingPaginationHelper.BATCH_SIZE);
+                var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 // Store iterator for "Load more"
                 activePrIterator = iterator;
@@ -1075,8 +1096,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
             try {
-                var result = StreamingPaginationHelper.loadBatch(
-                        activePrIterator, StreamingPaginationHelper.BATCH_SIZE);
+                var result =
+                        StreamingPaginationHelper.loadBatch(activePrIterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
                     slidingWindow.appendBatch(result.items(), result.hasMore());

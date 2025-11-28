@@ -114,8 +114,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     // Sliding window pagination state
     private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
+
     @Nullable
     private Iterator<List<IssueHeader>> activeIssueIterator;
+
     private MaterialButton loadMoreButton;
 
     // Store default options for static filters to easily reset them
@@ -296,53 +298,78 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(filterLabel);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
+        var project = contextManager.getProject();
+
         if (this.issueService instanceof JiraIssueService) {
+            String savedResolution = project.getUiFilterProperty("issues.resolution");
+            String defaultResolution = savedResolution != null ? savedResolution : "Unresolved";
             resolutionFilter =
-                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
+                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), defaultResolution);
             resolutionFilter.setToolTipText("Filter by Jira issue resolution");
             resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-            // API call needed when resolution changes
-            resolutionFilter.addPropertyChangeListener("value", e -> updateIssueList());
-            filtersContainer.add(resolutionFilter); // Add to filtersContainer
+            resolutionFilter.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.resolution", getBaseFilterValue(resolutionFilter.getSelected()));
+                updateIssueList();
+            });
+            filtersContainer.add(resolutionFilter);
             filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, savedStatus);
             statusFilter.setToolTipText("Filter by Jira issue status");
         } else { // GitHub or default
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            String defaultStatus = savedStatus != null ? savedStatus : "Open";
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, defaultStatus);
             statusFilter.setToolTipText("Filter by GitHub issue status");
         }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch and subsequent processing.
+            project.setUiFilterProperty("issues.status", getBaseFilterValue(statusFilter.getSelected()));
             updateIssueList();
         });
         filtersContainer.add(statusFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        authorFilter =
-                new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
+        String savedAuthor = project.getUiFilterProperty("issues.author");
+        authorFilter = new FilterBox(this.chrome,
+                                     "Author",
+                                     () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"),
+                                     savedAuthor);
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        authorFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.author", getBaseFilterValue(authorFilter.getSelected()));
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(authorFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        labelFilter =
-                new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
+        String savedLabel = project.getUiFilterProperty("issues.label");
+        labelFilter = new FilterBox(this.chrome,
+                                    "Label",
+                                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"),
+                                    savedLabel);
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        labelFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.label", getBaseFilterValue(labelFilter.getSelected()));
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(labelFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        assigneeFilter = new FilterBox(
-                this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
+        String savedAssignee = project.getUiFilterProperty("issues.assignee");
+        assigneeFilter = new FilterBox(this.chrome,
+                                       "Assignee",
+                                       () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
+                                       savedAssignee);
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        assigneeFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.assignee", getBaseFilterValue(assigneeFilter.getSelected()));
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(assigneeFilter);
 
         // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
@@ -841,13 +868,21 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
-                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'",
-                                 statusVal, resolutionVal, queryForApi);
+                    logger.debug(
+                            "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
+                            statusVal,
+                            resolutionVal,
+                            queryForApi);
                 } else {
                     apiFilterOptions =
                             new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
-                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
-                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    logger.debug(
+                            "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                            statusVal,
+                            authorVal,
+                            labelVal,
+                            assigneeVal,
+                            queryForApi);
                 }
 
                 // Create new iterator and load first batch

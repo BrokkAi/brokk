@@ -97,7 +97,7 @@ public final class SlidingWindowState<T> {
             return "";
         }
         var suffix = hasMore ? "+" : "";
-        return String.format("Showing %d-%d of %d%s %s",
-                             getWindowStart(), getWindowEnd(), getWindowEnd(), suffix, itemType);
+        return String.format(
+                "Showing %d-%d of %d%s %s", getWindowStart(), getWindowEnd(), getWindowEnd(), suffix, itemType);
     }
 }
