@@ -3,7 +3,7 @@ package ai.brokk.agents;
 import ai.brokk.ContextManager;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
@@ -56,7 +56,7 @@ public class ValidationAgent {
             throws InterruptedException {
         var filesText = allTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
-        var workspaceSummary = CodePrompts.formatWorkspaceToc(contextManager.liveContext());
+        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(contextManager.liveContext());
 
         var systemMessage =
                 """

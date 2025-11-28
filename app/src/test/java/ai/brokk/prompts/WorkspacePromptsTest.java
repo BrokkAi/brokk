@@ -84,7 +84,7 @@ class WorkspacePromptsTest {
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("untouched.txt"), "Should include untouched editable files");
-        assertTrue(allText.contains("EDITABLE"), "Should have editable section for untouched files");
+        assertTrue(allText.contains("workspace_editable_unchanged"), "Should have editable_unchanged section for untouched files");
     }
 
     // Test 1c: CODE_READONLY_PLUS_UNTOUCHED with empty changedFiles includes build fragment
@@ -126,7 +126,7 @@ class WorkspacePromptsTest {
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("changed.txt"), "Should include changed file");
         assertFalse(allText.contains("untouched.txt"), "Should not include untouched file");
-        assertTrue(allText.contains("CHANGED"), "Should indicate files have been changed");
+        assertTrue(allText.contains("workspace_editable_changed"), "Should indicate files have been changed");
     }
 
     // Test 1e: EDITABLE_CHANGED includes build status
@@ -313,7 +313,7 @@ class WorkspacePromptsTest {
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("READ ONLY"), "Should have read-only section");
-        assertFalse(allText.contains("EDITABLE"), "Should not have editable section");
+        assertFalse(allText.contains("workspace_editable"), "Should not have editable section");
     }
 
     // Test 4c: Only editable fragments (no read-only)
@@ -331,7 +331,7 @@ class WorkspacePromptsTest {
                 .build();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(allText.contains("EDITABLE"), "Should have editable section");
+        assertTrue(allText.contains("workspace_editable"), "Should have editable section");
     }
 
     // Test 4d: changedFiles with no intersecting fragments

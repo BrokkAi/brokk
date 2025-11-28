@@ -289,33 +289,8 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public static String formatWorkspaceToc(Context ctx) {
-        var editableContents = ctx.getEditableToc();
-        var readOnlyContents = ctx.getReadOnlyToc();
-        var workspaceBuilder = new StringBuilder();
-        if (!editableContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                                    <editable-toc>
-                                    The following fragments MAY BE EDITED:
-                                    %s
-                                    </editable-toc>"""
-                            .formatted(editableContents));
-        }
-        if (!readOnlyContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                                    <readonly-toc>
-                                    The following fragments MAY NOT BE EDITED:
-                                    %s
-                                    </readonly-toc>"""
-                            .formatted(readOnlyContents));
-        }
-        return workspaceBuilder.toString();
-    }
-
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(ctx);
+        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
@@ -345,7 +320,7 @@ public abstract class CodePrompts {
     }
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
+        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(cm.liveContext());
 
         // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
         // fall back to the project root style guide if none found.

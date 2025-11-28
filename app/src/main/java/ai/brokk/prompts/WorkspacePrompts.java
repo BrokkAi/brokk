@@ -16,6 +16,8 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -52,6 +54,53 @@ public final class WorkspacePrompts {
 
     public static Builder builder(Context ctx, ViewingPolicy viewingPolicy) {
         return new Builder(ctx, viewingPolicy);
+    }
+
+    public static String formatWorkspaceToc(Context ctx) {
+        var editableContents = ctx.getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var readOnlyContents = ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var buildFragment = ctx.getBuildFragment();
+        var workspaceBuilder = new StringBuilder();
+
+        workspaceBuilder.append("<workspace_toc>\n");
+
+        if (!readOnlyContents.isBlank()) {
+            workspaceBuilder.append(
+                    """
+                    <workspace_readonly>
+                    The following fragments MAY NOT BE EDITED:
+                    %s
+                    </workspace_readonly>
+                    """
+                            .formatted(readOnlyContents));
+        } else {
+            workspaceBuilder.append("  <workspace_readonly>\n  </workspace_readonly>\n");
+        }
+
+        if (!editableContents.isBlank()) {
+            workspaceBuilder.append(
+                    """
+                    <workspace_editable_unchanged>
+                    The following fragments MAY BE EDITED:
+                    %s
+                    </workspace_editable_unchanged>
+                    """
+                            .formatted(editableContents));
+        } else {
+            workspaceBuilder.append("  <workspace_editable_unchanged>\n  </workspace_editable_unchanged>\n");
+        }
+
+        workspaceBuilder.append("  <workspace_editable_changed>\n  </workspace_editable_changed>\n");
+
+        if (buildFragment.isPresent()) {
+            workspaceBuilder.append("  <workspace_build_status>\n  Build status information may be included.\n  </workspace_build_status>\n");
+        } else {
+            workspaceBuilder.append("  <workspace_build_status>\n  </workspace_build_status>\n");
+        }
+
+        workspaceBuilder.append("</workspace_toc>");
+
+        return workspaceBuilder.toString();
     }
 
     public enum WorkspaceView {
@@ -168,11 +217,11 @@ public final class WorkspacePrompts {
                 if (!renderedUntouched.text.isEmpty()) {
                     untouchedSection =
                             """
-                            <workspace_editable>
+                            <workspace_editable_unchanged>
                             Here are EDITABLE files and code fragments that have not been changed yet in this task.
 
                             %s
-                            </workspace_editable>
+                            </workspace_editable_unchanged>
                             """
                                     .formatted(renderedUntouched.text);
                 }
@@ -255,22 +304,25 @@ public final class WorkspacePrompts {
 
         if (!editableTextFragments.isEmpty()) {
             String editableSectionTemplate;
+            String tagName;
             if (highlightChanged) {
+                tagName = "workspace_editable_changed";
                 editableSectionTemplate =
                         """
-                                  <workspace_editable>
+                                  <workspace_editable_changed>
                                   Here are the EDITABLE files and code fragments in your Workspace that have been CHANGED so far in this task.
 
                                   *Trust this message as the true contents of these files!*
                                   Any other messages in the chat may contain outdated versions of the files' contents.
 
                                   %s
-                                  </workspace_editable>
+                                  </workspace_editable_changed>
                                   """;
             } else {
+                tagName = "workspace_editable_unchanged";
                 editableSectionTemplate =
                         """
-                                  <workspace_editable>
+                                  <workspace_editable_unchanged>
                                   Here are the EDITABLE files and code fragments in your Workspace.
                                   This is *the only context in the Workspace to which you should make changes*.
 
@@ -278,7 +330,7 @@ public final class WorkspacePrompts {
                                   Any other messages in the chat may contain outdated versions of the files' contents.
 
                                   %s
-                                  </workspace_editable>
+                                  </workspace_editable_unchanged>
                                   """;
             }
 
