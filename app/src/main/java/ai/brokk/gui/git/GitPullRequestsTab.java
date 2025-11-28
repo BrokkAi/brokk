@@ -22,6 +22,7 @@ import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.SlidingWindowState;
 import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -106,6 +107,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private List<GHPullRequest> allPrsFromApi = new ArrayList<>();
     private List<GHPullRequest> displayedPrs = new ArrayList<>();
+
+    // Sliding window pagination state
+    private final SlidingWindowState<GHPullRequest> slidingWindow = new SlidingWindowState<>();
+    @Nullable
+    private Iterator<GHPullRequest> activePrIterator;
+    private MaterialButton loadMoreButton;
+
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
@@ -351,7 +359,16 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
         prButtonPanel.add(viewPrDiffButton);
 
-        prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
+        prButtonPanel.add(Box.createHorizontalGlue()); // Pushes buttons to the right
+
+        loadMoreButton = new MaterialButton();
+        loadMoreButton.setText("Load more");
+        loadMoreButton.setToolTipText("Load more PRs");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.addActionListener(e -> loadMorePrs());
+        prButtonPanel.add(loadMoreButton);
+
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         refreshPrButton = new MaterialButton();
         refreshPrButton.setIcon(Icons.REFRESH);
@@ -960,8 +977,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private void updatePrList() {
         assert SwingUtilities.isEventDispatchThread();
         setReloadUiEnabled(false);
+        loadMoreButton.setVisible(false);
+        loadMoreButton.setEnabled(false);
 
-        // Clear state and prepare for streaming updates
+        // Clear state and prepare for new load
+        slidingWindow.clear();
+        activePrIterator = null;
         allPrsFromApi.clear();
         displayedPrs.clear();
         prCommitsCache.clear();
@@ -985,61 +1006,98 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     apiState = GHIssueState.ALL;
                 }
 
-                // Use streaming pagination helper
+                // Create new iterator and load first batch
                 var pagedIterable =
                         auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
                 var iterator = pagedIterable.iterator();
 
-                StreamingPaginationHelper.streamPages(
-                        iterator,
-                        StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                        StreamingPaginationHelper.MAX_PRS,
-                        (prs, total, hasMore, isFirst) -> {
-                            allPrsFromApi = new ArrayList<>(prs);
-                            populateDynamicFilterChoices(allPrsFromApi);
-                            filterAndDisplayPrs();
+                var result = StreamingPaginationHelper.loadBatch(
+                        iterator, StreamingPaginationHelper.BATCH_SIZE);
 
-                            // Show loading progress in refresh button tooltip
-                            var msg = StreamingPaginationHelper.formatLoadingMessage(
-                                    "PRs", total, StreamingPaginationHelper.MAX_PRS, hasMore);
-                            refreshPrButton.setToolTipText(msg.isEmpty() ? "Refresh" : msg);
+                // Store iterator for "Load more"
+                activePrIterator = iterator;
 
-                            // On first page, ensure table is visible
-                            if (isFirst && !prs.isEmpty()) {
-                                prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
-                            }
-                        },
-                        () -> {
-                            refreshPrButton.setToolTipText("Refresh");
-                            setReloadUiEnabled(true);
-                            logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
-                        },
-                        ex -> {
-                            logger.error("Failed to fetch pull requests", ex);
-                            allPrsFromApi.clear();
-                            displayedPrs.clear();
-                            ciStatusCache.clear();
-                            prCommitsCache.clear();
-                            prTableModel.setRowCount(0);
-                            prTableModel.addRow(
-                                    new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
-                            disablePrButtonsAndClearCommitsAndMenus();
-                            authorChoices.clear();
-                            labelChoices.clear();
-                            assigneeChoices.clear();
-                            refreshPrButton.setToolTipText("Refresh");
-                            setReloadUiEnabled(true);
-                        });
-            } catch (Exception ex) {
-                logger.error("Failed to initialize PR pagination", ex);
                 SwingUtilities.invokeLater(() -> {
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
+                    populateDynamicFilterChoices(allPrsFromApi);
+                    filterAndDisplayPrs();
+
+                    // Update UI state
+                    refreshPrButton.setToolTipText(
+                            slidingWindow.formatStatusMessage("PRs").isEmpty()
+                                    ? "Refresh"
+                                    : slidingWindow.formatStatusMessage("PRs"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    setReloadUiEnabled(true);
+
+                    if (!result.items().isEmpty()) {
+                        prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
+                    }
+
+                    logger.debug("PR batch load complete. Total: {} PRs", allPrsFromApi.size());
+                });
+
+            } catch (Exception ex) {
+                activePrIterator = null;
+                logger.error("Failed to fetch pull requests", ex);
+                SwingUtilities.invokeLater(() -> {
+                    slidingWindow.clear();
                     allPrsFromApi.clear();
                     displayedPrs.clear();
+                    ciStatusCache.clear();
+                    prCommitsCache.clear();
                     prTableModel.setRowCount(0);
-                    prTableModel.addRow(new Object[] {"", "Error initializing PRs: " + ex.getMessage(), "", "", ""});
+                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
                     disablePrButtonsAndClearCommitsAndMenus();
+                    authorChoices.clear();
+                    labelChoices.clear();
+                    assigneeChoices.clear();
                     refreshPrButton.setToolTipText("Refresh");
+                    loadMoreButton.setVisible(false);
                     setReloadUiEnabled(true);
+                });
+            }
+            return null;
+        });
+        trackCancellableFuture(future);
+    }
+
+    /** Loads the next batch of PRs when user clicks "Load more". */
+    private void loadMorePrs() {
+        if (activePrIterator == null || !slidingWindow.hasMore()) {
+            return;
+        }
+
+        loadMoreButton.setEnabled(false);
+        refreshPrButton.setToolTipText("Loading more PRs...");
+
+        var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
+            try {
+                var result = StreamingPaginationHelper.loadBatch(
+                        activePrIterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                SwingUtilities.invokeLater(() -> {
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
+                    populateDynamicFilterChoices(allPrsFromApi);
+                    filterAndDisplayPrs();
+
+                    // Update UI state
+                    refreshPrButton.setToolTipText(
+                            slidingWindow.formatStatusMessage("PRs").isEmpty()
+                                    ? "Refresh"
+                                    : slidingWindow.formatStatusMessage("PRs"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+
+            } catch (Exception ex) {
+                logger.error("Failed to load more PRs", ex);
+                SwingUtilities.invokeLater(() -> {
+                    refreshPrButton.setToolTipText("Refresh");
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
                 });
             }
             return null;

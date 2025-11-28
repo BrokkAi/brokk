@@ -22,10 +22,16 @@ public final class StreamingPaginationHelper {
     public static final int DEFAULT_MAX_ITEMS = 500;
 
     /** Maximum items for lightweight DTOs (e.g., IssueHeader). */
-    public static final int MAX_ISSUES = 10_000;
+    public static final int MAX_ISSUES = 1000;
 
     /** Maximum items for heavy objects (e.g., GHPullRequest). */
     public static final int MAX_PRS = 500;
+
+    /** Number of items per batch for "Load more" pagination. */
+    public static final int BATCH_SIZE = 100;
+
+    /** Maximum items in sliding window (oldest discarded when exceeded). */
+    public static final int MAX_WINDOW_SIZE = 500;
 
     private StreamingPaginationHelper() {}
 
@@ -181,5 +187,65 @@ public final class StreamingPaginationHelper {
         }
         String suffix = count >= maxItems ? " (limit)" : "+";
         return "Loaded " + count + suffix + " " + itemType + "...";
+    }
+
+    /**
+     * Result of loading a single batch of items.
+     *
+     * @param <T> The type of items
+     */
+    public record BatchResult<T>(List<T> items, boolean hasMore) {}
+
+    /**
+     * Loads a single batch of items from an iterator.
+     * This method should be called from a background thread.
+     * Unlike streamPages(), this returns after loading one batch, allowing the caller to
+     * control when to load more.
+     *
+     * @param <T> The type of items being loaded
+     * @param iterator Source of items (fetches lazily); caller should preserve this across calls
+     * @param batchSize Maximum number of items to load in this batch
+     * @return BatchResult containing the loaded items and whether more are available
+     */
+    public static <T> BatchResult<T> loadBatch(Iterator<T> iterator, int batchSize) {
+        var batch = new ArrayList<T>(batchSize);
+
+        while (iterator.hasNext() && batch.size() < batchSize) {
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("Batch loading interrupted after {} items", batch.size());
+                break;
+            }
+            batch.add(iterator.next());
+        }
+
+        boolean hasMore = iterator.hasNext();
+        logger.debug("Loaded batch of {} items, hasMore: {}", batch.size(), hasMore);
+        return new BatchResult<>(batch, hasMore);
+    }
+
+    /**
+     * Loads a single batch from a pre-batched iterator (one that returns Lists).
+     * This method should be called from a background thread.
+     *
+     * @param <T> The type of items being loaded
+     * @param pageIterator Source of pages; caller should preserve this across calls
+     * @param batchSize Maximum number of items to load in this batch
+     * @return BatchResult containing the loaded items and whether more are available
+     */
+    public static <T> BatchResult<T> loadPrebatchedBatch(Iterator<List<T>> pageIterator, int batchSize) {
+        var batch = new ArrayList<T>(batchSize);
+
+        while (pageIterator.hasNext() && batch.size() < batchSize) {
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("Batch loading interrupted after {} items", batch.size());
+                break;
+            }
+            List<T> page = pageIterator.next();
+            batch.addAll(page);
+        }
+
+        boolean hasMore = pageIterator.hasNext();
+        logger.debug("Loaded prebatched batch of {} items, hasMore: {}", batch.size(), hasMore);
+        return new BatchResult<>(batch, hasMore);
     }
 }

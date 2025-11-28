@@ -18,6 +18,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.SlidingWindowState;
 import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
@@ -111,6 +112,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
     private List<IssueHeader> displayedIssues = new ArrayList<>();
 
+    // Sliding window pagination state
+    private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
+    @Nullable
+    private Iterator<List<IssueHeader>> activeIssueIterator;
+    private MaterialButton loadMoreButton;
+
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
@@ -182,19 +189,29 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
+        // ── Load More button ─────────────────────────────────────────────────────
+        loadMoreButton = new MaterialButton();
+        loadMoreButton.setText("Load more");
+        loadMoreButton.setToolTipText("Load more issues");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.addActionListener(e -> loadMoreIssues());
+
         // ── Refresh button ──────────────────────────────────────────────────────
-        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
+        MaterialButton refreshButton = new MaterialButton();
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
-        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
-        // Slightly enlarge the glyph so it is more legible than default-size text
+        refreshButton.setMargin(new Insets(2, 2, 2, 2));
         refreshButton.setFont(
                 refreshButton.getFont().deriveFont(refreshButton.getFont().getSize() * 1.25f));
         refreshButton.setToolTipText("Refresh");
         refreshButton.addActionListener(e -> updateIssueList());
-        searchPanel.add(refreshButton, BorderLayout.EAST);
+
+        // Panel to hold both buttons on the right
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        buttonPanel.add(loadMoreButton);
+        buttonPanel.add(refreshButton);
+        searchPanel.add(buttonPanel, BorderLayout.EAST);
 
         // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
@@ -788,16 +805,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return false;
     }
 
-    /** Fetches GitHub issues with streaming pagination and populates the issue table. */
+    /** Fetches GitHub issues with batch pagination and populates the issue table. */
     private void updateIssueList() {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
 
         searchBox.setLoading(true, "Loading issues...");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.setEnabled(false);
 
-        // Clear the table and prepare for streaming updates
+        // Clear state and prepare for new load
         SwingUtilities.invokeLater(() -> {
+            slidingWindow.clear();
+            activeIssueIterator = null;
             allIssuesFromApi.clear();
             displayedIssues.clear();
             issueTableModel.setRowCount(0);
@@ -820,79 +841,113 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
-                    logger.debug(
-                            "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
-                            statusVal,
-                            resolutionVal,
-                            queryForApi);
+                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'",
+                                 statusVal, resolutionVal, queryForApi);
                 } else {
                     apiFilterOptions =
                             new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
-                    logger.debug(
-                            "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
-                            statusVal,
-                            authorVal,
-                            labelVal,
-                            assigneeVal,
-                            queryForApi);
+                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
 
-                // Use streaming pagination with helper
+                // Create new iterator and load first batch
                 var pageIterator = this.issueService.listIssuesPaginated(
                         apiFilterOptions,
                         StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                        StreamingPaginationHelper.MAX_ISSUES);
+                        Integer.MAX_VALUE); // No hard limit - we control via batching
 
-                StreamingPaginationHelper.streamPrebatchedPages(
-                        pageIterator,
-                        StreamingPaginationHelper.MAX_ISSUES,
-                        (issues, total, hasMore, isFirst) -> {
-                            // Sort by update date, newest first
-                            issues.sort(Comparator.comparing(
-                                    IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-                            allIssuesFromApi = new ArrayList<>(issues);
-                            displayedIssues = issues;
-                            updateTableFromDisplayedIssues();
+                var result = StreamingPaginationHelper.loadPrebatchedBatch(
+                        pageIterator, StreamingPaginationHelper.BATCH_SIZE);
 
-                            // Update loading message
-                            var msg = StreamingPaginationHelper.formatLoadingMessage(
-                                    "issues", total, StreamingPaginationHelper.MAX_ISSUES, hasMore);
-                            searchBox.setLoading(hasMore, msg);
+                // Store iterator for "Load more"
+                activeIssueIterator = pageIterator;
 
-                            // On first page, ensure table is visible
-                            if (isFirst && !issues.isEmpty()) {
-                                issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
-                            }
-                        },
-                        () -> searchBox.setLoading(false, ""),
-                        ex -> {
-                            if (!wasCancellation(ex)) {
-                                logger.error("Failed to fetch issues via IssueService", ex);
-                                allIssuesFromApi.clear();
-                                displayedIssues.clear();
-                                issueTableModel.setRowCount(0);
-                                disableIssueActionsAndClearDetails();
-                            }
-                            searchBox.setLoading(false, "");
-                        });
+                SwingUtilities.invokeLater(() -> {
+                    // Sort by update date, newest first
+                    var sortedItems = new ArrayList<>(result.items());
+                    sortedItems.sort(Comparator.comparing(
+                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+
+                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+
+                    // Update UI state
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+
+                    if (!sortedItems.isEmpty()) {
+                        issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
+                    }
+                });
 
             } catch (Exception ex) {
+                activeIssueIterator = null;
                 if (wasCancellation(ex)) {
                     SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
                     SwingUtilities.invokeLater(() -> {
+                        slidingWindow.clear();
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, "");
+                        loadMoreButton.setVisible(false);
                     });
                 }
             }
             return null;
         });
         trackCancellableFuture(currentSearchFuture);
+    }
+
+    /** Loads the next batch of issues when user clicks "Load more". */
+    private void loadMoreIssues() {
+        if (activeIssueIterator == null || !slidingWindow.hasMore()) {
+            return;
+        }
+
+        loadMoreButton.setEnabled(false);
+        searchBox.setLoading(true, "Loading more issues...");
+
+        var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
+            try {
+                var result = StreamingPaginationHelper.loadPrebatchedBatch(
+                        activeIssueIterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                SwingUtilities.invokeLater(() -> {
+                    // Sort new items
+                    var sortedItems = new ArrayList<>(result.items());
+                    sortedItems.sort(Comparator.comparing(
+                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+
+                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+
+                    // Update UI state
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+
+            } catch (Exception ex) {
+                if (!wasCancellation(ex)) {
+                    logger.error("Failed to load more issues", ex);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    searchBox.setLoading(false, "");
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+            }
+            return null;
+        });
+        trackCancellableFuture(future);
     }
 
     /** Updates the table model from displayedIssues. Must be called on EDT. */
