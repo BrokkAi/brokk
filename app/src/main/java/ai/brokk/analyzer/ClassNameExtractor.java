@@ -53,9 +53,7 @@ public final class ClassNameExtractor {
         if (!lastPart.matches("[a-z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
 
         // Class segment heuristic: rightmost segment should look like a PascalCase identifier
-        var segLastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
-        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
 
         return Optional.of(beforeLast);
     }
@@ -156,23 +154,7 @@ public final class ClassNameExtractor {
     }
 
     private static String stripAngleGroups(String s) {
-        var sb = new StringBuilder(s.length());
-        int depth = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '<') {
-                depth++;
-                continue;
-            }
-            if (c == '>') {
-                if (depth > 0) depth--;
-                continue;
-            }
-            if (depth == 0) {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
+        return stripBrackets(s, '<', '>');
     }
 
     private static String normalizeQuotedBracketProps(String s) {
@@ -207,6 +189,40 @@ public final class ClassNameExtractor {
             }
         }
         return -1;
+    }
+
+    /**
+     * Strip matching bracket pairs from a string, handling nested brackets.
+     * Used to remove type parameters like &lt;T&gt; or [T] before extraction.
+     */
+    private static String stripBrackets(String s, char open, char close) {
+        var sb = new StringBuilder(s.length());
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == open) {
+                depth++;
+                continue;
+            }
+            if (c == close) {
+                if (depth > 0) depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Check if the rightmost segment of beforeLast matches the given class regex.
+     * Common validation for dot-based languages (Java, Scala, C#, Go).
+     */
+    private static boolean isValidClassSegment(String beforeLast, String classRegex) {
+        var segLastDot = beforeLast.lastIndexOf('.');
+        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
+        return lastSegment.matches(classRegex);
     }
 
     /* Python heuristics --------------------------------------------------- */
@@ -301,31 +317,13 @@ public final class ClassNameExtractor {
         }
 
         // Class/object segment heuristic: rightmost segment should look like a PascalCase identifier
-        var segLastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
-        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
 
         return Optional.of(beforeLast);
     }
 
     private static String stripSquareBrackets(String s) {
-        var sb = new StringBuilder(s.length());
-        int depth = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '[') {
-                depth++;
-                continue;
-            }
-            if (c == ']') {
-                if (depth > 0) depth--;
-                continue;
-            }
-            if (depth == 0) {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
+        return stripBrackets(s, '[', ']');
     }
 
     /* C# heuristics ------------------------------------------------------- */
@@ -373,9 +371,7 @@ public final class ClassNameExtractor {
         if (!lastPart.matches("[A-Z][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
 
         // Class segment heuristic: rightmost segment should look like a PascalCase identifier
-        var segLastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
-        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
 
         return Optional.of(beforeLast);
     }
@@ -421,9 +417,7 @@ public final class ClassNameExtractor {
 
         // Package/receiver segment heuristic: must be a valid Go identifier
         // Go packages are typically lowercase, but receivers can be any case
-        var segLastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
-        if (!lastSegment.matches("[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
+        if (!isValidClassSegment(beforeLast, "[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
 
         return Optional.of(beforeLast);
     }

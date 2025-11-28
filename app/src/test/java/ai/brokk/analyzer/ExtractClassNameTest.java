@@ -286,7 +286,9 @@ public class ExtractClassNameTest {
 
         // Valid Scala method references - standard camelCase
         assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.myMethod"));
-        assertEquals(Optional.of("scala.collection.immutable.List"), analyzer.extractClassName("scala.collection.immutable.List.apply"));
+        assertEquals(
+                Optional.of("scala.collection.immutable.List"),
+                analyzer.extractClassName("scala.collection.immutable.List.apply"));
         assertEquals(Optional.of("Option"), analyzer.extractClassName("Option.getOrElse"));
         assertEquals(Optional.of("List"), analyzer.extractClassName("List.map"));
         assertEquals(Optional.of("Future"), analyzer.extractClassName("Future.successful"));
@@ -311,7 +313,9 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("List"), analyzer.extractClassName("List.fill(10)"));
 
         // Package-qualified references
-        assertEquals(Optional.of("scala.concurrent.Future"), analyzer.extractClassName("scala.concurrent.Future.successful"));
+        assertEquals(
+                Optional.of("scala.concurrent.Future"),
+                analyzer.extractClassName("scala.concurrent.Future.successful"));
         assertEquals(Optional.of("akka.actor.ActorSystem"), analyzer.extractClassName("akka.actor.ActorSystem.create"));
 
         // Invalid cases - should return empty
@@ -364,7 +368,9 @@ public class ExtractClassNameTest {
         // Namespace-qualified references
         assertEquals(Optional.of("System.IO.File"), analyzer.extractClassName("System.IO.File.ReadAllText"));
         assertEquals(Optional.of("System.Console"), analyzer.extractClassName("System.Console.WriteLine"));
-        assertEquals(Optional.of("System.Collections.Generic.List"), analyzer.extractClassName("System.Collections.Generic.List.Add"));
+        assertEquals(
+                Optional.of("System.Collections.Generic.List"),
+                analyzer.extractClassName("System.Collections.Generic.List.Add"));
 
         // Generic types with angle brackets
         assertEquals(Optional.of("List"), analyzer.extractClassName("List<int>.Add"));
@@ -404,9 +410,13 @@ public class ExtractClassNameTest {
     @Test
     @DisplayName("C# extractForCSharp - handles complex generic types")
     void testCSharpExtractsComplexGenerics() {
-        assertEquals(Optional.of("Dictionary"), ClassNameExtractor.extractForCSharp("Dictionary<string, List<int>>.ContainsKey"));
+        assertEquals(
+                Optional.of("Dictionary"),
+                ClassNameExtractor.extractForCSharp("Dictionary<string, List<int>>.ContainsKey"));
         assertEquals(Optional.of("Func"), ClassNameExtractor.extractForCSharp("Func<int, string>.Invoke"));
-        assertEquals(Optional.of("IEnumerable"), ClassNameExtractor.extractForCSharp("IEnumerable<KeyValuePair<string, int>>.GetEnumerator"));
+        assertEquals(
+                Optional.of("IEnumerable"),
+                ClassNameExtractor.extractForCSharp("IEnumerable<KeyValuePair<string, int>>.GetEnumerator"));
     }
 
     @Test
@@ -511,9 +521,12 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("PDO"), analyzer.extractClassName("PDO::FETCH_ASSOC"));
 
         // Namespaced class references
-        assertEquals(Optional.of("Illuminate\\Support\\Str"), analyzer.extractClassName("Illuminate\\Support\\Str::random"));
+        assertEquals(
+                Optional.of("Illuminate\\Support\\Str"), analyzer.extractClassName("Illuminate\\Support\\Str::random"));
         assertEquals(Optional.of("App\\Models\\User"), analyzer.extractClassName("App\\Models\\User::find"));
-        assertEquals(Optional.of("Symfony\\Component\\HttpFoundation\\Request"), analyzer.extractClassName("Symfony\\Component\\HttpFoundation\\Request::create"));
+        assertEquals(
+                Optional.of("Symfony\\Component\\HttpFoundation\\Request"),
+                analyzer.extractClassName("Symfony\\Component\\HttpFoundation\\Request::create"));
 
         // Instance method calls (->)
         assertEquals(Optional.of("$user"), analyzer.extractClassName("$user->getName"));
