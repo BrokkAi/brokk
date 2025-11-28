@@ -403,7 +403,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Apply persisted preference if present and valid; otherwise fall back to Default
         String persistedVendor = MainProject.getOtherModelsVendorPreference();
         String vendorToSelect;
-        if (persistedVendor != null && !persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+        if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
             vendorToSelect = persistedVendor;
         } else {
             vendorToSelect = "Default";

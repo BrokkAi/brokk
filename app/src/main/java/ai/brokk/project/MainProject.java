@@ -1430,7 +1430,7 @@ public final class MainProject extends AbstractProject {
 
     public static void setOtherModelsVendorPreference(String vendor) {
         var props = loadGlobalProperties();
-        if (vendor == null || vendor.isBlank()) {
+        if (vendor.isBlank()) {
             props.remove(OTHER_MODELS_VENDOR_KEY);
         } else {
             props.setProperty(OTHER_MODELS_VENDOR_KEY, vendor.trim());
