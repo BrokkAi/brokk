@@ -428,6 +428,70 @@ public final class ClassNameExtractor {
         return Optional.of(beforeLast);
     }
 
+    /* PHP heuristics ------------------------------------------------------ */
+
+    /**
+     * Extract a PHP class name from a method reference like "MyClass::staticMethod" or "$obj->instanceMethod".
+     *
+     * <p>PHP uses different operators for different call types:
+     * <ul>
+     *   <li>Static methods/constants: MyClass::staticMethod(), MyClass::CONSTANT
+     *   <li>Instance methods: $obj->instanceMethod()
+     *   <li>Namespaces use backslash: Namespace\SubNamespace\Class::method()
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass::staticMethod" → "MyClass"
+     *   <li>"DateTime::createFromFormat" → "DateTime"
+     *   <li>"Illuminate\Support\Str::random" → "Illuminate\Support\Str"
+     *   <li>"$user->getName" → "$user"
+     *   <li>"$this->processRequest" → "$this"
+     * </ul>
+     */
+    public static Optional<String> extractForPhp(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+
+        // Check for static method call (::)
+        if (trimmed.contains("::")) {
+            var lastDoubleColon = trimmed.lastIndexOf("::");
+            if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) return Optional.empty();
+
+            var lastPart = trimmed.substring(lastDoubleColon + 2);
+            var beforeLast = trimmed.substring(0, lastDoubleColon);
+
+            // Method/constant name: starts with letter or underscore, optionally followed by params
+            if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+            // Class name: can include namespace backslashes, must be valid PHP identifier
+            // PHP class names start with letter or underscore
+            if (!beforeLast.matches("[a-zA-Z_\\\\][a-zA-Z0-9_\\\\]*")) return Optional.empty();
+
+            return Optional.of(beforeLast);
+        }
+
+        // Check for instance method call (->)
+        if (trimmed.contains("->")) {
+            var lastArrow = trimmed.lastIndexOf("->");
+            if (lastArrow <= 0 || lastArrow >= trimmed.length() - 2) return Optional.empty();
+
+            var lastPart = trimmed.substring(lastArrow + 2);
+            var beforeLast = trimmed.substring(0, lastArrow);
+
+            // Method name: starts with letter or underscore, optionally followed by params
+            if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+            // Variable/receiver: can be $var, $this, or chained call result
+            // Must start with $ or be a valid identifier (for chained calls)
+            if (!beforeLast.matches("\\$[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
+
+            return Optional.of(beforeLast);
+        }
+
+        return Optional.empty();
+    }
+
     /* Normalization helpers ----------------------------------------------- */
 
     /**

@@ -334,9 +334,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
     }
 
-    // TODO
     @Override
     public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+        return ClassNameExtractor.extractForPhp(reference);
     }
 }
