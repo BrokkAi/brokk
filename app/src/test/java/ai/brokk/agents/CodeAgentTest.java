@@ -13,10 +13,10 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -829,7 +829,7 @@ class CodeAgentTest {
                 taskMessages,
                 nextRequest,
                 changedFiles,
-                new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE));
+                new ViewingPolicy(TaskResult.Type.CODE));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
