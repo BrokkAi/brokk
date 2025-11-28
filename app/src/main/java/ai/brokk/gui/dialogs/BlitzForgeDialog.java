@@ -990,8 +990,9 @@ public class BlitzForgeDialog extends JDialog {
                 long workspaceAdd = 0;
                 if (includeWorkspace) {
                     Context ctx = cm.liveContext();
-                    workspaceTokens = Messages.getApproximateMessageTokens(
-                            WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    workspaceTokens =
+                            Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                                    ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     workspaceAdd = workspaceTokens * n;
                 }
 
@@ -1111,8 +1112,8 @@ public class BlitzForgeDialog extends JDialog {
             try {
                 // Token counting and message construction happen in this background thread.
                 Context ctx = cm.liveContext();
-                workspaceTokens = Messages.getApproximateMessageTokens(
-                        WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                workspaceTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                        ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
@@ -1429,7 +1430,8 @@ public class BlitzForgeDialog extends JDialog {
                     }
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
-                    list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
+                            ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
                     for (var m : list) {
@@ -1599,7 +1601,8 @@ public class BlitzForgeDialog extends JDialog {
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
+                            context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }
                 if (fRelatedK != null) {

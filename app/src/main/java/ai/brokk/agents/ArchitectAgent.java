@@ -450,7 +450,8 @@ public class ArchitectAgent {
 
             // Calculate current workspace token size
             ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.ARCHITECT);
-            var workspaceContentMessages = new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, vp));
+            var workspaceContentMessages =
+                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, vp));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings

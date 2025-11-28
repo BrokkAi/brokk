@@ -200,12 +200,13 @@ public class CodeAgent {
             }
 
             // Before each LLM request, append a workspace TOC reminder to the current round's UserMessage.
-            var baseRequest =
-                    requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM");
-            var tocReminder = """
+            var baseRequest = requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM");
+            var tocReminder =
+                    """
             Reminder: here is a list of the full contents of the Workspace that you can refer to above:
             %s
-            """.formatted(WorkspacePrompts.formatCodeToc(context, es.changedFiles()));
+            """
+                            .formatted(WorkspacePrompts.formatCodeToc(context, es.changedFiles()));
             var augmentedText = Messages.getText(baseRequest) + "\n\n" + tocReminder;
             var augmentedRequest = new UserMessage(augmentedText);
             cs = new ConversationState(cs.taskMessages(), augmentedRequest, cs.turnStartIndex());

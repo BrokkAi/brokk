@@ -231,8 +231,7 @@ public class SearchAgent {
             boolean isLutz = objective == Objective.LUTZ;
             var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
             // Build workspace messages in insertion order with viewing policy applied
-            var workspaceMessages =
-                    new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, viewingPolicy));
+            var workspaceMessages = new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(

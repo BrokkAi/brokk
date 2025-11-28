@@ -6,7 +6,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -17,7 +16,8 @@ public abstract class CopyExternalPrompts extends CodePrompts {
     public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
         // omits edit instructions and examples
         return Streams.concat(
-                        Stream.of(systemMessage(cm.liveContext(), CodePrompts.LAZY_REMINDER)), collectMessagesInternal(cm).stream())
+                        Stream.of(systemMessage(cm.liveContext(), CodePrompts.LAZY_REMINDER)),
+                        collectMessagesInternal(cm).stream())
                 .toList();
     }
 

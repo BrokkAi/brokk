@@ -47,8 +47,7 @@ public final class WorkspacePrompts {
      * - readOnlyPlusUntouched: read-only fragments and untouched editable fragments
      * - editableChanged: editable fragments that intersect the changed files plus build status
      */
-    public record CodeAgentMessages(
-            List<ChatMessage> readOnlyPlusUntouched, List<ChatMessage> editableChanged) {}
+    public record CodeAgentMessages(List<ChatMessage> readOnlyPlusUntouched, List<ChatMessage> editableChanged) {}
 
     public static String formatGroupedToc(Context ctx) {
         var editableContents =
@@ -75,9 +74,8 @@ public final class WorkspacePrompts {
                   </workspace_editable>"""
                         .formatted(editableContents);
 
-        var buildStatusSection = buildFragment.isPresent()
-                ? "  <workspace_build_status>(failing)</workspace_build_status>"
-                : "";
+        var buildStatusSection =
+                buildFragment.isPresent() ? "  <workspace_build_status>(failing)</workspace_build_status>" : "";
 
         var parts = new ArrayList<String>();
         parts.add(readOnlySection);
@@ -127,12 +125,10 @@ public final class WorkspacePrompts {
                     .toList();
         }
 
-        var editableUnchangedContents = editableUnchanged.stream()
-                .map(ContextFragment::formatToc)
-                .collect(Collectors.joining("\n"));
-        var editableChangedContents = editableChanged.stream()
-                .map(ContextFragment::formatToc)
-                .collect(Collectors.joining("\n"));
+        var editableUnchangedContents =
+                editableUnchanged.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var editableChangedContents =
+                editableChanged.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
 
         var buildFragment = ctx.getBuildFragment();
 
@@ -163,9 +159,8 @@ public final class WorkspacePrompts {
                   </workspace_editable_changed>"""
                         .formatted(editableChangedContents);
 
-        var buildStatusSection = buildFragment.isPresent()
-                ? "  <workspace_build_status>(failing)</workspace_build_status>"
-                : "";
+        var buildStatusSection =
+                buildFragment.isPresent() ? "  <workspace_build_status>(failing)</workspace_build_status>" : "";
 
         var parts = new ArrayList<String>();
         if (!readOnlySection.isBlank()) {
@@ -223,8 +218,7 @@ public final class WorkspacePrompts {
      * Generic combined workspace: readonly + editable(all) + build status, wrapped in a single
      * {@code <workspace>} block.
      */
-    public static List<ChatMessage> getMessagesGroupedByMutability(
-            Context ctx, ViewingPolicy viewingPolicy) {
+    public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
         // Compose read-only (without build fragment) + all editable + build status into a single <workspace> message
         var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy);
         var editableMessages = buildEditableAll(ctx, viewingPolicy);
@@ -339,7 +333,8 @@ public final class WorkspacePrompts {
             readOnlyText.append(combinedBlock).append("\n\n");
         }
 
-        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include it)
+        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include
+        // it)
         if (buildFragment != null && changedFiles.isEmpty()) {
             if (!readOnlyText.isEmpty()) {
                 readOnlyText.append("\n\n");
@@ -427,14 +422,12 @@ public final class WorkspacePrompts {
                 .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
                 .toList();
 
-        return buildEditableInternal(
-                changedEditable, ctx.getBuildFragment().orElse(null), true, viewingPolicy);
+        return buildEditableInternal(changedEditable, ctx.getBuildFragment().orElse(null), true, viewingPolicy);
     }
 
     private static List<ChatMessage> buildEditableAll(Context ctx, ViewingPolicy viewingPolicy) {
         var editableFragments = ctx.getEditableFragments().toList();
-        return buildEditableInternal(
-                editableFragments, ctx.getBuildFragment().orElse(null), false, viewingPolicy);
+        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null), false, viewingPolicy);
     }
 
     private static List<ChatMessage> buildEditableInternal(
