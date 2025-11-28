@@ -1,9 +1,9 @@
 package ai.brokk.prompts;
 
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -522,16 +522,5 @@ public final class WorkspacePrompts {
         }
 
         return new RenderedContent(textBuilder.toString().trim(), imageList);
-    }
-
-    /**
-     * Viewing policy for content visibility filtering across agents.
-     * - taskType: which agent/task is viewing the content
-     * - isLutz: whether the objective is LUTZ (affects Task List visibility for Search)
-     */
-    public record ViewingPolicy(TaskResult.Type taskType, boolean isLutz) {
-        public ViewingPolicy(TaskResult.Type taskType) {
-            this(taskType, false);
-        }
     }
 }
