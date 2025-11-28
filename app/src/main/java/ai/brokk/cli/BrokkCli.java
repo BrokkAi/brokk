@@ -1125,10 +1125,9 @@ public final class BrokkCli implements Callable<Integer> {
         for (ContextFragment fragment : rec.fragments()) {
             if (fragment instanceof ContextFragment.ProjectPathFragment) {
                 collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-            } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
-                if (!collectedVirtualDtos.containsKey(vf.id())) {
-                    collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
-                }
+            } else if (!collectedVirtualDtos.containsKey(fragment.id())) {
+                var fragmentDto = DtoMapper.toVirtualFragmentDto(fragment, writer);
+                if (fragmentDto != null) collectedVirtualDtos.put(fragment.id(), fragmentDto);
             } else {
                 throw new IllegalArgumentException(
                         "Unhandled ContextFragment type for cache serialization: " + fragment.getClass());

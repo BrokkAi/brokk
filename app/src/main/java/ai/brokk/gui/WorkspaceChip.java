@@ -883,12 +883,7 @@ public class WorkspaceChip extends JPanel {
 
     private static FragmentMetrics getOrComputeMetrics(ContextFragment fragment) {
         return metricsCache.computeIfAbsent(fragment, f -> {
-            String text;
-            if (f instanceof ContextFragment.ComputedFragment cf) {
-                text = cf.computedText().renderNowOr("");
-            } else {
-                text = f.text();
-            }
+            String text = f.text().renderNowOr("");
             int loc = text.split("\\r?\\n", -1).length;
             int tokens = Messages.getApproximateTokens(text);
             return new FragmentMetrics(loc, tokens);
@@ -1069,8 +1064,8 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
             // Non-blocking reads; values refine as underlying ComputedValues complete.
-            String text = computeSummaryLabelNonBlocking();
-            String toolTip = computeAggregateSummaryTooltipNonBlocking();
+            String text = computeSummaryLabel();
+            String toolTip = computeAggregateSummaryTooltip();
 
             // Only update label text if changed
             String currentText = label.getText();
@@ -1098,7 +1093,7 @@ public class WorkspaceChip extends JPanel {
             }
         }
 
-        private String computeSummaryLabelNonBlocking() {
+        private String computeSummaryLabel() {
             int totalFiles = (int) summaryFragments.stream()
                     .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
@@ -1107,7 +1102,7 @@ public class WorkspaceChip extends JPanel {
             return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
         }
 
-        private String computeAggregateSummaryTooltipNonBlocking() {
+        private String computeAggregateSummaryTooltip() {
             var allFiles = summaryFragments.stream()
                     .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                     .map(ProjectFile::toString)
@@ -1126,13 +1121,13 @@ public class WorkspaceChip extends JPanel {
                     totalLoc += metrics.loc();
                     totalTokens += metrics.tokens();
                 }
-            }
-            if (totalLoc > 0 || totalTokens > 0) {
                 body.append("<div>")
                         .append(formatCount(totalLoc))
                         .append(" LOC \u2022 ~")
                         .append(formatCount(totalTokens))
                         .append(" tokens</div><br/>");
+            } catch (Exception e) {
+                logger.error(e);
             }
 
             body.append("<div><b>Summaries</b></div>");
