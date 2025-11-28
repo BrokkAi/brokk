@@ -386,25 +386,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        // Auto-detect and set vendor for other models, with persisted preference override
-        var quickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
-        var quickEditConfig = chrome.getProject().getMainProject().getQuickEditModelConfig();
-        var quickestConfig = chrome.getProject().getMainProject().getQuickestModelConfig();
-        var scanConfig = chrome.getProject().getMainProject().getScanModelConfig();
-
-        String detectedVendor = "Default"; // default
-        if (scanConfig.name().equals(Service.GPT_5_MINI)
-                && quickConfig.name().equals(Service.GPT_5_NANO)
-                && quickEditConfig.name().equals(Service.GPT_5_NANO)
-                && quickestConfig.name().equals(Service.GPT_5_NANO)) {
-            detectedVendor = "OpenAI";
-        } else if (scanConfig.name().equals(Service.HAIKU_4_5)
-                && quickConfig.name().equals(Service.HAIKU_4_5)
-                && quickEditConfig.name().equals(Service.HAIKU_4_5)
-                && quickestConfig.name().equals(Service.HAIKU_4_5)) {
-            detectedVendor = "Anthropic";
-        }
-
         // Build vendor list based on model availability
         var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
@@ -419,13 +400,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Rebuild combo with available vendors
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Apply persisted preference if present and valid; otherwise fall back to auto-detected vendor
+        // Apply persisted preference if present and valid; otherwise fall back to Default
         String persistedVendor = MainProject.getOtherModelsVendorPreference();
         String vendorToSelect;
         if (persistedVendor != null && !persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
             vendorToSelect = persistedVendor;
-        } else if (vendors.contains(detectedVendor)) {
-            vendorToSelect = detectedVendor;
         } else {
             vendorToSelect = "Default";
         }
