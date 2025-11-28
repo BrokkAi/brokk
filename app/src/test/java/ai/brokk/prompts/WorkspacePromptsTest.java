@@ -84,7 +84,9 @@ class WorkspacePromptsTest {
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("untouched.txt"), "Should include untouched editable files");
-        assertTrue(allText.contains("workspace_editable_unchanged"), "Should have editable_unchanged section for untouched files");
+        assertTrue(
+                allText.contains("workspace_editable_unchanged"),
+                "Should have editable_unchanged section for untouched files");
     }
 
     // Test 1c: CODE_READONLY_PLUS_UNTOUCHED with empty changedFiles includes build fragment

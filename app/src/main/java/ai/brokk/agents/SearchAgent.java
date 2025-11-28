@@ -392,55 +392,7 @@ public class SearchAgent {
             int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
-
-        var reminder = CodePrompts.instance.askReminder();
-        var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
-                .map(Language::name)
-                .collect(Collectors.joining(", "));
-
-        var sys = new SystemMessage(
-                """
-                <instructions>
-                You are the Search Agent.
-                Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
-                  Your responsibilities are:
-                    1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
-                    2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
-                    3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
-
-                  Remember: **You must never write, create, or modify code.**
-                  Your purpose is to *find* existing code, not *create* new code.
-                  The Code Agent is solely responsible for all code generation and modification.
-
-                Critical rules:
-                  1) PRUNE FIRST at every turn.
-                     - Remove fragments that are not directly useful for the goal (add a reason).
-                     - Prefer concise, goal-focused summaries over full files when possible.
-                     - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
-                     - Keep the Workspace focused on answering/solving the goal.
-                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                  3) The symbol-based tools only have visibility into the following file types: %s
-                     Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single tool call when possible.
-                  5) Make multiple tool calls at once when searching for different types of code.
-                  6) Your responsibility ends at providing context.
-                     Do not attempt to write the solution or pseudocode for the solution.
-                     Your job is to *gather* the materials; the Code Agent's job is to *use* them.
-                     Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
-                     and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
-                     and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
-                     Note: Code Agent will also take care of creating new files, you only need to add existing files
-                     to the Workspace.
-
-                Output discipline:
-                  - Start each turn by pruning and summarizing before any new exploration.
-                  - Think before calling tools.
-                  - If you already know what to add, use Workspace tools directly; do not search redundantly.
-
-                %s
-                </instructions>
-                """
-                        .formatted(supportedTypes, reminder));
+        var sys = getSystemMessage();
         messages.add(sys);
 
         // Describe available MCP tools
@@ -545,9 +497,41 @@ public class SearchAgent {
         }
 
         var terminalObjective = buildTerminalObjective();
+        var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
 
         String directive =
                 """
+                        <instructions>
+                        Critical rules:
+                          1) PRUNE FIRST at every turn.
+                             - Remove fragments that are not directly useful for the goal (add a reason).
+                             - Prefer concise, goal-focused summaries over full files when possible.
+                             - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
+                             - Keep the Workspace focused on answering/solving the goal.
+                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                             The symbol-based tools only have visibility into the following file types: %s
+                             Use text-based tools if you need to search other file types.
+                          3) Group related lookups into a single tool call when possible.
+                          4) Make multiple tool calls at once when searching for different types of code.
+                          5) Your responsibility ends at providing context.
+                             Do not attempt to write the solution or pseudocode for the solution.
+                             Your job is to *gather* the materials; the Code Agent's job is to *use* them.
+                             Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
+                             and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
+                             and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
+                             Note: Code Agent will also take care of creating new files, you only need to add existing files
+                             to the Workspace.
+
+                        Output discipline:
+                          - Start each turn by pruning and summarizing before any new exploration.
+                          - Think before calling tools.
+                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                        %s
+                        </instructions>
+
                         <%s>
                         %s
                         </%s>
@@ -577,6 +561,8 @@ public class SearchAgent {
                         %s
                         """
                         .formatted(
+                                supportedTypes,
+                                CodePrompts.instance.askReminder(),
                                 terminalObjective.type,
                                 goal,
                                 terminalObjective.type(),
@@ -600,6 +586,22 @@ public class SearchAgent {
 
         messages.add(new UserMessage(directive));
         return messages;
+    }
+
+    static SystemMessage getSystemMessage() {
+        return new SystemMessage(
+                """
+                        You are the Search Agent.
+                        Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
+                          Your responsibilities are:
+                            1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
+                            2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
+                            3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
+
+                          Remember: **You must never write, create, or modify code.**
+                          Your purpose is to *find* existing code, not *create* new code.
+                          The Code Agent is solely responsible for all code generation and modification.
+                        """);
     }
 
     private List<String> calculateAllowedToolNames() {
@@ -779,22 +781,11 @@ public class SearchAgent {
 
     private List<ChatMessage> buildInitialPruningPrompt() {
         var messages = new ArrayList<ChatMessage>();
-
-        var sys = new SystemMessage(
-                """
-                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
-                fragments before proceeding; they are highly distracting to the other Agents.
-
-                Your task:
-                  - Evaluate the current workspace contents.
-                  - Call dropWorkspaceFragments to remove irrelevant fragments.
-                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
-                """);
-        messages.add(sys);
+        messages.add(getSystemMessage());
 
         // Current Workspace contents (use default viewing policy)
-        messages.addAll(
-                CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
+        messages.addAll(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(
+                context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Goal and project context
         messages.add(new UserMessage(
