@@ -292,9 +292,7 @@ public final class WorkspacePrompts {
     public static CodeAgentMessages getMessagesForCodeAgent(
             Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
         var readOnlyPlusUntouched = buildReadOnlyPlusUntouched(ctx, viewingPolicy, changedFiles);
-        var editableChanged = changedFiles.isEmpty()
-                ? List.<ChatMessage>of()
-                : buildEditableChanged(ctx, viewingPolicy, changedFiles);
+        var editableChanged = buildEditableChanged(ctx, viewingPolicy, changedFiles);
         return new CodeAgentMessages(readOnlyPlusUntouched, editableChanged);
     }
 
@@ -352,27 +350,25 @@ public final class WorkspacePrompts {
 
         // Untouched editable: only when changedFiles is non-empty
         String untouchedSection = "";
-        if (!changedFiles.isEmpty()) {
-            var editableFragments = ctx.getEditableFragments().toList();
-            var untouchedEditable = editableFragments.stream()
-                    .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
-                    .toList();
+        var editableFragments = ctx.getEditableFragments().toList();
+        var untouchedEditable = editableFragments.stream()
+                .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
+                .toList();
 
-            if (!untouchedEditable.isEmpty()) {
-                var renderedUntouched = formatWithPolicy(untouchedEditable, viewingPolicy);
-                if (!renderedUntouched.text.isEmpty()) {
-                    untouchedSection =
-                            """
-                            <workspace_editable_unchanged>
-                            Here are EDITABLE files and code fragments that have not been changed yet in this task.
+        if (!untouchedEditable.isEmpty()) {
+            var renderedUntouched = formatWithPolicy(untouchedEditable, viewingPolicy);
+            if (!renderedUntouched.text.isEmpty()) {
+                untouchedSection =
+                        """
+                        <workspace_editable_unchanged>
+                        Here are EDITABLE files and code fragments that have not been changed yet in this task.
 
-                            %s
-                            </workspace_editable_unchanged>
-                            """
-                                    .formatted(renderedUntouched.text);
-                }
-                allImages.addAll(renderedUntouched.images);
+                        %s
+                        </workspace_editable_unchanged>
+                        """
+                                .formatted(renderedUntouched.text);
             }
+            allImages.addAll(renderedUntouched.images);
         }
 
         if (readOnlyText.isEmpty() && untouchedSection.isBlank() && allImages.isEmpty()) {
