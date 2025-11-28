@@ -15,6 +15,7 @@ import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from 
 import './components/ZoomWidget.ts';
 import { envStore } from './stores/envStore';
 import { setSummaryParseEntry, deleteSummaryParseEntry, getSummaryParseEntry, updateSummaryParseTree, summaryParseStore } from './stores/summaryParseStore';
+import { setLiveSummary, clearAllLiveSummaries } from './stores/liveSummaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
 
@@ -149,6 +150,9 @@ function onLiveSummary(payload: any): void {
         text: summary,
     });
 
+    // Store the summary metadata in liveSummaryStore for the UI
+    setLiveSummary(threadId, { compressed, summary });
+
     // Register a parse result handler
     register(summarySeq, (msg: any) => {
         updateSummaryParseTree(threadId, msg.tree);
@@ -165,6 +169,7 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
+    clearAllLiveSummaries();
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
