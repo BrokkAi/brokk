@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -214,5 +215,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         }
 
         return baseIndent + fullSignature;
+    }
+
+    // TODO
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return Optional.empty();
     }
 }

@@ -337,4 +337,19 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     public Set<Language> languages() {
         return Set.of(Languages.SQL);
     }
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
+    }
 }

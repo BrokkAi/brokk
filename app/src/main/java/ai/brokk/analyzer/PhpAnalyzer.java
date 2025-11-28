@@ -326,4 +326,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // attribute.definition is handled by decorator logic in base class.
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
     }
+
+    // TODO
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return Optional.empty();
+    }
 }
