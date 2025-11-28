@@ -1293,25 +1293,6 @@ public class Context {
         }
     }
 
-    /**
-     * Kicks off asynchronous snapshotting of all fragments in this context using a given timeout.
-     * This is intended to capture the state of a context before it becomes historical, without blocking the caller.
-     * Snapshotting runs in the background on the ContextFragment executor and captures text and/or image bytes
-     * for each fragment where possible.
-     */
-    public void startSnapshotting(Duration timeout) {
-        for (var fragment : this.allFragments().toList()) {
-            ContextFragment.getFragmentExecutor().submit(() -> {
-                try {
-                    fragment.snapshot().start();
-                    fragment.snapshot().await(timeout); // best-effort bounded await
-                } catch (Exception e) {
-                    logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
-                }
-            });
-        }
-    }
-
     private static Set<ContextFragment> validateReadOnlyFragments(
             Set<ContextFragment> readonly, List<ContextFragment> all) {
         for (var cf : readonly) {

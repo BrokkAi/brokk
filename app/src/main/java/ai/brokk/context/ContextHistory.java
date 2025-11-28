@@ -285,7 +285,11 @@ public class ContextHistory {
             var popped = history.removeLast();
             // Snapshot the context before moving it to redo stack, as it was the live context
             // and its content might not be cached yet.
-            popped.startSnapshotting(SNAPSHOT_AWAIT_TIMEOUT);
+            try {
+                popped.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for undo state to complete.");
+            }
             resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
