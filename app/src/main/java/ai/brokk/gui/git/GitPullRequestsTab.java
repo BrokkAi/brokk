@@ -32,6 +32,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -112,7 +113,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private final SlidingWindowState<GHPullRequest> slidingWindow = new SlidingWindowState<>();
 
     private volatile @Nullable Iterator<GHPullRequest> activePrIterator;
-    private long searchGeneration = 0; // Incremented on each new search to detect stale results
+    private long searchGeneration = 0;
 
     private MaterialButton loadMoreButton;
 
@@ -995,6 +996,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
+    private static boolean wasCancellation(Throwable t) {
+        Throwable cause = t;
+        while (cause != null) {
+            if (cause instanceof InterruptedException || cause instanceof InterruptedIOException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
     /** Fetches GitHub pull requests with streaming pagination and populates the PR table. */
     private void updatePrList() {
         assert SwingUtilities.isEventDispatchThread();
@@ -1002,10 +1014,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         loadMoreButton.setVisible(false);
         loadMoreButton.setEnabled(false);
 
-        // Increment generation to invalidate any in-flight loadMore tasks
         final long capturedGeneration = ++searchGeneration;
 
-        // Clear state and prepare for new load
         slidingWindow.clear();
         activePrIterator = null;
         allPrsFromApi.clear();
@@ -1042,18 +1052,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 activePrIterator = iterator;
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if a new search was started while we were loading
                     if (capturedGeneration != searchGeneration) {
-                        return; // Stale result, discard
+                        return;
                     }
-
-                    // API returns PRs ordered by updated descending
                     slidingWindow.appendBatch(result.items(), result.hasMore());
                     allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
                     populateDynamicFilterChoices(allPrsFromApi);
                     filterAndDisplayPrs();
-
-                    // Update UI state
                     refreshPrButton.setToolTipText(
                             slidingWindow.formatStatusMessage("PRs").isEmpty()
                                     ? "Refresh"
@@ -1071,23 +1076,34 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
             } catch (Exception ex) {
                 activePrIterator = null;
-                logger.error("Failed to fetch pull requests", ex);
-                SwingUtilities.invokeLater(() -> {
-                    slidingWindow.clear();
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    prTableModel.setRowCount(0);
-                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
-                    disablePrButtonsAndClearCommitsAndMenus();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    refreshPrButton.setToolTipText("Refresh");
-                    loadMoreButton.setVisible(false);
-                    setReloadUiEnabled(true);
-                });
+                if (wasCancellation(ex)) {
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration == searchGeneration) {
+                            setReloadUiEnabled(true);
+                        }
+                    });
+                } else {
+                    logger.error("Failed to fetch pull requests", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration != searchGeneration) {
+                            return;
+                        }
+                        slidingWindow.clear();
+                        allPrsFromApi.clear();
+                        displayedPrs.clear();
+                        ciStatusCache.clear();
+                        prCommitsCache.clear();
+                        prTableModel.setRowCount(0);
+                        prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                        disablePrButtonsAndClearCommitsAndMenus();
+                        authorChoices.clear();
+                        labelChoices.clear();
+                        assigneeChoices.clear();
+                        refreshPrButton.setToolTipText("Refresh");
+                        loadMoreButton.setVisible(false);
+                        setReloadUiEnabled(true);
+                    });
+                }
             }
             return null;
         });
@@ -1100,29 +1116,23 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return;
         }
 
-        var iterator = activePrIterator; // Capture for use in lambda (NullAway)
-        final long capturedGeneration = searchGeneration; // Capture to detect stale results
+        var iterator = activePrIterator;
+        final long capturedGeneration = searchGeneration;
         loadMoreButton.setEnabled(false);
         refreshPrButton.setToolTipText("Loading more PRs...");
 
         var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
             try {
-                var result =
-                        StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
+                var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if a new search was started while we were loading
                     if (capturedGeneration != searchGeneration) {
-                        return; // Stale result, discard
+                        return;
                     }
-
-                    // API returns PRs ordered by updated descending
                     slidingWindow.appendBatch(result.items(), result.hasMore());
                     allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
                     populateDynamicFilterChoices(allPrsFromApi);
                     filterAndDisplayPrs();
-
-                    // Update UI state
                     refreshPrButton.setToolTipText(
                             slidingWindow.formatStatusMessage("PRs").isEmpty()
                                     ? "Refresh"
@@ -1132,10 +1142,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 });
 
             } catch (Exception ex) {
-                logger.error("Failed to load more PRs", ex);
+                if (!wasCancellation(ex)) {
+                    logger.error("Failed to load more PRs", ex);
+                }
                 SwingUtilities.invokeLater(() -> {
-                    refreshPrButton.setToolTipText("Refresh");
-                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    if (capturedGeneration == searchGeneration) {
+                        refreshPrButton.setToolTipText("Refresh");
+                        loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    }
                 });
             }
             return null;

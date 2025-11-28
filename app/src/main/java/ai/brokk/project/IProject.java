@@ -341,24 +341,12 @@ public interface IProject extends AutoCloseable {
 
     default void setExecutorArgs(@Nullable String args) {}
 
-    /**
-     * Gets a UI filter property value for persistence across sessions.
-     * Used by Issues and PRs tabs to remember filter selections.
-     *
-     * @param key The filter key (e.g., "issues.status", "prs.author")
-     * @return The saved filter value, or null if not set
-     */
+    /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
     default @Nullable String getUiFilterProperty(String key) {
         return null;
     }
 
-    /**
-     * Sets a UI filter property value for persistence across sessions.
-     * Used by Issues and PRs tabs to save filter selections.
-     *
-     * @param key The filter key (e.g., "issues.status", "prs.author")
-     * @param value The filter value to save, or null to clear
-     */
+    /** Sets a UI filter property for persistence across sessions. */
     default void setUiFilterProperty(String key, @Nullable String value) {}
 
     default boolean getArchitectRunInWorktree() {

@@ -116,7 +116,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
 
     private volatile @Nullable Iterator<List<IssueHeader>> activeIssueIterator;
-    private long searchGeneration = 0; // Incremented on each new search to detect stale results
+    private long searchGeneration = 0;
 
     private MaterialButton loadMoreButton;
 
@@ -832,6 +832,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     /** Fetches GitHub issues with batch pagination and populates the issue table. */
     private void updateIssueList() {
+        assert SwingUtilities.isEventDispatchThread();
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
@@ -840,10 +841,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         loadMoreButton.setVisible(false);
         loadMoreButton.setEnabled(false);
 
-        // Increment generation to invalidate any in-flight loadMore tasks
         final long capturedGeneration = ++searchGeneration;
 
-        // Clear state and prepare for new load
         SwingUtilities.invokeLater(() -> {
             slidingWindow.clear();
             activeIssueIterator = null;
@@ -888,9 +887,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
                 // Create new iterator and load first batch
                 var pageIterator = this.issueService.listIssuesPaginated(
-                        apiFilterOptions,
-                        StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                        StreamingPaginationHelper.MAX_ISSUES);
+                        apiFilterOptions, StreamingPaginationHelper.DEFAULT_PAGE_SIZE, Integer.MAX_VALUE);
 
                 var result = StreamingPaginationHelper.loadPrebatchedBatch(
                         pageIterator, StreamingPaginationHelper.BATCH_SIZE);
@@ -899,12 +896,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 activeIssueIterator = pageIterator;
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if a new search was started while we were loading
                     if (capturedGeneration != searchGeneration) {
-                        return; // Stale result, discard
+                        return;
                     }
 
-                    // Sort by update date, newest first (relies on API returning items in order)
                     var sortedItems = new ArrayList<>(result.items());
                     sortedItems.sort(Comparator.comparing(
                             IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
@@ -913,8 +908,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
                     displayedIssues = new ArrayList<>(allIssuesFromApi);
                     updateTableFromDisplayedIssues();
-
-                    // Update UI state
                     searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
                     loadMoreButton.setVisible(slidingWindow.hasMore());
                     loadMoreButton.setEnabled(slidingWindow.hasMore());
@@ -927,10 +920,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             } catch (Exception ex) {
                 activeIssueIterator = null;
                 if (wasCancellation(ex)) {
-                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration == searchGeneration) {
+                            searchBox.setLoading(false, "");
+                        }
+                    });
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
                     SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration != searchGeneration) {
+                            return;
+                        }
                         slidingWindow.clear();
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
@@ -952,23 +952,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             return;
         }
 
-        var iterator = activeIssueIterator; // Capture for use in lambda (NullAway)
-        final long capturedGeneration = searchGeneration; // Capture to detect stale results
+        var iterator = activeIssueIterator;
+        final long capturedGeneration = searchGeneration;
         loadMoreButton.setEnabled(false);
         searchBox.setLoading(true, "Loading more issues...");
 
         var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
             try {
-                var result = StreamingPaginationHelper.loadPrebatchedBatch(
-                        iterator, StreamingPaginationHelper.BATCH_SIZE);
+                var result =
+                        StreamingPaginationHelper.loadPrebatchedBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if a new search was started while we were loading
                     if (capturedGeneration != searchGeneration) {
-                        return; // Stale result, discard
+                        return;
                     }
-
-                    // Sort new items (relies on API returning items in order by updated)
                     var sortedItems = new ArrayList<>(result.items());
                     sortedItems.sort(Comparator.comparing(
                             IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
@@ -977,8 +974,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
                     displayedIssues = new ArrayList<>(allIssuesFromApi);
                     updateTableFromDisplayedIssues();
-
-                    // Update UI state
                     searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
                     loadMoreButton.setVisible(slidingWindow.hasMore());
                     loadMoreButton.setEnabled(slidingWindow.hasMore());
@@ -989,8 +984,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     logger.error("Failed to load more issues", ex);
                 }
                 SwingUtilities.invokeLater(() -> {
-                    searchBox.setLoading(false, "");
-                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    if (capturedGeneration == searchGeneration) {
+                        searchBox.setLoading(false, "");
+                        loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    }
                 });
             }
             return null;
