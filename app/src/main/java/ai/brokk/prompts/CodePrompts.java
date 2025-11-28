@@ -210,18 +210,13 @@ public abstract class CodePrompts {
         var reminder = codeReminder(cm.getService(), model);
 
         messages.add(systemMessage(cm, ctx, reminder));
-        // FIXME we're supposed to leave the unchanged files in their original position
-        if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx, true, viewingPolicy));
-        } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
-        }
+        messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy, changedFiles));
         messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceEditableMessages(ctx));
+            messages.addAll(getWorkspaceEditableMessages(ctx, changedFiles));
         }
         messages.add(request);
 
@@ -604,8 +599,8 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
-     * include editable content or related classes.
+     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.).
+     * Does not include editable content or related classes.
      *
      * @param ctx The context to process.
      * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
@@ -614,14 +609,11 @@ public abstract class CodePrompts {
      */
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
+        return getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp, Set.of());
     }
 
-    /**
-     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
-     */
-    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
+    private Collection<ChatMessage> getWorkspaceReadOnlyMessages(
+            Context ctx, boolean combineSummaries, ViewingPolicy vp, Set<ProjectFile> changedFiles) {
         // --- Partition Read-Only Fragments ---
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments =
@@ -638,9 +630,10 @@ public abstract class CodePrompts {
                         .toList()
                 : readOnlyFragments;
 
-        // --- Format non-summary fragments using the policy ---
-        var rendered = formatWithPolicy(otherFragments, vp);
-        var combinedText = new StringBuilder(rendered.text);
+        // --- Format non-summary read-only fragments using the policy ---
+        var renderedReadOnly = formatWithPolicy(otherFragments, vp);
+        var readOnlyText = new StringBuilder(renderedReadOnly.text);
+        var allImages = new ArrayList<ImageContent>(renderedReadOnly.images);
 
         // --- Append summary fragments if present ---
         if (!summaryFragments.isEmpty()) {
@@ -652,35 +645,73 @@ public abstract class CodePrompts {
                     </api_summaries>
                     """
                             .formatted(summaryText);
-            if (!rendered.text.isEmpty()) {
-                combinedText.append("\n\n");
+            if (!renderedReadOnly.text.isEmpty()) {
+                readOnlyText.append("\n\n");
             }
-            combinedText.append(combinedBlock).append("\n\n");
+            readOnlyText.append(combinedBlock).append("\n\n");
+        }
+
+        // --- Build editable-but-untouched section (if any and if we know about changes) ---
+        String untouchedSection = "";
+        if (!changedFiles.isEmpty()) {
+            var editableFragments = ctx.getEditableFragments().toList();
+            var untouchedEditable = editableFragments.stream()
+                    .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
+                    .toList();
+
+            if (!untouchedEditable.isEmpty()) {
+                var renderedUntouched = formatWithPolicy(untouchedEditable, vp);
+                if (!renderedUntouched.text.isEmpty()) {
+                    untouchedSection =
+                            """
+                            <workspace_editable>
+                            Here are EDITABLE files and code fragments that have not been changed yet in this task.
+
+                            %s
+                            </workspace_editable>
+                            """
+                                    .formatted(renderedUntouched.text);
+                }
+                allImages.addAll(renderedUntouched.images);
+            }
         }
 
         // --- Return early if nothing to show ---
-        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
+        if (readOnlyText.isEmpty() && untouchedSection.isBlank() && allImages.isEmpty()) {
             return List.of();
         }
 
-        // --- Compose final workspace_readonly message ---
-        String readOnlyText =
-                """
-                              <workspace_readonly>
-                              Here are the READ ONLY files and code fragments in your Workspace.
-                              Do not edit this code! Images will be included separately if present.
+        // --- Compose final message with co-equal workspace_readonly and workspace_editable sections ---
+        var combinedText = new StringBuilder();
 
-                              %s
-                              </workspace_readonly>
-                              """
-                        .formatted(combinedText.toString().trim());
+        if (!readOnlyText.isEmpty()) {
+            String readOnlySection =
+                    """
+                          <workspace_readonly>
+                          Here are the READ ONLY files and code fragments in your Workspace.
+                          Do not edit this code! Images will be included separately if present.
+
+                          %s
+                          </workspace_readonly>
+                          """
+                            .formatted(readOnlyText.toString().trim());
+            combinedText.append(readOnlySection.trim());
+        }
+
+        if (!untouchedSection.isBlank()) {
+            if (!combinedText.isEmpty()) {
+                combinedText.append("\n\n");
+            }
+            combinedText.append(untouchedSection.trim());
+        }
 
         var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(rendered.images);
+        allContents.add(new TextContent(combinedText.toString().trim()));
+        allContents.addAll(allImages);
 
         var readOnlyUserMessage = UserMessage.from(allContents);
-        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
+        return List.of(
+                readOnlyUserMessage, new AiMessage("Thank you for the read-only and unchanged editable context."));
     }
 
     /**
@@ -691,16 +722,55 @@ public abstract class CodePrompts {
      * within the same UserMessage as workspace_editable.
      */
     public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
+        var editableFragments = ctx.getEditableFragments().toList();
+        return getWorkspaceEditableMessagesInternal(
+                editableFragments, ctx.getBuildFragment().orElse(null), false);
+    }
+
+    /**
+     * Returns messages containing only the editable workspace content for files that have been changed
+     * in the current CodeAgent task. Editable-but-untouched files are *not* included here; they are
+     * instead surfaced alongside read-only content.
+     *
+     * If a build result fragment is present, it is included as a co-equal workspace_build_status section
+     * within the same UserMessage as workspace_editable.
+     */
+    public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx, Set<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            // Fallback to the original behaviour if the caller passes an empty set.
+            return getWorkspaceEditableMessages(ctx);
+        }
+
+        var allEditable = ctx.getEditableFragments().toList();
+        var changedEditable = allEditable.stream()
+                .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
+                .toList();
+
+        return getWorkspaceEditableMessagesInternal(
+                changedEditable, ctx.getBuildFragment().orElse(null), true);
+    }
+
+    /**
+     * Shared implementation for editable workspace messages.
+     *
+     * @param editableFragments The editable fragments to include (either all, or only changed ones).
+     * @param buildFragment Optional build fragment to include as workspace_build_status.
+     * @param highlightChanged If true, the header text explicitly notes these are changed files.
+     */
+    private Collection<ChatMessage> getWorkspaceEditableMessagesInternal(
+            List<ContextFragment> editableFragments,
+            @Nullable ContextFragment buildFragment,
+            boolean highlightChanged) {
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
-        ctx.getEditableFragments().forEach(fragment -> {
+        editableFragments.forEach(fragment -> {
             String formatted = fragment.format(); // format() on live fragment
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
         });
 
-        if (editableTextFragments.isEmpty() && ctx.getBuildFragment().isEmpty()) {
+        if (editableTextFragments.isEmpty() && buildFragment == null) {
             return List.of();
         }
 
@@ -708,8 +778,22 @@ public abstract class CodePrompts {
 
         // --- Add editable section if there is content ---
         if (!editableTextFragments.isEmpty()) {
-            String editableText =
-                    """
+            String editableSectionTemplate;
+            if (highlightChanged) {
+                editableSectionTemplate =
+                        """
+                                  <workspace_editable>
+                                  Here are the EDITABLE files and code fragments in your Workspace that have been CHANGED so far in this task.
+
+                                  *Trust this message as the true contents of these files!*
+                                  Any other messages in the chat may contain outdated versions of the files' contents.
+
+                                  %s
+                                  </workspace_editable>
+                                  """;
+            } else {
+                editableSectionTemplate =
+                        """
                                   <workspace_editable>
                                   Here are the EDITABLE files and code fragments in your Workspace.
                                   This is *the only context in the Workspace to which you should make changes*.
@@ -719,18 +803,20 @@ public abstract class CodePrompts {
 
                                   %s
                                   </workspace_editable>
-                                  """
-                            .formatted(editableTextFragments.toString().trim());
+                                  """;
+            }
+
+            String editableText =
+                    editableSectionTemplate.formatted(editableTextFragments.toString().trim());
 
             combinedText.append(editableText);
         }
 
         // --- Add build status section as a co-equal sibling (if present) ---
-        if (ctx.getBuildFragment().isPresent()) {
+        if (buildFragment != null) {
             if (!combinedText.isEmpty()) {
                 combinedText.append("\n\n");
             }
-            var buildFragment = ctx.getBuildFragment().get();
             var buildStatusText =
                     """
                     <workspace_build_status>
@@ -746,8 +832,11 @@ public abstract class CodePrompts {
         var messages = new ArrayList<ChatMessage>();
         if (!combinedText.isEmpty()) {
             var userMessage = new UserMessage(combinedText.toString());
+            String ack = highlightChanged
+                    ? "Thank you for the changed editable context and build status."
+                    : "Thank you for the editable context and build status.";
             messages.add(userMessage);
-            messages.add(new AiMessage("Thank you for the editable context and build status."));
+            messages.add(new AiMessage(ack));
         }
 
         return messages;
@@ -768,7 +857,63 @@ public abstract class CodePrompts {
         var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
-        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+        // If both are empty and no related classes requested, return empty
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var combinedText = new StringBuilder();
+
+        // Extract text and image content from read-only messages
+        if (!readOnlyMessages.isEmpty()) {
+            var readOnlyUserMessage = readOnlyMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (readOnlyUserMessage.isPresent()) {
+                var contents = readOnlyUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allContents.add(imageContent);
+                    }
+                }
+            }
+        }
+
+        // Extract text from editable messages
+        if (!editableMessages.isEmpty()) {
+            var editableUserMessage = editableMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (editableUserMessage.isPresent()) {
+                var contents = editableUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    }
+                }
+            }
+        }
+
+        // Wrap everything in workspace tags
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(combinedText.toString().trim());
+
+        // Add the workspace text as the first content
+        allContents.addFirst(new TextContent(workspaceText));
+
+        // Create the main UserMessage
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
     /**
@@ -843,67 +988,6 @@ public abstract class CodePrompts {
         }
 
         return new RenderedContent(textBuilder.toString().trim(), imageList);
-    }
-
-    private List<ChatMessage> getWorkspaceContentsMessages(
-            Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
-        // If both are empty and no related classes requested, return empty
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var combinedText = new StringBuilder();
-
-        // Extract text and image content from read-only messages
-        if (!readOnlyMessages.isEmpty()) {
-            var readOnlyUserMessage = readOnlyMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (readOnlyUserMessage.isPresent()) {
-                var contents = readOnlyUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    } else if (content instanceof ImageContent imageContent) {
-                        allContents.add(imageContent);
-                    }
-                }
-            }
-        }
-
-        // Extract text from editable messages
-        if (!editableMessages.isEmpty()) {
-            var editableUserMessage = editableMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (editableUserMessage.isPresent()) {
-                var contents = editableUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    }
-                }
-            }
-        }
-
-        // Wrap everything in workspace tags
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(combinedText.toString().trim());
-
-        // Add the workspace text as the first content
-        allContents.addFirst(new TextContent(workspaceText));
-
-        // Create the main UserMessage
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
     /**
