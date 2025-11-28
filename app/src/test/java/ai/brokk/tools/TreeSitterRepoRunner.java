@@ -134,7 +134,7 @@ public class TreeSitterRepoRunner {
             Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
             Languages.TYPESCRIPT, List.of("**/*.ts"),
             Languages.JAVASCRIPT, List.of("**/*.js"),
-            Languages.PYTHON, List.of("**/*.py"));
+            Languages.PYTHON, List.of("*.py", "**/*.py"));
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();

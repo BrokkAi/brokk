@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -25,8 +23,6 @@ import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
-
-    // Import resolution using TreeSitter queries instead of regex
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -80,60 +76,139 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         return "treesitter/python.scm";
     }
 
+    /**
+     * Encapsulates Python package/module resolution, handling __init__.py semantics in one place.
+     * For __init__.py files, the last package segment becomes the module name to match Python import semantics
+     * (e.g., "from mypackage import ClassName" works when ClassName is in mypackage/__init__.py).
+     */
+    private record PythonModuleInfo(String packageName, String moduleName) {
+        /**
+         * Returns the fully qualified module path (packageName.moduleName or just moduleName).
+         * This is the prefix for all FQNs in this file.
+         */
+        String moduleQualifiedPackage() {
+            return packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
+        }
+    }
+
+    /**
+     * Resolves the package and module name for a Python file, handling __init__.py semantics.
+     */
+    private PythonModuleInfo resolveModuleInfo(ProjectFile file) {
+        String rawPackage = getPackageNameForFile(file);
+
+        // Extract module name from filename
+        String moduleName = file.getFileName();
+        if (moduleName.endsWith(".py")) {
+            moduleName = moduleName.substring(0, moduleName.length() - 3);
+        }
+
+        // For __init__.py, fold last package segment into module name
+        if (moduleName.equals("__init__") && !rawPackage.isEmpty()) {
+            int lastDot = rawPackage.lastIndexOf('.');
+            if (lastDot == -1) {
+                // "mypackage" -> module="mypackage", pkg=""
+                return new PythonModuleInfo("", rawPackage);
+            } else {
+                // "mypackage.subpkg" -> module="subpkg", pkg="mypackage"
+                return new PythonModuleInfo(rawPackage.substring(0, lastDot), rawPackage.substring(lastDot + 1));
+            }
+        }
+
+        return new PythonModuleInfo(rawPackage, moduleName);
+    }
+
     @Override
     protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        // The packageName parameter is now supplied by determinePackageName.
-        // The classChain parameter is used for Joern-style short name generation.
+        // Resolve package and module info (handles __init__.py semantics)
+        var moduleInfo = resolveModuleInfo(file);
+        String moduleQualifiedPackage = moduleInfo.moduleQualifiedPackage();
 
-        // Extract module name from filename using the inherited getFileName() method
-        String moduleName = file.getFileName();
-        if (moduleName.endsWith(".py")) {
-            moduleName = moduleName.substring(0, moduleName.length() - 3); // e.g., "A"
-        }
+        // Parse classChain once - centralizes scope detection logic
+        var parser = new ClassChainParser(classChain);
 
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
-                        "Creating class: simpleName='{}', classChain='{}', packageName='{}'",
+                        "Creating class: simpleName='{}', classChain='{}', moduleQualifiedPackage='{}'",
                         simpleName,
                         classChain,
-                        packageName);
+                        moduleQualifiedPackage);
+
+                // Design: shortName = class hierarchy only (no module prefix)
+                // Module is included in packageName for proper fqName construction
+                // Use $ for class nesting, . for function scope
                 String finalShortName;
-                if (classChain.isEmpty()) {
+
+                if (parser.isEmpty()) {
+                    // Top-level class: just "ClassName"
                     finalShortName = simpleName;
-                } else if (!classChain.contains("$")) {
-                    // Function-local class: replace dots with $ (e.g., "func.Outer" → "func$Outer$Inner")
-                    String normalizedChain = classChain.replace(".", "$");
-                    finalShortName = normalizedChain + "$" + simpleName;
+                } else if (parser.isFunctionScope) {
+                    // Function-local class: "func$LocalClass" or "func$Outer$Inner"
+                    if (parser.rest.isEmpty()) {
+                        // Direct child of function
+                        finalShortName = parser.firstSegment + "$" + simpleName;
+                    } else {
+                        // Nested in class inside function
+                        String classPart = parser.normalizedRest() + "$";
+                        finalShortName = parser.firstSegment + "$" + classPart + simpleName;
+                    }
                 } else {
-                    // Regular nested class or already processed function-local chain (contains $)
-                    finalShortName = classChain + "$" + simpleName;
-                }
-                yield CodeUnit.cls(file, packageName, finalShortName);
-            }
-            case CaptureNames.FUNCTION_DEFINITION -> {
-                // Methods always use dot notation (parent classes use $)
-                String finalShortName =
-                        classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
-                yield CodeUnit.fn(file, packageName, finalShortName);
-            }
-            case CaptureNames.FIELD_DEFINITION -> { // For class attributes or top-level variables
-                String finalShortName;
-                if (classChain.isEmpty()) {
-                    // Top-level variables use "moduleName.variableName" (consistent with functions)
-                    finalShortName = moduleName + "." + simpleName;
-                } else {
-                    finalShortName = classChain + "." + simpleName;
+                    // Class-nested: "Outer$Inner"
+                    finalShortName = parser.normalizedChain() + "$" + simpleName;
                 }
 
-                // Duplicates handled by addTopLevelCodeUnit() ("last wins" for Python)
-                yield CodeUnit.field(file, packageName, finalShortName);
+                yield CodeUnit.cls(file, moduleQualifiedPackage, finalShortName);
+            }
+            case CaptureNames.FUNCTION_DEFINITION -> {
+                // Functions use . for member access
+                String finalShortName;
+
+                if (parser.isEmpty()) {
+                    // Top-level function: just "func"
+                    finalShortName = simpleName;
+                } else if (parser.isFunctionScope) {
+                    // Nested function or method in function-local class
+                    if (parser.rest.isEmpty()) {
+                        // Nested function inside function: "outer.inner"
+                        finalShortName = parser.firstSegment + "." + simpleName;
+                    } else {
+                        // Method in function-local class: "func$Class.method"
+                        finalShortName = parser.firstSegment + "$" + parser.normalizedRest() + "." + simpleName;
+                    }
+                } else {
+                    // Method in regular class: "Class.method" or "Outer$Inner.method"
+                    finalShortName = parser.normalizedChain() + "." + simpleName;
+                }
+
+                yield CodeUnit.fn(file, moduleQualifiedPackage, finalShortName);
+            }
+            case CaptureNames.FIELD_DEFINITION -> {
+                // Fields use . for member access
+                String finalShortName;
+
+                if (parser.isEmpty()) {
+                    // Top-level variable: just "varName"
+                    finalShortName = simpleName;
+                } else if (parser.isFunctionScope) {
+                    // Field in function-local class
+                    if (parser.rest.isEmpty()) {
+                        // Variable in function scope (unusual): "func.var"
+                        finalShortName = parser.firstSegment + "." + simpleName;
+                    } else {
+                        finalShortName = parser.firstSegment + "$" + parser.normalizedRest() + "." + simpleName;
+                    }
+                } else {
+                    // Field in regular class: "Class.field"
+                    finalShortName = parser.normalizedChain() + "." + simpleName;
+                }
+
+                yield CodeUnit.field(file, moduleQualifiedPackage, finalShortName);
             }
             default -> {
-                // Log or handle unexpected captures if necessary
                 log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                yield null; // Returning null ignores the capture
+                yield null;
             }
         };
     }
@@ -306,64 +381,55 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
-        // Transform function-local class chains: "func.LocalClass" → "func$LocalClass"
-        // Detection: lowercase start = function (per PEP 8)
-
-        // Extract module name from filename for function FQN construction
-        String moduleName = cu.source().getFileName();
-        if (moduleName.endsWith(".py")) {
-            moduleName = moduleName.substring(0, moduleName.length() - 3);
-        }
+        // Design: shortName = class/function hierarchy, packageName = pkg.module
+        // The classChain represents the nesting structure above this symbol
+        // - Top-level: parent = packageName (module level)
+        // - Nested class: Outer$Inner -> parent fqName = pkg.module.Outer
+        // - Function-local: func$Local -> parent fqName = pkg.module.func
+        // - Nested in func-local: func$Outer$Inner -> parent = pkg.module.func$Outer
 
         String packageName = cu.packageName();
 
-        if (!classChain.isBlank()) {
-            // Extract first segment to determine if this is function-local
-            String firstSegment;
-            int dotIndex = classChain.indexOf('.');
-            int dollarIndex = classChain.indexOf('$');
-            if (dotIndex >= 0 && (dollarIndex < 0 || dotIndex < dollarIndex)) {
-                firstSegment = classChain.substring(0, dotIndex);
-            } else if (dollarIndex >= 0) {
-                firstSegment = classChain.substring(0, dollarIndex);
+        // TreeSitterAnalyzer only calls buildParentFqName for nested symbols (classChain is non-empty)
+        assert !classChain.isBlank() : "buildParentFqName should only be called with non-empty classChain";
+
+        // Use ClassChainParser - same logic as createCodeUnit for consistent FQN construction
+        var parser = new ClassChainParser(classChain);
+
+        if (parser.isFunctionScope) {
+            // Function scope: func or func$Class
+            if (parser.rest.isEmpty()) {
+                // Just function: parent fqName = pkg.module.func
+                String parentFqn = packageName + "." + parser.firstSegment;
+                log.trace(
+                        "Python parent lookup: classChain='{}', packageName='{}', returning '{}' (function parent)",
+                        classChain,
+                        packageName,
+                        parentFqn);
+                return parentFqn;
             } else {
-                firstSegment = classChain;
+                // Function + classes: func$Class -> parent = pkg.module.func$Class
+                String parentFqn = packageName + "." + parser.firstSegment + "$" + parser.normalizedRest();
+                log.trace(
+                        "Python parent lookup: classChain='{}', packageName='{}', firstSegment='{}', rest='{}', returning '{}'",
+                        classChain,
+                        packageName,
+                        parser.firstSegment,
+                        parser.rest,
+                        parentFqn);
+                return parentFqn;
             }
-
-            // Check if classChain starts with a function (lowercase = function, PascalCase = class)
-            boolean isFunctionLocal = isLowercaseIdentifier(firstSegment);
-
-            if (isFunctionLocal) {
-                // Single element (module-level function) - need to prepend module name
-                // Function FQNs are stored as "moduleName.functionName" even when packageName is empty
-                if (!classChain.contains(".") && !classChain.contains("$")) {
-                    // Build FQN matching how functions are stored: moduleName.functionName
-                    String functionFqn = moduleName + "." + classChain;
-                    log.trace(
-                            "Python parent lookup: classChain='{}', module='{}', returning function FQN '{}'",
-                            classChain,
-                            moduleName,
-                            functionFqn);
-                    return packageName.isEmpty() ? functionFqn : packageName + "." + functionFqn;
-                }
-
-                // Function-local class hierarchy: transform dots to $
-                // Don't prepend module name - only top-level functions get module prefix
-                if (!classChain.contains("$") && classChain.contains(".")) {
-                    String transformed = classChain.replace(".", "$");
-                    log.trace(
-                            "Python parent lookup: classChain='{}', transformed to '{}' for function-local class lookup",
-                            classChain,
-                            transformed);
-                    return packageName.isEmpty() ? transformed : packageName + "." + transformed;
-                }
-            }
+        } else {
+            // Class scope: Outer or Outer$Inner -> parent = pkg.module.Outer
+            String parentFqn = packageName + "." + parser.normalizedChain();
+            log.trace(
+                    "Python parent lookup: classChain='{}', packageName='{}', normalizedChain='{}', returning '{}' (class parent)",
+                    classChain,
+                    packageName,
+                    parser.normalizedChain(),
+                    parentFqn);
+            return parentFqn;
         }
-
-        log.trace(
-                "Python parent lookup: packageName='{}', classChain='{}', using default join", packageName, classChain);
-        // Default behavior for regular nested classes
-        return Stream.of(packageName, classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
     }
 
     // isClassLike is now implemented in the base class using LanguageSyntaxProfile.
@@ -382,6 +448,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     /**
      * Checks if identifier follows Python function naming (lowercase start) vs class naming (PascalCase).
      *
+     * <p>This is a fallback heuristic used only when AST-based type markers are not available.
+     * The primary mechanism is the ":F" and ":C" markers added by {@link #determineClassChainSegmentName},
+     * which use actual TreeSitter node types to distinguish functions from classes.
+     *
      * @param identifier the identifier to check (e.g., "my_function", "_private", "MyClass")
      * @return true if first letter is lowercase (function naming convention per PEP 8)
      */
@@ -398,11 +468,127 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
+     * Parses a classChain string to extract scope information.
+     * Centralizes the logic for determining function vs class scope and extracting segments.
+     *
+     * <p>Recognizes ":F" (function) and ":C" (class) markers added by
+     * {@link #determineClassChainSegmentName} to identify symbol types by AST node type
+     * rather than relying on the naming heuristic.
+     *
+     * <h3>ClassChain Format Examples</h3>
+     * <pre>
+     * Input classChain            isFunctionScope  firstSegment   rest            normalizedChain()
+     * ────────────────────────────────────────────────────────────────────────────────────────────────
+     * ""                          false            ""             ""              ""
+     * "MyClass:C"                 false            "MyClass"      ""              "MyClass"
+     * "Outer:C.Inner:C"           false            "Outer"        "Inner"         "Outer$Inner"
+     * "my_func:F"                 true             "my_func"      ""              "my_func"
+     * "my_func:F.LocalClass:C"    true             "my_func"      "LocalClass"    "my_func$LocalClass"
+     * "outer_func:F.inner:F"      true             "outer_func"   "inner"         "outer_func$inner"
+     * "MyClass" (no marker)       false (heuristic) "MyClass"     ""              "MyClass"
+     * "my_func" (no marker)       true (heuristic)  "my_func"     ""              "my_func"
+     * </pre>
+     *
+     * <h3>Resulting FQNs</h3>
+     * For a symbol named "foo" in module "pkg.mod":
+     * <pre>
+     * classChain                  Symbol Type    FQN
+     * ────────────────────────────────────────────────────────────────────────
+     * ""                          class          pkg.mod.foo
+     * ""                          function       pkg.mod.foo
+     * "MyClass:C"                 method         pkg.mod.MyClass.foo
+     * "MyClass:C"                 nested class   pkg.mod.MyClass$foo
+     * "my_func:F"                 local class    pkg.mod.my_func$foo
+     * "my_func:F.Local:C"         method         pkg.mod.my_func$Local.foo
+     * "Outer:C.Inner:C"           method         pkg.mod.Outer$Inner.foo
+     * </pre>
+     */
+    private static class ClassChainParser {
+        static final String FUNCTION_MARKER = ":F";
+        static final String CLASS_MARKER = ":C";
+
+        final String classChain;
+        final String firstSegment; // Without marker
+        final String rest; // Without markers
+        final boolean isFunctionScope;
+
+        ClassChainParser(String classChain) {
+            this.classChain = classChain;
+
+            // Find first boundary (. or $)
+            int firstDot = classChain.indexOf('.');
+            int firstDollar = classChain.indexOf('$');
+            int boundary = minPositive(firstDot, firstDollar);
+
+            String rawFirstSegment;
+            String rawRest;
+            if (boundary == -1) {
+                rawFirstSegment = classChain;
+                rawRest = "";
+            } else {
+                rawFirstSegment = classChain.substring(0, boundary);
+                rawRest = classChain.substring(boundary + 1);
+            }
+
+            // Check for AST-based markers
+            if (rawFirstSegment.endsWith(FUNCTION_MARKER)) {
+                this.firstSegment = rawFirstSegment.substring(0, rawFirstSegment.length() - FUNCTION_MARKER.length());
+                this.isFunctionScope = true;
+            } else if (rawFirstSegment.endsWith(CLASS_MARKER)) {
+                this.firstSegment = rawFirstSegment.substring(0, rawFirstSegment.length() - CLASS_MARKER.length());
+                this.isFunctionScope = false;
+            } else {
+                this.firstSegment = rawFirstSegment;
+                // Fall back to naming heuristic for unmarked segments (backward compatibility)
+                this.isFunctionScope = !firstSegment.isEmpty() && isLowercaseIdentifier(firstSegment);
+            }
+
+            // Strip markers from rest as well
+            this.rest = stripMarkers(rawRest);
+        }
+
+        boolean isEmpty() {
+            return classChain.isEmpty();
+        }
+
+        String normalizedRest() {
+            return rest.replace(".", "$");
+        }
+
+        String normalizedChain() {
+            return stripMarkers(classChain).replace(".", "$");
+        }
+
+        private static String stripMarkers(String s) {
+            return s.replace(FUNCTION_MARKER, "").replace(CLASS_MARKER, "");
+        }
+
+        private static int minPositive(int a, int b) {
+            if (a == -1) return b;
+            if (b == -1) return a;
+            return Math.min(a, b);
+        }
+    }
+
+    /**
      * Include functions as class-like parents to detect local classes inside functions.
      */
     @Override
     protected boolean isClassLike(TSNode node) {
         return super.isClassLike(node) || "function_definition".equals(node.getType());
+    }
+
+    /**
+     * Mark functions with ":F" and classes with ":C" suffix in classChain.
+     * This allows ClassChainParser to use actual AST type info instead of the naming heuristic.
+     */
+    @Override
+    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+        return switch (nodeType) {
+            case "function_definition" -> shortName + ClassChainParser.FUNCTION_MARKER;
+            case "class_definition" -> shortName + ClassChainParser.CLASS_MARKER;
+            default -> shortName;
+        };
     }
 
     @Override
@@ -545,6 +731,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
      * <p>
      * Wildcard imports include public classes and functions (those without leading underscore).
      */
+    // TODO: Performance optimization opportunity - This method re-parses each import line with
+    // TreeSitter, even though the full AST was available during analyzeFileContent. A cleaner
+    // approach would collect structured ImportInfo during the initial pass (while processing
+    // import_statement/import_from_statement nodes) and store it in FileProperties. This would
+    // eliminate redundant parsing. However, TreeSitter parsing is fast (~microseconds per line)
+    // and Python files typically have few imports, so this is low priority unless profiling
+    // shows it's a bottleneck.
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
@@ -553,7 +746,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         for (String importLine : importStatements) {
             if (importLine.isBlank()) continue;
 
-            // Parse the import statement with TreeSitter
+            // Re-parse the import statement with TreeSitter (see TODO above)
             var parser = getTSParser();
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
