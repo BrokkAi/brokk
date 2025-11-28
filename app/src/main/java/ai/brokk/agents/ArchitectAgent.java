@@ -877,8 +877,14 @@ public class ArchitectAgent {
                 : "Merged results from all searches into the Workspace: added " + addedCount + " fragment"
                         + (addedCount == 1 ? "" : "s") + ".";
 
+        String summaryMessage;
+        if (failedCount == 0) {
+            summaryMessage = "All " + batchSize + " SearchAgents finished successfully. " + mergeSummary;
+        } else {
+            summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. " + mergeSummary;
+        }
         io.llmOutput(
-                "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. " + mergeSummary,
+                summaryMessage,
                 ChatMessageType.AI,
                 true,
                 false);
