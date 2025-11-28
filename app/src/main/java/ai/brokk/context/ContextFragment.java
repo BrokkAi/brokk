@@ -22,6 +22,7 @@ import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.*;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -1340,7 +1341,7 @@ public interface ContextFragment {
          * content for the provided policy, a generic placeholder is returned. Otherwise the raw
          * text is returned. For non-special fragments, returns raw text.
          */
-        public String textForAgent(ViewingPolicy viewPolicy) {
+        public String textForAgent(WorkspacePrompts.ViewingPolicy viewPolicy) {
             var st = specialType();
             if (st.isEmpty()) {
                 return text();
