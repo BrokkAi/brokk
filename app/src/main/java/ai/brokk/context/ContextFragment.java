@@ -424,9 +424,10 @@ public interface ContextFragment {
                 String id, IContextManager contextManager, @Nullable FragmentSnapshot initialSnapshot) {
             this.id = id;
             this.contextManager = contextManager;
+            // Avoid autostart here to prevent races with subclass field initialization.
             this.snapshotCv = initialSnapshot != null
                     ? ComputedValue.completed("snap-" + id, initialSnapshot)
-                    : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor());
+                    : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor(), false);
         }
 
         @Override
@@ -463,7 +464,8 @@ public interface ContextFragment {
                     k -> new ComputedValue<>(
                             id + "-" + k,
                             () -> extractor.apply(snapshotCv.future().join()),
-                            getFragmentExecutor()));
+                            getFragmentExecutor(),
+                            false));
             return cv;
         }
 
@@ -471,7 +473,7 @@ public interface ContextFragment {
         protected <T> ComputedValue<T> derived(String key, Supplier<T> supplier) {
             @SuppressWarnings("unchecked")
             ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
-                    key, k -> new ComputedValue<>(id + "-" + k, supplier, getFragmentExecutor()));
+                    key, k -> new ComputedValue<>(id + "-" + k, supplier, getFragmentExecutor(), false));
             return cv;
         }
 
@@ -527,7 +529,26 @@ public interface ContextFragment {
 
         @Override
         public void startAll() {
+            // Eagerly create common derived CVs so they are present in the map and can be started.
+            description();
+            shortDescription();
+            text();
+            syntaxStyle();
+            sources();
+            files();
+            format();
+            var ib = imageBytes(); // may be null for non-image fragments
+
+            // Start the primary snapshot first.
             snapshotCv.start();
+
+            // Start all derived CVs that have been created (including subclass-specific ones).
+            derivedCvs.forEach((k, v) -> v.start());
+
+            // Start image bytes if present (ensures it's started even if not yet in the map).
+            if (ib != null) {
+                ib.start();
+            }
         }
 
         // Common hasSameSource implementation (identity for dynamic, override for others)
