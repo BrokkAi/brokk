@@ -1,16 +1,17 @@
 package ai.brokk.issues;
 
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import okhttp3.OkHttpClient;
 
 public interface IssueService {
-    /** Page size for paginated issue fetching. */
-    int DEFAULT_PAGE_SIZE = 25;
+    /** Page size for paginated issue fetching. References StreamingPaginationHelper.DEFAULT_PAGE_SIZE. */
+    int DEFAULT_PAGE_SIZE = StreamingPaginationHelper.DEFAULT_PAGE_SIZE;
 
-    /** Maximum number of issues to fetch across all pages. */
-    int MAX_ISSUES_LIMIT = 500;
+    /** Maximum number of issues to fetch across all pages. References StreamingPaginationHelper.DEFAULT_MAX_ITEMS. */
+    int MAX_ISSUES_LIMIT = StreamingPaginationHelper.DEFAULT_MAX_ITEMS;
 
     List<IssueHeader> listIssues(FilterOptions filterOptions) throws IOException;
 

@@ -22,6 +22,7 @@ import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
@@ -63,10 +64,6 @@ import org.kohsuke.github.GHUser;
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
-
-    // Pagination constants
-    private static final int PAGE_SIZE = 25;
-    private static final int MAX_PRS_LIMIT = 500;
 
     // PR Table Column Indices
     private static final int PR_COL_NUMBER = 0;
@@ -988,81 +985,57 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     apiState = GHIssueState.ALL;
                 }
 
-                // Use streaming pagination
-                var pagedIterable = auth.listPullRequestsPaginated(apiState, PAGE_SIZE);
+                // Use streaming pagination helper
+                var pagedIterable = auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
                 var iterator = pagedIterable.iterator();
 
-                var accumulatedPrs = new ArrayList<GHPullRequest>();
-                boolean isFirstPage = true;
-
-                while (iterator.hasNext() && accumulatedPrs.size() < MAX_PRS_LIMIT) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        logger.debug("PR fetch interrupted after {} PRs", accumulatedPrs.size());
-                        break;
-                    }
-
-                    // Fetch next page worth of PRs
-                    int pageCount = 0;
-                    while (iterator.hasNext() && pageCount < PAGE_SIZE && accumulatedPrs.size() < MAX_PRS_LIMIT) {
-                        accumulatedPrs.add(iterator.next());
-                        pageCount++;
-                    }
-
-                    if (pageCount == 0) {
-                        continue;
-                    }
-
-                    final int totalSoFar = accumulatedPrs.size();
-                    final boolean hasMore = iterator.hasNext() && totalSoFar < MAX_PRS_LIMIT;
-                    final boolean firstPage = isFirstPage;
-                    isFirstPage = false;
-
-                    // Create a snapshot for display
-                    var snapshot = new ArrayList<>(accumulatedPrs);
-
-                    // Update UI on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        allPrsFromApi = new ArrayList<>(snapshot);
+                StreamingPaginationHelper.streamPages(
+                    iterator,
+                    StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
+                    StreamingPaginationHelper.DEFAULT_MAX_ITEMS,
+                    (prs, total, hasMore, isFirst) -> {
+                        allPrsFromApi = new ArrayList<>(prs);
                         populateDynamicFilterChoices(allPrsFromApi);
                         filterAndDisplayPrs();
 
                         // Show loading progress in refresh button tooltip
-                        if (hasMore) {
-                            String limitNote = totalSoFar >= MAX_PRS_LIMIT ? " (limit)" : "+";
-                            refreshPrButton.setToolTipText("Loaded " + totalSoFar + limitNote + " PRs...");
-                        } else {
-                            refreshPrButton.setToolTipText("Refresh");
-                        }
+                        var msg = StreamingPaginationHelper.formatLoadingMessage("PRs", total, StreamingPaginationHelper.DEFAULT_MAX_ITEMS, hasMore);
+                        refreshPrButton.setToolTipText(msg.isEmpty() ? "Refresh" : msg);
 
                         // On first page, ensure table is visible
-                        if (firstPage && !snapshot.isEmpty()) {
+                        if (isFirst && !prs.isEmpty()) {
                             prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
                         }
-                    });
-
-                    logger.debug("Streamed page with {} PRs, total: {}", pageCount, totalSoFar);
-                }
-
-                // Final update - loading complete
-                SwingUtilities.invokeLater(() -> {
-                    refreshPrButton.setToolTipText("Refresh");
-                    setReloadUiEnabled(true);
-                    logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
-                });
-
+                    },
+                    () -> {
+                        refreshPrButton.setToolTipText("Refresh");
+                        setReloadUiEnabled(true);
+                        logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
+                    },
+                    ex -> {
+                        logger.error("Failed to fetch pull requests", ex);
+                        allPrsFromApi.clear();
+                        displayedPrs.clear();
+                        ciStatusCache.clear();
+                        prCommitsCache.clear();
+                        prTableModel.setRowCount(0);
+                        prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                        disablePrButtonsAndClearCommitsAndMenus();
+                        authorChoices.clear();
+                        labelChoices.clear();
+                        assigneeChoices.clear();
+                        refreshPrButton.setToolTipText("Refresh");
+                        setReloadUiEnabled(true);
+                    }
+                );
             } catch (Exception ex) {
-                logger.error("Failed to fetch pull requests", ex);
+                logger.error("Failed to initialize PR pagination", ex);
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
                     prTableModel.setRowCount(0);
-                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                    prTableModel.addRow(new Object[] {"", "Error initializing PRs: " + ex.getMessage(), "", "", ""});
                     disablePrButtonsAndClearCommitsAndMenus();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
                     refreshPrButton.setToolTipText("Refresh");
                     setReloadUiEnabled(true);
                 });
