@@ -414,7 +414,7 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
+            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                     context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 

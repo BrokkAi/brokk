@@ -206,7 +206,7 @@ class WorkspacePromptsTest {
         ctx = ctx.setReadonly(readOnlyFrag, true);
 
         var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CONTENTS)
+                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
                 .build();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
@@ -421,7 +421,7 @@ class WorkspacePromptsTest {
 
         // Test CONTENTS acknowledgment
         var msgs3 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CONTENTS)
+                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
                 .build();
         if (!msgs3.isEmpty()) {
             var ack = msgs3.stream()

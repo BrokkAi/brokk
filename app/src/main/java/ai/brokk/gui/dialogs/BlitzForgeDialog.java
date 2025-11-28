@@ -988,7 +988,7 @@ public class BlitzForgeDialog extends JDialog {
                 long workspaceAdd = 0;
                 if (includeWorkspace) {
                     workspaceTokens =
-                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
+                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                                     cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     workspaceAdd = workspaceTokens * n;
                 }
@@ -1109,7 +1109,7 @@ public class BlitzForgeDialog extends JDialog {
             try {
                 // Token counting and message construction happen in this background thread.
                 workspaceTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
+                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                                 cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
@@ -1427,7 +1427,7 @@ public class BlitzForgeDialog extends JDialog {
                     }
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
-                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                    list.addAll(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                             ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
@@ -1598,7 +1598,7 @@ public class BlitzForgeDialog extends JDialog {
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
                             context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }

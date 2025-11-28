@@ -178,7 +178,7 @@ public class ContextAgent {
      */
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+                CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
