@@ -622,9 +622,9 @@ public abstract class CodePrompts {
      * Backwards-compatible wrappers delegating to WorkspacePrompts.
      * These restore the previous CodePrompts instance methods that callers expect.
      */
-    public List<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
+    public List<ChatMessage> getWorkspaceMessagesGroupedByMutability(Context ctx, ViewingPolicy vp) {
         return WorkspacePrompts.builder(ctx, vp)
-                .view(WorkspacePrompts.WorkspaceView.CONTENTS)
+                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
                 .build();
     }
 
