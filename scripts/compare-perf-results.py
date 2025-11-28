@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 METRICS_TO_TRACK = [
     {"key": "analysis_time_seconds", "name": "Analysis Time", "higherIsWorse": True, "unit": "s", "threshold": 10.0},
-    {"key": "peak_memory_mb", "name": "Peak Memory", "higherIsWorse": True, "unit": "MB", "threshold": 10.0},
+    {"key": "memory_per_file_kb", "name": "Memory per File", "higherIsWorse": True, "unit": " KB", "threshold": 10.0},
     {"key": "files_per_second", "name": "Files/Second", "higherIsWorse": False, "unit": " files/s", "threshold": 10.0},
 ]
 
@@ -117,7 +117,7 @@ def average_results(inputs: List[str]) -> Dict[str, float]:
 def format_value(value: Optional[float], metric_config: dict) -> str:
     if not isinstance(value, (int, float)):
         return "N/A"
-    decimals = 1 if metric_config["key"] == "peak_memory_mb" else 2
+    decimals = 1 if metric_config["key"] in ("peak_memory_mb", "memory_per_file_kb") else 2
     return f"{value:.{decimals}f}"
 
 def build_change_and_status(base_value: Optional[float], head_value: Optional[float], metric_config: dict) -> Tuple[Optional[float], str, str]:
