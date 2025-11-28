@@ -1338,6 +1338,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
+    private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
     private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
@@ -1418,6 +1419,21 @@ public final class MainProject extends AbstractProject {
             props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
         } else {
             props.remove(FORCE_TOOL_EMULATION_KEY);
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static String getOtherModelsVendorPreference() {
+        var props = loadGlobalProperties();
+        return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
+    }
+
+    public static void setOtherModelsVendorPreference(String vendor) {
+        var props = loadGlobalProperties();
+        if (vendor == null || vendor.isBlank()) {
+            props.remove(OTHER_MODELS_VENDOR_KEY);
+        } else {
+            props.setProperty(OTHER_MODELS_VENDOR_KEY, vendor.trim());
         }
         saveGlobalProperties(props);
     }
