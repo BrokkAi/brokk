@@ -1,0 +1,320 @@
+package ai.brokk.gui.dependencies;
+
+import ai.brokk.IConsoleIO;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.gui.Chrome;
+import ai.brokk.project.IProject;
+import ai.brokk.util.DependencyUpdater;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
+import javax.swing.SwingUtilities;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+/**
+ * Helper for updating imported dependencies and refreshing the analyzer.
+ *
+ * <p>This class currently provides support for GitHub-backed and local path dependencies.
+ */
+public final class DependencyUpdateHelper {
+    private static final Logger logger = LogManager.getLogger(DependencyUpdateHelper.class);
+
+    private DependencyUpdateHelper() {
+        // utility class
+    }
+
+    /**
+     * Checks if a Git dependency needs to be updated by comparing commit hashes.
+     * Delegates to {@link DependencyUpdater#gitDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata)}.
+     *
+     * @return true if an update is needed (or if we can't determine), false if up to date
+     */
+    public static boolean gitDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata metadata) {
+        return DependencyUpdater.gitDependencyNeedsUpdate(metadata);
+    }
+
+    /**
+     * Checks if a local dependency needs updating by comparing timestamps.
+     * Delegates to {@link DependencyUpdater#localDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata)}.
+     */
+    public static boolean localDependencyNeedsUpdate(DependencyUpdater.DependencyMetadata metadata) {
+        return DependencyUpdater.localDependencyNeedsUpdate(metadata);
+    }
+
+    /**
+     * Updates a single GitHub-backed dependency and refreshes the analyzer.
+     *
+     * <p>This method submits a background task via the project's ContextManager. It performs the
+     * on-disk update by delegating to
+     * {@link DependencyUpdater#updateGitDependencyOnDisk(ProjectFile, DependencyUpdater.DependencyMetadata)},
+     * then calls {@code AnalyzerWrapper.updateFiles(...)} with the resulting changed files.
+     *
+     * <p>Progress and errors are surfaced via {@link Chrome#showNotification(IConsoleIO.NotificationRole, String)}
+     * and {@link Chrome#toolError(String, String)}. Failures for this dependency do not throw on
+     * the caller thread; instead they are reported through the returned {@link CompletableFuture}
+     * and via UI notifications.
+     *
+     * @param chrome current Chrome instance
+     * @param dependencyRoot top-level dependency directory as a {@link ProjectFile}
+     * @param metadata parsed dependency metadata (must be of type GITHUB)
+     * @return future completing with the set of changed/added/removed files, or an empty set on failure
+     */
+    public static CompletableFuture<Set<ProjectFile>> updateGitDependency(
+            Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        return runUpdate(chrome, dependencyRoot, "GitHub", project -> {
+            // Check needs-update in background to avoid blocking EDT with network call
+            if (!gitDependencyNeedsUpdate(metadata)) {
+                return Collections.emptySet();
+            }
+            try {
+                return DependencyUpdater.updateGitDependencyOnDisk(project, dependencyRoot, metadata);
+            } catch (IOException e) {
+                throw new RuntimeException("I/O error while updating GitHub dependency on disk: " + dependencyRoot, e);
+            }
+        });
+    }
+
+    /**
+     * Updates a single local-path-backed dependency and refreshes the analyzer.
+     *
+     * <p>This method mirrors {@link #updateGitDependency(Chrome, ProjectFile, AbstractProject.DependencyMetadata)}
+     * but delegates to
+     * {@link DependencyUpdater#updateLocalPathDependencyOnDisk(IProject, ProjectFile, DependencyUpdater.DependencyMetadata)}
+     * for the on-disk update.
+     *
+     * @param chrome current Chrome instance
+     * @param dependencyRoot top-level dependency directory as a {@link ProjectFile}
+     * @param metadata parsed dependency metadata (must be of type LOCAL_PATH)
+     * @return future completing with the set of changed/added/removed files, or an empty set on failure
+     */
+    public static CompletableFuture<Set<ProjectFile>> updateLocalPathDependency(
+            Chrome chrome, ProjectFile dependencyRoot, DependencyUpdater.DependencyMetadata metadata) {
+        return runUpdate(chrome, dependencyRoot, "local path", project -> {
+            // Check needs-update in background to avoid blocking EDT with file system scan
+            if (!localDependencyNeedsUpdate(metadata)) {
+                logger.debug(
+                        "Local dependency {} is already up to date (no newer files)",
+                        dependencyRoot.getRelPath().getFileName());
+                return Collections.emptySet();
+            }
+            try {
+                return DependencyUpdater.updateLocalPathDependencyOnDisk(project, dependencyRoot, metadata);
+            } catch (IOException e) {
+                throw new RuntimeException(
+                        "I/O error while updating local path dependency on disk: " + dependencyRoot, e);
+            }
+        });
+    }
+
+    private static CompletableFuture<Set<ProjectFile>> runUpdate(
+            Chrome chrome,
+            ProjectFile dependencyRoot,
+            String dependencyKindLabel,
+            Function<IProject, Set<ProjectFile>> updateOperation) {
+
+        var project = chrome.getProject();
+
+        String depName = dependencyRoot.getRelPath().getFileName().toString();
+        var cm = chrome.getContextManager();
+
+        chrome.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                String.format("Updating %s dependency '%s' in the background...", dependencyKindLabel, depName));
+
+        var future =
+                cm.submitBackgroundTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
+                    var analyzer = cm.getAnalyzerWrapper();
+                    analyzer.pause();
+                    try {
+                        Set<ProjectFile> changedFiles = updateOperation.apply(project);
+
+                        if (!changedFiles.isEmpty()) {
+                            try {
+                                analyzer.updateFiles(new HashSet<>(changedFiles))
+                                        .get();
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException(
+                                        "Interrupted while updating analyzer for dependency " + depName, ie);
+                            } catch (ExecutionException ee) {
+                                throw new RuntimeException(
+                                        "Analyzer update failed for dependency " + depName, ee.getCause());
+                            }
+                        }
+
+                        return changedFiles;
+                    } finally {
+                        analyzer.resume();
+                    }
+                });
+
+        future.whenComplete((changedFiles, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error updating {} dependency {}: {}", dependencyKindLabel, depName, ex.getMessage(), ex);
+                chrome.toolError(
+                        String.format(
+                                "Failed to update %s dependency '%s': %s",
+                                dependencyKindLabel, depName, ex.getMessage()),
+                        "Dependency Update Error");
+            } else {
+                assert changedFiles != null;
+                if (changedFiles.isEmpty()) {
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            String.format(
+                                    "%s dependency '%s' is already up to date.",
+                                    capitalize(dependencyKindLabel), depName));
+                } else {
+                    logger.info("Updated dependency {}: {} files changed", depName, changedFiles.size());
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            String.format(
+                                    "Updated %s dependency '%s' (%d files changed).",
+                                    dependencyKindLabel, depName, changedFiles.size()));
+                }
+            }
+        }));
+
+        return future;
+    }
+
+    /**
+     * Performs an auto-update pass for local path dependencies only.
+     * Intended for use by the scheduler with separate local/git intervals.
+     *
+     * @param chrome current Chrome instance
+     * @return future completing with the result of the local dependency update pass
+     */
+    public static CompletableFuture<DependencyUpdater.DependencyAutoUpdateResult> autoUpdateLocalDependencies(
+            Chrome chrome) {
+        var project = chrome.getProject();
+        var cm = chrome.getContextManager();
+
+        var future = cm.submitBackgroundTask("Auto-update local dependencies", () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
+
+                if (!result.changedFiles().isEmpty()) {
+                    try {
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                .get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while updating local dependencies", ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException(
+                                "Analyzer update failed after local dependency update", ee.getCause());
+                    }
+                }
+
+                return result;
+            } finally {
+                analyzer.resume();
+            }
+        });
+
+        future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error during local dependency update: {}", ex.getMessage(), ex);
+                chrome.toolError(
+                        String.format("Local dependency update failed: %s", ex.getMessage()),
+                        "Dependency Update Error");
+                return;
+            }
+
+            assert result != null;
+            if (result.updatedDependencies() > 0) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Updated %d local %s (%d files changed)",
+                                result.updatedDependencies(),
+                                result.updatedDependencies() == 1 ? "dependency" : "dependencies",
+                                result.changedFiles().size()));
+            } else {
+                logger.debug("No local dependency updates found");
+            }
+        }));
+
+        return future;
+    }
+
+    /**
+     * Performs an auto-update pass for Git dependencies only.
+     * Intended for use by the scheduler with separate local/git intervals.
+     *
+     * @param chrome current Chrome instance
+     * @return future completing with the result of the Git dependency update pass
+     */
+    public static CompletableFuture<DependencyUpdater.DependencyAutoUpdateResult> autoUpdateGitDependencies(
+            Chrome chrome) {
+        var project = chrome.getProject();
+        var cm = chrome.getContextManager();
+
+        var future = cm.submitBackgroundTask("Auto-update Git dependencies", () -> {
+            var analyzer = cm.getAnalyzerWrapper();
+            analyzer.pause();
+            try {
+                var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);
+
+                if (!result.changedFiles().isEmpty()) {
+                    try {
+                        analyzer.updateFiles(new HashSet<>(result.changedFiles()))
+                                .get();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while updating Git dependencies", ie);
+                    } catch (ExecutionException ee) {
+                        throw new RuntimeException("Analyzer update failed after Git dependency update", ee.getCause());
+                    }
+                }
+
+                return result;
+            } finally {
+                analyzer.resume();
+            }
+        });
+
+        future.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.error("Error during Git dependency update: {}", ex.getMessage(), ex);
+                chrome.toolError(
+                        String.format("Git dependency update failed: %s", ex.getMessage()), "Dependency Update Error");
+                return;
+            }
+
+            assert result != null;
+            if (result.updatedDependencies() > 0) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        String.format(
+                                "Updated %d Git %s (%d files changed)",
+                                result.updatedDependencies(),
+                                result.updatedDependencies() == 1 ? "dependency" : "dependencies",
+                                result.changedFiles().size()));
+            } else {
+                logger.debug("No Git dependency updates found");
+            }
+        }));
+
+        return future;
+    }
+
+    private static String capitalize(String label) {
+        if (label.isEmpty()) {
+            return label;
+        }
+        if (label.length() == 1) {
+            return label.toUpperCase(Locale.ROOT);
+        }
+        return Character.toUpperCase(label.charAt(0)) + label.substring(1);
+    }
+}
