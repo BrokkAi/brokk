@@ -351,6 +351,73 @@ public class ExtractClassNameTest {
     }
 
     @Test
+    @DisplayName("C# analyzer - extractClassName with PascalCase methods")
+    void testCSharpAnalyzerExtractClassName() {
+        var analyzer = new CSharpAnalyzer(mockProject);
+
+        // Valid C# method references - both class and method use PascalCase
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.MyMethod"));
+        assertEquals(Optional.of("Console"), analyzer.extractClassName("Console.WriteLine"));
+        assertEquals(Optional.of("String"), analyzer.extractClassName("String.IsNullOrEmpty"));
+        assertEquals(Optional.of("File"), analyzer.extractClassName("File.ReadAllText"));
+
+        // Namespace-qualified references
+        assertEquals(Optional.of("System.IO.File"), analyzer.extractClassName("System.IO.File.ReadAllText"));
+        assertEquals(Optional.of("System.Console"), analyzer.extractClassName("System.Console.WriteLine"));
+        assertEquals(Optional.of("System.Collections.Generic.List"), analyzer.extractClassName("System.Collections.Generic.List.Add"));
+
+        // Generic types with angle brackets
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List<int>.Add"));
+        assertEquals(Optional.of("Dictionary"), analyzer.extractClassName("Dictionary<string, int>.TryGetValue"));
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<User>.ConfigureAwait"));
+
+        // Nested generics
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<List<string>>.Wait"));
+
+        // Nullable types in generics
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<User?>.ConfigureAwait"));
+
+        // Null-conditional operator
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass?.MyMethod"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List<int>?.Add"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("Console"), analyzer.extractClassName("Console.WriteLine(message)"));
+        assertEquals(Optional.of("File"), analyzer.extractClassName("File.WriteAllText(path, content)"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".MyMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // C# specific: lowercase method names are INVALID (unlike Java)
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.myMethod")); // lowercase method - invalid C#
+        assertEquals(Optional.empty(), analyzer.extractClassName("myClass.MyMethod")); // lowercase class
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass.MyMethod  "));
+    }
+
+    @Test
+    @DisplayName("C# extractForCSharp - handles complex generic types")
+    void testCSharpExtractsComplexGenerics() {
+        assertEquals(Optional.of("Dictionary"), ClassNameExtractor.extractForCSharp("Dictionary<string, List<int>>.ContainsKey"));
+        assertEquals(Optional.of("Func"), ClassNameExtractor.extractForCSharp("Func<int, string>.Invoke"));
+        assertEquals(Optional.of("IEnumerable"), ClassNameExtractor.extractForCSharp("IEnumerable<KeyValuePair<string, int>>.GetEnumerator"));
+    }
+
+    @Test
+    @DisplayName("C# extractForCSharp - handles async patterns")
+    void testCSharpExtractsAsyncPatterns() {
+        assertEquals(Optional.of("Task"), ClassNameExtractor.extractForCSharp("Task.Run"));
+        assertEquals(Optional.of("Task"), ClassNameExtractor.extractForCSharp("Task<int>.FromResult"));
+        assertEquals(Optional.of("ValueTask"), ClassNameExtractor.extractForCSharp("ValueTask<string>.AsTask"));
+    }
+
+    @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);
