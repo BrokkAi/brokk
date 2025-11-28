@@ -13,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
@@ -24,76 +23,81 @@ public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
-                String query = input.trim();
-                if (query.length() < 2) {
-                            return List.of();
-                }
+        String query = input.trim();
+        if (query.length() < 2) {
+            return List.of();
+        }
 
-                // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
-                List<CodeUnit> candidates;
-                try {
-                            candidates =
-                                                    analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
-                } catch (Exception e) {
-                            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
-                            logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
-                            // Fall back to using top-level declarations only
-                            candidates = analyzer.getAllDeclarations();
-                }
+        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
+        List<CodeUnit> candidates;
+        try {
+            candidates =
+                    analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
+        } catch (Exception e) {
+            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
+            logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
+            // Fall back to using top-level declarations only
+            candidates = analyzer.getAllDeclarations();
+        }
 
-                // Inject parent class candidates for exact short-name queries
-                boolean nonHierarchicalQuery = query.indexOf('.') < 0 && query.indexOf('$') < 0;
-                if (nonHierarchicalQuery && !candidates.isEmpty()) {
-                            // Preserve insertion order while deduping by FQN
-                            java.util.LinkedHashMap<String, CodeUnit> dedup = new java.util.LinkedHashMap<>();
-                            for (CodeUnit cu : candidates) {
-                                        dedup.put(cu.fqName(), cu);
-                            }
-                            for (CodeUnit cu : candidates) {
-                                        String id = cu.identifier();
-                                        int dotIdx = id.indexOf('.');
-                                        if (dotIdx > 0) {
-                                                    String firstSegment = id.substring(0, dotIdx);
-                                                    if (firstSegment.equalsIgnoreCase(query)) {
-                                                                String parentFqn =
-                                                                                        cu.packageName().isEmpty() ? firstSegment : (cu.packageName() + "." + firstSegment);
-                                                                // Fetch parent definitions and add them to the set
-                                                                var defs = analyzer.getDefinitions(parentFqn);
-                                                                for (CodeUnit def : defs) {
-                                                                            dedup.put(def.fqName(), def);
-                                                                }
-                                                    }
-                                        }
-                            }
-                            candidates = new java.util.ArrayList<>(dedup.values());
+        // Inject parent class candidates for exact short-name queries
+        boolean nonHierarchicalQuery = query.indexOf('.') < 0 && query.indexOf('$') < 0;
+        if (nonHierarchicalQuery && !candidates.isEmpty()) {
+            // Preserve insertion order while deduping by FQN
+            java.util.LinkedHashMap<String, CodeUnit> dedup = new java.util.LinkedHashMap<>();
+            for (CodeUnit cu : candidates) {
+                dedup.put(cu.fqName(), cu);
+            }
+            for (CodeUnit cu : candidates) {
+                String id = cu.identifier();
+                int dotIdx = id.indexOf('.');
+                if (dotIdx > 0) {
+                    String firstSegment = id.substring(0, dotIdx);
+                    if (firstSegment.equalsIgnoreCase(query)) {
+                        String parentFqn =
+                                cu.packageName().isEmpty() ? firstSegment : (cu.packageName() + "." + firstSegment);
+                        // Fetch parent definitions and add them to the set
+                        var defs = analyzer.getDefinitions(parentFqn);
+                        for (CodeUnit def : defs) {
+                            dedup.put(def.fqName(), def);
+                        }
+                    }
                 }
+            }
+            candidates = new java.util.ArrayList<>(dedup.values());
+        }
 
-                var matcher = new FuzzyMatcher(query);
-                boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
+        var matcher = new FuzzyMatcher(query);
+        boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
 
-                // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
-                record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
-                }
-                return candidates.stream()
-                                        .map(cu -> {
-                                                    int score;
-                                                    if (hierarchicalQuery) {
-                                                                // query includes hierarchy separators -> match against full FQN
-                                                                score = matcher.score(cu.fqName());
-                                                    } else {
-                                                                // otherwise match ONLY the trailing symbol (class, method, field)
-                                                                score = matcher.score(cu.identifier());
-                                                    }
-                                                    return new ScoredCU(cu, score);
-                                        })
-                                        .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                                        .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
-                                                                .thenComparing(sc -> sc.cu().fqName()))
-                                        .map(ScoredCU::cu)
-                                        .sorted(Comparator.comparing(CodeUnit::fqName))
-                                        .distinct()
-                                        .limit(100)
-                                        .toList();
+        // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
+        record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
+        }
+        return candidates.stream()
+                .map(cu -> {
+                    int score;
+                    if (hierarchicalQuery) {
+                        // query includes hierarchy separators -> match against full FQN
+                        score = matcher.score(cu.fqName());
+                    } else {
+                        // otherwise match ONLY the trailing symbol (class, method, field)
+                        score = matcher.score(cu.identifier());
+                    }
+                    return new ScoredCU(cu, score);
+                })
+                .filter(sc -> sc.score() != Integer.MAX_VALUE)
+                .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
+                        .thenComparing(sc -> sc.cu().fqName()))
+                .map(ScoredCU::cu)
+                .collect(java.util.stream.Collectors.toMap(
+                        CodeUnit::fqName,
+                        java.util.function.Function.identity(),
+                        (a, b) -> a,
+                        java.util.LinkedHashMap::new))
+                .values()
+                .stream()
+                .limit(100)
+                .toList();
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
