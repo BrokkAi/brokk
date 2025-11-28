@@ -16,7 +16,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitDistance;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -185,8 +185,7 @@ public class ContextAgent {
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
-        var workspaceRepresentation = CodePrompts.instance.getWorkspaceMessagesInAddedOrder(
-                context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+        var workspaceRepresentation = WorkspacePrompts.getWorkspaceMessagesInAddedOrder(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);

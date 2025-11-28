@@ -20,6 +20,7 @@ import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -231,7 +232,7 @@ public class SearchAgent {
             var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
-                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+                    new ArrayList<>(WorkspacePrompts.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -831,8 +832,8 @@ public class SearchAgent {
         messages.add(getSystemMessage());
 
         // Current Workspace contents (use default viewing policy)
-        messages.addAll(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(
-                context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
+        ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.CONTEXT);
+        messages.addAll(WorkspacePrompts.getWorkspaceMessagesInAddedOrder(context, vp));
 
         // Dynamically inform the janitor about non-droppable fragments
         var nonDroppableMsg = buildNonDroppableSystemMessage();

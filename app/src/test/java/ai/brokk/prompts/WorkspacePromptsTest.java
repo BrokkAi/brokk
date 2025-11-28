@@ -52,9 +52,9 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+                .readOnlyPlusUntouched();
 
         assertFalse(messages.isEmpty(), "Should have messages for read-only fragments");
         var textContent = Messages.getText(messages.getFirst());
@@ -77,10 +77,9 @@ class WorkspacePromptsTest {
 
         var changedFilesSet = Set.of(changedFile);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .changedFiles(changedFilesSet)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), changedFilesSet)
+                .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("untouched.txt"), "Should include untouched editable files");
@@ -94,10 +93,9 @@ class WorkspacePromptsTest {
     void testCodeReadOnlyPlusUntouched_includesBuildFragmentWhenChangedFilesEmpty() {
         var ctx = new Context(cm, null).withBuildResult(false, "Build failed: syntax error on line 42");
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .changedFiles(Set.of())
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+                .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(
@@ -120,10 +118,9 @@ class WorkspacePromptsTest {
 
         var changedFilesSet = Set.of(changedFile);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                .changedFiles(changedFilesSet)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), changedFilesSet)
+                .editableChanged();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("changed.txt"), "Should include changed file");
@@ -141,10 +138,9 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                .changedFiles(Set.of(file))
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(file))
+                .editableChanged();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("workspace_build_status"), "Should include build status");
@@ -161,9 +157,8 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
-                .build();
+        var messages =
+                WorkspacePrompts.getWorkspaceMessagesInAddedOrder(ctx, new ViewingPolicy(TaskResult.Type.CODE));
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("<workspace>"), "Should wrap in <workspace> tag");
@@ -183,9 +178,8 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(editableFrag, readOnlyFrag));
         ctx = ctx.setReadonly(readOnlyFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesGroupedByMutability(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE));
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("<workspace>"), "Should wrap in <workspace> tag");
@@ -203,11 +197,11 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(changedFile, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
+        var records = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(changedFile));
+
         // With changedFiles non-empty, CODE_READONLY_PLUS_UNTOUCHED should NOT include build fragment
-        var roMessages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .changedFiles(Set.of(changedFile))
-                .build();
+        var roMessages = records.readOnlyPlusUntouched();
 
         var roText = roMessages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertFalse(
@@ -215,10 +209,7 @@ class WorkspacePromptsTest {
                 "CODE_READONLY_PLUS_UNTOUCHED should not include build status when changedFiles is non-empty");
 
         // EDITABLE_CHANGED should include it
-        var editableMessages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                .changedFiles(Set.of(changedFile))
-                .build();
+        var editableMessages = records.editableChanged();
 
         var editableText =
                 editableMessages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
@@ -250,9 +241,9 @@ class WorkspacePromptsTest {
         ctx = ctx.addVirtualFragments(List.of(summary1, summary2));
         ctx.awaitContextsAreComputed(java.time.Duration.ofSeconds(5));
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+                .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("<api_summaries"), "Should have api_summaries block");
@@ -268,11 +259,11 @@ class WorkspacePromptsTest {
     void testEmptyContext_returnsEmptyMessageList() {
         var ctx = new Context(cm, null);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var records = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
 
-        assertTrue(messages.isEmpty(), "Empty context should return no messages");
+        assertTrue(records.readOnlyPlusUntouched().isEmpty(), "Empty context should return no read-only messages");
+        assertTrue(records.editableChanged().isEmpty(), "Empty context should return no editable messages");
     }
 
     // Test 4b: Only read-only fragments (no editable)
@@ -285,9 +276,9 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var messages = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+                .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("READ ONLY"), "Should have read-only section");
@@ -306,10 +297,10 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // Set changedFiles to a file that doesn't intersect with any fragments
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                .changedFiles(Set.of(nonEditFile))
-                .build();
+        var records = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(nonEditFile));
+
+        var messages = records.editableChanged();
 
         // Should return empty since no editable fragments match changedFiles
         assertTrue(messages.isEmpty(), "Should return empty when changedFiles don't intersect fragments");
@@ -328,16 +319,13 @@ class WorkspacePromptsTest {
         var policy2 = new ViewingPolicy(TaskResult.Type.ASK);
 
         // Both should build without error (actual visual differences depend on fragment implementations)
-        var messages1 = WorkspacePrompts.builder(ctx, policy1)
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
-
-        var messages2 = WorkspacePrompts.builder(ctx, policy2)
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var records1 = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(ctx, policy1, Set.of());
+        var records2 = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(ctx, policy2, Set.of());
 
         // Both should succeed (empty in this case since context is empty)
-        assertTrue(messages1.isEmpty() && messages2.isEmpty(), "Both policies should work without error");
+        assertTrue(
+                records1.readOnlyPlusUntouched().isEmpty() && records2.readOnlyPlusUntouched().isEmpty(),
+                "Both policies should work without error");
     }
 
     // Test 6: Acknowledgment Messages
@@ -351,9 +339,9 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // Test CODE_READONLY_PLUS_UNTOUCHED acknowledgment
-        var msgs1 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .build();
+        var records1 = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
+        var msgs1 = records1.readOnlyPlusUntouched();
         if (!msgs1.isEmpty()) {
             var ack = msgs1.stream()
                     .filter(AiMessage.class::isInstance)
@@ -365,10 +353,9 @@ class WorkspacePromptsTest {
         }
 
         // Test EDITABLE_CHANGED acknowledgment
-        var msgs2 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                .changedFiles(Set.of(file))
-                .build();
+        var records2 = WorkspacePrompts.getWorkspaceMessagesForCodeAgent(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(file));
+        var msgs2 = records2.editableChanged();
         if (!msgs2.isEmpty()) {
             var ack = msgs2.stream()
                     .filter(AiMessage.class::isInstance)
@@ -380,9 +367,8 @@ class WorkspacePromptsTest {
         }
 
         // Test CONTENTS acknowledgment
-        var msgs3 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
-                .build();
+        var msgs3 = WorkspacePrompts.getWorkspaceMessagesGroupedByMutability(
+                ctx, new ViewingPolicy(TaskResult.Type.CODE));
         if (!msgs3.isEmpty()) {
             var ack = msgs3.stream()
                     .filter(AiMessage.class::isInstance)
