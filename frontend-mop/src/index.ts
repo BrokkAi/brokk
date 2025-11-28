@@ -14,6 +14,9 @@ import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePat
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
 import { envStore } from './stores/envStore';
+import { setSummaryParseEntry, deleteSummaryParseEntry, getSummaryParseEntry, updateSummaryParseTree, summaryParseStore } from './stores/summaryParseStore';
+import { register, unregister, isRegistered } from './worker/parseRouter';
+import { parse } from './worker/worker-bridge';
 
 const mainLog = createLogger('main');
 
@@ -112,6 +115,8 @@ function setupBrokkInterface(): any[] {
 async function handleEvent(payload: any): Promise<void> {
     if (payload.type === 'history-reset' || payload.type === 'history-task') {
         onHistoryEvent(payload);
+    } else if (payload.type === 'live-summary') {
+        onLiveSummary(payload);
     } else {
         onBrokkEvent(payload); // updates store & talks to worker
     }
@@ -121,6 +126,36 @@ async function handleEvent(payload: any): Promise<void> {
     requestAnimationFrame(() => {
         if (payload.epoch) window.javaBridge?.onAck(payload.epoch);
     });
+}
+
+let nextSummaryParseSeq = 2_000_000;
+
+function onLiveSummary(payload: any): void {
+    const { threadId, compressed, summary } = payload;
+
+    // Clear any previous summary entry for this threadId
+    const prevEntry = getSummaryParseEntry(threadId);
+    if (prevEntry && isRegistered(prevEntry.seq)) {
+        unregister(prevEntry.seq);
+    }
+    deleteSummaryParseEntry(threadId);
+
+    // Create a new sequence number for this summary parse
+    const summarySeq = nextSummaryParseSeq++;
+
+    // Store the summary entry in summaryParseStore
+    setSummaryParseEntry(threadId, {
+        seq: summarySeq,
+        text: summary,
+    });
+
+    // Register a parse result handler
+    register(summarySeq, (msg: any) => {
+        updateSummaryParseTree(threadId, msg.tree);
+    });
+
+    // Trigger parsing with the worker (slow parse, don't update buffer)
+    parse(summary, summarySeq, false, false);
 }
 
 function getCurrentSelection(): string {
