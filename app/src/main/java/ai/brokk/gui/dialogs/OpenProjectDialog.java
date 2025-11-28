@@ -779,7 +779,7 @@ public class OpenProjectDialog extends JDialog {
                     cleanup.run();
                     JOptionPane.showMessageDialog(
                             OpenProjectDialog.this,
-                            "Failed to clone repository: " + e.getMessage(),
+                            getCleanErrorMessage(e),
                             "Clone Failed",
                             JOptionPane.ERROR_MESSAGE);
                 }
@@ -1084,6 +1084,20 @@ public class OpenProjectDialog extends JDialog {
 
         selectedProjectPath = projectPath;
         dispose();
+    }
+
+    /**
+     * Extracts a user-friendly error message from an exception, stripping
+     * Java exception class name prefixes.
+     */
+    private static String getCleanErrorMessage(Exception e) {
+        var message = e.getMessage();
+        if (message == null) {
+            return "An unknown error occurred";
+        }
+        // Strip exception class prefixes like "java.lang.IllegalArgumentException: "
+        var cleaned = message.replaceFirst("^[a-zA-Z0-9_.]+Exception:\\s*", "");
+        return cleaned.isEmpty() ? message : cleaned;
     }
 
     /**
