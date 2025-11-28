@@ -1,13 +1,12 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import ai.brokk.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.VisibleForTesting;

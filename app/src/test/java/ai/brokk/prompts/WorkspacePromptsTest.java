@@ -52,8 +52,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.getMessagesForCodeAgent(
-                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+        var messages = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
                 .readOnlyPlusUntouched();
 
         assertFalse(messages.isEmpty(), "Should have messages for read-only fragments");
@@ -93,8 +92,7 @@ class WorkspacePromptsTest {
     void testCodeReadOnlyPlusUntouched_includesBuildFragmentWhenChangedFilesEmpty() {
         var ctx = new Context(cm, null).withBuildResult(false, "Build failed: syntax error on line 42");
 
-        var messages = WorkspacePrompts.getMessagesForCodeAgent(
-                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+        var messages = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
                 .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
@@ -157,8 +155,7 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        var messages =
-                WorkspacePrompts.getMessagesInAddedOrder(ctx, new ViewingPolicy(TaskResult.Type.CODE));
+        var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, new ViewingPolicy(TaskResult.Type.CODE));
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("<workspace>"), "Should wrap in <workspace> tag");
@@ -178,8 +175,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(editableFrag, readOnlyFrag));
         ctx = ctx.setReadonly(readOnlyFrag, true);
 
-        var messages = WorkspacePrompts.getMessagesGroupedByMutability(
-                ctx, new ViewingPolicy(TaskResult.Type.CODE));
+        var messages = WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.CODE));
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("<workspace>"), "Should wrap in <workspace> tag");
@@ -241,8 +237,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addVirtualFragments(List.of(summary1, summary2));
         ctx.awaitContextsAreComputed(java.time.Duration.ofSeconds(5));
 
-        var messages = WorkspacePrompts.getMessagesForCodeAgent(
-                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+        var messages = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
                 .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
@@ -259,8 +254,7 @@ class WorkspacePromptsTest {
     void testEmptyContext_returnsEmptyMessageList() {
         var ctx = new Context(cm, null);
 
-        var records = WorkspacePrompts.getMessagesForCodeAgent(
-                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
+        var records = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
 
         assertTrue(records.readOnlyPlusUntouched().isEmpty(), "Empty context should return no read-only messages");
         assertTrue(records.editableChanged().isEmpty(), "Empty context should return no editable messages");
@@ -276,8 +270,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.getMessagesForCodeAgent(
-                        ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
+        var messages = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of())
                 .readOnlyPlusUntouched();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
@@ -324,7 +317,8 @@ class WorkspacePromptsTest {
 
         // Both should succeed (empty in this case since context is empty)
         assertTrue(
-                records1.readOnlyPlusUntouched().isEmpty() && records2.readOnlyPlusUntouched().isEmpty(),
+                records1.readOnlyPlusUntouched().isEmpty()
+                        && records2.readOnlyPlusUntouched().isEmpty(),
                 "Both policies should work without error");
     }
 
@@ -339,8 +333,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // Test CODE_READONLY_PLUS_UNTOUCHED acknowledgment
-        var records1 = WorkspacePrompts.getMessagesForCodeAgent(
-                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
+        var records1 = WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of());
         var msgs1 = records1.readOnlyPlusUntouched();
         if (!msgs1.isEmpty()) {
             var ack = msgs1.stream()
@@ -353,8 +346,8 @@ class WorkspacePromptsTest {
         }
 
         // Test EDITABLE_CHANGED acknowledgment
-        var records2 = WorkspacePrompts.getMessagesForCodeAgent(
-                ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(file));
+        var records2 =
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), Set.of(file));
         var msgs2 = records2.editableChanged();
         if (!msgs2.isEmpty()) {
             var ack = msgs2.stream()
@@ -367,8 +360,7 @@ class WorkspacePromptsTest {
         }
 
         // Test CONTENTS acknowledgment
-        var msgs3 = WorkspacePrompts.getMessagesGroupedByMutability(
-                ctx, new ViewingPolicy(TaskResult.Type.CODE));
+        var msgs3 = WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.CODE));
         if (!msgs3.isEmpty()) {
             var ack = msgs3.stream()
                     .filter(AiMessage.class::isInstance)

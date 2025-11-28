@@ -177,7 +177,8 @@ public class ContextAgent {
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
-        var workspaceRepresentation = WorkspacePrompts.getMessagesInAddedOrder(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+        var workspaceRepresentation =
+                WorkspacePrompts.getMessagesInAddedOrder(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
