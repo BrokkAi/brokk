@@ -163,6 +163,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         List<? extends ChatMessage> mainMessages = main.hasLog()
                 ? castNonNull(main.log()).messages()
                 : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
+        
+        // Send live summary to frontend if available (enables summary toggle in live area)
+        var summary = main.summary();
+        if (summary != null && !summary.isEmpty()) {
+            webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary);
+        }
+        
         return setMainThenHistoryAsync(mainMessages, history);
     }
 
