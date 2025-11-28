@@ -181,14 +181,6 @@ public class Context {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    public String getEditableToc() {
-        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-    }
-
-    public String getReadOnlyToc() {
-        return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-    }
-
     public Context addPathFragments(Collection<? extends ContextFragment.PathFragment> paths) {
         // Build a list of unique new path fragments
         var toAdd = new ArrayList<ContextFragment.PathFragment>();
