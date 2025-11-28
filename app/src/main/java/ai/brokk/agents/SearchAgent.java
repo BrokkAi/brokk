@@ -840,8 +840,8 @@ public class SearchAgent {
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
-        messages.addAll(
-                CodePrompts.instance.getWorkspaceContentsMessages(context, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CONTEXT)));
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                context, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Dynamically inform the janitor about non-droppable fragments
         var nonDroppableMsg = buildNonDroppableSystemMessage();

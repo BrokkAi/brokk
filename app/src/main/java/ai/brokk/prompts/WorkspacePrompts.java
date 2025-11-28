@@ -138,7 +138,8 @@ public final class WorkspacePrompts {
             readOnlyText.append(combinedBlock).append("\n\n");
         }
 
-        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include it)
+        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include
+        // it)
         if (buildFragment != null && changedFiles.isEmpty()) {
             if (!readOnlyText.isEmpty()) {
                 readOnlyText.append("\n\n");
