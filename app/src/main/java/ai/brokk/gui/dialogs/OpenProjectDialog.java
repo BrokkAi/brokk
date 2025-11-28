@@ -10,6 +10,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -227,6 +228,8 @@ public class OpenProjectDialog extends JDialog {
 
     private void cancelClone() {
         if (cloneTaskFuture != null && !cloneTaskFuture.isDone()) {
+            logger.info("Clone cancellation requested");
+
             // Set flag - cleanup will happen in done() after JGit finishes
             cloneCancelled = true;
 
@@ -368,7 +371,7 @@ public class OpenProjectDialog extends JDialog {
         gbc.gridwidth = 1;
         gbc.weightx = 0.0;
         panel.add(new JLabel("Directory:"), gbc);
-        var dirField = new JTextField(System.getProperty("user.home"));
+        var dirField = new JTextField(GlobalUiSettings.getLastCloneDirectory());
 
         var chooseIcon = UIManager.getIcon("FileChooser.directoryIcon");
         if (chooseIcon == null) {
@@ -446,7 +449,7 @@ public class OpenProjectDialog extends JDialog {
             var chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
             chooser.setDialogTitle("Select Directory to Clone Into");
-            chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+            chooser.setCurrentDirectory(new File(GlobalUiSettings.getLastCloneDirectory()));
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 dirField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
@@ -520,7 +523,7 @@ public class OpenProjectDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(new JLabel("Directory:"), gbc);
 
-        var dirField = new JTextField(System.getProperty("user.home"), 30);
+        var dirField = new JTextField(GlobalUiSettings.getLastCloneDirectory(), 30);
         var chooseIcon = UIManager.getIcon("FileChooser.directoryIcon");
         if (chooseIcon == null) {
             chooseIcon = UIManager.getIcon("FileView.directoryIcon");
@@ -546,7 +549,7 @@ public class OpenProjectDialog extends JDialog {
             var chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
             chooser.setDialogTitle("Select Directory to Clone Into");
-            chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+            chooser.setCurrentDirectory(new File(GlobalUiSettings.getLastCloneDirectory()));
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 dirField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
@@ -759,7 +762,7 @@ public class OpenProjectDialog extends JDialog {
                 };
 
                 if (wasCancelled) {
-                    logger.debug("Clone was cancelled by user, cleaning up");
+                    logger.info("Clone cancellation completed, cleaning up");
                     cleanup.run();
                     return;
                 }
@@ -772,6 +775,11 @@ public class OpenProjectDialog extends JDialog {
                     var projectPath = get();
                     setCloneInProgress(false);
                     if (projectPath != null) {
+                        // Save parent directory for next clone
+                        var parent = projectPath.getParent();
+                        if (parent != null) {
+                            GlobalUiSettings.saveLastCloneDirectory(parent.toString());
+                        }
                         openProject(projectPath);
                     }
                 } catch (Exception e) {
