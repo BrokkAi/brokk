@@ -352,18 +352,6 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     * Eagerly start async computations for this fragment (if `BRK_EAGER_FRAGMENTS` is enabled). Non-blocking.
-     * Safe to call multiple times; ComputedValue ensures single evaluation.
-     */
-    default void primeComputations() {
-        var envVar = System.getenv("BRK_EAGER_FRAGMENTS");
-        var eagerFragmentsEnabled = envVar != null && (envVar.isBlank() || Boolean.parseBoolean(envVar));
-        if (eagerFragmentsEnabled) {
-            startAll();
-        }
-    }
-
-    /**
      *  Eagerly start async computations for this fragment.
      */
     default void startAll() {
@@ -701,7 +689,7 @@ public interface ContextFragment {
                             ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
                             : null);
             this.file = file;
-            primeComputations();
+            startAll();
         }
 
         @Override
@@ -730,7 +718,12 @@ public interface ContextFragment {
             String name = file.getFileName();
             String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            Set<CodeUnit> sources = getAnalyzer().getDeclarations(file);
+            Set<CodeUnit> sources = Set.of();
+            try {
+                sources = getAnalyzer().getDeclarations(file);
+            } catch (Exception e) {
+                logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
+            }
 
             return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
         }
@@ -898,7 +891,7 @@ public interface ContextFragment {
                     contextManager,
                     snapshotText != null ? decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.file = file;
-            primeComputations();
+            startAll();
         }
 
         @Override
@@ -956,7 +949,7 @@ public interface ContextFragment {
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
             super(id, contextManager);
             this.file = file;
-            primeComputations();
+            startAll();
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
@@ -1197,7 +1190,7 @@ public interface ContextFragment {
             this.text = text;
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
-            primeComputations();
+            startAll();
         }
 
         @Override
@@ -1264,7 +1257,7 @@ public interface ContextFragment {
             super(id, contextManager);
             this.image = image;
             this.descriptionFuture = descriptionFuture;
-            primeComputations();
+            startAll();
         }
 
         @Nullable
@@ -1451,7 +1444,7 @@ public interface ContextFragment {
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
-            primeComputations();
+            startAll();
         }
 
         private static FragmentSnapshot decodeFrozen(String targetIdentifier, byte[] bytes) {
@@ -1562,10 +1555,13 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     snapshotText != null
-                            ? decodeFrozen(fullyQualifiedName, snapshotText.getBytes(StandardCharsets.UTF_8), contextManager.getAnalyzerUninterrupted())
+                            ? decodeFrozen(
+                                    fullyQualifiedName,
+                                    snapshotText.getBytes(StandardCharsets.UTF_8),
+                                    contextManager.getAnalyzerUninterrupted())
                             : null);
             this.fullyQualifiedName = fullyQualifiedName;
-            primeComputations();
+            startAll();
         }
 
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1598,7 +1594,7 @@ public interface ContextFragment {
             super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
             this.fullyQualifiedName = unit.fqName();
             this.preResolvedUnit = unit;
-            primeComputations();
+            startAll();
         }
 
         @Override
@@ -1680,7 +1676,7 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
-            primeComputations();
+            startAll();
         }
 
         @Override
@@ -1832,7 +1828,7 @@ public interface ContextFragment {
             super(id, contextManager);
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
-            primeComputations();
+            startAll();
         }
 
         @Override

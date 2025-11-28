@@ -128,15 +128,16 @@ public class ContextSerializationTest {
 
     @Test
     void testWriteReadHistoryWithComplexContent() throws Exception {
-        // Context 1: Project file, string fragment
         var projectFile1 = new ProjectFile(tempDir, "src/File1.java");
+        Files.createDirectories(projectFile1.absPath().getParent());
+        Files.writeString(projectFile1.absPath(), "public class File1 {}");
+
+        // Context 1: Project file, string fragment
         var context1 = new Context(mockContextManager, "Context 1 started")
                 .addFragments(List.of(new ContextFragment.ProjectPathFragment(projectFile1, mockContextManager)))
                 .addFragments(new ContextFragment.StringFragment(
                         mockContextManager, "Virtual content 1", "VC1", SyntaxConstants.SYNTAX_STYLE_JAVA));
         ContextHistory originalHistory = new ContextHistory(context1);
-        Files.createDirectories(projectFile1.absPath().getParent());
-        Files.writeString(projectFile1.absPath(), "public class File1 {}");
 
         // Context 2: Image fragment, task history
         var image1 = createTestImage(Color.RED, 10, 10);
@@ -1587,8 +1588,9 @@ public class ContextSerializationTest {
         String projectFileContent = "public class SnapshotTest {}";
         Files.writeString(projectFile.absPath(), projectFileContent);
         var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
-        assertNotNull(ppf.snapshotNowOrEmpty().text());
-        assertEquals(projectFileContent, ppf.snapshotNowOrEmpty().text());
+        var ppfSnapshot = ppf.snapshot().join();
+        assertFalse(ppfSnapshot.text().isBlank());
+        assertEquals(projectFileContent, ppfSnapshot.text());
 
         // ExternalPathFragment
         Path externalFilePath = tempDir.resolve("external_snapshot.txt");
@@ -1596,8 +1598,9 @@ public class ContextSerializationTest {
         Files.writeString(externalFilePath, externalFileContent);
         var externalFile = new ExternalFile(externalFilePath);
         var epf = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
-        assertNotNull(epf.snapshotNowOrEmpty().text());
-        assertEquals(externalFileContent, epf.snapshotNowOrEmpty().text());
+        var epfSnapshot = epf.snapshot().join();
+        assertFalse(epfSnapshot.text().isBlank());
+        assertEquals(externalFileContent, epfSnapshot.text());
 
         var context = new Context(mockContextManager, "Test Snapshots").addFragments(List.of(ppf, epf));
         ContextHistory originalHistory = new ContextHistory(context);
@@ -1627,5 +1630,4 @@ public class ContextSerializationTest {
         assertEquals(projectFileContent, loadedPpf.text().join());
         assertEquals(externalFileContent, loadedEpf.text().join());
     }
-
 }

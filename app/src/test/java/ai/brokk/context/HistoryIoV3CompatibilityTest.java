@@ -163,7 +163,7 @@ class HistoryIoV3CompatibilityTest {
 
         var ppf = findFragment(live, ContextFragment.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");
-        var description = ppf.description().renderNowOrNull();
+        var description = ppf.description().join();
         var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk"));
         assertEquals("EditBlock.java [%s]".formatted(path), description);
     }
