@@ -192,17 +192,21 @@ public class OpenProjectDialog extends JDialog {
         }
     }
 
+    /**
+     * Toggles clone progress UI. Uses dynamic reparenting to place the progress panel
+     * in the same location as the Clone button it replaces - this provides visual continuity
+     * where the user clicked. An alternative would be fixed placeholder panels in each tab,
+     * but that adds complexity without UX benefit since the layouts are stable.
+     */
     private void setCloneInProgress(boolean inProgress) {
         // Show/hide clone buttons (opposite of progress state)
         cloneFromGitButton.setVisible(!inProgress);
         cloneFromGitHubButton.setVisible(!inProgress);
 
-        // Show/hide progress panel - add to or remove from current button's parent
+        // Reparent progress panel to the active tab's button container
         if (inProgress) {
-            // Add progress panel to the parent of the active clone button
-            var activeButton = tabbedPane.getSelectedIndex() == gitHubTabIndex
-                    ? cloneFromGitHubButton
-                    : cloneFromGitButton;
+            var activeButton =
+                    tabbedPane.getSelectedIndex() == gitHubTabIndex ? cloneFromGitHubButton : cloneFromGitButton;
             var buttonParent = activeButton.getParent();
             if (buttonParent != null) {
                 buttonParent.add(cloneProgressPanel, 0); // Add at beginning
@@ -719,7 +723,8 @@ public class OpenProjectDialog extends JDialog {
         }
 
         final var normalizedUrl = normalizeGitUrl(url);
-        final var directory = Paths.get(dir);
+        final var repoName = extractRepoName(normalizedUrl);
+        final var directory = Paths.get(dir).resolve(repoName);
 
         // Store target directory for cleanup on cancel
         cloneTargetDirectory = directory;
@@ -786,10 +791,7 @@ public class OpenProjectDialog extends JDialog {
                     setCloneInProgress(false);
                     cleanup.run();
                     JOptionPane.showMessageDialog(
-                            OpenProjectDialog.this,
-                            getCleanErrorMessage(e),
-                            "Clone Failed",
-                            JOptionPane.ERROR_MESSAGE);
+                            OpenProjectDialog.this, getCleanErrorMessage(e), "Clone Failed", JOptionPane.ERROR_MESSAGE);
                 }
             }
         };
@@ -808,6 +810,23 @@ public class OpenProjectDialog extends JDialog {
             return url + ".git";
         }
         return url;
+    }
+
+    private static String extractRepoName(String url) {
+        var normalized = url.trim();
+        if (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.endsWith(".git")) {
+            normalized = normalized.substring(0, normalized.length() - 4);
+        }
+        int lastSlash = normalized.lastIndexOf('/');
+        int lastColon = normalized.lastIndexOf(':');
+        int pos = Math.max(lastSlash, lastColon);
+        if (pos >= 0 && pos < normalized.length() - 1) {
+            return normalized.substring(pos + 1);
+        }
+        return "repo";
     }
 
     private void validateTokenAndLoadRepositories() {

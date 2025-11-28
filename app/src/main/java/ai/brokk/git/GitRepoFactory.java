@@ -128,20 +128,20 @@ public class GitRepoFactory {
         return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null);
     }
 
-    static GitRepo cloneRepo(Supplier<String> tokenSupplier,
-                             String remoteUrl,
-                             Path directory,
-                             int depth,
-                             @Nullable String branchOrTag) throws GitAPIException {
+    static GitRepo cloneRepo(
+            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
+            throws GitAPIException {
         return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null);
     }
 
-    private static GitRepo cloneRepoInternal(Supplier<String> tokenSupplier,
-                                             String remoteUrl,
-                                             Path directory,
-                                             int depth,
-                                             @Nullable String branchOrTag,
-                                             @Nullable ProgressMonitor monitor) throws GitAPIException {
+    private static GitRepo cloneRepoInternal(
+            Supplier<String> tokenSupplier,
+            String remoteUrl,
+            Path directory,
+            int depth,
+            @Nullable String branchOrTag,
+            @Nullable ProgressMonitor monitor)
+            throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
         // Ensure the target directory is empty (or doesn't yet exist)
@@ -187,8 +187,13 @@ public class GitRepoFactory {
             }
             return new GitRepo(directory, tokenSupplier);
         } catch (GitAPIException e) {
-            logger.error("Failed to clone {} (branch/tag: {}) into {}: {}",
-                         effectiveUrl, branchOrTag, directory, e.getMessage(), e);
+            logger.error(
+                    "Failed to clone {} (branch/tag: {}) into {}: {}",
+                    effectiveUrl,
+                    branchOrTag,
+                    directory,
+                    e.getMessage(),
+                    e);
             throw e;
         }
     }
