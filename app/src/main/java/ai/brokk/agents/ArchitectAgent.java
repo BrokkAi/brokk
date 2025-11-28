@@ -14,6 +14,7 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -414,8 +415,8 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
-                    context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
+            ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.ARCHITECT);
+            var workspaceContentMessages = new ArrayList<>(WorkspacePrompts.getWorkspaceMessagesGroupedByMutability(context, vp));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
@@ -752,7 +753,7 @@ public class ArchitectAgent {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         var reminder = CodePrompts.instance.architectReminder();
-        messages.add(ArchitectPrompts.instance.systemMessage(cm, reminder));
+        messages.add(ArchitectPrompts.instance.systemMessage(context, reminder));
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);

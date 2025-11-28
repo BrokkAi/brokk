@@ -207,10 +207,9 @@ public abstract class CodePrompts {
         messages.add(systemMessage(ctx, reminder));
 
         // Read-only + untouched-editable message (CodeAgent wants summaries combined; changedFiles controls untouched)
-        messages.addAll(WorkspacePrompts.builder(ctx, viewingPolicy)
-                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
-                .changedFiles(changedFiles)
-                .build());
+        var codeAgentWorkspace =
+                WorkspacePrompts.getWorkspaceMessagesForCodeAgent(ctx, viewingPolicy, changedFiles);
+        messages.addAll(codeAgentWorkspace.readOnlyPlusUntouched());
 
         messages.addAll(prologue);
 
@@ -218,10 +217,7 @@ public abstract class CodePrompts {
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
             // Changed editable + build status
-            messages.addAll(WorkspacePrompts.builder(ctx, viewingPolicy)
-                    .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
-                    .changedFiles(changedFiles)
-                    .build());
+            messages.addAll(codeAgentWorkspace.editableChanged());
         }
         messages.add(request);
 
@@ -281,9 +277,8 @@ public abstract class CodePrompts {
         var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         String reminder = askReminder();
         messages.add(systemMessage(cm.liveContext(), reminder));
-        messages.addAll(WorkspacePrompts.builder(cm.liveContext(), viewingPolicy)
-                .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
-                .build());
+        messages.addAll(
+                WorkspacePrompts.getWorkspaceMessagesInAddedOrder(cm.liveContext(), viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -586,22 +581,6 @@ public abstract class CodePrompts {
         });
 
         return messages;
-    }
-
-    /**
-     * Backwards-compatible wrappers delegating to WorkspacePrompts.
-     * These restore the previous CodePrompts instance methods that callers expect.
-     */
-    public List<ChatMessage> getWorkspaceMessagesGroupedByMutability(Context ctx, ViewingPolicy vp) {
-        return WorkspacePrompts.builder(ctx, vp)
-                .view(WorkspacePrompts.WorkspaceView.GROUPED_BY_MUTABILITY)
-                .build();
-    }
-
-    public List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
-        return WorkspacePrompts.builder(ctx, vp)
-                .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
-                .build();
     }
 
     public enum InstructionsFlags {

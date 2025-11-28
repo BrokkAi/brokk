@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import ai.brokk.ContextManager;
 import ai.brokk.TaskResult;
+import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -23,8 +24,8 @@ public abstract class CopyExternalPrompts extends CodePrompts {
     private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
         var messages = new ArrayList<ChatMessage>();
         messages.addAll(cm.getHistoryMessagesForCopy());
-        messages.addAll(CodePrompts.instance.getWorkspaceMessagesGroupedByMutability(
-                cm.liveContext(), new ViewingPolicy(TaskResult.Type.COPY)));
+        Context ctx = cm.liveContext();
+        messages.addAll(WorkspacePrompts.getWorkspaceMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.COPY)));
         return messages;
     }
 

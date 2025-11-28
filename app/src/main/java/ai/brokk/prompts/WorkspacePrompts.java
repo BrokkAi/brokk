@@ -24,36 +24,31 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Encapsulates workspace-related prompt construction. Extracted from CodePrompts to centralize workspace rendering.
  *
- * Minimal builder options (per decision in the conversation):
- * - view: one of the predefined workspace views used by callers.
- * - viewingPolicy: controls StringFragment visibility rendering.
- * - changedFiles: optional set of changed ProjectFiles (used for CodeAgent flows).
+ * This class now exposes simple static helpers instead of a builder:
+ * - {@link #getWorkspaceMessagesInAddedOrder(Context, ViewingPolicy)}
+ * - {@link #getWorkspaceMessagesGroupedByMutability(Context, ViewingPolicy)}
+ * - {@link #getWorkspaceMessagesForCodeAgent(Context, ViewingPolicy, Set)}
  *
- * The builder always:
- * - combines summary fragments into a single api_summaries block,
- * - appends an AiMessage acknowledgment,
- * - includes build status alongside editable sections when present,
- * - places untouched editable fragments with read-only for the CodeAgent read-only view.
+ * The helpers always:
+ * - combine summary fragments into a single api_summaries block,
+ * - append an AiMessage acknowledgment,
+ * - include build status alongside editable sections when present,
+ * - place untouched editable fragments with read-only for the CodeAgent read-only view.
  */
 public final class WorkspacePrompts {
     private static final Logger logger = LogManager.getLogger(WorkspacePrompts.class);
 
-    private final Context ctx;
-    private final ViewingPolicy viewingPolicy;
-    private final WorkspaceView view;
-    private final Set<ProjectFile> changedFiles;
-
-    private WorkspacePrompts(
-            Context ctx, ViewingPolicy viewingPolicy, WorkspaceView view, Set<ProjectFile> changedFiles) {
-        this.ctx = ctx;
-        this.viewingPolicy = viewingPolicy;
-        this.view = view;
-        this.changedFiles = changedFiles;
+    private WorkspacePrompts() {
+        // Utility class
     }
 
-    public static Builder builder(Context ctx, ViewingPolicy viewingPolicy) {
-        return new Builder(ctx, viewingPolicy);
-    }
+    /**
+     * Record containing both views that CodeAgent needs:
+     * - readOnlyPlusUntouched: read-only fragments and untouched editable fragments
+     * - editableChanged: editable fragments that intersect the changed files plus build status
+     */
+    public record CodeAgentWorkspaceMessages(
+            List<ChatMessage> readOnlyPlusUntouched, List<ChatMessage> editableChanged) {}
 
     public static String formatWorkspaceToc(Context ctx) {
         var editableContents =
@@ -81,23 +76,16 @@ public final class WorkspacePrompts {
         if (!editableContents.isBlank()) {
             workspaceBuilder.append(
                     """
-                    <workspace_editable_unchanged>
+                    <workspace_editable>
                     The following fragments MAY BE EDITED:
                     %s
-                    </workspace_editable_unchanged>
+                    </workspace_editable>
                     """
                             .formatted(editableContents));
-        } else {
-            workspaceBuilder.append("  <workspace_editable_unchanged>\n  </workspace_editable_unchanged>\n");
         }
 
-        workspaceBuilder.append("  <workspace_editable_changed>\n  </workspace_editable_changed>\n");
-
         if (buildFragment.isPresent()) {
-            workspaceBuilder.append(
-                    "  <workspace_build_status>\n  Build status information may be included.\n  </workspace_build_status>\n");
-        } else {
-            workspaceBuilder.append("  <workspace_build_status>\n  </workspace_build_status>\n");
+            workspaceBuilder.append("  <workspace_build_status>(failing)</workspace_build_status>\n");
         }
 
         workspaceBuilder.append("</workspace_toc>");
@@ -105,54 +93,124 @@ public final class WorkspacePrompts {
         return workspaceBuilder.toString();
     }
 
-    public enum WorkspaceView {
-        // Read-only fragments + untouched editable (used by CodeAgent as the first workspace message)
-        CODE_READONLY_PLUS_UNTOUCHED,
-        // Editable fragments that have been changed in the current task + build status
-        EDITABLE_CHANGED,
-        // Generic combined workspace: readonly + editable(all) + build status (wrapped in <workspace>)
-        GROUPED_BY_MUTABILITY,
-        // All fragments in the added order (ctx.allFragments()), wrapped in <workspace>
-        IN_ADDED_ORDER
+    /**
+     * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
+     * {@code <workspace>} block.
+     */
+    public static List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
+        var allFragments = ctx.allFragments().toList();
+        if (allFragments.isEmpty()) {
+            return List.of();
+        }
+
+        var rendered = formatWithPolicy(allFragments, viewingPolicy);
+        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(rendered.text);
+
+        allContents.add(new TextContent(workspaceText));
+        allContents.addAll(rendered.images);
+
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
-    public static final class Builder {
-        private final Context ctx;
-        private final ViewingPolicy viewingPolicy;
-        private WorkspaceView view = WorkspaceView.GROUPED_BY_MUTABILITY;
-        private Set<ProjectFile> changedFiles = Set.of();
+    /**
+     * Generic combined workspace: readonly + editable(all) + build status, wrapped in a single
+     * {@code <workspace>} block.
+     */
+    public static List<ChatMessage> getWorkspaceMessagesGroupedByMutability(
+            Context ctx, ViewingPolicy viewingPolicy) {
+        // Compose read-only (without build fragment) + all editable + build status into a single <workspace> message
+        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy);
+        var editableMessages = buildEditableAll(ctx, viewingPolicy);
 
-        private Builder(Context ctx, ViewingPolicy viewingPolicy) {
-            this.ctx = ctx;
-            this.viewingPolicy = viewingPolicy;
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
+            return List.of();
         }
 
-        public Builder view(WorkspaceView v) {
-            this.view = v;
-            return this;
+        var allContents = new ArrayList<Content>();
+        var combinedText = new StringBuilder();
+
+        // Extract text and images from read-only messages
+        if (!readOnlyMessages.isEmpty()) {
+            var readOnlyUserMessage = readOnlyMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (readOnlyUserMessage.isPresent()) {
+                var contents = readOnlyUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allContents.add(imageContent);
+                    }
+                }
+            }
         }
 
-        public Builder changedFiles(Set<ProjectFile> changed) {
-            this.changedFiles = changed;
-            return this;
+        // Extract text from editable messages
+        if (!editableMessages.isEmpty()) {
+            var editableUserMessage = editableMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (editableUserMessage.isPresent()) {
+                var contents = editableUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allContents.add(imageContent);
+                    }
+                }
+            }
         }
 
-        public List<ChatMessage> build() {
-            var wp = new WorkspacePrompts(ctx, viewingPolicy, view, changedFiles);
-            return wp.buildMessages();
-        }
+        var workspaceText =
+                """
+                           <workspace>
+                           %s
+                           </workspace>
+                           """
+                        .formatted(combinedText.toString().trim());
+
+        // Insert workspace text as the first content element
+        allContents.add(0, new TextContent(workspaceText));
+
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
-    private List<ChatMessage> buildMessages() {
-        return switch (view) {
-            case CODE_READONLY_PLUS_UNTOUCHED -> buildReadOnlyPlusUntouched();
-            case EDITABLE_CHANGED -> buildEditableChanged();
-            case GROUPED_BY_MUTABILITY -> buildContents();
-            case IN_ADDED_ORDER -> buildInAddedOrder();
-        };
+    /**
+     * Workspace views used by CodeAgent.
+     *
+     * @param ctx           current context
+     * @param viewingPolicy viewing policy (controls StringFragment visibility)
+     * @param changedFiles  editable project files that have changed in this task
+     * @return record with both the read-only-plus-untouched view and the editable-changed view
+     */
+    public static CodeAgentWorkspaceMessages getWorkspaceMessagesForCodeAgent(
+            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
+        var readOnlyPlusUntouched = buildReadOnlyPlusUntouched(ctx, viewingPolicy, changedFiles);
+        var editableChanged = changedFiles.isEmpty()
+                ? List.<ChatMessage>of()
+                : buildEditableChanged(ctx, viewingPolicy, changedFiles);
+        return new CodeAgentWorkspaceMessages(readOnlyPlusUntouched, editableChanged);
     }
 
-    private List<ChatMessage> buildReadOnlyPlusUntouched() {
+    private static List<ChatMessage> buildReadOnlyPlusUntouched(
+            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments =
                 ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
@@ -186,8 +244,7 @@ public final class WorkspacePrompts {
             readOnlyText.append(combinedBlock).append("\n\n");
         }
 
-        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include
-        // it)
+        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include it)
         if (buildFragment != null && changedFiles.isEmpty()) {
             if (!readOnlyText.isEmpty()) {
                 readOnlyText.append("\n\n");
@@ -264,8 +321,8 @@ public final class WorkspacePrompts {
                 readOnlyUserMessage, new AiMessage("Thank you for the read-only and unchanged editable context."));
     }
 
-    private List<ChatMessage> buildEditableChanged() {
-        // Build editable fragments that intersect changedFiles, include buildFragment as workspace_build_status
+    private static List<ChatMessage> buildEditableChanged(
+            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) {
             return List.of();
         }
@@ -275,20 +332,24 @@ public final class WorkspacePrompts {
                 .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
                 .toList();
 
-        return buildEditableInternal(changedEditable, ctx.getBuildFragment().orElse(null), true);
+        return buildEditableInternal(
+                changedEditable, ctx.getBuildFragment().orElse(null), true, viewingPolicy);
     }
 
-    private List<ChatMessage> buildEditableAll() {
+    private static List<ChatMessage> buildEditableAll(Context ctx, ViewingPolicy viewingPolicy) {
         var editableFragments = ctx.getEditableFragments().toList();
-        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null), false);
+        return buildEditableInternal(
+                editableFragments, ctx.getBuildFragment().orElse(null), false, viewingPolicy);
     }
 
-    private List<ChatMessage> buildEditableInternal(
+    private static List<ChatMessage> buildEditableInternal(
             List<ContextFragment> editableFragments,
             @Nullable ContextFragment buildFragment,
-            boolean highlightChanged) {
+            boolean highlightChanged,
+            ViewingPolicy viewingPolicy) {
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {
+            // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
             String formatted = fragment.format();
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
@@ -303,9 +364,7 @@ public final class WorkspacePrompts {
 
         if (!editableTextFragments.isEmpty()) {
             String editableSectionTemplate;
-            String tagName;
             if (highlightChanged) {
-                tagName = "workspace_editable_changed";
                 editableSectionTemplate =
                         """
                                   <workspace_editable_changed>
@@ -318,7 +377,6 @@ public final class WorkspacePrompts {
                                   </workspace_editable_changed>
                                   """;
             } else {
-                tagName = "workspace_editable_unchanged";
                 editableSectionTemplate =
                         """
                                   <workspace_editable_unchanged>
@@ -367,69 +425,7 @@ public final class WorkspacePrompts {
         return messages;
     }
 
-    private List<ChatMessage> buildContents() {
-        // Compose read-only (without build fragment) + all editable + build status into a single <workspace> message
-        var readOnlyMessages = buildReadOnlyForContents();
-        var editableMessages = buildEditableAll();
-
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var combinedText = new StringBuilder();
-
-        // Extract text and images from read-only messages
-        if (!readOnlyMessages.isEmpty()) {
-            var readOnlyUserMessage = readOnlyMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (readOnlyUserMessage.isPresent()) {
-                var contents = readOnlyUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    } else if (content instanceof ImageContent imageContent) {
-                        allContents.add(imageContent);
-                    }
-                }
-            }
-        }
-
-        // Extract text from editable messages
-        if (!editableMessages.isEmpty()) {
-            var editableUserMessage = editableMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (editableUserMessage.isPresent()) {
-                var contents = editableUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    } else if (content instanceof ImageContent imageContent) {
-                        allContents.add(imageContent);
-                    }
-                }
-            }
-        }
-
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(combinedText.toString().trim());
-
-        allContents.addFirst(new TextContent(workspaceText));
-
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
-    private List<ChatMessage> buildReadOnlyForContents() {
+    private static List<ChatMessage> buildReadOnlyForContents(Context ctx, ViewingPolicy viewingPolicy) {
         // Build read-only section without including the build fragment
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments =
@@ -492,33 +488,6 @@ public final class WorkspacePrompts {
                 readOnlyUserMessage, new AiMessage("Thank you for the read-only and unchanged editable context."));
     }
 
-    private List<ChatMessage> buildInAddedOrder() {
-        var allFragments = ctx.allFragments().toList();
-        if (allFragments.isEmpty()) {
-            return List.of();
-        }
-
-        var rendered = formatWithPolicy(allFragments, viewingPolicy);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(rendered.text);
-
-        allContents.add(new TextContent(workspaceText));
-        allContents.addAll(rendered.images);
-
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
     // --- Helper rendering utilities (copied and adapted from original CodePrompts) ---
 
     private static final class RenderedContent {
@@ -531,7 +500,7 @@ public final class WorkspacePrompts {
         }
     }
 
-    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, ViewingPolicy vp) {
+    private static RenderedContent formatWithPolicy(List<ContextFragment> fragments, ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
