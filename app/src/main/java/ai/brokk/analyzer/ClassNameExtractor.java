@@ -254,6 +254,80 @@ public final class ClassNameExtractor {
         return extractForCpp(reference);
     }
 
+    /* Scala heuristics ---------------------------------------------------- */
+
+    /**
+     * Extract a Scala class/object name from a method reference like "MyClass.myMethod" or "List.map".
+     *
+     * <p>Scala uses dot notation like Java but has more flexible naming:
+     * <ul>
+     *   <li>Method names can be camelCase, snake_case, or symbolic operators (++, ::, etc.)
+     *   <li>Class/object names use PascalCase
+     *   <li>Type parameters use square brackets [T] instead of angle brackets
+     *   <li>Companion objects have the same name as their class
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass.myMethod" → "MyClass"
+     *   <li>"List.map" → "List"
+     *   <li>"scala.collection.immutable.List.apply" → "scala.collection.immutable.List"
+     *   <li>"Option.getOrElse" → "Option"
+     *   <li>"MyList.++" → "MyList"
+     * </ul>
+     */
+    public static Optional<String> extractForScala(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Strip type parameters [T, U] before processing
+        var normalized = stripSquareBrackets(trimmed);
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(normalized);
+        if (lastDot <= 0 || lastDot >= normalized.length() - 1) return Optional.empty();
+
+        var lastPart = normalized.substring(lastDot + 1);
+        var beforeLast = normalized.substring(0, lastDot);
+
+        // Method name heuristic: Scala methods can be:
+        // - alphanumeric starting with lowercase: myMethod, my_method
+        // - symbolic operators: ++, ::, +=, etc.
+        // - optionally followed by parameters
+        // Matches: lowercase/underscore start OR purely symbolic
+        if (!lastPart.matches("([a-z_][a-zA-Z0-9_]*|[+\\-*/%<>=!&|^~:]+)(?:\\([^)]*\\))?")) {
+            return Optional.empty();
+        }
+
+        // Class/object segment heuristic: rightmost segment should look like a PascalCase identifier
+        var segLastDot = beforeLast.lastIndexOf('.');
+        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
+        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
+    private static String stripSquareBrackets(String s) {
+        var sb = new StringBuilder(s.length());
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '[') {
+                depth++;
+                continue;
+            }
+            if (c == ']') {
+                if (depth > 0) depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     /* Normalization helpers ----------------------------------------------- */
 
     /**

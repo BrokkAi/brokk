@@ -280,6 +280,77 @@ public class ExtractClassNameTest {
     }
 
     @Test
+    @DisplayName("Scala analyzer - extractClassName with various method references")
+    void testScalaAnalyzerExtractClassName() {
+        var analyzer = new ScalaAnalyzer(mockProject);
+
+        // Valid Scala method references - standard camelCase
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.myMethod"));
+        assertEquals(Optional.of("scala.collection.immutable.List"), analyzer.extractClassName("scala.collection.immutable.List.apply"));
+        assertEquals(Optional.of("Option"), analyzer.extractClassName("Option.getOrElse"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.map"));
+        assertEquals(Optional.of("Future"), analyzer.extractClassName("Future.successful"));
+
+        // Valid with snake_case methods (common in Scala)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.my_method"));
+        assertEquals(Optional.of("Config"), analyzer.extractClassName("Config.get_value"));
+
+        // Symbolic operators (common in Scala collections)
+        assertEquals(Optional.of("MyList"), analyzer.extractClassName("MyList.++"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.::"));
+        assertEquals(Optional.of("Set"), analyzer.extractClassName("Set.+"));
+        assertEquals(Optional.of("Map"), analyzer.extractClassName("Map.+="));
+
+        // Type parameters with square brackets should be stripped
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List[Int].map"));
+        assertEquals(Optional.of("Map"), analyzer.extractClassName("Map[String, Int].get"));
+        assertEquals(Optional.of("Option"), analyzer.extractClassName("Option[List[String]].flatMap"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("Future"), analyzer.extractClassName("Future.apply(...)"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.fill(10)"));
+
+        // Package-qualified references
+        assertEquals(Optional.of("scala.concurrent.Future"), analyzer.extractClassName("scala.concurrent.Future.successful"));
+        assertEquals(Optional.of("akka.actor.ActorSystem"), analyzer.extractClassName("akka.actor.ActorSystem.create"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("myMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".myMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // Edge cases consistent with heuristic
+        assertEquals(Optional.empty(), analyzer.extractClassName("myclass.myMethod")); // lowercase class
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.MyMethod")); // uppercase method (not typical)
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass.myMethod  "));
+    }
+
+    @Test
+    @DisplayName("Scala extractForScala - handles complex type parameters")
+    void testScalaExtractsWithComplexTypeParams() {
+        assertEquals(Optional.of("Either"), ClassNameExtractor.extractForScala("Either[Error, Result].fold"));
+        assertEquals(Optional.of("Function1"), ClassNameExtractor.extractForScala("Function1[A, B].apply"));
+        // Nested type params
+        assertEquals(Optional.of("Future"), ClassNameExtractor.extractForScala("Future[Option[List[Int]]].map"));
+    }
+
+    @Test
+    @DisplayName("Scala extractForScala - handles symbolic method names")
+    void testScalaExtractsSymbolicMethods() {
+        // Common symbolic operators in Scala
+        assertEquals(Optional.of("List"), ClassNameExtractor.extractForScala("List.:::"));
+        assertEquals(Optional.of("String"), ClassNameExtractor.extractForScala("String.++"));
+        assertEquals(Optional.of("Int"), ClassNameExtractor.extractForScala("Int.+"));
+        assertEquals(Optional.of("Boolean"), ClassNameExtractor.extractForScala("Boolean.&&"));
+        assertEquals(Optional.of("Option"), ClassNameExtractor.extractForScala("Option.>>"));
+    }
+
+    @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);
