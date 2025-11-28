@@ -64,7 +64,7 @@ public abstract class CodePrompts {
             format your response using GFM Markdown to **improve the readability** of your responses with:
             - **bold**
             - _italics_
-            - `inline code` (for file, directory, function names and other symbols)
+            - `inline code` (for file, directory, function, class names, and other symbols)
             - ```code fences``` for code and pseudocode
             - list
             - prefer GFM tables over bulleted lists
