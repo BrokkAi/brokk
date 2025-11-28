@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -14,7 +15,6 @@ import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import ai.brokk.IAnalyzerWrapper;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -396,8 +396,8 @@ public interface IProject extends AutoCloseable {
      * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
      * @return CompletableFuture that completes when all operations are done
      */
-    default CompletableFuture<Void> updateLiveDependencies(Set<Path> newLiveDependencyDirs,
-                                                           @Nullable IAnalyzerWrapper analyzerWrapper) {
+    default CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
     }
 
@@ -409,8 +409,8 @@ public interface IProject extends AutoCloseable {
      * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
      * @return CompletableFuture that completes when the operation is done
      */
-    default CompletableFuture<Void> addLiveDependency(String dependencyName,
-                                                      @Nullable IAnalyzerWrapper analyzerWrapper) {
+    default CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
     }
 

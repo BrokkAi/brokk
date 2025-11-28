@@ -178,7 +178,7 @@ public final class DependenciesPanel extends JPanel {
         }
     }
 
-    private class LiveStateCellEditor extends DefaultCellEditor {
+    private static class LiveStateCellEditor extends DefaultCellEditor {
         public LiveStateCellEditor() {
             super(new JCheckBox());
             var cb = (JCheckBox) getComponent();
@@ -186,9 +186,11 @@ public final class DependenciesPanel extends JPanel {
         }
 
         @Override
-        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+        public Component getTableCellEditorComponent(
+                JTable table, Object value, boolean isSelected, int row, int column) {
             var state = (value instanceof LiveState s) ? s : LiveState.NOT_LIVE;
-            var cb = (JCheckBox) super.getTableCellEditorComponent(table, state == LiveState.LIVE, isSelected, row, column);
+            var cb = (JCheckBox)
+                    super.getTableCellEditorComponent(table, state == LiveState.LIVE, isSelected, row, column);
             cb.setSelected(state == LiveState.LIVE);
             return cb;
         }
@@ -396,6 +398,9 @@ public final class DependenciesPanel extends JPanel {
                     var analyzer = chrome.getContextManager().getAnalyzerWrapper();
                     project.addLiveDependency(name, analyzer)
                             .whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+                                if (ex != null) {
+                                    logger.error("Error adding live dependency '{}'", name, ex);
+                                }
                                 // Reload the UI after the dependency is added
                                 loadDependenciesAsync();
                                 setControlsLocked(false);

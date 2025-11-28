@@ -150,13 +150,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    public abstract Set<Dependency> getLiveDependencies();
-
-    public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
-
     @Override
-    public CompletableFuture<Void> updateLiveDependencies(Set<Path> newLiveDependencyDirs,
-                                                          @Nullable IAnalyzerWrapper analyzerWrapper) {
+    public CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
         return CompletableFuture.supplyAsync(() -> {
             // If analyzer provided, pause watcher and compute prev files
             Set<ProjectFile> prevFiles = null;
@@ -201,8 +197,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public CompletableFuture<Void> addLiveDependency(String dependencyName,
-                                                     @Nullable IAnalyzerWrapper analyzerWrapper) {
+    public CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         // Build new live set = current live deps + new dependency
         var liveDependencyTopLevelDirs = new HashSet<Path>();
         for (var dep : getLiveDependencies()) {
