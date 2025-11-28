@@ -2139,6 +2139,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
+        // Persist selected vendor preference for "other models" regardless of choice
+        MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
+
         // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
         if ("OpenAI".equals(selectedVendor)) {
             chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
@@ -2151,7 +2154,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
         }
-        // For "Default", do nothing (leave current values intact)
+        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
