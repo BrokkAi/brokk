@@ -11,10 +11,10 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -449,7 +449,7 @@ public class ArchitectAgent {
 
             // Calculate current workspace token size
             var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(
-                    context, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.ARCHITECT)));
+                    context, new ViewingPolicy(TaskResult.Type.ARCHITECT)));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings

@@ -7,6 +7,7 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -51,7 +52,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .build();
 
@@ -76,7 +77,7 @@ class WorkspacePromptsTest {
 
         var changedFilesSet = Set.of(changedFile);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .changedFiles(changedFilesSet)
                 .build();
@@ -91,7 +92,7 @@ class WorkspacePromptsTest {
     void testCodeReadOnlyPlusUntouched_includesBuildFragmentWhenChangedFilesEmpty() {
         var ctx = new Context(cm, null).withBuildResult(false, "Build failed: syntax error on line 42");
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .changedFiles(Set.of())
                 .build();
@@ -117,7 +118,7 @@ class WorkspacePromptsTest {
 
         var changedFilesSet = Set.of(changedFile);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
                 .changedFiles(changedFilesSet)
                 .build();
@@ -138,7 +139,7 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
                 .changedFiles(Set.of(file))
                 .build();
@@ -162,7 +163,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag1, frag2));
 
         // Only file1 is in changedFiles, but both should appear in EDITABLE_ALL
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_ALL)
                 .changedFiles(Set.of(file1))
                 .build();
@@ -182,7 +183,7 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
                 .build();
 
@@ -204,7 +205,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(editableFrag, readOnlyFrag));
         ctx = ctx.setReadonly(readOnlyFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CONTENTS)
                 .build();
 
@@ -225,7 +226,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // With changedFiles non-empty, CODE_READONLY_PLUS_UNTOUCHED should NOT include build fragment
-        var roMessages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var roMessages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .changedFiles(Set.of(changedFile))
                 .build();
@@ -236,7 +237,7 @@ class WorkspacePromptsTest {
                 "CODE_READONLY_PLUS_UNTOUCHED should not include build status when changedFiles is non-empty");
 
         // EDITABLE_CHANGED should include it
-        var editableMessages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var editableMessages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
                 .changedFiles(Set.of(changedFile))
                 .build();
@@ -271,7 +272,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addVirtualFragments(List.of(summary1, summary2));
         ctx.awaitContextsAreComputed(java.time.Duration.ofSeconds(5));
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .build();
 
@@ -289,7 +290,7 @@ class WorkspacePromptsTest {
     void testEmptyContext_returnsEmptyMessageList() {
         var ctx = new Context(cm, null);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .build();
 
@@ -306,7 +307,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .build();
 
@@ -325,7 +326,7 @@ class WorkspacePromptsTest {
         var editFrag = new ContextFragment.ProjectPathFragment(editFile, cm);
         ctx = ctx.addPathFragments(List.of(editFrag));
 
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_ALL)
                 .build();
 
@@ -345,7 +346,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // Set changedFiles to a file that doesn't intersect with any fragments
-        var messages = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
                 .changedFiles(Set.of(nonEditFile))
                 .build();
@@ -363,8 +364,8 @@ class WorkspacePromptsTest {
 
         var ctx = new Context(cm, null);
 
-        var policy1 = new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE);
-        var policy2 = new WorkspacePrompts.ViewingPolicy(TaskResult.Type.ASK);
+        var policy1 = new ViewingPolicy(TaskResult.Type.CODE);
+        var policy2 = new ViewingPolicy(TaskResult.Type.ASK);
 
         // Both should build without error (actual visual differences depend on fragment implementations)
         var messages1 = WorkspacePrompts.builder(ctx, policy1)
@@ -390,7 +391,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addPathFragments(List.of(frag));
 
         // Test CODE_READONLY_PLUS_UNTOUCHED acknowledgment
-        var msgs1 = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var msgs1 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
                 .build();
         if (!msgs1.isEmpty()) {
@@ -404,7 +405,7 @@ class WorkspacePromptsTest {
         }
 
         // Test EDITABLE_CHANGED acknowledgment
-        var msgs2 = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var msgs2 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
                 .changedFiles(Set.of(file))
                 .build();
@@ -419,7 +420,7 @@ class WorkspacePromptsTest {
         }
 
         // Test CONTENTS acknowledgment
-        var msgs3 = WorkspacePrompts.builder(ctx, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE))
+        var msgs3 = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
                 .view(WorkspacePrompts.WorkspaceView.CONTENTS)
                 .build();
         if (!msgs3.isEmpty()) {

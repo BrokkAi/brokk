@@ -13,10 +13,10 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -201,7 +201,7 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
-                var viewingPolicy = new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CODE);
+                var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,

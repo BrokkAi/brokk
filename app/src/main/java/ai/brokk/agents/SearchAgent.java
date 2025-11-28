@@ -13,13 +13,13 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -228,7 +228,7 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
             boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new WorkspacePrompts.ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
@@ -841,7 +841,7 @@ public class SearchAgent {
 
         // Current Workspace contents (use default viewing policy)
         messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
-                context, new WorkspacePrompts.ViewingPolicy(TaskResult.Type.CONTEXT)));
+                context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
         // Dynamically inform the janitor about non-droppable fragments
         var nonDroppableMsg = buildNonDroppableSystemMessage();

@@ -10,6 +10,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -197,7 +198,7 @@ public abstract class CodePrompts {
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles,
-            WorkspacePrompts.ViewingPolicy viewingPolicy)
+            ViewingPolicy viewingPolicy)
             throws InterruptedException {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
@@ -277,7 +278,7 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        var viewingPolicy = new WorkspacePrompts.ViewingPolicy(TaskResult.Type.ASK);
+        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         messages.add(systemMessage(cm, askReminder()));
         messages.addAll(WorkspacePrompts.builder(cm.liveContext(), viewingPolicy)
                 .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
@@ -646,13 +647,13 @@ public abstract class CodePrompts {
      * Backwards-compatible wrappers delegating to WorkspacePrompts.
      * These restore the previous CodePrompts instance methods that callers expect.
      */
-    public List<ChatMessage> getWorkspaceContentsMessages(Context ctx, WorkspacePrompts.ViewingPolicy vp) {
+    public List<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
         return WorkspacePrompts.builder(ctx, vp)
                 .view(WorkspacePrompts.WorkspaceView.CONTENTS)
                 .build();
     }
 
-    public List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, WorkspacePrompts.ViewingPolicy vp) {
+    public List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
         return WorkspacePrompts.builder(ctx, vp)
                 .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
                 .build();
