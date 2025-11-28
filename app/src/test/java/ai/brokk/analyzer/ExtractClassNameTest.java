@@ -280,6 +280,315 @@ public class ExtractClassNameTest {
     }
 
     @Test
+    @DisplayName("Scala analyzer - extractClassName with various method references")
+    void testScalaAnalyzerExtractClassName() {
+        var analyzer = new ScalaAnalyzer(mockProject);
+
+        // Valid Scala method references - standard camelCase
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.myMethod"));
+        assertEquals(
+                Optional.of("scala.collection.immutable.List"),
+                analyzer.extractClassName("scala.collection.immutable.List.apply"));
+        assertEquals(Optional.of("Option"), analyzer.extractClassName("Option.getOrElse"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.map"));
+        assertEquals(Optional.of("Future"), analyzer.extractClassName("Future.successful"));
+
+        // Valid with snake_case methods (common in Scala)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.my_method"));
+        assertEquals(Optional.of("Config"), analyzer.extractClassName("Config.get_value"));
+
+        // Symbolic operators (common in Scala collections)
+        assertEquals(Optional.of("MyList"), analyzer.extractClassName("MyList.++"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.::"));
+        assertEquals(Optional.of("Set"), analyzer.extractClassName("Set.+"));
+        assertEquals(Optional.of("Map"), analyzer.extractClassName("Map.+="));
+
+        // Type parameters with square brackets should be stripped
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List[Int].map"));
+        assertEquals(Optional.of("Map"), analyzer.extractClassName("Map[String, Int].get"));
+        assertEquals(Optional.of("Option"), analyzer.extractClassName("Option[List[String]].flatMap"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("Future"), analyzer.extractClassName("Future.apply(...)"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List.fill(10)"));
+
+        // Package-qualified references
+        assertEquals(
+                Optional.of("scala.concurrent.Future"),
+                analyzer.extractClassName("scala.concurrent.Future.successful"));
+        assertEquals(Optional.of("akka.actor.ActorSystem"), analyzer.extractClassName("akka.actor.ActorSystem.create"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("myMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".myMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // Edge cases consistent with heuristic
+        assertEquals(Optional.empty(), analyzer.extractClassName("myclass.myMethod")); // lowercase class
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.MyMethod")); // uppercase method (not typical)
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass.myMethod  "));
+    }
+
+    @Test
+    @DisplayName("Scala extractForScala - handles complex type parameters")
+    void testScalaExtractsWithComplexTypeParams() {
+        assertEquals(Optional.of("Either"), ClassNameExtractor.extractForScala("Either[Error, Result].fold"));
+        assertEquals(Optional.of("Function1"), ClassNameExtractor.extractForScala("Function1[A, B].apply"));
+        // Nested type params
+        assertEquals(Optional.of("Future"), ClassNameExtractor.extractForScala("Future[Option[List[Int]]].map"));
+    }
+
+    @Test
+    @DisplayName("Scala extractForScala - handles symbolic method names")
+    void testScalaExtractsSymbolicMethods() {
+        // Common symbolic operators in Scala
+        assertEquals(Optional.of("List"), ClassNameExtractor.extractForScala("List.:::"));
+        assertEquals(Optional.of("String"), ClassNameExtractor.extractForScala("String.++"));
+        assertEquals(Optional.of("Int"), ClassNameExtractor.extractForScala("Int.+"));
+        assertEquals(Optional.of("Boolean"), ClassNameExtractor.extractForScala("Boolean.&&"));
+        assertEquals(Optional.of("Option"), ClassNameExtractor.extractForScala("Option.>>"));
+    }
+
+    @Test
+    @DisplayName("C# analyzer - extractClassName with PascalCase methods")
+    void testCSharpAnalyzerExtractClassName() {
+        var analyzer = new CSharpAnalyzer(mockProject);
+
+        // Valid C# method references - both class and method use PascalCase
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass.MyMethod"));
+        assertEquals(Optional.of("Console"), analyzer.extractClassName("Console.WriteLine"));
+        assertEquals(Optional.of("String"), analyzer.extractClassName("String.IsNullOrEmpty"));
+        assertEquals(Optional.of("File"), analyzer.extractClassName("File.ReadAllText"));
+
+        // Namespace-qualified references
+        assertEquals(Optional.of("System.IO.File"), analyzer.extractClassName("System.IO.File.ReadAllText"));
+        assertEquals(Optional.of("System.Console"), analyzer.extractClassName("System.Console.WriteLine"));
+        assertEquals(
+                Optional.of("System.Collections.Generic.List"),
+                analyzer.extractClassName("System.Collections.Generic.List.Add"));
+
+        // Generic types with angle brackets
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List<int>.Add"));
+        assertEquals(Optional.of("Dictionary"), analyzer.extractClassName("Dictionary<string, int>.TryGetValue"));
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<User>.ConfigureAwait"));
+
+        // Nested generics
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<List<string>>.Wait"));
+
+        // Nullable types in generics
+        assertEquals(Optional.of("Task"), analyzer.extractClassName("Task<User?>.ConfigureAwait"));
+
+        // Null-conditional operator
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass?.MyMethod"));
+        assertEquals(Optional.of("List"), analyzer.extractClassName("List<int>?.Add"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("Console"), analyzer.extractClassName("Console.WriteLine(message)"));
+        assertEquals(Optional.of("File"), analyzer.extractClassName("File.WriteAllText(path, content)"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".MyMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // C# specific: lowercase method names are INVALID (unlike Java)
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.myMethod")); // lowercase method - invalid C#
+        assertEquals(Optional.empty(), analyzer.extractClassName("myClass.MyMethod")); // lowercase class
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass.MyMethod  "));
+    }
+
+    @Test
+    @DisplayName("C# extractForCSharp - handles complex generic types")
+    void testCSharpExtractsComplexGenerics() {
+        assertEquals(
+                Optional.of("Dictionary"),
+                ClassNameExtractor.extractForCSharp("Dictionary<string, List<int>>.ContainsKey"));
+        assertEquals(Optional.of("Func"), ClassNameExtractor.extractForCSharp("Func<int, string>.Invoke"));
+        assertEquals(
+                Optional.of("IEnumerable"),
+                ClassNameExtractor.extractForCSharp("IEnumerable<KeyValuePair<string, int>>.GetEnumerator"));
+    }
+
+    @Test
+    @DisplayName("C# extractForCSharp - handles async patterns")
+    void testCSharpExtractsAsyncPatterns() {
+        assertEquals(Optional.of("Task"), ClassNameExtractor.extractForCSharp("Task.Run"));
+        assertEquals(Optional.of("Task"), ClassNameExtractor.extractForCSharp("Task<int>.FromResult"));
+        assertEquals(Optional.of("ValueTask"), ClassNameExtractor.extractForCSharp("ValueTask<string>.AsTask"));
+    }
+
+    @Test
+    @DisplayName("Go analyzer - extractClassName with packages and structs")
+    void testGoAnalyzerExtractClassName() {
+        var analyzer = new GoAnalyzer(mockProject);
+
+        // Package.Function patterns (lowercase package, PascalCase function)
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.ListenAndServe"));
+        assertEquals(Optional.of("fmt"), analyzer.extractClassName("fmt.Println"));
+        assertEquals(Optional.of("strings"), analyzer.extractClassName("strings.Contains"));
+        assertEquals(Optional.of("os"), analyzer.extractClassName("os.Open"));
+
+        // Package.Type patterns (struct references)
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.Server"));
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.Request"));
+        assertEquals(Optional.of("strings"), analyzer.extractClassName("strings.Builder"));
+        assertEquals(Optional.of("sync"), analyzer.extractClassName("sync.Mutex"));
+        assertEquals(Optional.of("context"), analyzer.extractClassName("context.Context"));
+
+        // Receiver.Method patterns (instance method calls)
+        assertEquals(Optional.of("myServer"), analyzer.extractClassName("myServer.ListenAndServe"));
+        assertEquals(Optional.of("builder"), analyzer.extractClassName("builder.WriteString"));
+        assertEquals(Optional.of("mutex"), analyzer.extractClassName("mutex.Lock"));
+
+        // Nested package references
+        assertEquals(Optional.of("net.http"), analyzer.extractClassName("net.http.Get"));
+        assertEquals(Optional.of("encoding.json"), analyzer.extractClassName("encoding.json.Marshal"));
+
+        // Method calls with parameters
+        assertEquals(Optional.of("fmt"), analyzer.extractClassName("fmt.Printf(format, args)"));
+        assertEquals(Optional.of("http"), analyzer.extractClassName("http.HandleFunc(pattern, handler)"));
+
+        // Unexported (lowercase) methods - valid in Go
+        assertEquals(Optional.of("myPackage"), analyzer.extractClassName("myPackage.internalFunc"));
+        assertEquals(Optional.of("server"), analyzer.extractClassName("server.handleRequest"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("http"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("Server"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("http."));
+        assertEquals(Optional.empty(), analyzer.extractClassName(".Server"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // Whitespace handling
+        assertEquals(Optional.of("http"), analyzer.extractClassName("  http.Server  "));
+    }
+
+    @Test
+    @DisplayName("Go extractForGo - handles standard library patterns")
+    void testGoExtractsStdLibPatterns() {
+        // io package
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Reader"));
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Writer"));
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.Copy"));
+
+        // bufio package
+        assertEquals(Optional.of("bufio"), ClassNameExtractor.extractForGo("bufio.Scanner"));
+        assertEquals(Optional.of("bufio"), ClassNameExtractor.extractForGo("bufio.NewReader"));
+
+        // time package
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Duration"));
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Now"));
+        assertEquals(Optional.of("time"), ClassNameExtractor.extractForGo("time.Sleep"));
+    }
+
+    @Test
+    @DisplayName("Go extractForGo - handles interface types")
+    void testGoExtractsInterfaceTypes() {
+        assertEquals(Optional.of("io"), ClassNameExtractor.extractForGo("io.ReadWriter"));
+        assertEquals(Optional.of("http"), ClassNameExtractor.extractForGo("http.Handler"));
+        assertEquals(Optional.of("http"), ClassNameExtractor.extractForGo("http.ResponseWriter"));
+        assertEquals(Optional.of("sort"), ClassNameExtractor.extractForGo("sort.Interface"));
+    }
+
+    @Test
+    @DisplayName("PHP analyzer - extractClassName with :: and -> operators")
+    void testPhpAnalyzerExtractClassName() {
+        var analyzer = new PhpAnalyzer(mockProject);
+
+        // Static method calls (::)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::staticMethod"));
+        assertEquals(Optional.of("DateTime"), analyzer.extractClassName("DateTime::createFromFormat"));
+        assertEquals(Optional.of("PDO"), analyzer.extractClassName("PDO::prepare"));
+        assertEquals(Optional.of("Exception"), analyzer.extractClassName("Exception::getMessage"));
+
+        // Static method calls with parameters
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::staticMethod()"));
+        assertEquals(Optional.of("Str"), analyzer.extractClassName("Str::random(16)"));
+
+        // Class constants (also use ::)
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::CONSTANT"));
+        assertEquals(Optional.of("PDO"), analyzer.extractClassName("PDO::FETCH_ASSOC"));
+
+        // Namespaced class references
+        assertEquals(
+                Optional.of("Illuminate\\Support\\Str"), analyzer.extractClassName("Illuminate\\Support\\Str::random"));
+        assertEquals(Optional.of("App\\Models\\User"), analyzer.extractClassName("App\\Models\\User::find"));
+        assertEquals(
+                Optional.of("Symfony\\Component\\HttpFoundation\\Request"),
+                analyzer.extractClassName("Symfony\\Component\\HttpFoundation\\Request::create"));
+
+        // Instance method calls (->)
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("$user->getName"));
+        assertEquals(Optional.of("$this"), analyzer.extractClassName("$this->processRequest"));
+        assertEquals(Optional.of("$request"), analyzer.extractClassName("$request->input"));
+        assertEquals(Optional.of("$response"), analyzer.extractClassName("$response->json"));
+
+        // Instance method calls with parameters
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("$user->save()"));
+        assertEquals(Optional.of("$query"), analyzer.extractClassName("$query->where(column, value)"));
+
+        // Invalid cases - should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("$user"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass::"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("::staticMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("$user->"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("->method"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), analyzer.extractClassName("   "));
+
+        // PHP doesn't use dots for method calls
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.method"));
+
+        // Whitespace handling
+        assertEquals(Optional.of("MyClass"), analyzer.extractClassName("  MyClass::staticMethod  "));
+        assertEquals(Optional.of("$user"), analyzer.extractClassName("  $user->getName  "));
+    }
+
+    @Test
+    @DisplayName("PHP extractForPhp - handles Laravel/Symfony patterns")
+    void testPhpExtractsFrameworkPatterns() {
+        // Laravel patterns
+        assertEquals(Optional.of("Route"), ClassNameExtractor.extractForPhp("Route::get"));
+        assertEquals(Optional.of("DB"), ClassNameExtractor.extractForPhp("DB::table"));
+        assertEquals(Optional.of("Auth"), ClassNameExtractor.extractForPhp("Auth::user"));
+        assertEquals(Optional.of("Cache"), ClassNameExtractor.extractForPhp("Cache::remember"));
+
+        // Eloquent ORM
+        assertEquals(Optional.of("User"), ClassNameExtractor.extractForPhp("User::find"));
+        assertEquals(Optional.of("Post"), ClassNameExtractor.extractForPhp("Post::where"));
+        assertEquals(Optional.of("$model"), ClassNameExtractor.extractForPhp("$model->save"));
+
+        // Symfony patterns
+        assertEquals(Optional.of("Response"), ClassNameExtractor.extractForPhp("Response::create"));
+        assertEquals(Optional.of("$container"), ClassNameExtractor.extractForPhp("$container->get"));
+    }
+
+    @Test
+    @DisplayName("PHP extractForPhp - handles special PHP identifiers")
+    void testPhpExtractsSpecialIdentifiers() {
+        // $this reference
+        assertEquals(Optional.of("$this"), ClassNameExtractor.extractForPhp("$this->render"));
+        assertEquals(Optional.of("$this"), ClassNameExtractor.extractForPhp("$this->validate"));
+
+        // self and static (would need :: not ->)
+        assertEquals(Optional.of("self"), ClassNameExtractor.extractForPhp("self::getInstance"));
+        assertEquals(Optional.of("static"), ClassNameExtractor.extractForPhp("static::create"));
+        assertEquals(Optional.of("parent"), ClassNameExtractor.extractForPhp("parent::__construct"));
+    }
+
+    @Test
     @DisplayName("Edge cases - whitespace and special characters")
     void testEdgeCases() {
         var javaAnalyzer = Languages.JAVA.createAnalyzer(mockProject);

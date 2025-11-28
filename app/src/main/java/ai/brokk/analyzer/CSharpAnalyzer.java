@@ -217,9 +217,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return baseIndent + fullSignature;
     }
 
-    // TODO
     @Override
     public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+        return ClassNameExtractor.extractForCSharp(reference);
     }
 }
