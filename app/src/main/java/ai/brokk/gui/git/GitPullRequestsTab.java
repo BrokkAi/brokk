@@ -1091,13 +1091,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return;
         }
 
+        var iterator = activePrIterator; // Capture for use in lambda (NullAway)
         loadMoreButton.setEnabled(false);
         refreshPrButton.setToolTipText("Loading more PRs...");
 
         var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
             try {
                 var result =
-                        StreamingPaginationHelper.loadBatch(activePrIterator, StreamingPaginationHelper.BATCH_SIZE);
+                        StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
                     slidingWindow.appendBatch(result.items(), result.hasMore());

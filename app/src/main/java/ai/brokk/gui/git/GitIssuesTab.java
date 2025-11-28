@@ -303,16 +303,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         if (this.issueService instanceof JiraIssueService) {
             String savedResolution = project.getUiFilterProperty("issues.resolution");
             String defaultResolution = savedResolution != null ? savedResolution : "Unresolved";
-            resolutionFilter =
-                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), defaultResolution);
-            resolutionFilter.setToolTipText("Filter by Jira issue resolution");
-            resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-            resolutionFilter.addPropertyChangeListener("value", e -> {
-                project.setUiFilterProperty("issues.resolution", getBaseFilterValue(resolutionFilter.getSelected()));
+            var jiraResolutionFilter = new FilterBox(
+                    this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), defaultResolution);
+            jiraResolutionFilter.setToolTipText("Filter by Jira issue resolution");
+            jiraResolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
+            jiraResolutionFilter.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.resolution", getBaseFilterValue(jiraResolutionFilter.getSelected()));
                 updateIssueList();
             });
-            filtersContainer.add(resolutionFilter);
+            filtersContainer.add(jiraResolutionFilter);
             filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            resolutionFilter = jiraResolutionFilter;
 
             String savedStatus = project.getUiFilterProperty("issues.status");
             statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, savedStatus);
@@ -332,10 +333,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         String savedAuthor = project.getUiFilterProperty("issues.author");
-        authorFilter = new FilterBox(this.chrome,
-                                     "Author",
-                                     () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"),
-                                     savedAuthor);
+        authorFilter = new FilterBox(
+                this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"), savedAuthor);
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> {
@@ -346,10 +345,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         String savedLabel = project.getUiFilterProperty("issues.label");
-        labelFilter = new FilterBox(this.chrome,
-                                    "Label",
-                                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"),
-                                    savedLabel);
+        labelFilter = new FilterBox(
+                this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"), savedLabel);
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> {
@@ -360,10 +357,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         String savedAssignee = project.getUiFilterProperty("issues.assignee");
-        assigneeFilter = new FilterBox(this.chrome,
-                                       "Assignee",
-                                       () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
-                                       savedAssignee);
+        assigneeFilter = new FilterBox(
+                this.chrome,
+                "Assignee",
+                () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
+                savedAssignee);
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> {
@@ -946,13 +944,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             return;
         }
 
+        var iterator = activeIssueIterator; // Capture for use in lambda (NullAway)
         loadMoreButton.setEnabled(false);
         searchBox.setLoading(true, "Loading more issues...");
 
         var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
             try {
                 var result = StreamingPaginationHelper.loadPrebatchedBatch(
-                        activeIssueIterator, StreamingPaginationHelper.BATCH_SIZE);
+                        iterator, StreamingPaginationHelper.BATCH_SIZE);
 
                 SwingUtilities.invokeLater(() -> {
                     // Sort new items
