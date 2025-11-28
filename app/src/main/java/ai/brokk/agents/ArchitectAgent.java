@@ -879,13 +879,10 @@ public class ArchitectAgent {
         if (failedCount == 0) {
             summaryMessage = "All " + batchSize + " SearchAgents finished successfully. " + mergeSummary;
         } else {
-            summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. " + mergeSummary;
+            summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. "
+                    + mergeSummary;
         }
-        io.llmOutput(
-                summaryMessage,
-                ChatMessageType.AI,
-                true,
-                false);
+        io.llmOutput(summaryMessage, ChatMessageType.AI, true, false);
     }
 
     /**
