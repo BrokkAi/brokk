@@ -64,6 +64,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
 
+    // Pagination constants
+    private static final int PAGE_SIZE = 25;
+    private static final int MAX_PRS_LIMIT = 500;
+
     // PR Table Column Indices
     private static final int PR_COL_NUMBER = 0;
     private static final int PR_COL_TITLE = 1;
@@ -955,13 +959,21 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
-    /** Fetches open GitHub pull requests and populates the PR table. Also fetches CI statuses for these PRs. */
+    /** Fetches GitHub pull requests with streaming pagination and populates the PR table. */
     private void updatePrList() {
         assert SwingUtilities.isEventDispatchThread();
         setReloadUiEnabled(false);
 
+        // Clear state and prepare for streaming updates
+        allPrsFromApi.clear();
+        displayedPrs.clear();
+        prCommitsCache.clear();
+        prTableModel.setRowCount(0);
+        authorChoices.clear();
+        labelChoices.clear();
+        assigneeChoices.clear();
+
         var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
-            List<GHPullRequest> fetchedPrs;
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -972,12 +984,72 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     apiState = GHIssueState.OPEN;
                 } else if ("Closed".equals(selectedStatusOption)) {
                     apiState = GHIssueState.CLOSED;
-                } else { // null or any other string implies ALL for safety, though options are limited
+                } else {
                     apiState = GHIssueState.ALL;
                 }
 
-                fetchedPrs = auth.listOpenPullRequests(apiState);
-                logger.debug("Fetched {} PRs", fetchedPrs.size());
+                // Use streaming pagination
+                var pagedIterable = auth.listPullRequestsPaginated(apiState, PAGE_SIZE);
+                var iterator = pagedIterable.iterator();
+
+                var accumulatedPrs = new ArrayList<GHPullRequest>();
+                boolean isFirstPage = true;
+
+                while (iterator.hasNext() && accumulatedPrs.size() < MAX_PRS_LIMIT) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        logger.debug("PR fetch interrupted after {} PRs", accumulatedPrs.size());
+                        break;
+                    }
+
+                    // Fetch next page worth of PRs
+                    int pageCount = 0;
+                    while (iterator.hasNext() && pageCount < PAGE_SIZE && accumulatedPrs.size() < MAX_PRS_LIMIT) {
+                        accumulatedPrs.add(iterator.next());
+                        pageCount++;
+                    }
+
+                    if (pageCount == 0) {
+                        continue;
+                    }
+
+                    final int totalSoFar = accumulatedPrs.size();
+                    final boolean hasMore = iterator.hasNext() && totalSoFar < MAX_PRS_LIMIT;
+                    final boolean firstPage = isFirstPage;
+                    isFirstPage = false;
+
+                    // Create a snapshot for display
+                    var snapshot = new ArrayList<>(accumulatedPrs);
+
+                    // Update UI on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        allPrsFromApi = new ArrayList<>(snapshot);
+                        populateDynamicFilterChoices(allPrsFromApi);
+                        filterAndDisplayPrs();
+
+                        // Show loading progress in refresh button tooltip
+                        if (hasMore) {
+                            String limitNote = totalSoFar >= MAX_PRS_LIMIT ? " (limit)" : "+";
+                            refreshPrButton.setToolTipText("Loaded " + totalSoFar + limitNote + " PRs...");
+                        } else {
+                            refreshPrButton.setToolTipText("Refresh");
+                        }
+
+                        // On first page, ensure table is visible
+                        if (firstPage && !snapshot.isEmpty()) {
+                            prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
+                        }
+                    });
+
+                    logger.debug("Streamed page with {} PRs, total: {}", pageCount, totalSoFar);
+                }
+
+                // Final update - loading complete
+                SwingUtilities.invokeLater(() -> {
+                    refreshPrButton.setToolTipText("Refresh");
+                    setReloadUiEnabled(true);
+                    logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
+                });
+
             } catch (Exception ex) {
                 logger.error("Failed to fetch pull requests", ex);
                 SwingUtilities.invokeLater(() -> {
@@ -991,21 +1063,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     authorChoices.clear();
                     labelChoices.clear();
                     assigneeChoices.clear();
+                    refreshPrButton.setToolTipText("Refresh");
                     setReloadUiEnabled(true);
                 });
-                return null;
             }
-
-            // Process fetched PRs on EDT
-            List<GHPullRequest> finalFetchedPrs = fetchedPrs;
-            SwingUtilities.invokeLater(() -> {
-                allPrsFromApi = new ArrayList<>(finalFetchedPrs);
-                prCommitsCache.clear(); // Clear commits cache for new PR list
-                // ciStatusCache is updated incrementally, not fully cleared here unless error
-                populateDynamicFilterChoices(allPrsFromApi);
-                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
-                setReloadUiEnabled(true);
-            });
             return null;
         });
         trackCancellableFuture(future);
