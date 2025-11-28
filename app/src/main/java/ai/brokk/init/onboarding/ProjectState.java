@@ -1,6 +1,6 @@
 package ai.brokk.init.onboarding;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import org.jetbrains.annotations.Nullable;

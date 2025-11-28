@@ -269,8 +269,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Load settings after dialog construction but before showing
         // This ensures any background file writes (e.g., style guide generation) have completed
-        dialog.globalSettingsPanel.loadSettings();
-        dialog.projectSettingsPanel.loadSettings();
+        dialog.loadSettingsInBackground();
 
         boolean tabSelected = false;
         // Top-level tabs: "Global", "Project"

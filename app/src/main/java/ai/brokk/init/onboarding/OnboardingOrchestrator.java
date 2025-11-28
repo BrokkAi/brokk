@@ -1,7 +1,7 @@
 package ai.brokk.init.onboarding;
 
-import ai.brokk.AbstractProject;
-import ai.brokk.IProject;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
