@@ -386,7 +386,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        // Auto-detect and set vendor for other models
+        // Auto-detect and set vendor for other models, with persisted preference override
         var quickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
         var quickEditConfig = chrome.getProject().getMainProject().getQuickEditModelConfig();
         var quickestConfig = chrome.getProject().getMainProject().getQuickestModelConfig();
@@ -419,12 +419,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Rebuild combo with available vendors
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Select Default (or detected vendor if it's in the available list)
-        if (vendors.contains(detectedVendor)) {
-            otherModelsVendorCombo.setSelectedItem(detectedVendor);
+        // Apply persisted preference if present and valid; otherwise fall back to auto-detected vendor
+        String persistedVendor = MainProject.getOtherModelsVendorPreference();
+        String vendorToSelect;
+        if (persistedVendor != null && !persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+            vendorToSelect = persistedVendor;
+        } else if (vendors.contains(detectedVendor)) {
+            vendorToSelect = detectedVendor;
         } else {
-            otherModelsVendorCombo.setSelectedItem("Default");
+            vendorToSelect = "Default";
         }
+        otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
         // Hide vendor row if only one option remains
         boolean hideVendorRow = vendors.size() <= 1;
