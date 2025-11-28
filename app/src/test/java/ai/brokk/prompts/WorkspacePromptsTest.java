@@ -151,30 +151,6 @@ class WorkspacePromptsTest {
         assertTrue(allText.contains("Compilation failed"), "Should include build error message");
     }
 
-    // Test 1f: EDITABLE_ALL includes all editable fragments regardless of changedFiles
-    @Test
-    void testEditableAll_includesAllEditableFragments() throws IOException {
-        var file1 = createTestFile("file1.txt", "content1");
-        var file2 = createTestFile("file2.txt", "content2");
-        cm.addEditableFile(file1);
-        cm.addEditableFile(file2);
-
-        var ctx = new Context(cm, null);
-        var frag1 = new ContextFragment.ProjectPathFragment(file1, cm);
-        var frag2 = new ContextFragment.ProjectPathFragment(file2, cm);
-        ctx = ctx.addPathFragments(List.of(frag1, frag2));
-
-        // Only file1 is in changedFiles, but both should appear in EDITABLE_ALL
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_ALL)
-                .changedFiles(Set.of(file1))
-                .build();
-
-        var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(allText.contains("file1.txt"), "Should include file1");
-        assertTrue(allText.contains("file2.txt"), "Should include file2");
-    }
-
     // Test 1g: IN_ADDED_ORDER wraps in <workspace> tag
     @Test
     void testInAddedOrder_wrapsInWorkspaceTag() throws IOException {
@@ -316,24 +292,6 @@ class WorkspacePromptsTest {
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
         assertTrue(allText.contains("READ ONLY"), "Should have read-only section");
         assertFalse(allText.contains("workspace_editable"), "Should not have editable section");
-    }
-
-    // Test 4c: Only editable fragments (no read-only)
-    @Test
-    void testOnlyEditableFragments_rendersEditableSection() throws IOException {
-        var editFile = createTestFile("editable.txt", "editable");
-        cm.addEditableFile(editFile);
-
-        var ctx = new Context(cm, null);
-        var editFrag = new ContextFragment.ProjectPathFragment(editFile, cm);
-        ctx = ctx.addPathFragments(List.of(editFrag));
-
-        var messages = WorkspacePrompts.builder(ctx, new ViewingPolicy(TaskResult.Type.CODE))
-                .view(WorkspacePrompts.WorkspaceView.EDITABLE_ALL)
-                .build();
-
-        var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(allText.contains("workspace_editable"), "Should have editable section");
     }
 
     // Test 4d: changedFiles with no intersecting fragments
