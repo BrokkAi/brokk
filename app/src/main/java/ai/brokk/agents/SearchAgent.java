@@ -868,9 +868,17 @@ public class SearchAgent {
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      * Updates the SearchAgent's internal Context, and also returns it.
+     * Scans the initial context using ContextAgent and adds recommendations to the workspace.
+     * <p>
+     * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
+     * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
+     * without modifying or appending to the scope's history.
+     * <p>
+     * Callers should invoke this before calling {@code execute()} if they want the initial context scan.
      *
      * @param model the LLM model to use for context scanning
-     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending
+     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
+     * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
      */
     public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
