@@ -267,16 +267,16 @@ public class Completions {
                         .thenComparing(sc -> extractShort.apply(sc.source())))
                 .toList();
 
-        // Find the highest score among the "short" matches
-        int maxShortScore = scoredCandidates.stream()
+        // Find the lowest (best) score among the "short" matches
+        int bestShortScore = scoredCandidates.stream()
                 .filter(ScoredItem::isShort)
                 .mapToInt(ScoredItem::score)
-                .max()
+                .min()
                 .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
 
-        // Filter out long matches that score worse than the best short match
+        // Keep only candidates whose score is better than or equal to the best short match
         return scoredCandidates.stream()
-                .filter(sc -> sc.score() <= maxShortScore)
+                .filter(sc -> sc.score() <= bestShortScore)
                 .limit(100)
                 .map(sc -> toCompletion.apply(sc.source()))
                 .toList();
