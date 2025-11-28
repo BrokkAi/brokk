@@ -12,8 +12,6 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -99,7 +97,8 @@ class WorkspacePromptsTest {
                 .build();
 
         var allText = messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(allText.contains("workspace_build_status"), "Should include build status when changedFiles is empty");
+        assertTrue(
+                allText.contains("workspace_build_status"), "Should include build status when changedFiles is empty");
         assertTrue(allText.contains("syntax error on line 42"), "Should include build error details");
     }
 
@@ -217,8 +216,7 @@ class WorkspacePromptsTest {
 
     // Test 2: Build Fragment Duplication Prevention
     @Test
-    void testBuildFragmentNotDuplicatedInCodeReadOnlyPlusUntouchedWhenChangedFilesNonEmpty()
-            throws IOException {
+    void testBuildFragmentNotDuplicatedInCodeReadOnlyPlusUntouchedWhenChangedFilesNonEmpty() throws IOException {
         var changedFile = createTestFile("changed.txt", "content");
         cm.addEditableFile(changedFile);
 
@@ -245,26 +243,22 @@ class WorkspacePromptsTest {
 
         var editableText =
                 editableMessages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
-        assertTrue(
-                editableText.contains("workspace_build_status"),
-                "EDITABLE_CHANGED should include build status");
+        assertTrue(editableText.contains("workspace_build_status"), "EDITABLE_CHANGED should include build status");
     }
 
     // Test 3: Summary Fragment Combination
     @Test
     void testSummaryFragmentsCombinedIntoSingleBlock() throws IOException, InterruptedException, ExecutionException {
         // Create files with classes so we can create SummaryFragments
-        var file1 = createTestFile("src/main/java/com/example/Class1.java",
-                "package com.example;\npublic class Class1 {}");
-        var file2 = createTestFile("src/main/java/com/example/Class2.java",
-                "package com.example;\npublic class Class2 {}");
+        var file1 =
+                createTestFile("src/main/java/com/example/Class1.java", "package com.example;\npublic class Class1 {}");
+        var file2 =
+                createTestFile("src/main/java/com/example/Class2.java", "package com.example;\npublic class Class2 {}");
         cm.addEditableFile(file1);
         cm.addEditableFile(file2);
 
         // Update analyzer to discover classes
-        var analyzer = cm.getAnalyzerWrapper()
-                .updateFiles(Set.of(file1, file2))
-                .get();
+        var analyzer = cm.getAnalyzerWrapper().updateFiles(Set.of(file1, file2)).get();
         assertFalse(analyzer.getAllDeclarations().isEmpty());
 
         // Create summary fragments for both classes
