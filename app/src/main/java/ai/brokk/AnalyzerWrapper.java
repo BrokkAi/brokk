@@ -281,7 +281,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (externalRebuildRequested) {
             long count = idlePollTriggeredRebuilds.incrementAndGet();
             logger.debug("Idle-poll triggered external rebuild #{}", count);
-            refresh(prev -> getLanguageHandle().createAnalyzer(project));
+            IAnalyzer.ProgressListener progressListener = listener != null ? listener::onProgress : null;
+            refresh(prev -> getLanguageHandle().createAnalyzer(project, progressListener));
             externalRebuildRequested = false;
         }
     }
@@ -341,10 +342,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        // Create progress listener to pass through construction
+        IAnalyzer.ProgressListener progressListener = listener != null ? listener::onProgress : null;
+
         IAnalyzer analyzer;
         try {
             logger.debug("Attempting to load existing analyzer");
-            analyzer = langHandle.loadAnalyzer(project);
+            analyzer = langHandle.loadAnalyzer(project, progressListener);
             logger.info(
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
@@ -352,7 +356,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
             logger.warn(th);
-            analyzer = langHandle.createAnalyzer(project);
+            analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),

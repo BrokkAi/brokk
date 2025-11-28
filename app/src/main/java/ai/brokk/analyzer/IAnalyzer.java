@@ -27,6 +27,41 @@ public interface IAnalyzer {
         }
     }
 
+    /**
+     * Listener for progress updates during analyzer construction or update operations.
+     * Implementations should be thread-safe as callbacks may come from worker threads.
+     */
+    @FunctionalInterface
+    interface ProgressListener {
+        /**
+         * Called to report progress during analyzer operations.
+         *
+         * @param completed Number of items completed
+         * @param total     Total number of items to process
+         * @param phase     Description of the current phase (e.g., "Parsing Java files")
+         */
+        void onProgress(int completed, int total, String phase);
+    }
+
+    /**
+     * Registers a progress listener to receive updates during analyzer operations.
+     * Listeners are notified during construction and update operations.
+     *
+     * @param listener the listener to add
+     */
+    default void addProgressListener(ProgressListener listener) {
+        // Default no-op for analyzers that don't support progress reporting
+    }
+
+    /**
+     * Removes a previously registered progress listener.
+     *
+     * @param listener the listener to remove
+     */
+    default void removeProgressListener(ProgressListener listener) {
+        // Default no-op for analyzers that don't support progress reporting
+    }
+
     // Basics
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 

@@ -57,6 +57,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         super(project, Languages.PYTHON);
     }
 
+    public PythonAnalyzer(IProject project, @Nullable ProgressListener listener) {
+        super(project, Languages.PYTHON, listener);
+    }
+
     private PythonAnalyzer(IProject project, AnalyzerState state) {
         super(project, Languages.PYTHON, state);
     }

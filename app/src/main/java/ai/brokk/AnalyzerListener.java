@@ -32,4 +32,14 @@ public interface AnalyzerListener {
 
     /** Called when the analyzer transitions from not-ready to ready state. */
     default void onAnalyzerReady() {}
+
+    /**
+     * Called periodically during analyzer construction/update to report progress.
+     * Implementations should be lightweight and thread-safe.
+     *
+     * @param completed Number of items completed
+     * @param total Total number of items
+     * @param description Description of the operation
+     */
+    default void onProgress(int completed, int total, String description) {}
 }
