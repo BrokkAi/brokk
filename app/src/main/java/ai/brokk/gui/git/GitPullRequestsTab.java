@@ -269,7 +269,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         statusFilter.setToolTipText("Filter by PR status");
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.status", getBaseFilterValue(statusFilter.getSelected()));
+            project.setUiFilterProperty("prs.status", statusFilter.getSelected());
             updatePrList();
         });
         filtersContainer.add(statusFilter);
@@ -279,7 +279,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.author", getBaseFilterValue(authorFilter.getSelected()));
+            project.setUiFilterProperty("prs.author", authorFilter.getSelected());
             filterAndDisplayPrs();
         });
         filtersContainer.add(authorFilter);
@@ -289,7 +289,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.label", getBaseFilterValue(labelFilter.getSelected()));
+            project.setUiFilterProperty("prs.label", labelFilter.getSelected());
             filterAndDisplayPrs();
         });
         filtersContainer.add(labelFilter);
@@ -299,7 +299,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.assignee", getBaseFilterValue(assigneeFilter.getSelected()));
+            project.setUiFilterProperty("prs.assignee", assigneeFilter.getSelected());
             filterAndDisplayPrs();
         });
         filtersContainer.add(assigneeFilter);
@@ -309,7 +309,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
         reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         reviewFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.review", getBaseFilterValue(reviewFilter.getSelected()));
+            project.setUiFilterProperty("prs.review", reviewFilter.getSelected());
             filterAndDisplayPrs();
         });
         filtersContainer.add(reviewFilter);

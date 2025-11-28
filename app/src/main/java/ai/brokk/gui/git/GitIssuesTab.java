@@ -308,7 +308,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             jiraResolutionFilter.setToolTipText("Filter by Jira issue resolution");
             jiraResolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
             jiraResolutionFilter.addPropertyChangeListener("value", e -> {
-                project.setUiFilterProperty("issues.resolution", getBaseFilterValue(jiraResolutionFilter.getSelected()));
+                project.setUiFilterProperty("issues.resolution", jiraResolutionFilter.getSelected());
                 updateIssueList();
             });
             filtersContainer.add(jiraResolutionFilter);
@@ -326,7 +326,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.status", getBaseFilterValue(statusFilter.getSelected()));
+            project.setUiFilterProperty("issues.status", statusFilter.getSelected());
             updateIssueList();
         });
         filtersContainer.add(statusFilter);
@@ -338,7 +338,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.author", getBaseFilterValue(authorFilter.getSelected()));
+            project.setUiFilterProperty("issues.author", authorFilter.getSelected());
             triggerClientSideFilterUpdate();
         });
         filtersContainer.add(authorFilter);
@@ -350,7 +350,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.label", getBaseFilterValue(labelFilter.getSelected()));
+            project.setUiFilterProperty("issues.label", labelFilter.getSelected());
             triggerClientSideFilterUpdate();
         });
         filtersContainer.add(labelFilter);
@@ -365,7 +365,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.assignee", getBaseFilterValue(assigneeFilter.getSelected()));
+            project.setUiFilterProperty("issues.assignee", assigneeFilter.getSelected());
             triggerClientSideFilterUpdate();
         });
         filtersContainer.add(assigneeFilter);
