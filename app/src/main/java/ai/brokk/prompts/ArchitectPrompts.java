@@ -28,7 +28,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
     @Override
     public SystemMessage systemMessage(Context ctx, String reminder) {
-        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(ctx);
 
         var text =
@@ -36,14 +35,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
-          %s
-          </workspace-summary>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), styleGuide)
                         .trim();
         return new SystemMessage(text);
     }
