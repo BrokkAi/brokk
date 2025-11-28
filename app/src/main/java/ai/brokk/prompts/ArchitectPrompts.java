@@ -15,7 +15,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
-    private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
+    private static String resolveAggregatedStyleGuide(Context ctx) {
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
                 ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
@@ -23,35 +23,13 @@ public abstract class ArchitectPrompts extends CodePrompts {
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        return resolvedGuide.isBlank() ? ctx.getContextManager().getProject().getStyleGuide() : resolvedGuide;
     }
 
     @Override
-    public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(cm.liveContext());
-        var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-summary>
-          %s
-          </workspace-summary>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-        return new SystemMessage(text);
-    }
-
-    @Override
-    public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+    public SystemMessage systemMessage(Context ctx, String reminder) {
         var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(ctx);
-        var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
+        var styleGuide = resolveAggregatedStyleGuide(ctx);
 
         var text =
                 """

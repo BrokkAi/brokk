@@ -204,7 +204,7 @@ public abstract class CodePrompts {
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
 
-        messages.add(systemMessage(cm, ctx, reminder));
+        messages.add(systemMessage(ctx, reminder));
 
         // Read-only + untouched-editable message (CodeAgent wants summaries combined; changedFiles controls untouched)
         messages.addAll(WorkspacePrompts.builder(ctx, viewingPolicy)
@@ -279,7 +279,8 @@ public abstract class CodePrompts {
         var messages = new ArrayList<ChatMessage>();
 
         var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
-        messages.add(systemMessage(cm, askReminder()));
+        String reminder = askReminder();
+        messages.add(systemMessage(cm.liveContext(), reminder));
         messages.addAll(WorkspacePrompts.builder(cm.liveContext(), viewingPolicy)
                 .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
                 .build());
@@ -289,7 +290,7 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
+    protected SystemMessage systemMessage(Context ctx, String reminder) {
         var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
@@ -299,38 +300,7 @@ public abstract class CodePrompts {
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-
-        return new SystemMessage(text);
-    }
-
-    protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(cm.liveContext());
-
-        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
-        // fall back to the project root style guide if none found.
-        var projectFiles = cm.liveContext()
-                .fileFragments()
-                .flatMap(cf -> cf.files().stream())
-                .collect(Collectors.toList());
-
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        var styleGuide = resolvedGuide.isBlank() ? ctx.getContextManager().getProject().getStyleGuide() : resolvedGuide;
 
         var text =
                 """
