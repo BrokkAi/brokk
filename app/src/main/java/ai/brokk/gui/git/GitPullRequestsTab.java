@@ -986,48 +986,50 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
 
                 // Use streaming pagination helper
-                var pagedIterable = auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
+                var pagedIterable =
+                        auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
                 var iterator = pagedIterable.iterator();
 
                 StreamingPaginationHelper.streamPages(
-                    iterator,
-                    StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                    StreamingPaginationHelper.DEFAULT_MAX_ITEMS,
-                    (prs, total, hasMore, isFirst) -> {
-                        allPrsFromApi = new ArrayList<>(prs);
-                        populateDynamicFilterChoices(allPrsFromApi);
-                        filterAndDisplayPrs();
+                        iterator,
+                        StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
+                        StreamingPaginationHelper.MAX_PRS,
+                        (prs, total, hasMore, isFirst) -> {
+                            allPrsFromApi = new ArrayList<>(prs);
+                            populateDynamicFilterChoices(allPrsFromApi);
+                            filterAndDisplayPrs();
 
-                        // Show loading progress in refresh button tooltip
-                        var msg = StreamingPaginationHelper.formatLoadingMessage("PRs", total, StreamingPaginationHelper.DEFAULT_MAX_ITEMS, hasMore);
-                        refreshPrButton.setToolTipText(msg.isEmpty() ? "Refresh" : msg);
+                            // Show loading progress in refresh button tooltip
+                            var msg = StreamingPaginationHelper.formatLoadingMessage(
+                                    "PRs", total, StreamingPaginationHelper.MAX_PRS, hasMore);
+                            refreshPrButton.setToolTipText(msg.isEmpty() ? "Refresh" : msg);
 
-                        // On first page, ensure table is visible
-                        if (isFirst && !prs.isEmpty()) {
-                            prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
-                        }
-                    },
-                    () -> {
-                        refreshPrButton.setToolTipText("Refresh");
-                        setReloadUiEnabled(true);
-                        logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
-                    },
-                    ex -> {
-                        logger.error("Failed to fetch pull requests", ex);
-                        allPrsFromApi.clear();
-                        displayedPrs.clear();
-                        ciStatusCache.clear();
-                        prCommitsCache.clear();
-                        prTableModel.setRowCount(0);
-                        prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
-                        disablePrButtonsAndClearCommitsAndMenus();
-                        authorChoices.clear();
-                        labelChoices.clear();
-                        assigneeChoices.clear();
-                        refreshPrButton.setToolTipText("Refresh");
-                        setReloadUiEnabled(true);
-                    }
-                );
+                            // On first page, ensure table is visible
+                            if (isFirst && !prs.isEmpty()) {
+                                prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
+                            }
+                        },
+                        () -> {
+                            refreshPrButton.setToolTipText("Refresh");
+                            setReloadUiEnabled(true);
+                            logger.debug("PR streaming complete. Total: {} PRs", allPrsFromApi.size());
+                        },
+                        ex -> {
+                            logger.error("Failed to fetch pull requests", ex);
+                            allPrsFromApi.clear();
+                            displayedPrs.clear();
+                            ciStatusCache.clear();
+                            prCommitsCache.clear();
+                            prTableModel.setRowCount(0);
+                            prTableModel.addRow(
+                                    new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                            disablePrButtonsAndClearCommitsAndMenus();
+                            authorChoices.clear();
+                            labelChoices.clear();
+                            assigneeChoices.clear();
+                            refreshPrButton.setToolTipText("Refresh");
+                            setReloadUiEnabled(true);
+                        });
             } catch (Exception ex) {
                 logger.error("Failed to initialize PR pagination", ex);
                 SwingUtilities.invokeLater(() -> {

@@ -16,10 +16,16 @@ public final class StreamingPaginationHelper {
     private static final Logger logger = LogManager.getLogger(StreamingPaginationHelper.class);
 
     /** Default number of items per page. */
-    public static final int DEFAULT_PAGE_SIZE = 25;
+    public static final int DEFAULT_PAGE_SIZE = 50;
 
     /** Default maximum total items to fetch. */
     public static final int DEFAULT_MAX_ITEMS = 500;
+
+    /** Maximum items for lightweight DTOs (e.g., IssueHeader). */
+    public static final int MAX_ISSUES = 10_000;
+
+    /** Maximum items for heavy objects (e.g., GHPullRequest). */
+    public static final int MAX_PRS = 500;
 
     private StreamingPaginationHelper() {}
 
@@ -35,12 +41,13 @@ public final class StreamingPaginationHelper {
      * @param onComplete Called on EDT when streaming finishes successfully
      * @param onError Called on EDT if an error occurs
      */
-    public static <T> void streamPages(Iterator<T> iterator,
-                                        int pageSize,
-                                        int maxItems,
-                                        PageLoadedCallback<T> onPageLoaded,
-                                        Runnable onComplete,
-                                        Consumer<Exception> onError) {
+    public static <T> void streamPages(
+            Iterator<T> iterator,
+            int pageSize,
+            int maxItems,
+            PageLoadedCallback<T> onPageLoaded,
+            Runnable onComplete,
+            Consumer<Exception> onError) {
         var accumulated = new ArrayList<T>();
         boolean isFirstPage = true;
 
@@ -70,9 +77,7 @@ public final class StreamingPaginationHelper {
                 // Create a snapshot for the EDT callback
                 var snapshot = new ArrayList<>(accumulated);
 
-                SwingUtilities.invokeLater(() ->
-                    onPageLoaded.onPageLoaded(snapshot, totalSoFar, hasMore, firstPage)
-                );
+                SwingUtilities.invokeLater(() -> onPageLoaded.onPageLoaded(snapshot, totalSoFar, hasMore, firstPage));
 
                 logger.debug("Streamed page with {} items, total: {}", pageCount, totalSoFar);
             }
@@ -116,11 +121,12 @@ public final class StreamingPaginationHelper {
      * @param onComplete Called on EDT when streaming finishes successfully
      * @param onError Called on EDT if an error occurs
      */
-    public static <T> void streamPrebatchedPages(Iterator<List<T>> pageIterator,
-                                                  int maxItems,
-                                                  PageLoadedCallback<T> onPageLoaded,
-                                                  Runnable onComplete,
-                                                  Consumer<Exception> onError) {
+    public static <T> void streamPrebatchedPages(
+            Iterator<List<T>> pageIterator,
+            int maxItems,
+            PageLoadedCallback<T> onPageLoaded,
+            Runnable onComplete,
+            Consumer<Exception> onError) {
         var accumulated = new ArrayList<T>();
         boolean isFirstPage = true;
 
@@ -145,9 +151,7 @@ public final class StreamingPaginationHelper {
                 // Create a snapshot for the EDT callback
                 var snapshot = new ArrayList<>(accumulated);
 
-                SwingUtilities.invokeLater(() ->
-                    onPageLoaded.onPageLoaded(snapshot, totalSoFar, hasMore, firstPage)
-                );
+                SwingUtilities.invokeLater(() -> onPageLoaded.onPageLoaded(snapshot, totalSoFar, hasMore, firstPage));
 
                 logger.debug("Streamed page with {} items, total: {}", page.size(), totalSoFar);
             }

@@ -820,34 +820,43 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
-                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'",
-                                 statusVal, resolutionVal, queryForApi);
+                    logger.debug(
+                            "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
+                            statusVal,
+                            resolutionVal,
+                            queryForApi);
                 } else {
-                    apiFilterOptions = new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
-                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
-                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    apiFilterOptions =
+                            new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    logger.debug(
+                            "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                            statusVal,
+                            authorVal,
+                            labelVal,
+                            assigneeVal,
+                            queryForApi);
                 }
 
                 // Use streaming pagination with helper
                 var pageIterator = this.issueService.listIssuesPaginated(
                         apiFilterOptions,
                         StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
-                        StreamingPaginationHelper.DEFAULT_MAX_ITEMS);
+                        StreamingPaginationHelper.MAX_ISSUES);
 
                 StreamingPaginationHelper.streamPrebatchedPages(
                         pageIterator,
-                        StreamingPaginationHelper.DEFAULT_MAX_ITEMS,
+                        StreamingPaginationHelper.MAX_ISSUES,
                         (issues, total, hasMore, isFirst) -> {
                             // Sort by update date, newest first
-                            issues.sort(Comparator.comparing(IssueHeader::updated,
-                                                              Comparator.nullsLast(Comparator.reverseOrder())));
+                            issues.sort(Comparator.comparing(
+                                    IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
                             allIssuesFromApi = new ArrayList<>(issues);
                             displayedIssues = issues;
                             updateTableFromDisplayedIssues();
 
                             // Update loading message
                             var msg = StreamingPaginationHelper.formatLoadingMessage(
-                                    "issues", total, StreamingPaginationHelper.DEFAULT_MAX_ITEMS, hasMore);
+                                    "issues", total, StreamingPaginationHelper.MAX_ISSUES, hasMore);
                             searchBox.setLoading(hasMore, msg);
 
                             // On first page, ensure table is visible
@@ -865,8 +874,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                                 disableIssueActionsAndClearDetails();
                             }
                             searchBox.setLoading(false, "");
-                        }
-                );
+                        });
 
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
@@ -967,16 +975,18 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             }
 
             // Sort by update date, newest first
-            filteredIssues.sort(Comparator.comparing(IssueHeader::updated,
-                                                      Comparator.nullsLast(Comparator.reverseOrder())));
+            filteredIssues.sort(
+                    Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
 
             final List<IssueHeader> finalFiltered = filteredIssues;
             SwingUtilities.invokeLater(() -> {
                 displayedIssues = finalFiltered;
                 updateTableFromDisplayedIssues();
                 searchBox.setLoading(false, "");
-                logger.debug("Client-side filter complete. Showing {} of {} issues.",
-                            displayedIssues.size(), allIssuesFromApi.size());
+                logger.debug(
+                        "Client-side filter complete. Showing {} of {} issues.",
+                        displayedIssues.size(),
+                        allIssuesFromApi.size());
             });
             return null;
         });
