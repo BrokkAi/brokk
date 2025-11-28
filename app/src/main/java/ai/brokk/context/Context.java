@@ -356,7 +356,7 @@ public class Context {
     }
 
     /** Convenience overload to test if a fragment instance is tracked as read-only in this Context. */
-    public boolean isReadOnly(ContextFragment fragment) {
+    public boolean isMarkedReadonly(ContextFragment fragment) {
         return markedReadonlyFragments.contains(fragment);
     }
 

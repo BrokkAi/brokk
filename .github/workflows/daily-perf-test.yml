@@ -94,6 +94,12 @@ jobs:
         if: steps.check_commits.outputs.should_skip == 'false'
         run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh setup
 
+      - name: Warm up HEAD
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/warmup-head" --max-files 1000 --json
+          rm -rf "${{ env.REPORT_ROOT }}/warmup-head"
+
       - name: Run benchmark on HEAD
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
@@ -108,6 +114,12 @@ jobs:
       - name: Checkout BASE
         if: steps.check_commits.outputs.should_skip == 'false'
         run: git checkout ${{ env.BASE_SHA }}
+
+      - name: Warm up BASE
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/warmup-base" --max-files 1000 --json
+          rm -rf "${{ env.REPORT_ROOT }}/warmup-base"
 
       - name: Run benchmark on BASE
         if: steps.check_commits.outputs.should_skip == 'false'
@@ -132,13 +144,13 @@ jobs:
           echo "time_change_str=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.change_str // empty')" >> $GITHUB_OUTPUT
           echo "time_status=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status // empty')" >> $GITHUB_OUTPUT
           echo "time_status_emoji=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status_emoji // empty')" >> $GITHUB_OUTPUT
-          # Peak Memory
-          echo "mem_base=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.base_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_head=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.head_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_change_pct=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.change_pct // empty')" >> $GITHUB_OUTPUT
-          echo "mem_change_str=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.change_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_status=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.status // empty')" >> $GITHUB_OUTPUT
-          echo "mem_status_emoji=$(echo "$summary_json" | jq -r '.metrics.peak_memory_mb.status_emoji // empty')" >> $GITHUB_OUTPUT
+          # Memory per File
+          echo "mem_base=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.base_str // empty')" >> $GITHUB_OUTPUT
+          echo "mem_head=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.head_str // empty')" >> $GITHUB_OUTPUT
+          echo "mem_change_pct=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.change_pct // empty')" >> $GITHUB_OUTPUT
+          echo "mem_change_str=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.change_str // empty')" >> $GITHUB_OUTPUT
+          echo "mem_status=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.status // empty')" >> $GITHUB_OUTPUT
+          echo "mem_status_emoji=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.status_emoji // empty')" >> $GITHUB_OUTPUT
           # Files per Second
           echo "fps_base=$(echo "$summary_json" | jq -r '.metrics.files_per_second.base_str // empty')" >> $GITHUB_OUTPUT
           echo "fps_head=$(echo "$summary_json" | jq -r '.metrics.files_per_second.head_str // empty')" >> $GITHUB_OUTPUT

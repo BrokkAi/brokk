@@ -84,7 +84,7 @@ public abstract class CodePrompts {
                 The build failed with the error visible in the Workspace. Please refer to
                 fragment id %s, "%s".
 
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
+                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix all the errors and warnings.
 
                 IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
                 do your best to explain the problem but DO NOT provide any edits.
