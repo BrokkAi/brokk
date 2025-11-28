@@ -1845,7 +1845,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     parentName -> { // extractSimpleName is now non-static
                                         if (!parentName.isBlank()) {
                                             var name = isClassLike(parent)
-                                                    ? determineClassName(parent.getType(), parentName)
+                                                    ? determineClassChainSegmentName(parent.getType(), parentName)
                                                     : parentName;
                                             enclosingClassNames.addFirst(name);
                                         }
@@ -2233,6 +2233,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String determineClassName(String captureName, String shortName) {
         return shortName;
+    }
+
+    /**
+     * Determines how a parent node's name should appear in the classChain.
+     * By default delegates to determineClassName, but can be overridden to add type markers
+     * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
+     */
+    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+        return determineClassName(nodeType, shortName);
     }
 
     /**

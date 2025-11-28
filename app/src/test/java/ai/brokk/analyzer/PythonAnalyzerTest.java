@@ -1402,10 +1402,9 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testNonStandardNamingConventions() {
-        // Tests the isLowercaseIdentifier heuristic with non-PEP8 compliant names
-        // KEY INSIGHT: TreeSitter correctly identifies classes vs functions from AST node types.
-        // The isLowercaseIdentifier heuristic ONLY affects FQN construction for nested symbols,
-        // NOT the classification of code units as class vs function.
+        // Tests that TreeSitter AST node types correctly determine FQN construction,
+        // regardless of naming conventions (PEP 8 compliant or not).
+        // The :F marker mechanism passes AST type info through classChain for accurate FQNs.
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
 
@@ -1416,8 +1415,7 @@ public final class PythonAnalyzerTest {
         var functions = declarations.stream().filter(CodeUnit::isFunction).collect(Collectors.toList());
 
         // === UPPERCASE FUNCTION NAMES (HTTPServer, GetData, URL) ===
-        // Functions are CORRECTLY identified as functions from AST regardless of naming.
-        // The FQN uses "." for function scope even though name is uppercase.
+        // Functions are correctly identified from AST and use "." for function scope.
 
         assertTrue(
                 functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer")),
@@ -1429,16 +1427,14 @@ public final class PythonAnalyzerTest {
                 functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.URL")),
                 "URL is correctly identified as FUNCTION despite uppercase name");
 
-        // ServerHandler (class inside HTTPServer function) - heuristic affects FQN:
-        // Since "HTTPServer" starts with uppercase, it's treated as class-like in parent FQN,
-        // so ServerHandler gets "$HTTPServer$ServerHandler" instead of ".HTTPServer$ServerHandler"
+        // ServerHandler (class inside HTTPServer function):
+        // TreeSitter knows HTTPServer is a function, so it correctly uses function-local class FQN
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$HTTPServer$ServerHandler")),
-                "ServerHandler uses $ boundary because HTTPServer looks like a class to the heuristic");
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer$ServerHandler")),
+                "ServerHandler correctly uses . boundary for function scope (TreeSitter knows HTTPServer is a function)");
 
         // === LOWERCASE CLASS NAMES (myClass, my_class, _privateClass) ===
-        // Classes are CORRECTLY identified as classes from AST regardless of naming.
-        // The FQN uses "$" for class boundary even though name starts lowercase.
+        // Classes are correctly identified from AST and use "$" for class boundary.
 
         assertTrue(
                 classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$myClass")),
@@ -1450,20 +1446,19 @@ public final class PythonAnalyzerTest {
                 classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$_privateClass")),
                 "_privateClass is correctly identified as CLASS");
 
-        // Methods inside lowercase classes - uses "." for method boundary
+        // Methods inside lowercase classes - uses "." for method boundary, "$" for class
         assertTrue(
-                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.myClass.method")),
-                "method() inside myClass uses . boundary - but parent uses incorrect . too");
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$myClass.method")),
+                "method() inside myClass correctly uses $ for class boundary");
         assertTrue(
-                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.my_class.my_method")),
-                "my_method() inside my_class - heuristic thinks parent is function, uses . boundary");
+                functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$my_class.my_method")),
+                "my_method() inside my_class correctly uses $ for class boundary");
 
-        // Nested class inside lowercase parent - heuristic affects FQN:
-        // Since "my_class" starts lowercase, heuristic treats it as function scope,
-        // so Nested gets ".my_class$Nested" (function-local class pattern)
+        // Nested class inside lowercase parent:
+        // TreeSitter knows my_class is a class, so it correctly uses class nesting FQN
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.my_class$Nested")),
-                "Nested class inside lowercase my_class uses function-local pattern");
+                classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming$my_class$Nested")),
+                "Nested class inside lowercase my_class correctly uses $ for class nesting");
 
         // === MIXED SCENARIOS ===
 
@@ -1472,8 +1467,7 @@ public final class PythonAnalyzerTest {
                 functions.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.createFactory")),
                 "createFactory is correctly identified as function");
 
-        // product (lowercase class inside createFactory) - heuristic affects FQN:
-        // createFactory starts lowercase so treated as function scope -> ".createFactory$product"
+        // product (lowercase class inside createFactory) - function-local class pattern
         assertTrue(
                 classes.stream().anyMatch(cu -> cu.fqName().equals("nonstandard_naming.createFactory$product")),
                 "product inside createFactory uses function-local class pattern");
@@ -1496,9 +1490,8 @@ public final class PythonAnalyzerTest {
 
     @Test
     void testNonStandardNamingMethodResolution() {
-        // Tests that methods and nested classes resolve correctly despite naming conventions
-        // NOTE: The heuristic causes FQN mismatches between parent and child when naming is non-standard.
-        // This documents the current behavior which may cause parent-child lookups to fail.
+        // Tests that methods and nested classes resolve correctly with TreeSitter AST-based FQNs.
+        // The :F marker mechanism ensures correct FQN construction regardless of naming conventions.
         TestProject project = createTestProject("testcode-py", Languages.PYTHON);
         PythonAnalyzer testAnalyzer = new PythonAnalyzer(project);
 
@@ -1507,26 +1500,23 @@ public final class PythonAnalyzerTest {
 
         // === METHODS EXIST WITH CORRECT FQNS ===
 
-        // HTTPServer's ServerHandler.handle() method exists
+        // HTTPServer's ServerHandler.handle() method exists - HTTPServer is a function (uses .)
         var serverHandlerMethod = declarations.stream()
-                .filter(cu -> cu.fqName().equals("nonstandard_naming$HTTPServer$ServerHandler.handle"))
+                .filter(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer$ServerHandler.handle"))
                 .findFirst();
-        assertTrue(serverHandlerMethod.isPresent(),
-                "handle() method of ServerHandler should exist with correct FQN");
+        assertTrue(serverHandlerMethod.isPresent(), "handle() method of ServerHandler should exist with correct FQN");
 
-        // my_class's Nested.nested_method() exists
+        // my_class's Nested.nested_method() exists - my_class is a class (uses $)
         var nestedMethod = declarations.stream()
-                .filter(cu -> cu.fqName().equals("nonstandard_naming.my_class$Nested.nested_method"))
+                .filter(cu -> cu.fqName().equals("nonstandard_naming$my_class$Nested.nested_method"))
                 .findFirst();
-        assertTrue(nestedMethod.isPresent(),
-                "nested_method() should exist in Nested class inside my_class");
+        assertTrue(nestedMethod.isPresent(), "nested_method() should exist in Nested class inside my_class");
 
         // XMLParser.parse() method exists
         var parseMethod = declarations.stream()
                 .filter(cu -> cu.fqName().equals("nonstandard_naming$XMLParser.parse"))
                 .findFirst();
-        assertTrue(parseMethod.isPresent(),
-                "parse() method of XMLParser should exist");
+        assertTrue(parseMethod.isPresent(), "parse() method of XMLParser should exist");
 
         // === PARENT-CHILD RELATIONSHIPS FOR NORMALLY-NAMED SYMBOLS ===
 
@@ -1547,24 +1537,23 @@ public final class PythonAnalyzerTest {
                 .orElseThrow();
         var processDataChildren = testAnalyzer.getDirectChildren(processData);
         assertTrue(
-                processDataChildren.stream().anyMatch(cu ->
-                        cu.fqName().equals("nonstandard_naming.process_data$DataProcessor")),
+                processDataChildren.stream()
+                        .anyMatch(cu -> cu.fqName().equals("nonstandard_naming.process_data$DataProcessor")),
                 "process_data should have DataProcessor as child");
 
-        // === KNOWN LIMITATION: Parent-child mismatch for non-standard naming ===
-        // HTTPServer (function, FQN uses ".") has child ServerHandler (class, FQN uses "$")
-        // The FQN prefix mismatch means getDirectChildren may not find the relationship.
-        // This is documented behavior - a limitation of the heuristic approach.
+        // === PARENT-CHILD RELATIONSHIPS FOR NON-STANDARD NAMING ===
+        // With TreeSitter AST-based FQN construction, parent-child relationships work correctly
+        // even for non-standard naming conventions.
 
         var httpServer = declarations.stream()
                 .filter(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer"))
                 .findFirst()
                 .orElseThrow();
         var httpServerChildren = testAnalyzer.getDirectChildren(httpServer);
-        // Document the limitation: children may be empty or have mismatched FQNs
-        // This is expected when function names don't follow lowercase convention
-        System.out.println("HTTPServer children: " + httpServerChildren.stream()
-                .map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertTrue(
+                httpServerChildren.stream()
+                        .anyMatch(cu -> cu.fqName().equals("nonstandard_naming.HTTPServer$ServerHandler")),
+                "HTTPServer (uppercase function) should have ServerHandler as child");
 
         project.close();
     }
@@ -1622,7 +1611,9 @@ public final class PythonAnalyzerTest {
                     .collect(Collectors.toList());
             assertEquals(2, allCClasses.size(), "Should find both classes with identifier 'C'");
             assertTrue(
-                    allCClasses.stream().map(CodeUnit::fqName).collect(Collectors.toSet())
+                    allCClasses.stream()
+                            .map(CodeUnit::fqName)
+                            .collect(Collectors.toSet())
                             .containsAll(Set.of("pkg.a$C", "pkg.b$C")),
                     "Both FQNs should be present");
 
@@ -1645,7 +1636,7 @@ public final class PythonAnalyzerTest {
         // e.g., "from mypackage import ClassName" works for ClassName in __init__.py
         // FQN should be "mypackage$ClassName" NOT "mypackage.__init__$ClassName"
         var builder = InlineTestProjectCreator.code(
-                """
+                        """
                 class PackageClass:
                     def class_method(self):
                         pass
@@ -1655,7 +1646,7 @@ public final class PythonAnalyzerTest {
 
                 TOP_LEVEL_VAR = 42
                 """,
-                "mypkg/__init__.py")
+                        "mypkg/__init__.py")
                 .addFileContents(
                         """
                         class SubpkgClass:
@@ -1691,7 +1682,8 @@ public final class PythonAnalyzerTest {
             // subpkg classes should have parent package in their FQN
             var subpkgClass = testAnalyzer.getDefinitions("mypkg.subpkg$SubpkgClass");
             assertEquals(1, subpkgClass.size(), "Class in nested __init__.py should have FQN parent.pkg$ClassName");
-            assertEquals("mypkg.subpkg$SubpkgClass", subpkgClass.iterator().next().fqName());
+            assertEquals(
+                    "mypkg.subpkg$SubpkgClass", subpkgClass.iterator().next().fqName());
 
             // Verify the old FQN format does NOT work
             var oldFormat = testAnalyzer.getDefinitions("mypkg.__init__$PackageClass");

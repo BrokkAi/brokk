@@ -410,9 +410,10 @@ public class PythonImportTest {
             // Document expected behavior: 'import mypackage' does not bring InitClass into
             // the resolved imports - only 'from mypackage import InitClass' would do that
             // The class IS accessible at runtime via mypackage.InitClass, but that's not import resolution
-            assertTrue(resolvedImports.isEmpty(),
-                    "import mypackage style does not resolve to specific symbols - " +
-                    "use 'from mypackage import ClassName' for import resolution");
+            assertTrue(
+                    resolvedImports.isEmpty(),
+                    "import mypackage style does not resolve to specific symbols - "
+                            + "use 'from mypackage import ClassName' for import resolution");
 
             // Verify the class itself still has the correct FQN (matches Python import semantics)
             var initClassDefinitions = analyzer.getDefinitions("mypackage$InitClass");
@@ -684,9 +685,7 @@ public class PythonImportTest {
 
             assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
             assertEquals(
-                    "pkg.b$C",
-                    cImports.getFirst().fqName(),
-                    "Wildcard from b should shadow explicit import from a");
+                    "pkg.b$C", cImports.getFirst().fqName(), "Wildcard from b should shadow explicit import from a");
 
             // OnlyInA should still be imported (explicit) - wait, it wasn't imported
             // OnlyInB should be imported via wildcard
@@ -716,10 +715,7 @@ public class PythonImportTest {
                     .collect(Collectors.toList());
 
             assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
-            assertEquals(
-                    "pkg.b$C",
-                    cImports.getFirst().fqName(),
-                    "Explicit from b should shadow wildcard from a");
+            assertEquals("pkg.b$C", cImports.getFirst().fqName(), "Explicit from b should shadow wildcard from a");
 
             // OnlyInA should be imported via wildcard from a
             assertTrue(

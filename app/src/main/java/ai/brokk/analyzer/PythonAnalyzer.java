@@ -404,7 +404,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             // Function scope: module.func or module.func$Class
             if (parser.rest.isEmpty()) {
                 // Just function: parent fqName = pkg.module.func
-                String parentFqn = base + "." + classChain;
+                String parentFqn = base + "." + parser.firstSegment;
                 log.trace(
                         "Python parent lookup: classChain='{}', base='{}', returning '{}' (function parent)",
                         classChain,
@@ -453,6 +453,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     /**
      * Checks if identifier follows Python function naming (lowercase start) vs class naming (PascalCase).
      *
+     * <p>This is a fallback heuristic used only when AST-based type markers are not available.
+     * The primary mechanism is the ":F" and ":C" markers added by {@link #determineClassChainSegmentName},
+     * which use actual TreeSitter node types to distinguish functions from classes.
+     *
      * @param identifier the identifier to check (e.g., "my_function", "_private", "MyClass")
      * @return true if first letter is lowercase (function naming convention per PEP 8)
      */
@@ -471,11 +475,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     /**
      * Parses a classChain string to extract scope information.
      * Centralizes the logic for determining function vs class scope and extracting segments.
+     *
+     * <p>Recognizes ":F" (function) and ":C" (class) markers added by
+     * {@link #determineClassChainSegmentName} to identify symbol types by AST node type
+     * rather than relying on the naming heuristic.
      */
     private static class ClassChainParser {
+        static final String FUNCTION_MARKER = ":F";
+        static final String CLASS_MARKER = ":C";
+
         final String classChain;
-        final String firstSegment;
-        final String rest;
+        final String firstSegment; // Without marker
+        final String rest; // Without markers
         final boolean isFunctionScope;
 
         ClassChainParser(String classChain) {
@@ -486,15 +497,31 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             int firstDollar = classChain.indexOf('$');
             int boundary = minPositive(firstDot, firstDollar);
 
+            String rawFirstSegment;
+            String rawRest;
             if (boundary == -1) {
-                this.firstSegment = classChain;
-                this.rest = "";
+                rawFirstSegment = classChain;
+                rawRest = "";
             } else {
-                this.firstSegment = classChain.substring(0, boundary);
-                this.rest = classChain.substring(boundary + 1);
+                rawFirstSegment = classChain.substring(0, boundary);
+                rawRest = classChain.substring(boundary + 1);
             }
 
-            this.isFunctionScope = !firstSegment.isEmpty() && isLowercaseIdentifier(firstSegment);
+            // Check for AST-based markers
+            if (rawFirstSegment.endsWith(FUNCTION_MARKER)) {
+                this.firstSegment = rawFirstSegment.substring(0, rawFirstSegment.length() - FUNCTION_MARKER.length());
+                this.isFunctionScope = true;
+            } else if (rawFirstSegment.endsWith(CLASS_MARKER)) {
+                this.firstSegment = rawFirstSegment.substring(0, rawFirstSegment.length() - CLASS_MARKER.length());
+                this.isFunctionScope = false;
+            } else {
+                this.firstSegment = rawFirstSegment;
+                // Fall back to naming heuristic for unmarked segments (backward compatibility)
+                this.isFunctionScope = !firstSegment.isEmpty() && isLowercaseIdentifier(firstSegment);
+            }
+
+            // Strip markers from rest as well
+            this.rest = stripMarkers(rawRest);
         }
 
         boolean isEmpty() {
@@ -506,7 +533,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         String normalizedChain() {
-            return classChain.replace(".", "$");
+            return stripMarkers(classChain).replace(".", "$");
+        }
+
+        private static String stripMarkers(String s) {
+            return s.replace(FUNCTION_MARKER, "").replace(CLASS_MARKER, "");
         }
 
         private static int minPositive(int a, int b) {
@@ -522,6 +553,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isClassLike(TSNode node) {
         return super.isClassLike(node) || "function_definition".equals(node.getType());
+    }
+
+    /**
+     * Mark functions with ":F" and classes with ":C" suffix in classChain.
+     * This allows ClassChainParser to use actual AST type info instead of the naming heuristic.
+     */
+    @Override
+    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+        return switch (nodeType) {
+            case "function_definition" -> shortName + ClassChainParser.FUNCTION_MARKER;
+            case "class_definition" -> shortName + ClassChainParser.CLASS_MARKER;
+            default -> shortName;
+        };
     }
 
     @Override
