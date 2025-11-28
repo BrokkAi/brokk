@@ -651,6 +651,15 @@ public final class DependenciesPanel extends JPanel {
         return saveChangesAsync(Map.of());
     }
 
+    /**
+     * Saves changes to the project's live dependencies asynchronously.
+     *
+     * @param overridesByName a map of dependency names to their desired live state (true for live, false for not live).
+     *                        If a dependency name is present in this map, its value will override the current UI checkbox state
+     *                        for that dependency during the toggle operation. This allows explicit control over which dependencies
+     *                        are toggled, bypassing the current UI selection.
+     * @return a CompletableFuture that completes when the save operation is finished.
+     */
     private CompletableFuture<Void> saveChangesAsync(Map<String, Boolean> overridesByName) {
         // Snapshot the desired live set on the EDT to avoid accessing Swing model off-thread
         // Build from ALL rows in the table (both checked and unchecked), applying overrides where specified
