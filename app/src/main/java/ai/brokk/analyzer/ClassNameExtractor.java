@@ -328,6 +328,58 @@ public final class ClassNameExtractor {
         return sb.toString();
     }
 
+    /* C# heuristics ------------------------------------------------------- */
+
+    /**
+     * Extract a C# class name from a method reference like "MyClass.MyMethod" or "Console.WriteLine".
+     *
+     * <p>C# uses dot notation like Java but has different naming conventions:
+     * <ul>
+     *   <li>Both class names AND method names use PascalCase (uppercase start)
+     *   <li>Generics use angle brackets like Java: List&lt;int&gt;
+     *   <li>Null-conditional operator: obj?.Method()
+     *   <li>Nullable types use ? suffix: Task&lt;User?&gt;
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass.MyMethod" → "MyClass"
+     *   <li>"Console.WriteLine" → "Console"
+     *   <li>"System.IO.File.ReadAllText" → "System.IO.File"
+     *   <li>"List&lt;int&gt;.Add" → "List"
+     *   <li>"obj?.MyMethod" → "obj"
+     * </ul>
+     */
+    public static Optional<String> extractForCSharp(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Normalize: convert ?. to . (null-conditional operator)
+        var normalized = trimmed.replace("?.", ".");
+
+        // Strip generic type parameters <T, U>
+        normalized = stripAngleGroups(normalized);
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(normalized);
+        if (lastDot <= 0 || lastDot >= normalized.length() - 1) return Optional.empty();
+
+        var lastPart = normalized.substring(lastDot + 1);
+        var beforeLast = normalized.substring(0, lastDot);
+
+        // Method name heuristic: C# methods use PascalCase (uppercase start)
+        // Optionally followed by parameters
+        if (!lastPart.matches("[A-Z][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+        // Class segment heuristic: rightmost segment should look like a PascalCase identifier
+        var segLastDot = beforeLast.lastIndexOf('.');
+        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
+        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
     /* Normalization helpers ----------------------------------------------- */
 
     /**
