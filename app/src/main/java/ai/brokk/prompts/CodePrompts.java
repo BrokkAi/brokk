@@ -208,7 +208,7 @@ public abstract class CodePrompts {
 
         // Read-only + untouched-editable message (CodeAgent wants summaries combined; changedFiles controls untouched)
         var codeAgentWorkspace =
-                WorkspacePrompts.getWorkspaceMessagesForCodeAgent(ctx, viewingPolicy, changedFiles);
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy, changedFiles);
         messages.addAll(codeAgentWorkspace.readOnlyPlusUntouched());
 
         messages.addAll(prologue);
@@ -278,7 +278,7 @@ public abstract class CodePrompts {
         String reminder = askReminder();
         messages.add(systemMessage(cm.liveContext(), reminder));
         messages.addAll(
-                WorkspacePrompts.getWorkspaceMessagesInAddedOrder(cm.liveContext(), viewingPolicy));
+                WorkspacePrompts.getMessagesInAddedOrder(cm.liveContext(), viewingPolicy));
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -286,7 +286,7 @@ public abstract class CodePrompts {
     }
 
     protected SystemMessage systemMessage(Context ctx, String reminder) {
-        var workspaceSummary = WorkspacePrompts.formatWorkspaceToc(ctx);
+        var workspaceSummary = WorkspacePrompts.formatGroupedToc(ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =

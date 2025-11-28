@@ -232,7 +232,7 @@ public class SearchAgent {
             var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
-                    new ArrayList<>(WorkspacePrompts.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+                    new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -833,7 +833,7 @@ public class SearchAgent {
 
         // Current Workspace contents (use default viewing policy)
         ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.CONTEXT);
-        messages.addAll(WorkspacePrompts.getWorkspaceMessagesInAddedOrder(context, vp));
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, vp));
 
         // Dynamically inform the janitor about non-droppable fragments
         var nonDroppableMsg = buildNonDroppableSystemMessage();

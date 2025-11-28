@@ -1,7 +1,6 @@
 package ai.brokk.prompts;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.util.StyleGuideResolver;
@@ -212,7 +211,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, WorkspacePrompts.formatWorkspaceToc(cm.liveContext()), workspaceWarning);
+                .formatted(goal, WorkspacePrompts.formatGroupedToc(cm.liveContext()), workspaceWarning);
     }
 
     /**

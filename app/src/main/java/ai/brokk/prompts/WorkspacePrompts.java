@@ -25,9 +25,9 @@ import org.jetbrains.annotations.Nullable;
  * Encapsulates workspace-related prompt construction. Extracted from CodePrompts to centralize workspace rendering.
  *
  * This class now exposes simple static helpers instead of a builder:
- * - {@link #getWorkspaceMessagesInAddedOrder(Context, ViewingPolicy)}
- * - {@link #getWorkspaceMessagesGroupedByMutability(Context, ViewingPolicy)}
- * - {@link #getWorkspaceMessagesForCodeAgent(Context, ViewingPolicy, Set)}
+ * - {@link #getMessagesInAddedOrder(Context, ViewingPolicy)}
+ * - {@link #getMessagesGroupedByMutability(Context, ViewingPolicy)}
+ * - {@link #getMessagesForCodeAgent(Context, ViewingPolicy, Set)}
  *
  * The helpers always:
  * - combine summary fragments into a single api_summaries block,
@@ -47,57 +47,59 @@ public final class WorkspacePrompts {
      * - readOnlyPlusUntouched: read-only fragments and untouched editable fragments
      * - editableChanged: editable fragments that intersect the changed files plus build status
      */
-    public record CodeAgentWorkspaceMessages(
+    public record CodeAgentMessages(
             List<ChatMessage> readOnlyPlusUntouched, List<ChatMessage> editableChanged) {}
 
-    public static String formatWorkspaceToc(Context ctx) {
+    public static String formatGroupedToc(Context ctx) {
         var editableContents =
                 ctx.getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var buildFragment = ctx.getBuildFragment();
-        var workspaceBuilder = new StringBuilder();
 
-        workspaceBuilder.append("<workspace_toc>\n");
+        var readOnlySection = readOnlyContents.isBlank()
+                ? "  <workspace_readonly>\n  </workspace_readonly>"
+                : """
+                  <workspace_readonly>
+                  The following fragments MAY NOT BE EDITED:
+                  %s
+                  </workspace_readonly>"""
+                        .formatted(readOnlyContents);
 
-        if (!readOnlyContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                    <workspace_readonly>
-                    The following fragments MAY NOT BE EDITED:
-                    %s
-                    </workspace_readonly>
-                    """
-                            .formatted(readOnlyContents));
-        } else {
-            workspaceBuilder.append("  <workspace_readonly>\n  </workspace_readonly>\n");
+        var editableSection = editableContents.isBlank()
+                ? ""
+                : """
+                  <workspace_editable>
+                  The following fragments MAY BE EDITED:
+                  %s
+                  </workspace_editable>"""
+                        .formatted(editableContents);
+
+        var buildStatusSection = buildFragment.isPresent()
+                ? "  <workspace_build_status>(failing)</workspace_build_status>"
+                : "";
+
+        var parts = new ArrayList<String>();
+        parts.add(readOnlySection);
+        if (!editableSection.isBlank()) {
+            parts.add(editableSection);
+        }
+        if (!buildStatusSection.isBlank()) {
+            parts.add(buildStatusSection);
         }
 
-        if (!editableContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                    <workspace_editable>
-                    The following fragments MAY BE EDITED:
-                    %s
-                    </workspace_editable>
-                    """
-                            .formatted(editableContents));
-        }
-
-        if (buildFragment.isPresent()) {
-            workspaceBuilder.append("  <workspace_build_status>(failing)</workspace_build_status>\n");
-        }
-
-        workspaceBuilder.append("</workspace_toc>");
-
-        return workspaceBuilder.toString();
+        return """
+               <workspace_toc>
+               %s
+               </workspace_toc>"""
+                .formatted(String.join("\n", parts));
     }
 
     /**
      * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
      * {@code <workspace>} block.
      */
-    public static List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
+    public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
         var allFragments = ctx.allFragments().toList();
         if (allFragments.isEmpty()) {
             return List.of();
@@ -128,7 +130,7 @@ public final class WorkspacePrompts {
      * Generic combined workspace: readonly + editable(all) + build status, wrapped in a single
      * {@code <workspace>} block.
      */
-    public static List<ChatMessage> getWorkspaceMessagesGroupedByMutability(
+    public static List<ChatMessage> getMessagesGroupedByMutability(
             Context ctx, ViewingPolicy viewingPolicy) {
         // Compose read-only (without build fragment) + all editable + build status into a single <workspace> message
         var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy);
@@ -200,13 +202,13 @@ public final class WorkspacePrompts {
      * @param changedFiles  editable project files that have changed in this task
      * @return record with both the read-only-plus-untouched view and the editable-changed view
      */
-    public static CodeAgentWorkspaceMessages getWorkspaceMessagesForCodeAgent(
+    public static CodeAgentMessages getMessagesForCodeAgent(
             Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
         var readOnlyPlusUntouched = buildReadOnlyPlusUntouched(ctx, viewingPolicy, changedFiles);
         var editableChanged = changedFiles.isEmpty()
                 ? List.<ChatMessage>of()
                 : buildEditableChanged(ctx, viewingPolicy, changedFiles);
-        return new CodeAgentWorkspaceMessages(readOnlyPlusUntouched, editableChanged);
+        return new CodeAgentMessages(readOnlyPlusUntouched, editableChanged);
     }
 
     private static List<ChatMessage> buildReadOnlyPlusUntouched(
