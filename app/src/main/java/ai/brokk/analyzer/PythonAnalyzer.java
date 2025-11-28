@@ -24,8 +24,6 @@ import org.treesitter.TreeSitterPython;
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
-    // Import resolution using TreeSitter queries instead of regex
-
     @Override
     public Optional<String> extractClassName(String reference) {
         return ClassNameExtractor.extractForPython(reference);
@@ -392,11 +390,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         String packageName = cu.packageName();
 
-        if (classChain.isBlank()) {
-            // Defensive: TreeSitterAnalyzer only calls buildParentFqName for nested symbols
-            // (classChain is non-empty), but this handles edge cases gracefully.
-            return packageName;
-        }
+        // TreeSitterAnalyzer only calls buildParentFqName for nested symbols (classChain is non-empty)
+        assert !classChain.isBlank() : "buildParentFqName should only be called with non-empty classChain";
 
         // Use ClassChainParser - same logic as createCodeUnit for consistent FQN construction
         var parser = new ClassChainParser(classChain);
@@ -553,7 +548,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         boolean isEmpty() {
-            return classChain.isEmpty() || classChain.isBlank();
+            return classChain.isEmpty();
         }
 
         String normalizedRest() {
