@@ -13,24 +13,21 @@ public class CompletionsExactShortNameTest {
 
     @Test
     public void testExactShortNameIncludesParentClass() throws Exception {
-        try (var testProject =
-                InlineTestProjectCreator.code(
-                                """
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
                                 package ai.brokk.gui;
 
                                 public class Chrome {
                                     public static class AnalyzerStatusStrip {}
                                 }
                                 """,
-                                "src/main/java/ai/brokk/gui/Chrome.java")
-                        .build()) {
+                        "src/main/java/ai/brokk/gui/Chrome.java")
+                .build()) {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream()
-                    .map(CodeUnit::fqName)
-                    .collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
@@ -40,9 +37,8 @@ public class CompletionsExactShortNameTest {
 
     @Test
     public void testExactShortNameIncludesParentClass_withMethodOnly() throws Exception {
-        try (var testProject =
-                InlineTestProjectCreator.code(
-                                """
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
                                 package ai.brokk.gui;
 
                                 public class Chrome {
@@ -51,15 +47,13 @@ public class CompletionsExactShortNameTest {
                                     public static void main(String[] args) {}
                                 }
                                 """,
-                                "src/main/java/ai/brokk/gui/Chrome.java")
-                        .build()) {
+                        "src/main/java/ai/brokk/gui/Chrome.java")
+                .build()) {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream()
-                    .map(CodeUnit::fqName)
-                    .collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
@@ -69,9 +63,8 @@ public class CompletionsExactShortNameTest {
 
     @Test
     public void testExactShortNameIncludesParentClass_withFieldOnly() throws Exception {
-        try (var testProject =
-                InlineTestProjectCreator.code(
-                                """
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
                                 package ai.brokk.gui;
 
                                 public class Chrome {
@@ -79,15 +72,13 @@ public class CompletionsExactShortNameTest {
                                     private String name = "chrome";
                                 }
                                 """,
-                                "src/main/java/ai/brokk/gui/Chrome.java")
-                        .build()) {
+                        "src/main/java/ai/brokk/gui/Chrome.java")
+                .build()) {
 
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream()
-                    .map(CodeUnit::fqName)
-                    .collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
