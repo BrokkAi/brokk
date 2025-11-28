@@ -13,6 +13,8 @@
   import { threadStore } from './stores/threadStore';
   import { historyCollapsedStore } from './stores/historyCollapsedStore';
   import Icon from '@iconify/svelte';
+  import { liveSummaryStore } from './stores/liveSummaryStore';
+  import { summaryParseStore } from './stores/summaryParseStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -52,6 +54,10 @@
   $: hasHistory = $historyStore.some(t => t.entries.length > 0);
   $: hasLive = $bubblesStore.length > 0;
   $: historyTaskCount = $historyStore.filter(t => t.entries.length > 0).length;
+
+  // Live summary lookup: derive compressed and summary for the current live thread
+  $: liveThreadId = hasLive ? $bubblesStore[0].threadId : undefined;
+  $: liveSummary = liveThreadId !== undefined ? $liveSummaryStore[liveThreadId] : undefined;
 
   // Toggle handlers for collapse control
   function toggleHistoryCollapsed() {
@@ -243,7 +249,12 @@
 
     <!-- Live bubbles -->
     {#if hasLive}
-      <ThreadBlock threadId={$bubblesStore[0].threadId} bubbles={$bubblesStore} />
+      <ThreadBlock
+        threadId={$bubblesStore[0].threadId}
+        bubbles={$bubblesStore}
+        compressed={liveSummary?.compressed}
+        summary={liveSummary?.summary}
+      />
     {/if}
     <Spinner />
   {:else}
