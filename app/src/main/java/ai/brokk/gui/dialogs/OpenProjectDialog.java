@@ -8,9 +8,12 @@ import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.FileUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.net.ConnectException;
@@ -28,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
@@ -60,6 +64,18 @@ public class OpenProjectDialog extends JDialog {
     private JTabbedPane tabbedPane;
     private int gitHubTabIndex = -1;
     private JPanel gitHubReposPanel;
+
+    // Clone progress state
+    private JProgressBar cloneProgressBar;
+    private JLabel cloneStatusLabel;
+    private MaterialButton cancelCloneButton;
+    private JPanel cloneProgressPanel;
+
+    @Nullable
+    private Future<?> cloneTaskFuture;
+
+    @Nullable
+    private volatile Path cloneTargetDirectory;
 
     public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
@@ -122,7 +138,91 @@ public class OpenProjectDialog extends JDialog {
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
+        // Create clone progress panel (initially hidden)
+        cloneProgressPanel = createCloneProgressPanel();
+        mainPanel.add(cloneProgressPanel, BorderLayout.SOUTH);
+
         setContentPane(mainPanel);
+
+        // Handle window close during clone
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                handleWindowClose();
+            }
+        });
+    }
+
+    private JPanel createCloneProgressPanel() {
+        var panel = new JPanel(new BorderLayout(10, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        cloneStatusLabel = new JLabel("Cloning repository...");
+        cloneProgressBar = new JProgressBar();
+        cloneProgressBar.setIndeterminate(true);
+        cancelCloneButton = new MaterialButton("Cancel");
+        cancelCloneButton.addActionListener(e -> cancelClone());
+
+        var centerPanel = new JPanel(new BorderLayout(10, 0));
+        centerPanel.add(cloneStatusLabel, BorderLayout.WEST);
+        centerPanel.add(cloneProgressBar, BorderLayout.CENTER);
+
+        panel.add(centerPanel, BorderLayout.CENTER);
+        panel.add(cancelCloneButton, BorderLayout.EAST);
+
+        panel.setVisible(false);
+        return panel;
+    }
+
+    private void handleWindowClose() {
+        if (cloneTaskFuture != null && !cloneTaskFuture.isDone()) {
+            int result = JOptionPane.showConfirmDialog(
+                    this, "Clone operation in progress. Cancel and close?", "Confirm Close", JOptionPane.YES_NO_OPTION);
+            if (result == JOptionPane.YES_OPTION) {
+                cancelClone();
+                dispose();
+            }
+        } else {
+            dispose();
+        }
+    }
+
+    private void setCloneInProgress(boolean inProgress) {
+        // Toggle progress panel visibility
+        cloneProgressPanel.setVisible(inProgress);
+
+        // Disable/enable all tabs
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            tabbedPane.setEnabledAt(i, !inProgress);
+        }
+
+        // Revalidate layout since panel visibility changed
+        revalidate();
+        repaint();
+    }
+
+    private void cancelClone() {
+        if (cloneTaskFuture != null && !cloneTaskFuture.isDone()) {
+            cloneTaskFuture.cancel(true);
+
+            // Cleanup partial clone directory
+            var targetDir = cloneTargetDirectory;
+            if (targetDir != null && Files.exists(targetDir)) {
+                try {
+                    FileUtil.deleteRecursively(targetDir);
+                    logger.debug("Cleaned up partial clone directory: {}", targetDir);
+                } catch (Exception e) {
+                    logger.warn("Failed to cleanup partial clone directory: {}", targetDir, e);
+                }
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                setCloneInProgress(false);
+                cloneTaskFuture = null;
+                cloneTargetDirectory = null;
+            });
+        }
     }
 
     @Nullable
@@ -600,36 +700,49 @@ public class OpenProjectDialog extends JDialog {
         final var normalizedUrl = normalizeGitUrl(url);
         final var directory = Paths.get(dir);
 
-        // 1. Build the modal progress dialog on the EDT
-        final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
-        var progressBar = new JProgressBar();
-        progressBar.setIndeterminate(true);
-        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
-        progressDialog.add(progressBar, BorderLayout.CENTER);
-        progressDialog.pack();
-        progressDialog.setLocationRelativeTo(parentFrame);
+        // Store target directory for cleanup on cancel
+        cloneTargetDirectory = directory;
 
-        // 2. Start background clone
+        // Update status and show progress panel
+        cloneStatusLabel.setText("Cloning " + normalizedUrl + "...");
+        setCloneInProgress(true);
+
+        // Start background clone
         var worker = new SwingWorker<Path, Void>() {
             @Override
             protected Path doInBackground() throws Exception {
-                // Heavy-weight Git operation happens off the EDT
                 GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
                 return directory;
             }
 
             @Override
             protected void done() {
-                progressDialog.dispose();
+                cloneTargetDirectory = null;
+                cloneTaskFuture = null;
+
                 if (!isDisplayable()) {
                     return;
                 }
+
                 try {
-                    Path projectPath = get();
+                    var projectPath = get();
+                    setCloneInProgress(false);
                     if (projectPath != null) {
                         openProject(projectPath);
                     }
+                } catch (java.util.concurrent.CancellationException e) {
+                    // User cancelled - cleanup already handled by cancelClone()
+                    logger.debug("Clone was cancelled by user");
                 } catch (Exception e) {
+                    setCloneInProgress(false);
+                    // Cleanup on failure
+                    if (Files.exists(directory)) {
+                        try {
+                            FileUtil.deleteRecursively(directory);
+                        } catch (Exception cleanupEx) {
+                            logger.warn("Failed to cleanup after clone failure", cleanupEx);
+                        }
+                    }
                     JOptionPane.showMessageDialog(
                             OpenProjectDialog.this,
                             "Failed to clone repository: " + e.getMessage(),
@@ -638,11 +751,9 @@ public class OpenProjectDialog extends JDialog {
                 }
             }
         };
-        worker.execute();
 
-        // 3. Show the dialog (modal) – this blocks the EDT but continues to
-        //    dispatch events, so the SwingWorker can complete in background.
-        progressDialog.setVisible(true);
+        cloneTaskFuture = worker;
+        worker.execute();
     }
 
     private static String normalizeGitUrl(String url) {
