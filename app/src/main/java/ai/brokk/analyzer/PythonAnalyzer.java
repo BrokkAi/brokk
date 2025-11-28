@@ -109,6 +109,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         // Parse classChain once - centralizes scope detection logic
         var parser = new ClassChainParser(classChain);
 
+        // Build the effective package name that includes the module for proper fqName construction
+        // This keeps shortName language-agnostic (just the class/function hierarchy)
+        String moduleQualifiedPackage =
+                effectivePackageName.isEmpty() ? moduleName : effectivePackageName + "." + moduleName;
+
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
@@ -118,74 +123,75 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                         packageName,
                         moduleName);
 
-                // Design: Use $ for class boundaries, . for scope boundaries
-                // shortName = "module$Class" or "module$Outer$Inner" or "module.func$LocalClass"
+                // Design: shortName = class hierarchy only (no module prefix)
+                // Module is included in packageName for proper fqName construction
+                // Use $ for class nesting, . for function scope
                 String finalShortName;
 
                 if (parser.isEmpty()) {
-                    // Top-level class: "module$ClassName"
-                    finalShortName = moduleName + "$" + simpleName;
+                    // Top-level class: just "ClassName"
+                    finalShortName = simpleName;
                 } else if (parser.isFunctionScope) {
-                    // Function-local class: "module.func$LocalClass" or "module.func$Outer$Inner"
+                    // Function-local class: "func$LocalClass" or "func$Outer$Inner"
                     if (parser.rest.isEmpty()) {
-                        // Just "func" - direct child of function
-                        finalShortName = moduleName + "." + parser.firstSegment + "$" + simpleName;
+                        // Direct child of function
+                        finalShortName = parser.firstSegment + "$" + simpleName;
                     } else {
-                        // "func.Outer" or "func$Outer" -> "module.func$Outer$simpleName"
+                        // Nested in class inside function
                         String classPart = parser.normalizedRest() + "$";
-                        finalShortName = moduleName + "." + parser.firstSegment + "$" + classPart + simpleName;
+                        finalShortName = parser.firstSegment + "$" + classPart + simpleName;
                     }
                 } else {
-                    // Class-nested: "module$Outer$Inner"
-                    finalShortName = moduleName + "$" + parser.normalizedChain() + "$" + simpleName;
+                    // Class-nested: "Outer$Inner"
+                    finalShortName = parser.normalizedChain() + "$" + simpleName;
                 }
 
-                yield CodeUnit.cls(file, effectivePackageName, finalShortName);
+                yield CodeUnit.cls(file, moduleQualifiedPackage, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
-                // Functions use . throughout: "module.func" or "module$Class.method"
+                // Functions use . for member access
                 String finalShortName;
 
                 if (parser.isEmpty()) {
-                    // Top-level function: "module.func"
-                    finalShortName = moduleName + "." + simpleName;
+                    // Top-level function: just "func"
+                    finalShortName = simpleName;
                 } else if (parser.isFunctionScope) {
                     // Nested function or method in function-local class
                     if (parser.rest.isEmpty()) {
-                        // Nested function inside function: "module.outer.inner"
-                        finalShortName = moduleName + "." + classChain + "." + simpleName;
+                        // Nested function inside function: "outer.inner"
+                        finalShortName = parser.firstSegment + "." + simpleName;
                     } else {
-                        // Method in function-local class: "module.func$Class.method"
-                        finalShortName = moduleName + "." + parser.normalizedChain() + "." + simpleName;
+                        // Method in function-local class: "func$Class.method"
+                        finalShortName = parser.firstSegment + "$" + parser.normalizedRest() + "." + simpleName;
                     }
                 } else {
-                    // Method in regular class: "module$Class.method" or "module$Outer$Inner.method"
-                    finalShortName = moduleName + "$" + parser.normalizedChain() + "." + simpleName;
+                    // Method in regular class: "Class.method" or "Outer$Inner.method"
+                    finalShortName = parser.normalizedChain() + "." + simpleName;
                 }
 
-                yield CodeUnit.fn(file, effectivePackageName, finalShortName);
+                yield CodeUnit.fn(file, moduleQualifiedPackage, finalShortName);
             }
             case CaptureNames.FIELD_DEFINITION -> {
-                // Fields use . for member access: "module.var" or "module$Class.field"
+                // Fields use . for member access
                 String finalShortName;
 
                 if (parser.isEmpty()) {
-                    // Top-level variable: "module.varName"
-                    finalShortName = moduleName + "." + simpleName;
+                    // Top-level variable: just "varName"
+                    finalShortName = simpleName;
                 } else if (parser.isFunctionScope) {
-                    // Field in function-local class: "module.func$Class.field"
+                    // Field in function-local class
                     if (parser.rest.isEmpty()) {
-                        // Variable in function scope (unusual): "module.func.var"
-                        finalShortName = moduleName + "." + classChain + "." + simpleName;
+                        // Variable in function scope (unusual): "func.var"
+                        finalShortName = parser.firstSegment + "." + simpleName;
                     } else {
-                        finalShortName = moduleName + "." + parser.normalizedChain() + "." + simpleName;
+                        finalShortName = parser.firstSegment + "$" + parser.normalizedRest() + "." + simpleName;
                     }
                 } else {
-                    // Field in regular class: "module$Class.field"
-                    finalShortName = moduleName + "$" + parser.normalizedChain() + "." + simpleName;
+                    // Field in regular class: "Class.field"
+                    finalShortName = parser.normalizedChain() + "." + simpleName;
                 }
 
-                yield CodeUnit.field(file, effectivePackageName, finalShortName);
+                yield CodeUnit.field(file, moduleQualifiedPackage, finalShortName);
             }
             default -> {
                 log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
@@ -362,12 +368,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String buildParentFqName(CodeUnit cu, String classChain) {
-        // Design: $ for class boundaries, . for function/module scope
+        // Design: shortName = class/function hierarchy, packageName = pkg.module
         // The classChain represents the nesting structure above this symbol
-        // - Top-level class: module$Class -> parent = packageName (module level)
-        // - Nested class: module$Outer$Inner -> parent fqName = pkg.module$Outer
-        // - Function-local: module.func$Local -> parent fqName = pkg.module.func
-        // - Nested in func-local: module.func$Outer$Inner -> parent = pkg.module.func$Outer
+        // - Top-level: parent = packageName (module level)
+        // - Nested class: Outer$Inner -> parent fqName = pkg.module.Outer
+        // - Function-local: func$Local -> parent fqName = pkg.module.func
+        // - Nested in func-local: func$Outer$Inner -> parent = pkg.module.func$Outer
 
         String packageName = cu.packageName();
 
@@ -376,61 +382,39 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             return packageName;
         }
 
-        // Get module name from file
-        String moduleName = cu.source().getFileName();
-        if (moduleName.endsWith(".py")) {
-            moduleName = moduleName.substring(0, moduleName.length() - 3);
-        }
-
-        // For __init__.py, derive the module name from the CodeUnit's shortName
-        // since the effective module is the package name, not "__init__"
-        if (moduleName.equals("__init__")) {
-            // Extract module name from shortName (e.g., "mypackage$Class" -> "mypackage")
-            var shortName = cu.shortName();
-            int firstBoundary = shortName.indexOf('$');
-            if (firstBoundary == -1) {
-                firstBoundary = shortName.indexOf('.');
-            }
-            if (firstBoundary > 0) {
-                moduleName = shortName.substring(0, firstBoundary);
-            }
-        }
-
         // Use ClassChainParser - same logic as createCodeUnit for consistent FQN construction
         var parser = new ClassChainParser(classChain);
-        String base = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
 
         if (parser.isFunctionScope) {
-            // Function scope: module.func or module.func$Class
+            // Function scope: func or func$Class
             if (parser.rest.isEmpty()) {
                 // Just function: parent fqName = pkg.module.func
-                String parentFqn = base + "." + parser.firstSegment;
+                String parentFqn = packageName + "." + parser.firstSegment;
                 log.trace(
-                        "Python parent lookup: classChain='{}', base='{}', returning '{}' (function parent)",
+                        "Python parent lookup: classChain='{}', packageName='{}', returning '{}' (function parent)",
                         classChain,
-                        base,
+                        packageName,
                         parentFqn);
                 return parentFqn;
             } else {
-                // Function + classes: convert class parts to $
-                // classChain = "func.Class" -> parent = pkg.module.func$Class
-                String parentFqn = base + "." + parser.firstSegment + "$" + parser.normalizedRest();
+                // Function + classes: func$Class -> parent = pkg.module.func$Class
+                String parentFqn = packageName + "." + parser.firstSegment + "$" + parser.normalizedRest();
                 log.trace(
-                        "Python parent lookup: classChain='{}', base='{}', firstSegment='{}', rest='{}', returning '{}'",
+                        "Python parent lookup: classChain='{}', packageName='{}', firstSegment='{}', rest='{}', returning '{}'",
                         classChain,
-                        base,
+                        packageName,
                         parser.firstSegment,
                         parser.rest,
                         parentFqn);
                 return parentFqn;
             }
         } else {
-            // Class scope: module$Class or module$Outer$Inner
-            String parentFqn = base + "$" + parser.normalizedChain();
+            // Class scope: Outer or Outer$Inner -> parent = pkg.module.Outer
+            String parentFqn = packageName + "." + parser.normalizedChain();
             log.trace(
-                    "Python parent lookup: classChain='{}', base='{}', normalizedChain='{}', returning '{}' (class parent)",
+                    "Python parent lookup: classChain='{}', packageName='{}', normalizedChain='{}', returning '{}' (class parent)",
                     classChain,
-                    base,
+                    packageName,
                     parser.normalizedChain(),
                     parentFqn);
             return parentFqn;

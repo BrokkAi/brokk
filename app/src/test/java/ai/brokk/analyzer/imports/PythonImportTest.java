@@ -51,7 +51,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var ambiguousCUs = resolvedImports.stream()
@@ -60,7 +60,7 @@ public class PythonImportTest {
 
             assertEquals(1, ambiguousCUs.size(), "Should resolve only one 'Ambiguous' class");
             assertEquals(
-                    "pkg2.ambiguous$Ambiguous",
+                    "pkg2.ambiguous.Ambiguous",
                     ambiguousCUs.getFirst().fqName(),
                     "Last import wins: wildcard after explicit should shadow the explicit import");
         }
@@ -96,7 +96,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var ambiguousCUs = resolvedImports.stream()
@@ -105,7 +105,7 @@ public class PythonImportTest {
 
             assertEquals(1, ambiguousCUs.size(), "Should resolve only one 'Ambiguous' class");
             assertEquals(
-                    "pkg2.ambiguous$Ambiguous",
+                    "pkg2.ambiguous.Ambiguous",
                     ambiguousCUs.getFirst().fqName(),
                     "Last import wins: explicit after wildcard should shadow the wildcard import");
         }
@@ -141,7 +141,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var ambiguousCUs = resolvedImports.stream()
@@ -150,7 +150,7 @@ public class PythonImportTest {
 
             assertEquals(1, ambiguousCUs.size(), "Should resolve only one 'Ambiguous' class from wildcards");
             assertEquals(
-                    "pkg2.ambiguous$Ambiguous",
+                    "pkg2.ambiguous.Ambiguous",
                     ambiguousCUs.getFirst().fqName(),
                     "Last import wins: second wildcard should shadow the first");
         }
@@ -184,7 +184,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =
@@ -219,7 +219,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var childFile =
-                    AnalyzerUtil.getFileFor(analyzer, "pkg.sub.child$Child").get();
+                    AnalyzerUtil.getFileFor(analyzer, "pkg.sub.child.Child").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(childFile);
 
             assertTrue(
@@ -257,7 +257,7 @@ public class PythonImportTest {
                         "pkg/sub/consumer.py")
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
-            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "pkg.sub.consumer$Consumer")
+            var consumerFile = AnalyzerUtil.getFileFor(analyzer, "pkg.sub.consumer.Consumer")
                     .get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
@@ -267,7 +267,7 @@ public class PythonImportTest {
 
             assertEquals(1, targetCUs.size(), "Should resolve only one 'Target' class");
             assertEquals(
-                    "pkg.wildcard$Target",
+                    "pkg.wildcard.Target",
                     targetCUs.getFirst().fqName(),
                     "Last import wins: relative wildcard after explicit should shadow the explicit");
         }
@@ -299,7 +299,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =
@@ -326,15 +326,15 @@ public class PythonImportTest {
             var analyzer = new PythonAnalyzer(testProject);
 
             // Find the InitClass code unit - FQN uses package name as module (no __init__)
-            var initClassDefinitions = analyzer.getDefinitions("mypackage$InitClass");
+            var initClassDefinitions = analyzer.getDefinitions("mypackage.InitClass");
             assertEquals(1, initClassDefinitions.size(), "Should find exactly one InitClass defined in __init__.py");
 
             var initClass = initClassDefinitions.iterator().next();
             // FQN matches Python import semantics
             assertEquals(
-                    "mypackage$InitClass",
+                    "mypackage.InitClass",
                     initClass.fqName(),
-                    "Class in __init__.py should have FQN: package$ClassName (matching Python import semantics)");
+                    "Class in __init__.py should have FQN: package.ClassName (matching Python import semantics)");
             assertEquals("InitClass", initClass.identifier(), "identifier() should return simple class name");
         }
     }
@@ -362,7 +362,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var initClassImports = resolvedImports.stream()
@@ -371,7 +371,7 @@ public class PythonImportTest {
 
             assertEquals(1, initClassImports.size(), "Should resolve InitClass from 'from mypackage import InitClass'");
             assertEquals(
-                    "mypackage$InitClass",
+                    "mypackage.InitClass",
                     initClassImports.getFirst().fqName(),
                     "'from mypackage import InitClass' should resolve to class in __init__.py");
         }
@@ -400,7 +400,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
 
             // For 'import mypackage' style, resolveImports only tracks the import statement itself
             // The attribute access mypackage.InitClass is NOT resolved via importedCodeUnitsOf -
@@ -416,7 +416,7 @@ public class PythonImportTest {
                             + "use 'from mypackage import ClassName' for import resolution");
 
             // Verify the class itself still has the correct FQN (matches Python import semantics)
-            var initClassDefinitions = analyzer.getDefinitions("mypackage$InitClass");
+            var initClassDefinitions = analyzer.getDefinitions("mypackage.InitClass");
             assertEquals(1, initClassDefinitions.size(), "InitClass should still be findable by FQN");
         }
     }
@@ -452,7 +452,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =
@@ -497,7 +497,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var childFile =
-                    AnalyzerUtil.getFileFor(analyzer, "pkg.sub.child$Child").get();
+                    AnalyzerUtil.getFileFor(analyzer, "pkg.sub.child.Child").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(childFile);
 
             var importedNames =
@@ -543,7 +543,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             // Note: Current implementation resolves the original name (A), not the alias (X)
@@ -554,7 +554,7 @@ public class PythonImportTest {
 
             assertEquals(1, aCUs.size(), "Should resolve only one 'A' class (last wins)");
             assertEquals(
-                    "pkg2.m$A",
+                    "pkg2.m.A",
                     aCUs.getFirst().fqName(),
                     "Last import wins: second aliased import should shadow the first");
         }
@@ -584,7 +584,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "pkg.consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "pkg.consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =
@@ -626,7 +626,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer$Consumer").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var importedNames =
@@ -676,7 +676,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer1$Consumer1").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer1.Consumer1").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var cImports = resolvedImports.stream()
@@ -685,7 +685,7 @@ public class PythonImportTest {
 
             assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
             assertEquals(
-                    "pkg.b$C", cImports.getFirst().fqName(), "Wildcard from b should shadow explicit import from a");
+                    "pkg.b.C", cImports.getFirst().fqName(), "Wildcard from b should shadow explicit import from a");
 
             // OnlyInA should still be imported (explicit) - wait, it wasn't imported
             // OnlyInB should be imported via wildcard
@@ -707,7 +707,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer2$Consumer2").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer2.Consumer2").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var cImports = resolvedImports.stream()
@@ -715,7 +715,7 @@ public class PythonImportTest {
                     .collect(Collectors.toList());
 
             assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
-            assertEquals("pkg.b$C", cImports.getFirst().fqName(), "Explicit from b should shadow wildcard from a");
+            assertEquals("pkg.b.C", cImports.getFirst().fqName(), "Explicit from b should shadow wildcard from a");
 
             // OnlyInA should be imported via wildcard from a
             assertTrue(
@@ -736,7 +736,7 @@ public class PythonImportTest {
                 .build()) {
             var analyzer = new PythonAnalyzer(testProject);
             var consumerFile =
-                    AnalyzerUtil.getFileFor(analyzer, "consumer3$Consumer3").get();
+                    AnalyzerUtil.getFileFor(analyzer, "consumer3.Consumer3").get();
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
             var cImports = resolvedImports.stream()
@@ -745,7 +745,7 @@ public class PythonImportTest {
 
             assertEquals(1, cImports.size(), "Should resolve only one 'C' class");
             assertEquals(
-                    "pkg.b$C",
+                    "pkg.b.C",
                     cImports.getFirst().fqName(),
                     "Second wildcard from b should shadow first wildcard from a");
 
