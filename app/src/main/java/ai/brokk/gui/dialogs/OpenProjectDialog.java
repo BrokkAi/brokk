@@ -70,12 +70,16 @@ public class OpenProjectDialog extends JDialog {
     private JLabel cloneStatusLabel;
     private MaterialButton cancelCloneButton;
     private JPanel cloneProgressPanel;
+    private MaterialButton cloneFromGitButton;
+    private JButton cloneFromGitHubButton;
 
     @Nullable
     private Future<?> cloneTaskFuture;
 
     @Nullable
     private volatile Path cloneTargetDirectory;
+
+    private volatile boolean cloneCancelled;
 
     public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
@@ -138,9 +142,8 @@ public class OpenProjectDialog extends JDialog {
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
-        // Create clone progress panel (initially hidden)
+        // Create clone progress panel (will be added to tabs, not main panel)
         cloneProgressPanel = createCloneProgressPanel();
-        mainPanel.add(cloneProgressPanel, BorderLayout.SOUTH);
 
         setContentPane(mainPanel);
 
@@ -155,8 +158,7 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private JPanel createCloneProgressPanel() {
-        var panel = new JPanel(new BorderLayout(10, 0));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var panel = new JPanel(new BorderLayout(5, 0));
 
         cloneStatusLabel = new JLabel("Cloning repository...");
         cloneProgressBar = new JProgressBar();
@@ -164,11 +166,8 @@ public class OpenProjectDialog extends JDialog {
         cancelCloneButton = new MaterialButton("Cancel");
         cancelCloneButton.addActionListener(e -> cancelClone());
 
-        var centerPanel = new JPanel(new BorderLayout(10, 0));
-        centerPanel.add(cloneStatusLabel, BorderLayout.WEST);
-        centerPanel.add(cloneProgressBar, BorderLayout.CENTER);
-
-        panel.add(centerPanel, BorderLayout.CENTER);
+        panel.add(cloneStatusLabel, BorderLayout.WEST);
+        panel.add(cloneProgressBar, BorderLayout.CENTER);
         panel.add(cancelCloneButton, BorderLayout.EAST);
 
         panel.setVisible(false);
@@ -189,8 +188,28 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private void setCloneInProgress(boolean inProgress) {
-        // Toggle progress panel visibility
-        cloneProgressPanel.setVisible(inProgress);
+        // Show/hide clone buttons (opposite of progress state)
+        cloneFromGitButton.setVisible(!inProgress);
+        cloneFromGitHubButton.setVisible(!inProgress);
+
+        // Show/hide progress panel - add to or remove from current button's parent
+        if (inProgress) {
+            // Add progress panel to the parent of the active clone button
+            var activeButton = tabbedPane.getSelectedIndex() == gitHubTabIndex
+                    ? cloneFromGitHubButton
+                    : cloneFromGitButton;
+            var buttonParent = activeButton.getParent();
+            if (buttonParent != null) {
+                buttonParent.add(cloneProgressPanel, 0); // Add at beginning
+                cloneProgressPanel.setVisible(true);
+            }
+        } else {
+            cloneProgressPanel.setVisible(false);
+            var parent = cloneProgressPanel.getParent();
+            if (parent != null) {
+                parent.remove(cloneProgressPanel);
+            }
+        }
 
         // Disable/enable all tabs
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
@@ -204,24 +223,12 @@ public class OpenProjectDialog extends JDialog {
 
     private void cancelClone() {
         if (cloneTaskFuture != null && !cloneTaskFuture.isDone()) {
+            // Set flag - cleanup will happen in done() after JGit finishes
+            cloneCancelled = true;
             cloneTaskFuture.cancel(true);
 
-            // Cleanup partial clone directory
-            var targetDir = cloneTargetDirectory;
-            if (targetDir != null && Files.exists(targetDir)) {
-                try {
-                    FileUtil.deleteRecursively(targetDir);
-                    logger.debug("Cleaned up partial clone directory: {}", targetDir);
-                } catch (Exception e) {
-                    logger.warn("Failed to cleanup partial clone directory: {}", targetDir, e);
-                }
-            }
-
-            SwingUtilities.invokeLater(() -> {
-                setCloneInProgress(false);
-                cloneTaskFuture = null;
-                cloneTargetDirectory = null;
-            });
+            // Update UI immediately
+            SwingUtilities.invokeLater(() -> setCloneInProgress(false));
         }
     }
 
@@ -435,9 +442,10 @@ public class OpenProjectDialog extends JDialog {
             }
         });
 
-        var cloneButton = new MaterialButton("Clone and Open");
+        // Clone button - row 3
+        cloneFromGitButton = new MaterialButton("Clone and Open");
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttonPanel.add(cloneButton);
+        buttonPanel.add(cloneFromGitButton);
 
         gbc.gridx = 0;
         gbc.gridy = 3;
@@ -448,7 +456,7 @@ public class OpenProjectDialog extends JDialog {
         gbc.weighty = 1.0;
         panel.add(buttonPanel, gbc);
 
-        cloneButton.addActionListener(
+        cloneFromGitButton.addActionListener(
                 e -> cloneAndOpen(urlField.getText(), dirField.getText(), shallowCloneCheckbox.isSelected(), (Integer)
                         depthSpinner.getValue()));
         return panel;
@@ -622,8 +630,8 @@ public class OpenProjectDialog extends JDialog {
             loadRepositoriesAsync(tableModel, true);
         });
 
-        var cloneButton = new JButton("Clone and Open");
-        cloneButton.addActionListener(e -> cloneSelectedRepository(
+        cloneFromGitHubButton = new JButton("Clone and Open");
+        cloneFromGitHubButton.addActionListener(e -> cloneSelectedRepository(
                 table,
                 tableModel,
                 dirField.getText(),
@@ -633,7 +641,7 @@ public class OpenProjectDialog extends JDialog {
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(refreshButton);
-        buttonPanel.add(cloneButton);
+        buttonPanel.add(cloneFromGitHubButton);
 
         gbc.gridx = 0;
         gbc.gridy = 3;
@@ -702,6 +710,7 @@ public class OpenProjectDialog extends JDialog {
 
         // Store target directory for cleanup on cancel
         cloneTargetDirectory = directory;
+        cloneCancelled = false;
 
         // Update status and show progress panel
         cloneStatusLabel.setText("Cloning " + normalizedUrl + "...");
@@ -717,8 +726,28 @@ public class OpenProjectDialog extends JDialog {
 
             @Override
             protected void done() {
+                var wasCancelled = cloneCancelled;
                 cloneTargetDirectory = null;
                 cloneTaskFuture = null;
+                cloneCancelled = false;
+
+                // Cleanup partial clone directory
+                Runnable cleanup = () -> {
+                    if (Files.exists(directory)) {
+                        try {
+                            FileUtil.deleteRecursively(directory);
+                            logger.debug("Cleaned up clone directory: {}", directory);
+                        } catch (Exception cleanupEx) {
+                            logger.warn("Failed to cleanup clone directory", cleanupEx);
+                        }
+                    }
+                };
+
+                if (wasCancelled) {
+                    logger.debug("Clone was cancelled by user, cleaning up");
+                    cleanup.run();
+                    return;
+                }
 
                 if (!isDisplayable()) {
                     return;
@@ -730,19 +759,9 @@ public class OpenProjectDialog extends JDialog {
                     if (projectPath != null) {
                         openProject(projectPath);
                     }
-                } catch (java.util.concurrent.CancellationException e) {
-                    // User cancelled - cleanup already handled by cancelClone()
-                    logger.debug("Clone was cancelled by user");
                 } catch (Exception e) {
                     setCloneInProgress(false);
-                    // Cleanup on failure
-                    if (Files.exists(directory)) {
-                        try {
-                            FileUtil.deleteRecursively(directory);
-                        } catch (Exception cleanupEx) {
-                            logger.warn("Failed to cleanup after clone failure", cleanupEx);
-                        }
-                    }
+                    cleanup.run();
                     JOptionPane.showMessageDialog(
                             OpenProjectDialog.this,
                             "Failed to clone repository: " + e.getMessage(),
