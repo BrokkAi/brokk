@@ -660,60 +660,60 @@ public abstract class CodePrompts {
                 : "";
 
         return """
-<rules>
-# EXTENDED *SEARCH/REPLACE block* Rules:
-
-%sEvery *SEARCH/REPLACE block* must use this format:
-1. The opening fence: ```
-2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
-3. The start of search block: <<<<<<< SEARCH
-%s
-5. The dividing line: =======
-6. The lines to replace into the source code
-7. The end of the replace block: >>>>>>> REPLACE
-8. The closing fence: ```
-
-Points to remember:
-- Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-%s
-
-## Examples (format only; illustrative, not real code)
-Follow these patterns exactly when you emit edits.
-%s
-
-*SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
-For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
-and avoid using syntax-aware edits for overloaded functions.
-
-Keep *SEARCH/REPLACE* blocks concise.
-Break large changes into a series of smaller blocks that each change a small portion.
-
-Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-%sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
-and one to insert in the new location.
-
-Pay attention to which filenames the user wants you to edit, especially if they are asking
-you to create a new filename.
-
-If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-to make SEARCH/REPLACE blocks for the code changes you just proposed.
-The user will say when they've applied your edits.
-If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
-NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-use vanilla ascii single and double quotes.
-
-# General
-Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
-Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
-
-%s
-</rules>
-
-<goal>
-%s
-</goal>
+        <rules>
+        # EXTENDED *SEARCH/REPLACE block* Rules:
+        
+        %sEvery *SEARCH/REPLACE block* must use this format:
+        1. The opening fence: ```
+        2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
+        3. The start of search block: <<<<<<< SEARCH
+        %s
+        5. The dividing line: =======
+        6. The lines to replace into the source code
+        7. The end of the replace block: >>>>>>> REPLACE
+        8. The closing fence: ```
+        
+        Points to remember:
+        - Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+        %s
+        
+        ## Examples (format only; illustrative, not real code)
+        Follow these patterns exactly when you emit edits.
+        %s
+        
+        *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
+        For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
+        and avoid using syntax-aware edits for overloaded functions.
+        
+        Keep *SEARCH/REPLACE* blocks concise.
+        Break large changes into a series of smaller blocks that each change a small portion.
+        
+        Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+        %sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
+        and one to insert in the new location.
+        
+        Pay attention to which filenames the user wants you to edit, especially if they are asking
+        you to create a new filename.
+        
+        If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+        to make SEARCH/REPLACE blocks for the code changes you just proposed.
+        The user will say when they've applied your edits.
+        If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
+        
+        NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
+        use vanilla ascii single and double quotes.
+        
+        # General
+        Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+        
+        Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
+        
+        %s
+        </rules>
+        
+        <goal>
+        %s
+        </goal>
 """
                 .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
     }
