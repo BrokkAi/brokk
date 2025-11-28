@@ -106,6 +106,63 @@ public final class StreamingPaginationHelper {
     }
 
     /**
+     * Streams pre-batched pages from an iterator that already returns lists.
+     * This is useful when the API already returns pages (like IssueService.listIssuesPaginated).
+     *
+     * @param <T> The type of items being streamed
+     * @param pageIterator Source of pages (each next() returns a List of items)
+     * @param maxItems Maximum total items to fetch (stops after reaching this)
+     * @param onPageLoaded Called on EDT after each page with accumulated items
+     * @param onComplete Called on EDT when streaming finishes successfully
+     * @param onError Called on EDT if an error occurs
+     */
+    public static <T> void streamPrebatchedPages(Iterator<List<T>> pageIterator,
+                                                  int maxItems,
+                                                  PageLoadedCallback<T> onPageLoaded,
+                                                  Runnable onComplete,
+                                                  Consumer<Exception> onError) {
+        var accumulated = new ArrayList<T>();
+        boolean isFirstPage = true;
+
+        try {
+            while (pageIterator.hasNext() && accumulated.size() < maxItems) {
+                if (Thread.currentThread().isInterrupted()) {
+                    logger.debug("Streaming interrupted after {} items", accumulated.size());
+                    break;
+                }
+
+                List<T> page = pageIterator.next();
+                if (page.isEmpty()) {
+                    continue;
+                }
+
+                accumulated.addAll(page);
+                final int totalSoFar = accumulated.size();
+                final boolean hasMore = pageIterator.hasNext() && totalSoFar < maxItems;
+                final boolean firstPage = isFirstPage;
+                isFirstPage = false;
+
+                // Create a snapshot for the EDT callback
+                var snapshot = new ArrayList<>(accumulated);
+
+                SwingUtilities.invokeLater(() ->
+                    onPageLoaded.onPageLoaded(snapshot, totalSoFar, hasMore, firstPage)
+                );
+
+                logger.debug("Streamed page with {} items, total: {}", page.size(), totalSoFar);
+            }
+
+            // Final completion callback
+            SwingUtilities.invokeLater(onComplete);
+            logger.debug("Streaming complete. Total: {} items", accumulated.size());
+
+        } catch (Exception ex) {
+            logger.error("Error during streaming pagination", ex);
+            SwingUtilities.invokeLater(() -> onError.accept(ex));
+        }
+    }
+
+    /**
      * Formats a loading message for display.
      *
      * @param itemType Type of items (e.g., "issues", "PRs")

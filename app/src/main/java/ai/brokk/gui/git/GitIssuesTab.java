@@ -18,6 +18,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.GitHubFilterOptions;
@@ -827,63 +828,45 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                                  statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
 
-                // Use streaming pagination
+                // Use streaming pagination with helper
                 var pageIterator = this.issueService.listIssuesPaginated(
-                        apiFilterOptions, IssueService.DEFAULT_PAGE_SIZE, IssueService.MAX_ISSUES_LIMIT);
+                        apiFilterOptions,
+                        StreamingPaginationHelper.DEFAULT_PAGE_SIZE,
+                        StreamingPaginationHelper.DEFAULT_MAX_ITEMS);
 
-                var accumulatedIssues = new ArrayList<IssueHeader>();
-                boolean isFirstPage = true;
+                StreamingPaginationHelper.streamPrebatchedPages(
+                        pageIterator,
+                        StreamingPaginationHelper.DEFAULT_MAX_ITEMS,
+                        (issues, total, hasMore, isFirst) -> {
+                            // Sort by update date, newest first
+                            issues.sort(Comparator.comparing(IssueHeader::updated,
+                                                              Comparator.nullsLast(Comparator.reverseOrder())));
+                            allIssuesFromApi = new ArrayList<>(issues);
+                            displayedIssues = issues;
+                            updateTableFromDisplayedIssues();
 
-                while (pageIterator.hasNext()) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        logger.debug("Issue fetch interrupted after {} issues", accumulatedIssues.size());
-                        break;
-                    }
+                            // Update loading message
+                            var msg = StreamingPaginationHelper.formatLoadingMessage(
+                                    "issues", total, StreamingPaginationHelper.DEFAULT_MAX_ITEMS, hasMore);
+                            searchBox.setLoading(hasMore, msg);
 
-                    List<IssueHeader> page = pageIterator.next();
-                    if (page.isEmpty()) {
-                        continue;
-                    }
-
-                    accumulatedIssues.addAll(page);
-                    final int totalSoFar = accumulatedIssues.size();
-                    final boolean hasMore = pageIterator.hasNext() && totalSoFar < IssueService.MAX_ISSUES_LIMIT;
-                    final boolean firstPage = isFirstPage;
-                    isFirstPage = false;
-
-                    // Create a sorted snapshot for display
-                    var sortedSnapshot = new ArrayList<>(accumulatedIssues);
-                    sortedSnapshot.sort(Comparator.comparing(IssueHeader::updated,
-                                                             Comparator.nullsLast(Comparator.reverseOrder())));
-
-                    // Update UI on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        allIssuesFromApi = new ArrayList<>(sortedSnapshot);
-                        displayedIssues = sortedSnapshot;
-                        updateTableFromDisplayedIssues();
-
-                        // Update loading message
-                        if (hasMore) {
-                            String limitNote = totalSoFar >= IssueService.MAX_ISSUES_LIMIT ? " (limit)" : "+";
-                            searchBox.setLoading(true, "Loaded " + totalSoFar + limitNote + " issues...");
-                        } else {
+                            // On first page, ensure table is visible
+                            if (isFirst && !issues.isEmpty()) {
+                                issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
+                            }
+                        },
+                        () -> searchBox.setLoading(false, ""),
+                        ex -> {
+                            if (!wasCancellation(ex)) {
+                                logger.error("Failed to fetch issues via IssueService", ex);
+                                allIssuesFromApi.clear();
+                                displayedIssues.clear();
+                                issueTableModel.setRowCount(0);
+                                disableIssueActionsAndClearDetails();
+                            }
                             searchBox.setLoading(false, "");
                         }
-
-                        // On first page, ensure table is visible
-                        if (firstPage && !sortedSnapshot.isEmpty()) {
-                            issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
-                        }
-                    });
-
-                    logger.debug("Streamed page with {} issues, total: {}", page.size(), totalSoFar);
-                }
-
-                // Final update - loading complete
-                SwingUtilities.invokeLater(() -> {
-                    searchBox.setLoading(false, "");
-                    logger.debug("Issue streaming complete. Total: {} issues", allIssuesFromApi.size());
-                });
+                );
 
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
