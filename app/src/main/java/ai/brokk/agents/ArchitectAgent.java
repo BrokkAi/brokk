@@ -643,8 +643,6 @@ public class ArchitectAgent {
                 printSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
 
                 // Build the final history entry using the full transcript
-                List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-
                 // Fallback in case no SA result was produced (should be rare)
                 if (baseSaResult != null) {
                     // Create a single history entry using the base SA's metadata/description,
@@ -652,7 +650,7 @@ public class ArchitectAgent {
                     var combinedResult = new TaskResult(
                             cm,
                             baseSaResult.actionDescription(),
-                            finalMessages,
+                            io.getLlmRawMessages(),
                             combinedContext,
                             baseSaResult.stopDetails(),
                             Objects.requireNonNullElse(
