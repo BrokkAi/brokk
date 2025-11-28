@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Tiny CLI that dumps all four theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
+ * Tiny CLI that dumps all five theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
  * in JDK + Brokk classes.
  *
  * <p>Usage (manual): $ sbt "runMain io.github.jbellis.brokk.tools.GenerateThemeCss [outputPath]"
@@ -22,10 +22,11 @@ public final class GenerateThemeCss {
 
         Files.createDirectories(target.getParent());
 
-        // Generate CSS for all four themes
+        // Generate CSS for all five themes
         String darkBlock = toCssVariables(GuiTheme.THEME_DARK);
         String darkPlusBlock = toCssVariables(GuiTheme.THEME_DARK_PLUS);
         String lightBlock = toCssVariables(GuiTheme.THEME_LIGHT);
+        String lightPlusBlock = toCssVariables(GuiTheme.THEME_LIGHT_PLUS);
         String highContrastBlock = toCssVariables(GuiTheme.THEME_HIGH_CONTRAST);
 
         String banner =
@@ -35,8 +36,8 @@ public final class GenerateThemeCss {
              */
             """;
 
-        String content =
-                banner + "\n" + darkBlock + "\n" + darkPlusBlock + "\n" + lightBlock + "\n" + highContrastBlock + "\n";
+        String content = banner + "\n" + darkBlock + "\n" + darkPlusBlock + "\n" + lightBlock + "\n" + lightPlusBlock
+                + "\n" + highContrastBlock + "\n";
 
         Files.writeString(target, content);
         System.out.printf("Theme SCSS written to %s (%d bytes)%n", target.toAbsolutePath(), content.length());

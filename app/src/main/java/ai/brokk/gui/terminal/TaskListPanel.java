@@ -474,7 +474,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             clearCompletedBtn.setMargin(new Insets(0, 0, 0, 0));
 
             // Top toolbar (below title, above list): left group + separator + play all/clear completed
-            JPanel topToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            // Use BoxLayout to prevent wrapping when the container is narrow
+            JPanel topToolbar = new JPanel();
+            topToolbar.setLayout(new BoxLayout(topToolbar, BoxLayout.LINE_AXIS));
             topToolbar.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
             topToolbar.setOpaque(false);
 
@@ -485,6 +487,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Vertical separator between groups
             JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
             sep.setPreferredSize(new Dimension(8, 24));
+            sep.setMaximumSize(new Dimension(8, 24));
             topToolbar.add(sep);
 
             // Right group: Clear Completed
@@ -493,7 +496,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             // Vertical separator and add-text input to the right of Clear Completed
             JSeparator sep2 = new JSeparator(SwingConstants.VERTICAL);
             sep2.setPreferredSize(new Dimension(8, 24));
+            sep2.setMaximumSize(new Dimension(8, 24));
             topToolbar.add(sep2);
+
+            // Configure input field sizing for BoxLayout: ensure minimum usable width
+            // and allow it to expand to fill remaining space
+            input.setMinimumSize(new Dimension(100, input.getPreferredSize().height));
+            input.setMaximumSize(new Dimension(Integer.MAX_VALUE, input.getPreferredSize().height));
 
             // Move the existing input field into the top toolbar
             topToolbar.add(input);

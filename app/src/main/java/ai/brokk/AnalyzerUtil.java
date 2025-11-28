@@ -200,10 +200,7 @@ public class AnalyzerUtil {
      * Get the file containing the definition of a symbol by fully qualified name.
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .map(analyzer::getFileFor)
-                .flatMap(f -> f);
+        return analyzer.getDefinitions(fqName).stream().findFirst().map(CodeUnit::source);
     }
 
     /**

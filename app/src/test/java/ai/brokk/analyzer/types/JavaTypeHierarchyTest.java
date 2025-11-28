@@ -21,9 +21,9 @@ public class JavaTypeHierarchyTest {
     public void directExtends_singleFile() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                public class BaseClass {}
-                class XExtendsY extends BaseClass {}
-                """,
+                                public class BaseClass {}
+                                class XExtendsY extends BaseClass {}
+                                """,
                         "BaseAndX.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -48,18 +48,18 @@ public class JavaTypeHierarchyTest {
             String txt = frag.text().join();
             assertCodeEquals(
                     """
-                    package (default package);
+                            package (default package);
 
-                    class XExtendsY extends BaseClass {
-                    }
+                            class XExtendsY extends BaseClass {
+                            }
 
-                    // Direct ancestors of XExtendsY: BaseClass
+                            // Direct ancestors of XExtendsY: BaseClass
 
-                    package (default package);
+                            package (default package);
 
-                    public class BaseClass {
-                    }
-                    """,
+                            public class BaseClass {
+                            }
+                            """,
                     txt);
         }
     }
@@ -68,9 +68,9 @@ public class JavaTypeHierarchyTest {
     public void implementsOnly_singleFile() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                interface ServiceInterface {}
-                class ServiceImpl implements ServiceInterface {}
-                """,
+                                interface ServiceInterface {}
+                                class ServiceImpl implements ServiceInterface {}
+                                """,
                         "Service.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -95,18 +95,18 @@ public class JavaTypeHierarchyTest {
             String txt = frag.text().join();
             assertCodeEquals(
                     """
-                    package (default package);
+                            package (default package);
 
-                    class ServiceImpl implements ServiceInterface {
-                    }
+                            class ServiceImpl implements ServiceInterface {
+                            }
 
-                    // Direct ancestors of ServiceImpl: ServiceInterface
+                            // Direct ancestors of ServiceImpl: ServiceInterface
 
-                    package (default package);
+                            package (default package);
 
-                    interface ServiceInterface {
-                    }
-                    """,
+                            interface ServiceInterface {
+                            }
+                            """,
                     txt);
         }
     }
@@ -115,11 +115,11 @@ public class JavaTypeHierarchyTest {
     public void extendsAndImplements_orderPreserved() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                class BaseClass {}
-                interface ServiceInterface {}
-                interface Interface {}
-                class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {}
-                """,
+                                class BaseClass {}
+                                interface ServiceInterface {}
+                                interface Interface {}
+                                class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {}
+                                """,
                         "AllInOne.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -151,24 +151,24 @@ public class JavaTypeHierarchyTest {
             String txt = frag.text().join();
             assertCodeEquals(
                     """
-                    package (default package);
+                            package (default package);
 
-                    class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
-                    }
+                            class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
+                            }
 
-                    // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
+                            // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
 
-                    package (default package);
+                            package (default package);
 
-                    class BaseClass {
-                    }
+                            class BaseClass {
+                            }
 
-                    interface ServiceInterface {
-                    }
+                            interface ServiceInterface {
+                            }
 
-                    interface Interface {
-                    }
-                    """,
+                            interface Interface {
+                            }
+                            """,
                     txt);
         }
     }
@@ -177,8 +177,9 @@ public class JavaTypeHierarchyTest {
     public void classWithNoAncestors_returnsEmpty() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
-                public class Plain {}
-                """, "Plain.java")
+                                public class Plain {}
+                                """,
+                        "Plain.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
@@ -195,11 +196,11 @@ public class JavaTypeHierarchyTest {
             String txt = frag.text().join();
             assertCodeEquals(
                     """
-                    package (default package);
+                            package (default package);
 
-                    public class Plain {
-                    }
-                    """,
+                            public class Plain {
+                            }
+                            """,
                     txt);
         }
     }
@@ -208,16 +209,18 @@ public class JavaTypeHierarchyTest {
     public void inheritanceAcrossFiles_transitive() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                public class Base {}
-                """, "Base.java");
+                        public class Base {}
+                        """, "Base.java");
         try (var testProject = builder.addFileContents(
                         """
-                class Child extends Base {}
-                """, "Child.java")
+                                class Child extends Base {}
+                                """,
+                        "Child.java")
                 .addFileContents(
                         """
-                class GrandChild extends Child {}
-                """, "GrandChild.java")
+                                class GrandChild extends Child {}
+                                """,
+                        "GrandChild.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
 
@@ -240,15 +243,16 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_directImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.A;
-                public class B extends A {}
-                """,
+                                package p2;
+                                import p1.A;
+                                public class B extends A {}
+                                """,
                         "B.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -272,15 +276,16 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_wildcardImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class C extends A {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class C extends A {}
+                                """,
                         "C.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -304,31 +309,32 @@ public class JavaTypeHierarchyTest {
     public void interPackageInheritance_mixed_directAndWildcard() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class A {}
-                """, "A.java");
+                        package p1;
+                        public class A {}
+                        """,
+                "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.A;
-                public class B extends A {}
-                """,
+                                package p2;
+                                import p1.A;
+                                public class B extends A {}
+                                """,
                         "B.java")
                 .addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class C extends A {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class C extends A {}
+                                """,
                         "C.java")
                 .addFileContents(
                         """
-                package p4;
-                import p2.B;
-                import p3.C;
-                public class D extends B {}
-                public class E extends C {}
-                """,
+                                package p4;
+                                import p2.B;
+                                import p3.C;
+                                public class D extends B {}
+                                public class E extends C {}
+                                """,
                         "D_E.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -383,15 +389,16 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_directImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I {}
-                """, "I.java");
+                        package p1;
+                        public interface I {}
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.I;
-                public class D implements I {}
-                """,
+                                package p2;
+                                import p1.I;
+                                public class D implements I {}
+                                """,
                         "D.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -411,15 +418,16 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_wildcardImport() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I {}
-                """, "I.java");
+                        package p1;
+                        public interface I {}
+                        """,
+                "I.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p3;
-                import p1.*;
-                public class E implements I {}
-                """,
+                                package p3;
+                                import p1.*;
+                                public class E implements I {}
+                                """,
                         "E.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -439,18 +447,18 @@ public class JavaTypeHierarchyTest {
     public void interPackageInterfaceImplementation_multipleInterfaces() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public interface I1 {}
-                public interface I2 {}
-                """,
+                        package p1;
+                        public interface I1 {}
+                        public interface I2 {}
+                        """,
                 "Interfaces.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.I1;
-                import p1.I2;
-                public class F implements I1, I2 {}
-                """,
+                                package p2;
+                                import p1.I1;
+                                import p1.I2;
+                                public class F implements I1, I2 {}
+                                """,
                         "F.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -473,17 +481,17 @@ public class JavaTypeHierarchyTest {
     public void interPackageExtendsAndImplements_crossPackage() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p1;
-                public class Base {}
-                public interface Service {}
-                """,
+                        package p1;
+                        public class Base {}
+                        public interface Service {}
+                        """,
                 "BaseAndService.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p2;
-                import p1.*;
-                public class Impl extends Base implements Service {}
-                """,
+                                package p2;
+                                import p1.*;
+                                public class Impl extends Base implements Service {}
+                                """,
                         "Impl.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -506,15 +514,15 @@ public class JavaTypeHierarchyTest {
     public void cyclicInterfaces_terminatesAndDeduplicates() throws IOException {
         var builder = InlineTestProjectCreator.code(
                 """
-                package p;
-                public interface A extends B {}
-                """,
+                        package p;
+                        public interface A extends B {}
+                        """,
                 "A.java");
         try (var testProject = builder.addFileContents(
                         """
-                package p;
-                public interface B extends A {}
-                """,
+                                package p;
+                                public interface B extends A {}
+                                """,
                         "B.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
@@ -546,6 +554,46 @@ public class JavaTypeHierarchyTest {
             List<String> bTransitive =
                     analyzer.getAncestors(b).stream().map(CodeUnit::fqName).collect(Collectors.toList());
             assertEquals(List.of("p.A"), bTransitive, "B's ancestors should contain A only once and terminate");
+        }
+    }
+
+    @Test
+    public void interPackageInheritance_explicitImportWinsOverWildcard() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+                        package p1; // correct superclass
+                        public class Base {}
+                        """,
+                "Base1.java");
+        try (var testProject = builder.addFileContents(
+                        """
+                                package p2; // incorrect superclass with same name
+                                public class Base {}
+                                """,
+                        "Base2.java")
+                .addFileContents(
+                        """
+                                package p3;
+                                import p1.Base; // explicit import of correct base
+                                import p2.*;    // wildcard that could import incorrect base
+
+                                public class Child extends Base {}
+                                """,
+                        "Child.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            var maybeChild = analyzer.getDefinitions("p3.Child").stream().findFirst();
+            assertTrue(maybeChild.isPresent(), "Definition for p3.Child should be present");
+            CodeUnit child = maybeChild.get();
+
+            List<String> direct = analyzer.getDirectAncestors(child).stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
+            assertEquals(
+                    List.of("p1.Base"),
+                    direct,
+                    "Child should extend p1.Base, chosen via explicit import over wildcard");
         }
     }
 }

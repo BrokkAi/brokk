@@ -123,11 +123,17 @@ public class BuildOutputPreprocessor {
             - 2-3 lines of context when helpful
             - Relevant stack trace snippets (not full traces)
 
+            WARNINGS AND ERRORS IN THE SAME FILE:
+            Include ALL errors AND warnings from the same file. Warnings often indicate
+            symptoms of an error elsewhere in the file, and developers need to see both
+            to understand the full picture.
+
             ERROR HANDLING RULES:
             - Include each error message verbatim
-            - When you see multiple errors in the same file with the same cause, give only the first
+            - Include ALL warnings from files that also have errors
+            - Only skip IDENTICAL duplicate messages (same file, line, and message)
             - IGNORE verbose progress messages, successful compilation output,
-              general startup/shutdown logs, and non-blocking warnings
+              general startup/shutdown logs
 
             Return the extracted errors in a clean, readable format.
             """

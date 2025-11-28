@@ -753,9 +753,9 @@ public class CodeAgent {
                 .filter(readOnlyPaths::contains)
                 .collect(Collectors.toSet());
         if (!violating.isEmpty()) {
-            var message = "Task aborted; agent attempted to modify read-only file(s):\n"
+            var message = "Agent attempted to modify read-only file(s):\n"
                     + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
-            io.toolError(message);
+            report("Read-only file constraint violation: " + String.join(", ", violating));
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
         }
 
@@ -1475,7 +1475,7 @@ public class CodeAgent {
     }
 
     @Blocking
-    private static Set<String> computeReadOnlyPaths(Context ctx) {
+    static Set<String> computeReadOnlyPaths(Context ctx) {
         // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
         // Our priority is:
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
@@ -1484,7 +1484,7 @@ public class CodeAgent {
 
         // If any fragments need to be computed, we'll wait a bit
         ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
-        var readonlyPaths = ctx.getReadonlyFragments()
+        var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());

@@ -4,6 +4,7 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -977,5 +978,310 @@ public final class PythonAnalyzerTest {
                 uniqueTopDecls.size(),
                 topDecls.size(),
                 "Top-level declaration FQNs should be unique after deduplication");
+    }
+
+    @Test
+    void testConditionalClassDefinitions() {
+        // Test how PythonAnalyzer handles conditional class definitions (like Reflex base.py pattern)
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile basePy = new ProjectFile(testProject.getRoot(), "conditional_pkg/base.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(basePy);
+
+        // Group by type
+        var classes = declarations.stream().filter(CodeUnit::isClass).toList();
+
+        // Verify classes inside if/else are captured
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base")),
+                "Base class inside 'if' should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base$Config")),
+                "Nested Config class should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.FallbackBase")),
+                "FallbackBase class inside 'else' should be captured");
+
+        // Test subclass resolution
+        ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
+        Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
+
+        var mySubclass = subclassDecls.stream()
+                .filter(cu -> cu.identifier().equals("MySubclass"))
+                .findFirst();
+        assertTrue(mySubclass.isPresent(), "MySubclass should be found");
+
+        // Check skeleton shows inheritance
+        var skeleton = testAnalyzer.getSkeleton(mySubclass.get());
+        assertTrue(skeleton.isPresent(), "MySubclass should have a skeleton");
+        assertTrue(skeleton.get().contains("(Base)"), "Skeleton should show Base inheritance");
+
+        // Check imports are captured
+        var fileProps = testAnalyzer.withFileProperties(fp -> fp.get(subclassPy));
+        assertFalse(fileProps.importStatements().isEmpty(), "Imports should be captured");
+        assertTrue(
+                fileProps.importStatements().stream()
+                        .anyMatch(imp -> imp.contains("from conditional_pkg.base import Base")),
+                "Should capture 'from conditional_pkg.base import Base'");
+
+        // Can we find Base from getAllDeclarations?
+        var allDecls = testAnalyzer.getAllDeclarations();
+        var baseClass = allDecls.stream()
+                .filter(cu -> cu.fqName().equals("conditional_pkg.Base"))
+                .findFirst();
+        assertTrue(baseClass.isPresent(), "conditional_pkg.Base should be findable in getAllDeclarations");
+
+        // Test: Can we find the parent class (Base) from MySubclass?
+        var ancestors = testAnalyzer.getDirectAncestors(mySubclass.get());
+
+        // Parent resolution should now work
+        assertEquals(1, ancestors.size(), "MySubclass should have exactly 1 direct ancestor (Base)");
+        assertTrue(
+                ancestors.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.Base")),
+                "MySubclass should have conditional_pkg.Base as ancestor");
+
+        testProject.close();
+    }
+
+    @Test
+    void testPythonTypeHierarchy() {
+        // Test parent class resolution for Python
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        // Test 1: Simple same-file inheritance
+        ProjectFile simplePy = new ProjectFile(testProject.getRoot(), "inheritance/simple.py");
+        Set<CodeUnit> simpleDecls = testAnalyzer.getDeclarations(simplePy);
+
+        // Find Dog class
+        var dogClass =
+                simpleDecls.stream().filter(cu -> cu.identifier().equals("Dog")).findFirst();
+        assertTrue(dogClass.isPresent(), "Dog class should be found");
+
+        // Find Animal class
+        var animalClass = simpleDecls.stream()
+                .filter(cu -> cu.identifier().equals("Animal"))
+                .findFirst();
+        assertTrue(animalClass.isPresent(), "Animal class should be found");
+
+        // Test getDirectAncestors for Dog
+        var dogAncestors = testAnalyzer.getDirectAncestors(dogClass.get());
+
+        // This should pass once implementation is complete
+        assertEquals(1, dogAncestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
+        assertTrue(
+                dogAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+                "Dog's ancestor should be Animal");
+
+        // Test Cat also extends Animal
+        var catClass =
+                simpleDecls.stream().filter(cu -> cu.identifier().equals("Cat")).findFirst();
+        assertTrue(catClass.isPresent(), "Cat class should be found");
+        var catAncestors = testAnalyzer.getDirectAncestors(catClass.get());
+        assertEquals(1, catAncestors.size(), "Cat should have exactly 1 direct ancestor (Animal)");
+
+        // Test 2: Multi-level inheritance
+        ProjectFile multilevelPy = new ProjectFile(testProject.getRoot(), "inheritance/multilevel.py");
+        Set<CodeUnit> multilevelDecls = testAnalyzer.getDeclarations(multilevelPy);
+
+        var childClass = multilevelDecls.stream()
+                .filter(cu -> cu.identifier().equals("Child"))
+                .findFirst();
+        assertTrue(childClass.isPresent(), "Child class should be found");
+
+        // Direct ancestors should only be Middle
+        var childDirectAncestors = testAnalyzer.getDirectAncestors(childClass.get());
+        assertEquals(1, childDirectAncestors.size(), "Child should have exactly 1 direct ancestor (Middle)");
+        assertTrue(
+                childDirectAncestors.stream().anyMatch(cu -> cu.identifier().equals("Middle")),
+                "Child's direct ancestor should be Middle");
+
+        // Transitive ancestors should include Middle and Base
+        var childAllAncestors = testAnalyzer.getAncestors(childClass.get());
+        assertEquals(2, childAllAncestors.size(), "Child should have 2 transitive ancestors (Middle, Base)");
+
+        // Test 3: Cross-file inheritance
+        ProjectFile childPy = new ProjectFile(testProject.getRoot(), "inheritance/child.py");
+        Set<CodeUnit> childFileDecls = testAnalyzer.getDeclarations(childPy);
+
+        var birdClass = childFileDecls.stream()
+                .filter(cu -> cu.identifier().equals("Bird"))
+                .findFirst();
+        assertTrue(birdClass.isPresent(), "Bird class should be found");
+
+        // Bird extends Animal from simple.py
+        var birdAncestors = testAnalyzer.getDirectAncestors(birdClass.get());
+        assertEquals(1, birdAncestors.size(), "Bird should have exactly 1 direct ancestor (Animal)");
+        assertTrue(
+                birdAncestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+                "Bird's ancestor should be Animal from simple.py");
+
+        // Test 4: Multiple inheritance
+        ProjectFile multiplePy = new ProjectFile(testProject.getRoot(), "inheritance/multiple.py");
+        Set<CodeUnit> multipleDecls = testAnalyzer.getDeclarations(multiplePy);
+
+        var duckClass = multipleDecls.stream()
+                .filter(cu -> cu.identifier().equals("Duck"))
+                .findFirst();
+        assertTrue(duckClass.isPresent(), "Duck class should be found");
+
+        // Duck extends both Flyable and Swimmable
+        var duckAncestors = testAnalyzer.getDirectAncestors(duckClass.get());
+        assertEquals(2, duckAncestors.size(), "Duck should have exactly 2 direct ancestors (Flyable, Swimmable)");
+        assertTrue(
+                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Flyable")),
+                "Duck's ancestors should include Flyable");
+        assertTrue(
+                duckAncestors.stream().anyMatch(cu -> cu.identifier().equals("Swimmable")),
+                "Duck's ancestors should include Swimmable");
+
+        testProject.close();
+    }
+
+    @Test
+    void testRelativeImportSameDirectory() throws Exception {
+        // Test: from .module import Class
+        // Child class in same directory as sibling
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents(
+                        """
+                class ChildClass:
+                    def child_method(self):
+                        pass
+                """,
+                        "mypackage/child.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                from .child import ChildClass
+
+                class SiblingClass:
+                    def __init__(self):
+                        self.child = ChildClass()
+                """,
+                        "mypackage/sibling.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var siblingFile =
+                    AnalyzerUtil.getFileFor(analyzer, "mypackage.SiblingClass").get();
+            var imports = analyzer.importedCodeUnitsOf(siblingFile);
+
+            // In Python, module names don't add FQN levels: package.Class, not package.module.Class
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.ChildClass")),
+                    "Should resolve 'from .child import ChildClass' to mypackage.ChildClass");
+        }
+    }
+
+    @Test
+    void testRelativeImportParentDirectory() throws Exception {
+        // Test: from ..module import Class
+        // Base class in parent directory
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
+                .addFileContents(
+                        """
+                class BaseClass:
+                    def base_method(self):
+                        pass
+                """,
+                        "mypackage/base.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                from ..base import BaseClass
+
+                class ChildClass(BaseClass):
+                    def child_method(self):
+                        pass
+                """,
+                        "mypackage/subdir/child.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var childFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.ChildClass")
+                    .get();
+            var imports = analyzer.importedCodeUnitsOf(childFile);
+
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.BaseClass")),
+                    "Should resolve 'from ..base import BaseClass' to mypackage.BaseClass");
+        }
+    }
+
+    @Test
+    void testRelativeImportGrandparentDirectory() throws Exception {
+        // Test: from ...module import Class (two levels up)
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "mypackage/__init__.py")
+                .addFileContents("# Subpackage marker\n", "mypackage/subdir/__init__.py")
+                .addFileContents("# Deep package marker\n", "mypackage/subdir/deep/__init__.py")
+                .addFileContents(
+                        """
+                class TopClass:
+                    def top_method(self):
+                        pass
+                """,
+                        "mypackage/top.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                from ...top import TopClass
+
+                class DeepClass(TopClass):
+                    def deep_method(self):
+                        pass
+                """,
+                        "mypackage/subdir/deep/nested.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var nestedFile = AnalyzerUtil.getFileFor(analyzer, "mypackage.subdir.deep.DeepClass")
+                    .get();
+            var imports = analyzer.importedCodeUnitsOf(nestedFile);
+
+            assertTrue(
+                    imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.TopClass")),
+                    "Should resolve 'from ...top import TopClass' to mypackage.TopClass");
+        }
+    }
+
+    @Test
+    void testRelativeImportInheritance() throws Exception {
+        // Test that classes using relative imports show proper inheritance
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "zoo/__init__.py")
+                .addFileContents("# Subpackage marker\n", "zoo/mammals/__init__.py")
+                .addFileContents(
+                        """
+                class Animal:
+                    def speak(self):
+                        pass
+                """,
+                        "zoo/animal.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                from ..animal import Animal
+
+                class Dog(Animal):
+                    def bark(self):
+                        return "woof"
+                """,
+                        "zoo/mammals/dog.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var dogFile = AnalyzerUtil.getFileFor(analyzer, "zoo.mammals.Dog").get();
+            var dogDecls = analyzer.getDeclarations(dogFile);
+
+            var dogClass = dogDecls.stream()
+                    .filter(cu -> cu.identifier().equals("Dog"))
+                    .findFirst();
+            assertTrue(dogClass.isPresent(), "Dog class should be found");
+
+            // Verify inheritance through relative import
+            var ancestors = analyzer.getDirectAncestors(dogClass.get());
+            assertEquals(1, ancestors.size(), "Dog should have exactly 1 direct ancestor (Animal)");
+            assertTrue(
+                    ancestors.stream().anyMatch(cu -> cu.identifier().equals("Animal")),
+                    "Dog should extend Animal via relative import");
+        }
     }
 }

@@ -5,6 +5,11 @@ import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,10 +19,14 @@ import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
+
+    // Import resolution using TreeSitter queries instead of regex
 
     @Override
     public Optional<String> extractClassName(String reference) {
@@ -239,11 +248,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return ""; // Python uses indentation, no explicit closer for classes/functions
     }
-
-    @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    /**
+     * Determines the package name for a Python file based on its directory structure
+     * and __init__.py markers.
+     *
+     * @param file The Python file
+     * @return The package name (dot-separated), or empty string if at root
+     */
+    private String getPackageNameForFile(ProjectFile file) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        // The definitionNode, rootNode, and src parameters are not used for Python package determination.
         var absPath = file.absPath();
         var projectRoot = getProject().getRoot();
         var parentDir = absPath.getParent();
@@ -282,6 +295,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         // Convert path separators to dots for package name
         return relPath.toString().replace('/', '.').replace('\\', '.');
+    }
+
+    @Override
+    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+        // Python's package naming is directory-based, relative to project root or __init__.py markers.
+        // The definitionNode, rootNode, and src parameters are not used for Python package determination.
+        return getPackageNameForFile(file);
     }
 
     @Override
@@ -383,5 +403,309 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isClassLike(TSNode node) {
         return super.isClassLike(node) || "function_definition".equals(node.getType());
+    }
+
+    @Override
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, String src) {
+        // Extract superclass names from Python class definition
+        // Pattern: class Child(Parent1, Parent2): ...
+        var query = getThreadLocalQuery();
+
+        // Ascend to root node for matching
+        TSNode root = classNode;
+        while (root.getParent() != null && !root.getParent().isNull()) {
+            root = root.getParent();
+        }
+
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, root);
+
+        var match = new TSQueryMatch();
+        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+
+        final int targetStart = classNode.getStartByte();
+        final int targetEnd = classNode.getEndByte();
+
+        while (cursor.nextMatch(match)) {
+            TSNode declNode = null;
+            List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+            for (var cap : match.getCaptures()) {
+                var capName = query.getCaptureNameForId(cap.getIndex());
+                var n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+
+                if ("type.decl".equals(capName)) {
+                    declNode = n;
+                } else if ("type.super".equals(capName)) {
+                    superCapturesThisMatch.add(n);
+                }
+            }
+
+            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                aggregateSuperNodes.addAll(superCapturesThisMatch);
+            }
+        }
+
+        // Sort by position to preserve source order
+        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+        for (var s : aggregateSuperNodes) {
+            var text = textSlice(s, src).strip();
+            if (!text.isEmpty()) {
+                supers.add(text);
+            }
+        }
+
+        // Deduplicate while preserving order
+        var unique = new LinkedHashSet<>(supers);
+        return List.copyOf(unique);
+    }
+
+    /**
+     * Resolves a relative import to an absolute package path.
+     *
+     * @param file The file containing the import
+     * @param relativeImportText The text of the relative_import node (e.g., ".sibling", "..parent", "...")
+     * @return The absolute package path, or empty if resolution fails
+     */
+    private Optional<String> resolveRelativeImport(ProjectFile file, String relativeImportText) {
+        // Count leading dots
+        int dotCount = 0;
+        while (dotCount < relativeImportText.length() && relativeImportText.charAt(dotCount) == '.') {
+            dotCount++;
+        }
+
+        // Get the module name after the dots (if any)
+        String relativeModule = relativeImportText.substring(dotCount);
+
+        // Get the current file's package
+        String currentPackage = getPackageNameForFile(file);
+
+        // Navigate up dotCount-1 levels (1 dot = current package, 2 dots = parent, etc.)
+        String[] packageParts = currentPackage.isEmpty() ? new String[0] : currentPackage.split("\\.");
+        int levelsUp = dotCount - 1;
+
+        if (levelsUp > packageParts.length) {
+            // Import goes above project root - invalid
+            log.warn("Relative import {} in {} goes above project root", relativeImportText, file.getRelPath());
+            return Optional.empty();
+        }
+
+        // Build target package
+        String[] targetParts = new String[packageParts.length - levelsUp];
+        System.arraycopy(packageParts, 0, targetParts, 0, targetParts.length);
+        String targetPackage = String.join(".", targetParts);
+
+        // Append the relative module name if present
+        if (!relativeModule.isEmpty()) {
+            if (!targetPackage.isEmpty()) {
+                targetPackage = targetPackage + "." + relativeModule;
+            } else {
+                targetPackage = relativeModule;
+            }
+        }
+
+        return Optional.of(targetPackage);
+    }
+
+    /**
+     * Resolves a module path to a ProjectFile, checking both module.py and package __init__.py.
+     *
+     * @param modulePath The dotted module path (e.g., "pkg.subpkg" or "module")
+     * @return The resolved ProjectFile, or null if neither exists
+     */
+    private @Nullable ProjectFile resolveModuleFile(String modulePath) {
+        var basePath = modulePath.replace('.', '/');
+
+        // Try module.py first
+        var moduleFilePath = basePath + ".py";
+        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+        if (Files.exists(moduleFile.absPath())) {
+            return moduleFile;
+        }
+
+        // Fall back to package __init__.py
+        var initFilePath = basePath + "/__init__.py";
+        var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
+        if (Files.exists(initFile.absPath())) {
+            return initFile;
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolves import statements into a set of {@link CodeUnit}s, matching Python's native import semantics.
+     * In Python, imports are executed in order and later imports override earlier ones with the same name.
+     * This means a wildcard import that comes after an explicit import will shadow the explicit import
+     * if both provide the same name.
+     * <p>
+     * Wildcard imports include public classes and functions (those without leading underscore).
+     */
+    @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        // Use a map to track resolved names - later imports overwrite earlier ones (Python semantics)
+        Map<String, CodeUnit> resolvedByName = new LinkedHashMap<>();
+
+        for (String importLine : importStatements) {
+            if (importLine.isBlank()) continue;
+
+            // Parse the import statement with TreeSitter
+            var parser = getTSParser();
+            var tree = parser.parseString(null, importLine);
+            var rootNode = tree.getRootNode();
+
+            var query = getThreadLocalQuery();
+            var cursor = new TSQueryCursor();
+            cursor.exec(query, rootNode);
+
+            var match = new TSQueryMatch();
+            String currentModule = null;
+            String wildcardModule = null;
+
+            // Collect all captures from this import statement
+            while (cursor.nextMatch(match)) {
+                for (var cap : match.getCaptures()) {
+                    var capName = query.getCaptureNameForId(cap.getIndex());
+                    var node = cap.getNode();
+                    if (node == null || node.isNull()) continue;
+
+                    var text = textSlice(node, importLine);
+
+                    switch (capName) {
+                        case IMPORT_MODULE -> currentModule = text;
+                        case IMPORT_RELATIVE -> {
+                            // Resolve relative import to absolute package path
+                            var absolutePath = resolveRelativeImport(file, text);
+                            currentModule = absolutePath.orElse(null);
+                        }
+                        case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
+                        case IMPORT_RELATIVE_WILDCARD -> {
+                            // Resolve relative wildcard import to absolute package path
+                            var absolutePath = resolveRelativeImport(file, text);
+                            wildcardModule = absolutePath.orElse(null);
+                        }
+                        case IMPORT_WILDCARD -> {
+                            // Wildcard import - expand and add all public symbols (may overwrite previous imports)
+                            if (wildcardModule != null && !wildcardModule.isEmpty()) {
+                                var moduleFile = resolveModuleFile(wildcardModule);
+                                if (moduleFile != null) {
+                                    try {
+                                        var decls = getDeclarations(moduleFile);
+                                        for (CodeUnit child : decls) {
+                                            // Import public classes and functions (no underscore prefix)
+                                            // TODO: Consider including public top-level constants (fields)
+                                            if ((child.isClass() || child.isFunction())
+                                                    && !child.identifier().startsWith("_")) {
+                                                resolvedByName.put(child.identifier(), child);
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        log.warn(
+                                                "Could not expand wildcard import from {}: {}",
+                                                wildcardModule,
+                                                e.getMessage());
+                                    }
+                                } else {
+                                    log.warn("Could not find module file for wildcard import: {}", wildcardModule);
+                                }
+                            }
+                        }
+                        case IMPORT_NAME -> {
+                            // For "from X import Y" style, we need the module
+                            if (currentModule != null) {
+                                // In Python, modules (files) don't add a level to class FQNs
+                                // "from package.module import Class" means:
+                                //   - Look for Class in file package/module.py or package/__init__.py
+                                //   - The FQN will be package.Class, not package.module.Class
+
+                                // Try to find the symbol in the module file
+                                var moduleFile = resolveModuleFile(currentModule);
+                                if (moduleFile != null) {
+                                    try {
+                                        var decls = getDeclarations(moduleFile);
+                                        decls.stream()
+                                                .filter(cu -> cu.identifier().equals(text)
+                                                        && (cu.isClass() || cu.isFunction()))
+                                                .findFirst()
+                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                                    } catch (Exception e) {
+                                        log.warn(
+                                                "Could not resolve import '{}' from module {}: {}",
+                                                text,
+                                                currentModule,
+                                                e.getMessage());
+                                    }
+                                } else {
+                                    log.debug("Could not find module file for import: {}", currentModule);
+                                }
+                            } else if (currentModule == null && wildcardModule == null) {
+                                // For "import X" style (no module context)
+                                var definitions = getDefinitions(text);
+                                definitions.stream()
+                                        .filter(cu -> cu.isClass() || cu.isFunction())
+                                        .findFirst()
+                                        .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                            }
+                        }
+                            // Note: IMPORT_ALIAS captures the alias name, but we don't need it
+                            // for resolution - we only care about the original name
+                    }
+                }
+            }
+        }
+
+        return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+    }
+
+    @Override
+    public List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        if (!cu.isClass()) return List.of();
+
+        // Get raw supertype names from CodeUnitProperties
+        var rawNames = withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).rawSupertypes());
+
+        if (rawNames.isEmpty()) {
+            return List.of();
+        }
+
+        // Get resolved imports for this file
+        Set<CodeUnit> resolvedImports = importedCodeUnitsOf(cu.source());
+
+        List<CodeUnit> result = new ArrayList<>();
+
+        for (String rawName : rawNames) {
+            // First try to find in imports
+            Optional<CodeUnit> fromImport = resolvedImports.stream()
+                    .filter(imp -> imp.identifier().equals(rawName))
+                    .findFirst();
+
+            if (fromImport.isPresent()) {
+                result.add(fromImport.get());
+                continue;
+            }
+
+            // Then try same package (same file or same directory)
+            String packageName = cu.packageName();
+            String fqnInPackage = packageName.isEmpty() ? rawName : packageName + "." + rawName;
+            var inPackageSet = getDefinitions(fqnInPackage);
+            var inPackage = inPackageSet.stream().filter(CodeUnit::isClass).findFirst();
+            if (inPackage.isPresent()) {
+                result.add(inPackage.get());
+                continue;
+            }
+
+            // Try global search
+            var searchResults = searchDefinitions(rawName, false);
+            Optional<CodeUnit> fromSearch =
+                    searchResults.stream().filter(CodeUnit::isClass).findFirst();
+            fromSearch.ifPresent(result::add);
+        }
+
+        return result;
     }
 }

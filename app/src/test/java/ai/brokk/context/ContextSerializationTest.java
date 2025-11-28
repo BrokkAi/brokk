@@ -1286,7 +1286,7 @@ public class ContextSerializationTest {
                 .map(f -> (ContextFragment.ProjectPathFragment) f)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(loadedCtx.isReadOnly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
+        assertTrue(loadedCtx.isMarkedReadonly(loadedPpf), "Loaded ProjectPathFragment should be read-only");
 
         var loadedCode = loadedCtx
                 .virtualFragments()
@@ -1294,7 +1294,7 @@ public class ContextSerializationTest {
                 .map(f -> (ContextFragment.CodeFragment) f)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(loadedCtx.isReadOnly(loadedCode), "Loaded CodeFragment should be read-only");
+        assertTrue(loadedCtx.isMarkedReadonly(loadedCode), "Loaded CodeFragment should be read-only");
     }
 
     // --- Integration tests for AiMessage reasoning content round-trips ---
@@ -1484,7 +1484,7 @@ public class ContextSerializationTest {
         // Since original readonly list was empty, and we only added ids (including non-editable), ProjectPath remains
         // not read-only
         assertFalse(
-                loadedLonger.getHistory().getFirst().isReadOnly(loadedPpf),
+                loadedLonger.getHistory().getFirst().isMarkedReadonly(loadedPpf),
                 "Editable fragment should remain not read-only when list contains unknown/non-editable ids only");
 
         // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
@@ -1518,7 +1518,7 @@ public class ContextSerializationTest {
                 .findFirst()
                 .orElseThrow();
         assertFalse(
-                loadedShorter.getHistory().getFirst().isReadOnly(loadedPpf2),
+                loadedShorter.getHistory().getFirst().isMarkedReadonly(loadedPpf2),
                 "Editable fragment should default to not read-only when id absent");
     }
 

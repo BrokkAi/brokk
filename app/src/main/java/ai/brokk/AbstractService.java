@@ -40,8 +40,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
-    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
-
     public static final String UNAVAILABLE = "AI is unavailable";
 
     // Model name constants
@@ -519,10 +517,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
-            return true;
-        }
-
-        if (GLOBAL_FORCE_TOOL_EMULATION) {
             return true;
         }
 

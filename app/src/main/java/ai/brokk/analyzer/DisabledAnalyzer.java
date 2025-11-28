@@ -88,4 +88,19 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Set<Language> languages() {
         return Set.of();
     }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return Optional.empty();
+    }
 }
