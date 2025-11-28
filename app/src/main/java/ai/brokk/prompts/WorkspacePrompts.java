@@ -58,7 +58,7 @@ public final class WorkspacePrompts {
         var buildFragment = ctx.getBuildFragment();
 
         var readOnlySection = readOnlyContents.isBlank()
-                ? "  <workspace_readonly>\n  </workspace_readonly>"
+                ? ""
                 : """
                   <workspace_readonly>
                   The following fragments MAY NOT BE EDITED:
@@ -83,6 +83,99 @@ public final class WorkspacePrompts {
         parts.add(readOnlySection);
         if (!editableSection.isBlank()) {
             parts.add(editableSection);
+        }
+        if (!buildStatusSection.isBlank()) {
+            parts.add(buildStatusSection);
+        }
+
+        return """
+               <workspace_toc>
+               %s
+               </workspace_toc>"""
+                .formatted(String.join("\n", parts));
+    }
+
+    /**
+     * CodeAgent-specific workspace table of contents.
+     *
+     * Organizes fragments into:
+     *   1. READ ONLY fragments
+     *   2. EDITABLE fragments that have NOT been changed in this task
+     *   3. EDITABLE fragments that HAVE been changed in this task
+     *   4. Build status (if present)
+     *
+     * All sections are wrapped in a single <workspace_toc> block, and empty sections are omitted.
+     */
+    public static String formatCodeToc(Context ctx, Set<ProjectFile> changedFiles) {
+        var readOnlyContents =
+                ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+
+        var editableFragments = ctx.getEditableFragments().toList();
+
+        List<ContextFragment> editableUnchanged;
+        List<ContextFragment> editableChanged;
+
+        if (changedFiles.isEmpty()) {
+            editableUnchanged = editableFragments;
+            editableChanged = List.of();
+        } else {
+            editableUnchanged = editableFragments.stream()
+                    .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
+                    .toList();
+            editableChanged = editableFragments.stream()
+                    .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
+                    .toList();
+        }
+
+        var editableUnchangedContents = editableUnchanged.stream()
+                .map(ContextFragment::formatToc)
+                .collect(Collectors.joining("\n"));
+        var editableChangedContents = editableChanged.stream()
+                .map(ContextFragment::formatToc)
+                .collect(Collectors.joining("\n"));
+
+        var buildFragment = ctx.getBuildFragment();
+
+        var readOnlySection = readOnlyContents.isBlank()
+                ? ""
+                : """
+                  <workspace_readonly>
+                  The following fragments MAY NOT BE EDITED:
+                  %s
+                  </workspace_readonly>"""
+                        .formatted(readOnlyContents);
+
+        var editableUnchangedSection = editableUnchangedContents.isBlank()
+                ? ""
+                : """
+                  <workspace_editable_unchanged>
+                  The following EDITABLE fragments have not been changed yet in this task:
+                  %s
+                  </workspace_editable_unchanged>"""
+                        .formatted(editableUnchangedContents);
+
+        var editableChangedSection = editableChangedContents.isBlank()
+                ? ""
+                : """
+                  <workspace_editable_changed>
+                  The following EDITABLE fragments have been changed so far in this task:
+                  %s
+                  </workspace_editable_changed>"""
+                        .formatted(editableChangedContents);
+
+        var buildStatusSection = buildFragment.isPresent()
+                ? "  <workspace_build_status>(failing)</workspace_build_status>"
+                : "";
+
+        var parts = new ArrayList<String>();
+        if (!readOnlySection.isBlank()) {
+            parts.add(readOnlySection);
+        }
+        if (!editableUnchangedSection.isBlank()) {
+            parts.add(editableUnchangedSection);
+        }
+        if (!editableChangedSection.isBlank()) {
+            parts.add(editableChangedSection);
         }
         if (!buildStatusSection.isBlank()) {
             parts.add(buildStatusSection);

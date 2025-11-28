@@ -17,6 +17,7 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -197,6 +198,17 @@ public class CodeAgent {
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
             }
+
+            // Before each LLM request, append a workspace TOC reminder to the current round's UserMessage.
+            var baseRequest =
+                    requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM");
+            var tocReminder = """
+            Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+            %s
+            """.formatted(WorkspacePrompts.formatCodeToc(context, es.changedFiles()));
+            var augmentedText = Messages.getText(baseRequest) + "\n\n" + tocReminder;
+            var augmentedRequest = new UserMessage(augmentedText);
+            cs = new ConversationState(cs.taskMessages(), augmentedRequest, cs.turnStartIndex());
 
             // Make the LLM request
             StreamingResult streamingResult;
