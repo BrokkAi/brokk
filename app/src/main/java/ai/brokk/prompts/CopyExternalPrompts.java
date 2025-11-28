@@ -25,7 +25,7 @@ public abstract class CopyExternalPrompts extends CodePrompts {
         var messages = new ArrayList<ChatMessage>();
         messages.addAll(cm.getHistoryMessagesForCopy());
         Context ctx = cm.liveContext();
-        messages.addAll(WorkspacePrompts.getWorkspaceMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.COPY)));
+        messages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(ctx, new ViewingPolicy(TaskResult.Type.COPY)));
         return messages;
     }
 
