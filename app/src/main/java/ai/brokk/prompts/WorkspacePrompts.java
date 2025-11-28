@@ -110,8 +110,6 @@ public final class WorkspacePrompts {
         CODE_READONLY_PLUS_UNTOUCHED,
         // Editable fragments that have been changed in the current task + build status
         EDITABLE_CHANGED,
-        // All editable fragments (used by callers that want "all editable" content)
-        EDITABLE_ALL,
         // Generic combined workspace: readonly + editable(all) + build status (wrapped in <workspace>)
         GROUPED_BY_MUTABILITY,
         // All fragments in the added order (ctx.allFragments()), wrapped in <workspace>
@@ -149,7 +147,6 @@ public final class WorkspacePrompts {
         return switch (view) {
             case CODE_READONLY_PLUS_UNTOUCHED -> buildReadOnlyPlusUntouched();
             case EDITABLE_CHANGED -> buildEditableChanged();
-            case EDITABLE_ALL -> buildEditableAll();
             case GROUPED_BY_MUTABILITY -> buildContents();
             case IN_ADDED_ORDER -> buildInAddedOrder();
         };
