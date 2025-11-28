@@ -1483,7 +1483,11 @@ public class CodeAgent {
         // 3. Files referred to by other read-only Fragments should be in our Set.
 
         // If any fragments need to be computed, we'll wait a bit
-        ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())

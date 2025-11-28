@@ -889,7 +889,7 @@ class CodeAgentTest {
 
     // RO-1: Guardrail - edits to read-only files are blocked with clear error
     @Test
-    void testRunTask_blocksEditsToReadOnlyFile() throws IOException {
+    void testRunTask_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
         // Arrange: create a file and mark it as read-only in the workspace context
         var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
@@ -941,7 +941,7 @@ class CodeAgentTest {
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
     @Test
-    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException {
+    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
         // Arrange: create a file and add it as both an editable ProjectPathFragment
         // and a read-only virtual fragment (simulating a Code or Usage reference)
         var file = cm.toFile("file.txt");
@@ -1072,7 +1072,7 @@ class CodeAgentTest {
 
         var summarySummaryOnly = new ContextFragment.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        assertFalse(summarySummaryOnly.files().isEmpty());
+        assertFalse(summarySummaryOnly.files().join().isEmpty());
         var summaryPpfAndSummaryEditable = new ContextFragment.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var summaryPpfReadonly = new ContextFragment.SummaryFragment(
@@ -1107,8 +1107,8 @@ class CodeAgentTest {
 
         // Compose a single Context with all of these fragments
         var ctx = new Context(cm, null)
-                .addPathFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
-                .addVirtualFragments(List.of(
+                .addFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
+                .addFragments(List.of(
                         summarySummaryOnly,
                         summaryPpfAndSummaryEditable,
                         summaryPpfReadonly,
@@ -1161,7 +1161,7 @@ class CodeAgentTest {
         ctx = ctx.removeFragments(Set.of(summaryPpfAndSummaryEditable));
         var summaryFilePpfAndSummaryEditable = new ContextFragment.SummaryFragment(
                 cm, ppfAndSummaryEditablePpf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-        ctx = ctx.addVirtualFragment(summaryFilePpfAndSummaryEditable);
+        ctx = ctx.addFragments(summaryFilePpfAndSummaryEditable);
         readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
         assertFalse(
                 readOnlyPaths.contains(ppfAndSummaryEditablePpf.toString()),

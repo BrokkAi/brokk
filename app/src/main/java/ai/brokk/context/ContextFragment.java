@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
@@ -428,6 +429,23 @@ public interface ContextFragment {
             this.snapshotCv = initialSnapshot != null
                     ? ComputedValue.completed("snap-" + id, initialSnapshot)
                     : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor(), false);
+        }
+
+        public void await(Duration timeout) throws InterruptedException {
+            // Include the snapshot future plus all derived ComputedValues
+            List<CompletableFuture<?>> futures = new ArrayList<>();
+            futures.add(snapshotCv.future());
+            derivedCvs.values().forEach(cv -> futures.add(cv.future()));
+
+            try {
+                CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                        .get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException te) {
+                logger.warn("Timeout while awaiting fragment {} completion (timeout={})", id, timeout);
+            } catch (ExecutionException ee) {
+                // Underlying computation failed; surface as a warning here.
+                logger.warn("Error while awaiting fragment {} completion", id, ee.getCause());
+            }
         }
 
         @Override

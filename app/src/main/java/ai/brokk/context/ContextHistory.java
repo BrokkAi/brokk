@@ -508,7 +508,11 @@ public class ContextHistory {
         }
 
         // Phase 0: best-effort pre-warm; runs off-EDT in undo/redo flows
-        snapshot.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            snapshot.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
 
         // Phase 1: materialize all desired contents from the snapshot with bounded waits
         var desiredContents = new LinkedHashMap<ProjectFile, String>();

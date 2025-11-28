@@ -1165,7 +1165,11 @@ public class SearchAgent {
     @Blocking
     private Set<ProjectFile> getWorkspaceFileSet() {
         // Allow time to compute
-        context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
@@ -1179,7 +1183,11 @@ public class SearchAgent {
     @Blocking
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         // Allow time to compute
-        context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(

@@ -722,7 +722,11 @@ public class MergeAgent {
         var top = cm.liveContext();
         var conflictFiles = allConflictFilesInWorkspace();
         // Give fragments time to compute if necessary
-        top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         var existingEditableFiles = top.fileFragments()
                 .filter(cf -> cf.getType().isEditable())
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())

@@ -94,7 +94,7 @@ class HistoryV4MigrationTest {
 
     @ParameterizedTest
     @MethodSource("v3ZipProvider")
-    void testMigrateV3Zip(String zipFileName) throws IOException {
+    void testMigrateV3Zip(String zipFileName) throws IOException, InterruptedException {
         var resourcePath = "/context-fragments/generated-v3-zips-for-migration/" + zipFileName;
         Path tempZip = tempDir.resolve(zipFileName);
 

@@ -44,7 +44,6 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 /**
  * Encapsulates all state that will be sent to the model (prompts, filename context, conversation history).
@@ -811,8 +810,7 @@ public class Context {
         return getSpecial(SpecialTextType.DISCARDED_CONTEXT.description())
                 .map(sf -> {
                     try {
-                        Map<String, Object> raw =
-                                Json.fromJson(sf.text().join(), new TypeReference<Map<String, Object>>() {});
+                        Map<String, Object> raw = Json.fromJson(sf.text().join(), new TypeReference<>() {});
                         return raw.entrySet().stream()
                                 .collect(Collectors.toMap(
                                         Map.Entry::getKey,
@@ -832,7 +830,7 @@ public class Context {
     public Optional<ContextFragment.StringFragment> getSpecial(String description) {
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return virtualFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment sf
+                .filter(f -> f instanceof ContextFragment.AbstractStaticFragment sf
                         && description.equals(sf.description().renderNowOrNull()))
                 .map(ContextFragment.StringFragment.class::cast)
                 .findFirst();
@@ -844,8 +842,8 @@ public class Context {
 
         var idsToDrop = type.singleton()
                 ? virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.StringFragment sf
-                                && desc.equals(sf.description().join()))
+                        .filter(f -> f instanceof ContextFragment.AbstractStaticFragment sf
+                                && desc.equals(sf.description().renderNowOrNull()))
                         .map(ContextFragment::id)
                         .toList()
                 : List.<String>of();
@@ -873,8 +871,8 @@ public class Context {
     @Blocking
     public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
         var current = getSpecial(type.description())
-                .map(ContextFragment.StringFragment::text)
-                .map(ComputedValue::join)
+                .map(ContextFragment.AbstractStaticFragment::text)
+                .map(cv -> cv.renderNowOr(""))
                 .orElse("");
         var updated = updater.apply(current);
         return putSpecial(type, updated);
@@ -1096,8 +1094,8 @@ public class Context {
     @Blocking
     public String getBuildError() {
         return getBuildFragment()
-                .map(ContextFragment::text)
-                .map(ComputedValue::join)
+                .map(ContextFragment.AbstractStaticFragment::text)
+                .map(cv -> cv.renderNowOr(""))
                 .orElse("");
     }
 
@@ -1117,8 +1115,8 @@ public class Context {
         var fragmentsToDrop = virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
                         || (f.getType() == ContextFragment.FragmentType.STRING
-                                && f instanceof ContextFragment.StringFragment sf
-                                && desc.equals(sf.description().join())))
+                                && f instanceof ContextFragment.AbstractStaticFragment sf
+                                && desc.equals(sf.description().renderNowOrNull())))
                 .toList();
 
         var afterClear = fragmentsToDrop.isEmpty() ? this : removeFragments(fragmentsToDrop);
@@ -1287,11 +1285,10 @@ public class Context {
      * Best-effort snapshot seeding to ensure context contents are materialized.
      */
     @Blocking
-    @TestOnly
-    public void awaitContextsAreComputed(Duration timeout) {
+    public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
         for (var fragment : this.allFragments().toList()) {
             if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
-                cf.snapshot().await(timeout);
+                cf.await(timeout);
             }
         }
     }

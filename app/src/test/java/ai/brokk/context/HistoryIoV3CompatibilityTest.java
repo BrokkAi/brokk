@@ -41,7 +41,7 @@ class HistoryIoV3CompatibilityTest {
     }
 
     @Test
-    void testBasicSessionCompatibility() throws IOException, URISyntaxException {
+    void testBasicSessionCompatibility() throws IOException, URISyntaxException, InterruptedException {
         Path zipPath = stageBasicSessionZip();
 
         ContextHistory history = HistoryIo.readZip(zipPath, mockContextManager);
@@ -131,7 +131,7 @@ class HistoryIoV3CompatibilityTest {
     }
 
     @Test
-    void testPathFragmentWithoutType_Compatibility() throws IOException, URISyntaxException {
+    void testPathFragmentWithoutType_Compatibility() throws IOException, URISyntaxException, InterruptedException {
         // Stage the minimal path-fragment V3 session that omits "type" on files within FrozenFragmentDto
         var resourceUri = requireNonNull(
                         HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-path-frag-without-type"))
