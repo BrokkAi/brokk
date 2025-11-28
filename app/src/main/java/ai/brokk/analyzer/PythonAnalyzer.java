@@ -106,6 +106,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
+        // Parse classChain once - centralizes scope detection logic
+        var parser = new ClassChainParser(classChain);
+
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
@@ -119,36 +122,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 // shortName = "module$Class" or "module$Outer$Inner" or "module.func$LocalClass"
                 String finalShortName;
 
-                if (classChain.isEmpty()) {
+                if (parser.isEmpty()) {
                     // Top-level class: "module$ClassName"
                     finalShortName = moduleName + "$" + simpleName;
-                } else {
-                    String firstSegment = classChain.contains(".")
-                            ? classChain.substring(0, classChain.indexOf('.'))
-                            : (classChain.contains("$")
-                                    ? classChain.substring(0, classChain.indexOf('$'))
-                                    : classChain);
-
-                    if (isLowercaseIdentifier(firstSegment)) {
-                        // Function-local class: "module.func$LocalClass" or "module.func$Outer$Inner"
-                        int firstDot = classChain.indexOf('.');
-                        if (firstDot == -1 && !classChain.contains("$")) {
-                            // Just "func" - direct child of function
-                            finalShortName = moduleName + "." + classChain + "$" + simpleName;
-                        } else {
-                            // "func.Outer" or "func$Outer" -> "module.func$Outer$simpleName"
-                            String funcPart = firstSegment;
-                            String rest = classChain.substring(firstSegment.length());
-                            if (rest.startsWith(".")) rest = rest.substring(1);
-                            if (rest.startsWith("$")) rest = rest.substring(1);
-                            String classPart = rest.isEmpty() ? "" : rest.replace(".", "$") + "$";
-                            finalShortName = moduleName + "." + funcPart + "$" + classPart + simpleName;
-                        }
+                } else if (parser.isFunctionScope) {
+                    // Function-local class: "module.func$LocalClass" or "module.func$Outer$Inner"
+                    if (parser.rest.isEmpty()) {
+                        // Just "func" - direct child of function
+                        finalShortName = moduleName + "." + parser.firstSegment + "$" + simpleName;
                     } else {
-                        // Class-nested: "module$Outer$Inner"
-                        String normalizedChain = classChain.replace(".", "$");
-                        finalShortName = moduleName + "$" + normalizedChain + "$" + simpleName;
+                        // "func.Outer" or "func$Outer" -> "module.func$Outer$simpleName"
+                        String classPart = parser.normalizedRest() + "$";
+                        finalShortName = moduleName + "." + parser.firstSegment + "$" + classPart + simpleName;
                     }
+                } else {
+                    // Class-nested: "module$Outer$Inner"
+                    finalShortName = moduleName + "$" + parser.normalizedChain() + "$" + simpleName;
                 }
 
                 yield CodeUnit.cls(file, effectivePackageName, finalShortName);
@@ -157,33 +146,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 // Functions use . throughout: "module.func" or "module$Class.method"
                 String finalShortName;
 
-                if (classChain.isEmpty()) {
+                if (parser.isEmpty()) {
                     // Top-level function: "module.func"
                     finalShortName = moduleName + "." + simpleName;
-                } else {
-                    String firstSegment = classChain.contains(".")
-                            ? classChain.substring(0, classChain.indexOf('.'))
-                            : (classChain.contains("$")
-                                    ? classChain.substring(0, classChain.indexOf('$'))
-                                    : classChain);
-
-                    if (isLowercaseIdentifier(firstSegment)) {
-                        // Nested function or method in function-local class
-                        int firstDot = classChain.indexOf('.');
-                        int firstDollar = classChain.indexOf('$');
-                        if (firstDot == -1 && firstDollar == -1) {
-                            // Nested function inside function: "module.outer.inner"
-                            finalShortName = moduleName + "." + classChain + "." + simpleName;
-                        } else {
-                            // Method in function-local class: "module.func$Class.method"
-                            String normalizedChain = classChain.replace(".", "$");
-                            finalShortName = moduleName + "." + normalizedChain + "." + simpleName;
-                        }
+                } else if (parser.isFunctionScope) {
+                    // Nested function or method in function-local class
+                    if (parser.rest.isEmpty()) {
+                        // Nested function inside function: "module.outer.inner"
+                        finalShortName = moduleName + "." + classChain + "." + simpleName;
                     } else {
-                        // Method in regular class: "module$Class.method" or "module$Outer$Inner.method"
-                        String normalizedChain = classChain.replace(".", "$");
-                        finalShortName = moduleName + "$" + normalizedChain + "." + simpleName;
+                        // Method in function-local class: "module.func$Class.method"
+                        finalShortName = moduleName + "." + parser.normalizedChain() + "." + simpleName;
                     }
+                } else {
+                    // Method in regular class: "module$Class.method" or "module$Outer$Inner.method"
+                    finalShortName = moduleName + "$" + parser.normalizedChain() + "." + simpleName;
                 }
 
                 yield CodeUnit.fn(file, effectivePackageName, finalShortName);
@@ -192,32 +169,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 // Fields use . for member access: "module.var" or "module$Class.field"
                 String finalShortName;
 
-                if (classChain.isEmpty()) {
+                if (parser.isEmpty()) {
                     // Top-level variable: "module.varName"
                     finalShortName = moduleName + "." + simpleName;
-                } else {
-                    String firstSegment = classChain.contains(".")
-                            ? classChain.substring(0, classChain.indexOf('.'))
-                            : (classChain.contains("$")
-                                    ? classChain.substring(0, classChain.indexOf('$'))
-                                    : classChain);
-
-                    if (isLowercaseIdentifier(firstSegment)) {
-                        // Field in function-local class: "module.func$Class.field"
-                        int firstDot = classChain.indexOf('.');
-                        int firstDollar = classChain.indexOf('$');
-                        if (firstDot == -1 && firstDollar == -1) {
-                            // Variable in function scope (unusual): "module.func.var"
-                            finalShortName = moduleName + "." + classChain + "." + simpleName;
-                        } else {
-                            String normalizedChain = classChain.replace(".", "$");
-                            finalShortName = moduleName + "." + normalizedChain + "." + simpleName;
-                        }
+                } else if (parser.isFunctionScope) {
+                    // Field in function-local class: "module.func$Class.field"
+                    if (parser.rest.isEmpty()) {
+                        // Variable in function scope (unusual): "module.func.var"
+                        finalShortName = moduleName + "." + classChain + "." + simpleName;
                     } else {
-                        // Field in regular class: "module$Class.field"
-                        String normalizedChain = classChain.replace(".", "$");
-                        finalShortName = moduleName + "$" + normalizedChain + "." + simpleName;
+                        finalShortName = moduleName + "." + parser.normalizedChain() + "." + simpleName;
                     }
+                } else {
+                    // Field in regular class: "module$Class.field"
+                    finalShortName = moduleName + "$" + parser.normalizedChain() + "." + simpleName;
                 }
 
                 yield CodeUnit.field(file, effectivePackageName, finalShortName);
@@ -431,15 +396,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        // Determine the first segment to know if we're in function or class scope
-        int firstDot = classChain.indexOf('.');
-        String firstSegment = (firstDot == -1) ? classChain : classChain.substring(0, firstDot);
-
+        // Use ClassChainParser - same logic as createCodeUnit for consistent FQN construction
+        var parser = new ClassChainParser(classChain);
         String base = packageName.isEmpty() ? moduleName : packageName + "." + moduleName;
 
-        if (isLowercaseIdentifier(firstSegment)) {
+        if (parser.isFunctionScope) {
             // Function scope: module.func or module.func$Class
-            if (firstDot == -1) {
+            if (parser.rest.isEmpty()) {
                 // Just function: parent fqName = pkg.module.func
                 String parentFqn = base + "." + classChain;
                 log.trace(
@@ -451,27 +414,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             } else {
                 // Function + classes: convert class parts to $
                 // classChain = "func.Class" -> parent = pkg.module.func$Class
-                String funcPart = firstSegment;
-                String classPart = classChain.substring(firstDot + 1).replace(".", "$");
-                String parentFqn = base + "." + funcPart + "$" + classPart;
+                String parentFqn = base + "." + parser.firstSegment + "$" + parser.normalizedRest();
                 log.trace(
-                        "Python parent lookup: classChain='{}', base='{}', funcPart='{}', classPart='{}', returning '{}'",
+                        "Python parent lookup: classChain='{}', base='{}', firstSegment='{}', rest='{}', returning '{}'",
                         classChain,
                         base,
-                        funcPart,
-                        classPart,
+                        parser.firstSegment,
+                        parser.rest,
                         parentFqn);
                 return parentFqn;
             }
         } else {
             // Class scope: module$Class or module$Outer$Inner
-            String classPath = classChain.replace(".", "$");
-            String parentFqn = base + "$" + classPath;
+            String parentFqn = base + "$" + parser.normalizedChain();
             log.trace(
-                    "Python parent lookup: classChain='{}', base='{}', classPath='{}', returning '{}' (class parent)",
+                    "Python parent lookup: classChain='{}', base='{}', normalizedChain='{}', returning '{}' (class parent)",
                     classChain,
                     base,
-                    classPath,
+                    parser.normalizedChain(),
                     parentFqn);
             return parentFqn;
         }
@@ -506,6 +466,54 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
         // All underscores (like "____") or empty - treat as function-like
         return true;
+    }
+
+    /**
+     * Parses a classChain string to extract scope information.
+     * Centralizes the logic for determining function vs class scope and extracting segments.
+     */
+    private static class ClassChainParser {
+        final String classChain;
+        final String firstSegment;
+        final String rest;
+        final boolean isFunctionScope;
+
+        ClassChainParser(String classChain) {
+            this.classChain = classChain;
+
+            // Find first boundary (. or $)
+            int firstDot = classChain.indexOf('.');
+            int firstDollar = classChain.indexOf('$');
+            int boundary = minPositive(firstDot, firstDollar);
+
+            if (boundary == -1) {
+                this.firstSegment = classChain;
+                this.rest = "";
+            } else {
+                this.firstSegment = classChain.substring(0, boundary);
+                this.rest = classChain.substring(boundary + 1);
+            }
+
+            this.isFunctionScope = !firstSegment.isEmpty() && isLowercaseIdentifier(firstSegment);
+        }
+
+        boolean isEmpty() {
+            return classChain.isEmpty() || classChain.isBlank();
+        }
+
+        String normalizedRest() {
+            return rest.replace(".", "$");
+        }
+
+        String normalizedChain() {
+            return classChain.replace(".", "$");
+        }
+
+        private static int minPositive(int a, int b) {
+            if (a == -1) return b;
+            if (b == -1) return a;
+            return Math.min(a, b);
+        }
     }
 
     /**
