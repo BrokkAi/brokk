@@ -82,4 +82,20 @@ public sealed interface BrokkEvent {
             return epoch;
         }
     }
+
+    /**
+     * Delivers a compressed summary for the live thread.
+     * Used when the AI produces a summary for the current live task.
+     */
+    record LiveSummary(int epoch, int threadId, boolean compressed, String summary) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "live-summary";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
 }
