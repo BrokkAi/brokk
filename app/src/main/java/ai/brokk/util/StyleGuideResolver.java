@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import ai.brokk.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -196,7 +198,13 @@ public final class StyleGuideResolver {
      * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    public static String resolve(List<ProjectFile> files) {
+    static String resolve(List<ProjectFile> files) {
         return new StyleGuideResolver(files).resolveCompositeGuide();
+    }
+
+    public static String resolve(Context ctx) {
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+        return resolve(projectFiles);
     }
 }

@@ -141,7 +141,18 @@ public abstract class CodePrompts {
 
     public String codeReminder(AbstractService service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-        return baseReminder + "\n" + MARKDOWN_REMINDER;
+        return """
+                %s
+                %s
+                
+                <flow>
+                Your conversation with the User will be structured as follows:
+                1. Unchanged Workspace contents
+                2. Your conversation history
+                3. The current version of any files changed during the session
+                4. The User's instructions for the current turn
+                </flow>
+                """.formatted(baseReminder, MARKDOWN_REMINDER);
     }
 
     public String architectReminder() {
@@ -286,15 +297,7 @@ public abstract class CodePrompts {
     }
 
     protected SystemMessage systemMessage(Context ctx, String reminder) {
-        var workspaceSummary = WorkspacePrompts.formatGroupedToc(ctx);
-
-        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
-
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
-        // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
+        var resolvedGuide = StyleGuideResolver.resolve(ctx);
         var styleGuide = resolvedGuide.isBlank() ? ctx.getContextManager().getProject().getStyleGuide() : resolvedGuide;
 
         var text =
@@ -302,14 +305,11 @@ public abstract class CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), styleGuide)
                         .trim();
 
         return new SystemMessage(text);
