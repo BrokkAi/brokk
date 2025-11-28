@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import ai.brokk.TaskResult;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.LinkedHashMap;
@@ -31,7 +32,7 @@ public final class SpecialTextType {
     private final boolean droppable;
     private final boolean singleton;
     private final Function<String, String> previewRenderer;
-    private final Predicate<ViewingPolicy> canViewContent;
+    private final Predicate<WorkspacePrompts.ViewingPolicy> canViewContent;
 
     private SpecialTextType(
             String description,
@@ -40,7 +41,7 @@ public final class SpecialTextType {
             boolean droppable,
             boolean singleton,
             Function<String, String> previewRenderer,
-            Predicate<ViewingPolicy> canViewContent) {
+            Predicate<WorkspacePrompts.ViewingPolicy> canViewContent) {
         this.description = description;
         this.syntaxStyle = syntaxStyle;
         this.previewSyntaxStyle = previewSyntaxStyle;
@@ -132,7 +133,7 @@ public final class SpecialTextType {
         return previewRenderer;
     }
 
-    public Predicate<ViewingPolicy> canViewContent() {
+    public Predicate<WorkspacePrompts.ViewingPolicy> canViewContent() {
         return canViewContent;
     }
 
