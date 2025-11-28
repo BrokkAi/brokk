@@ -488,6 +488,12 @@ public class SearchAgent {
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
 
+        // Dynamically inform the model about non-droppable fragments to avoid futile pruning attempts
+        var nonDroppableMsg = buildNonDroppableSystemMessage();
+        if (nonDroppableMsg != null) {
+            messages.add(nonDroppableMsg);
+        }
+
         // Related identifiers from nearby files
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
@@ -675,7 +681,9 @@ public class SearchAgent {
         // FIXME re-enable when context freezing is solved
         //        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
-        names.add("dropWorkspaceFragments");
+        if (hasDroppableFragments()) {
+            names.add("dropWorkspaceFragments");
+        }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
         if (io instanceof Chrome) {
@@ -793,7 +801,12 @@ public class SearchAgent {
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         var messages = buildInitialPruningPrompt();
-        var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
+        var toolNames = new ArrayList<String>();
+        toolNames.add("performedInitialReview");
+        if (hasDroppableFragments()) {
+            toolNames.add("dropWorkspaceFragments");
+        }
+        var toolSpecs = tr.getTools(toolNames);
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
         var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
@@ -833,6 +846,12 @@ public class SearchAgent {
         // Current Workspace contents (use default viewing policy)
         messages.addAll(
                 CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
+
+        // Dynamically inform the janitor about non-droppable fragments
+        var nonDroppableMsg = buildNonDroppableSystemMessage();
+        if (nonDroppableMsg != null) {
+            messages.add(nonDroppableMsg);
+        }
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -1235,6 +1254,56 @@ public class SearchAgent {
                                 .sorted()
                                 .toList()))
                 .toList();
+    }
+
+    // =======================
+    // Non-droppable helpers
+    // =======================
+
+    /**
+     * Returns a SystemMessage listing non-droppable fragments present in the current workspace,
+     * or null when no such fragments exist. This educates the LLM to avoid futile pruning loops.
+     */
+    private @Nullable SystemMessage buildNonDroppableSystemMessage() {
+        var items = context.allFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(sf ->
+                        sf.specialType().isPresent() && !sf.specialType().get().droppable())
+                .map(sf -> "- " + sf.description() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
+                .sorted()
+                .toList();
+
+        if (items.isEmpty()) {
+            return null;
+        }
+
+        String body =
+                """
+                <non_droppable>
+                The following fragments cannot be dropped by policy. Do NOT attempt to drop them:
+                %s
+                </non_droppable>
+                """
+                        .formatted(String.join("\n", items));
+        return new SystemMessage(body);
+    }
+
+    /**
+     * True when there exists at least one droppable fragment in the current workspace.
+     * Special text fragments may be marked non-droppable via SpecialTextType.
+     */
+    private boolean hasDroppableFragments() {
+        return context.allFragments().anyMatch(f -> {
+            if (f instanceof ContextFragment.StringFragment sf) {
+                var st = sf.specialType();
+                if (st.isPresent()) {
+                    return st.get().droppable();
+                }
+            }
+            // All other fragment types are considered droppable by default
+            return true;
+        });
     }
 
     // =======================
