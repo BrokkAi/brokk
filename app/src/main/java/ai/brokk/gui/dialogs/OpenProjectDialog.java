@@ -3,6 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.Brokk;
 import ai.brokk.BuildInfo;
 import ai.brokk.GitHubAuth;
+import ai.brokk.git.CancellableProgressMonitor;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -78,6 +79,9 @@ public class OpenProjectDialog extends JDialog {
 
     @Nullable
     private volatile Path cloneTargetDirectory;
+
+    @Nullable
+    private CancellableProgressMonitor cloneProgressMonitor;
 
     private volatile boolean cloneCancelled;
 
@@ -225,6 +229,12 @@ public class OpenProjectDialog extends JDialog {
         if (cloneTaskFuture != null && !cloneTaskFuture.isDone()) {
             // Set flag - cleanup will happen in done() after JGit finishes
             cloneCancelled = true;
+
+            // Cancel JGit operation via progress monitor
+            if (cloneProgressMonitor != null) {
+                cloneProgressMonitor.cancel();
+            }
+
             cloneTaskFuture.cancel(true);
 
             // Update UI immediately
@@ -711,16 +721,20 @@ public class OpenProjectDialog extends JDialog {
         // Store target directory for cleanup on cancel
         cloneTargetDirectory = directory;
         cloneCancelled = false;
+        cloneProgressMonitor = new CancellableProgressMonitor();
 
         // Update status and show progress panel
         cloneStatusLabel.setText("Cloning " + normalizedUrl + "...");
         setCloneInProgress(true);
 
+        // Capture monitor for use in worker
+        final var monitor = cloneProgressMonitor;
+
         // Start background clone
         var worker = new SwingWorker<Path, Void>() {
             @Override
             protected Path doInBackground() throws Exception {
-                GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
+                GitRepoFactory.cloneRepo(normalizedUrl, directory, shallow ? depth : 0, monitor);
                 return directory;
             }
 
@@ -730,6 +744,7 @@ public class OpenProjectDialog extends JDialog {
                 cloneTargetDirectory = null;
                 cloneTaskFuture = null;
                 cloneCancelled = false;
+                cloneProgressMonitor = null;
 
                 // Cleanup partial clone directory
                 Runnable cleanup = () -> {
