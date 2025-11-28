@@ -10,9 +10,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
-import ai.brokk.util.ImageUtil;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -20,15 +18,12 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
@@ -69,7 +64,7 @@ public abstract class CodePrompts {
             format your response using GFM Markdown to **improve the readability** of your responses with:
             - **bold**
             - _italics_
-            - `inline code` (for file, directory, function, class names and other symbols)
+            - `inline code` (for file, directory, function, class names, and other symbols)
             - ```code fences``` for code and pseudocode
             - list
             - prefer GFM tables over bulleted lists
@@ -210,18 +205,23 @@ public abstract class CodePrompts {
         var reminder = codeReminder(cm.getService(), model);
 
         messages.add(systemMessage(cm, ctx, reminder));
-        // FIXME we're supposed to leave the unchanged files in their original position
-        if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx, true, viewingPolicy));
-        } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
-        }
+
+        // Read-only + untouched-editable message (CodeAgent wants summaries combined; changedFiles controls untouched)
+        messages.addAll(WorkspacePrompts.builder(ctx, viewingPolicy)
+                .view(WorkspacePrompts.WorkspaceView.CODE_READONLY_PLUS_UNTOUCHED)
+                .changedFiles(changedFiles)
+                .build());
+
         messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceEditableMessages(ctx));
+            // Changed editable + build status
+            messages.addAll(WorkspacePrompts.builder(ctx, viewingPolicy)
+                    .view(WorkspacePrompts.WorkspaceView.EDITABLE_CHANGED)
+                    .changedFiles(changedFiles)
+                    .build());
         }
         messages.add(request);
 
@@ -280,7 +280,9 @@ public abstract class CodePrompts {
 
         var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
+        messages.addAll(WorkspacePrompts.builder(cm.liveContext(), viewingPolicy)
+                .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
+                .build());
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.add(askRequest(input));
 
@@ -603,328 +605,6 @@ public abstract class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    /**
-     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
-     * include editable content or related classes.
-     *
-     * @param ctx The context to process.
-     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
-     * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
-     * @return A collection of ChatMessages (empty if no content).
-     */
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
-    }
-
-    /**
-     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
-     */
-    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadonlyFragments().toList();
-        var summaryFragments = combineSummaries
-                ? readOnlyFragments.stream()
-                        .filter(ContextFragment.SummaryFragment.class::isInstance)
-                        .map(ContextFragment.SummaryFragment.class::cast)
-                        .toList()
-                : List.<ContextFragment.SummaryFragment>of();
-        var otherFragments = combineSummaries
-                ? readOnlyFragments.stream()
-                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
-                        .toList()
-                : readOnlyFragments;
-
-        // --- Format non-summary fragments using the policy ---
-        var rendered = formatWithPolicy(otherFragments, vp);
-        var combinedText = new StringBuilder(rendered.text);
-
-        // --- Append summary fragments if present ---
-        if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
-            var combinedBlock =
-                    """
-                    <api_summaries fragmentid="api_summaries">
-                    %s
-                    </api_summaries>
-                    """
-                            .formatted(summaryText);
-            if (!rendered.text.isEmpty()) {
-                combinedText.append("\n\n");
-            }
-            combinedText.append(combinedBlock).append("\n\n");
-        }
-
-        // --- Return early if nothing to show ---
-        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
-            return List.of();
-        }
-
-        // --- Compose final workspace_readonly message ---
-        String readOnlyText =
-                """
-                              <workspace_readonly>
-                              Here are the READ ONLY files and code fragments in your Workspace.
-                              Do not edit this code! Images will be included separately if present.
-
-                              %s
-                              </workspace_readonly>
-                              """
-                        .formatted(combinedText.toString().trim());
-
-        var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(rendered.images);
-
-        var readOnlyUserMessage = UserMessage.from(allContents);
-        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
-    }
-
-    /**
-     * Returns messages containing only the editable workspace content. Does not include read-only content or related
-     * classes.
-     */
-    public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
-        // --- Process Editable Fragments ---
-        var editableTextFragments = new StringBuilder();
-        ctx.getEditableFragments().forEach(fragment -> {
-            String formatted = fragment.format(); // format() on live fragment
-            if (!formatted.isBlank()) {
-                editableTextFragments.append(formatted).append("\n\n");
-            }
-        });
-
-        if (editableTextFragments.isEmpty()) {
-            return List.of();
-        }
-
-        String editableText =
-                """
-                              <workspace_editable>
-                              Here are the EDITABLE files and code fragments in your Workspace.
-                              This is *the only context in the Workspace to which you should make changes*.
-
-                              *Trust this message as the true contents of these files!*
-                              Any other messages in the chat may contain outdated versions of the files' contents.
-
-                              %s
-                              </workspace_editable>
-                              """
-                        .formatted(editableTextFragments.toString().trim());
-
-        var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
-    }
-
-    /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
-     * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @param ctx The context to process.
-     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
-     * @param vp The viewing policy to apply for content visibility; uses default if null.
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
-     *     empty if no content.
-     */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
-        var editableMessages = getWorkspaceEditableMessages(ctx);
-
-        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
-    }
-
-    /**
-     * Convenience overload for getWorkspaceContentsMessages with a viewing policy.
-     *
-     * @param ctx The context to process.
-     * @param vp The viewing policy to apply for content visibility.
-     * @return A collection containing workspace messages with applied viewing policy.
-     */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
-        return getWorkspaceContentsMessages(ctx, false, vp);
-    }
-
-    /**
-     * Internal helper to render a list of fragments in the given order.
-     * Converts text fragments to formatted strings and image fragments to ImageContent objects.
-     * Returns both the combined text and the list of images.
-     */
-    private static final class RenderedContent {
-        final String text;
-        final List<ImageContent> images;
-
-        RenderedContent(String text, List<ImageContent> images) {
-            this.text = text;
-            this.images = images;
-        }
-    }
-
-    /**
-     * Formats fragments according to a viewing policy, rendering text and collecting images.
-     * Applies ViewingPolicy to StringFragments when provided (vp != null).
-     */
-    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
-        var textBuilder = new StringBuilder();
-        var imageList = new ArrayList<ImageContent>();
-
-        for (var fragment : fragments) {
-            if (fragment.isText()) {
-                String formatted;
-                if (vp != null && fragment instanceof ContextFragment.StringFragment sf) {
-                    var visibleText = sf.textForAgent(vp);
-                    formatted =
-                            """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
-                                    .formatted(sf.description(), sf.id(), visibleText);
-                } else {
-                    formatted = fragment.format();
-                }
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                try {
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
-                }
-            } else {
-                String formatted = fragment.format();
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            }
-        }
-
-        return new RenderedContent(textBuilder.toString().trim(), imageList);
-    }
-
-    private List<ChatMessage> getWorkspaceContentsMessages(
-            Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
-        // If both are empty and no related classes requested, return empty
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var combinedText = new StringBuilder();
-
-        // Extract text and image content from read-only messages
-        if (!readOnlyMessages.isEmpty()) {
-            var readOnlyUserMessage = readOnlyMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (readOnlyUserMessage.isPresent()) {
-                var contents = readOnlyUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    } else if (content instanceof ImageContent imageContent) {
-                        allContents.add(imageContent);
-                    }
-                }
-            }
-        }
-
-        // Extract text from editable messages
-        if (!editableMessages.isEmpty()) {
-            var editableUserMessage = editableMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (editableUserMessage.isPresent()) {
-                var contents = editableUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    }
-                }
-            }
-        }
-
-        // Wrap everything in workspace tags
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(combinedText.toString().trim());
-
-        // Add the workspace text as the first content
-        allContents.addFirst(new TextContent(workspaceText));
-
-        // Create the main UserMessage
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
-    /**
-     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
-     * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
-     * - Preserves insertion order and multimodal content.
-     */
-    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
-        var allFragments = ctx.allFragments().toList();
-        if (allFragments.isEmpty()) {
-            return List.of();
-        }
-
-        var rendered = formatWithPolicy(allFragments, vp);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(rendered.text);
-
-        allContents.add(new TextContent(workspaceText));
-        allContents.addAll(rendered.images);
-
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
-    /**
-     * @return a summary of each fragment in the workspace; for most fragment types this is just the description, but
-     *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
-     */
-    public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = ContextFragment.describe(ctx.getAllFragmentsInDisplayOrder());
-        if (summaries.isEmpty()) {
-            return List.of();
-        }
-
-        String summaryText =
-                """
-                             <workspace-summary>
-                             %s
-                             </workspace-summary>
-                             """
-                        .formatted(summaries)
-                        .trim();
-
-        var summaryUserMessage = new UserMessage(summaryText);
-        return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
-    }
-
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
@@ -961,6 +641,22 @@ public abstract class CodePrompts {
         });
 
         return messages;
+    }
+
+    /**
+     * Backwards-compatible wrappers delegating to WorkspacePrompts.
+     * These restore the previous CodePrompts instance methods that callers expect.
+     */
+    public List<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
+        return WorkspacePrompts.builder(ctx, vp)
+                .view(WorkspacePrompts.WorkspaceView.CONTENTS)
+                .build();
+    }
+
+    public List<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
+        return WorkspacePrompts.builder(ctx, vp)
+                .view(WorkspacePrompts.WorkspaceView.IN_ADDED_ORDER)
+                .build();
     }
 
     public enum InstructionsFlags {
@@ -1003,7 +699,7 @@ public abstract class CodePrompts {
           You should not need to cite an entire large block to change a line or two.
         """;
 
-        var examples = buildExamples(flags);
+        var examples = EditBlockExamples.buildExamples(flags);
 
         var intro = flags.isEmpty()
                 ? ""
@@ -1070,252 +766,5 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
 </goal>
 """
                 .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
-    }
-
-    /**
-     * Builds example SEARCH/REPLACE blocks that demonstrate correct formatting.
-     *
-     * <p>The examples use a single Java source file (src/main/java/com/acme/Foo.java) and show: - A "Before" workspace
-     * excerpt (when MERGE_AGENT_MARKERS is enabled, this includes an actual conflict block) - A line-based SEARCH edit
-     * - Optional syntax-aware edits (BRK_FUNCTION and BRK_CLASS) when enabled - A full-file replacement using
-     * BRK_ENTIRE_FILE - Optional conflict-range fix using BRK_CONFLICT_1 when MERGE_AGENT_MARKERS is enabled
-     *
-     * <p>The examples are illustrative only and intended to show the exact wire format, not working diffs against a
-     * real repository.
-     */
-    private static String buildExamples(Set<InstructionsFlags> flags) {
-        var parts = new ArrayList<String>();
-
-        // ---------- BEFORE: current workspace excerpt ----------
-        // If MERGE_AGENT_MARKERS is enabled, show an actual conflict block in the file.
-        var before = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
-                ? """
-              ### Before: Current Workspace excerpt (with conflict markers present)
-
-              <workspace_example>
-                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                package com.acme;
-
-                import java.util.List;
-                import java.util.Objects;
-
-                public class Foo {
-                    public int compute(int a, int b) {
-                        // naive implementation
-                        return a + b;
-                    }
-
-                    /** A friendly greeting. */
-                    public String greet(String name) {
-                        return "Hello, " + name + "!";
-                    }
-
-                    // The Merge Agent has wrapped a Git-style conflict inside custom markers.
-                    BRK_CONFLICT_BEGIN_1
-                    <<<<<<< HEAD
-                    private static int fib(int n) {
-                        if (n <= 1) return n;
-                        return fib(n - 1) + fib(n - 2);
-                    }
-                    =======
-                    private static int fib(int n) {
-                        if (n < 2) return n;
-                        int a = 0, b = 1;
-                        for (int i = 2; i <= n; i++) {
-                            int tmp = a + b;
-                            a = b;
-                            b = tmp;
-                        }
-                        return b;
-                    }
-                    >>>>>>> feature/iterative-fib
-                    BRK_CONFLICT_END_1
-                }
-                </file>
-              </workspace_example>
-              """
-                : """
-              ### Before: Current Workspace excerpt
-
-              <workspace_example>
-                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                package com.acme;
-
-                import java.util.List;
-                import java.util.Objects;
-
-                public class Foo {
-                    public int compute(int a, int b) {
-                        // naive implementation
-                        return a + b;
-                    }
-
-                    /** A friendly greeting. */
-                    public String greet(String name) {
-                        return "Hello, " + name + "!";
-                    }
-
-                    private static int fib(int n) {
-                        if (n <= 1) return n;
-                        return fib(n - 1) + fib(n - 2);
-                    }
-                }
-                </file>
-              </workspace_example>
-              """;
-
-        parts.add(before);
-
-        int ex = 1;
-
-        // ---------- Example 1: Line-based SEARCH ----------
-        parts.add(
-                """
-              ### Example %d — Line-based SEARCH (modify a fragment outside of a method)
-
-              ```
-              src/main/java/com/acme/Foo.java
-              <<<<<<< SEARCH
-              import java.util.List;
-              import java.util.Objects;
-              =======
-              import java.util.List;
-              >>>>>>> REPLACE
-              ```
-              """
-                        .formatted(ex++));
-
-        // ---------- Syntax-aware examples (only if enabled) ----------
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            // BRK_FUNCTION: replace a single method by fully qualified name
-            parts.add(
-                    """
-                  ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
-
-                  This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
-
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_FUNCTION com.acme.Foo.greet
-                  =======
-                  /**
-                   * Returns a greeting for the given name.
-                   * @param name the name to greet.
-                   * @return the greeting string.
-                   */
-                  public String greet(String name) {
-                      return "Hi, " + name;
-                  }
-                  >>>>>>> REPLACE
-                  ```
-                  """
-                            .formatted(ex++));
-
-            // BRK_CLASS: replace the entire class body by fully qualified name
-            // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
-            parts.add(
-                    """
-                  ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
-
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_CLASS com.acme.Foo
-                  =======
-                  public class Foo {
-                      public int compute(int a, int b) {
-                          return Math.addExact(a, b);
-                      }
-
-                      public String greet(String name) {
-                          return "Hello, " + name + "!";
-                      }
-
-                      private static int fib(int n) {
-                          if (n < 2) return n;
-                          int a = 0, b = 1;
-                          for (int i = 2; i <= n; i++) {
-                              int tmp = a + b;
-                              a = b;
-                              b = tmp;
-                          }
-                          return b;
-                      }
-                  }
-                  >>>>>>> REPLACE
-                  ```
-                  """
-                            .formatted(ex++));
-        }
-
-        // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
-        parts.add(
-                """
-              ### Example %d — Full-file replacement (BRK_ENTIRE_FILE)
-
-              ```
-              src/main/java/com/acme/Foo.java
-              <<<<<<< SEARCH
-              BRK_ENTIRE_FILE
-              =======
-              package com.acme;
-
-              public class Foo {
-                  public int compute(int a, int b) {
-                      return Math.addExact(a, b);
-                  }
-
-                  public String greet(String name) {
-                      return "Hello, " + name + "!";
-                  }
-
-                  private static int fib(int n) {
-                      if (n < 2) return n;
-                      int a = 0, b = 1;
-                      for (int i = 2; i <= n; i++) {
-                          int next = Math.addExact(a, b);
-                          a = b;
-                          b = next;
-                      }
-                      return b;
-                  }
-              }
-              >>>>>>> REPLACE
-              ```
-              """
-                        .formatted(ex++));
-
-        // ---------- Conflict-range fix (only if enabled) ----------
-        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
-            parts.add(
-                    """
-                  ### Example %d — Conflict range fix (BRK_CONFLICT markers)
-
-                  The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
-                  Replace that region with the resolved implementation.
-
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_CONFLICT_1
-                  =======
-                  private static int fib(int n) {
-                      if (n < 2) return n;
-                      int a = 0, b = 1;
-                      for (int i = 2; i <= n; i++) {
-                          int tmp = Math.addExact(a, b);
-                          a = b;
-                          b = tmp;
-                      }
-                      return b;
-                  }
-                  >>>>>>> REPLACE
-                  ```
-                  """
-                            .formatted(ex++));
-        }
-
-        return String.join("\n\n", parts).strip();
     }
 }
