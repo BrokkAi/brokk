@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
@@ -40,8 +41,57 @@ public class Completions {
             candidates = analyzer.getAllDeclarations();
         }
 
+        // If query is an unqualified short name, ensure parent classes are included when only nested members are returned
+        boolean unqualified = query.indexOf('.') < 0 && query.indexOf('$') < 0;
+        if (unqualified) {
+            var augmented = new LinkedHashSet<CodeUnit>(candidates);
+            for (var cu : candidates) {
+                String id = cu.identifier();
+                int qlen = query.length();
+                boolean eq = id.length() == qlen && id.regionMatches(true, 0, query, 0, qlen);
+                boolean prefixDot = id.length() > qlen
+                        && id.regionMatches(true, 0, query, 0, qlen)
+                        && id.charAt(qlen) == '.';
+                if (eq || prefixDot) {
+                    String parentFqn = cu.packageName().isEmpty() ? query : cu.packageName() + "." + query;
+                    try {
+                        analyzer.getDefinitions(parentFqn).forEach(augmented::add);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to fetch parent definitions for {}: {}", parentFqn, ex.toString());
+                    }
+                }
+            }
+            candidates = augmented.stream().toList();
+        }
+
         var matcher = new FuzzyMatcher(query);
         boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
+
+        // If the query is a simple short name and analyzer only returns nested members (e.g., "Chrome.AnalyzerStatusStrip"),
+        // ensure we also include the parent class "ai.brokk.gui.Chrome" in the candidates.
+        if (!hierarchicalQuery) {
+            var additionalParents = candidates.stream()
+                    .flatMap(cu -> {
+                        String id = cu.identifier();
+                        int dot = id.indexOf('.');
+                        if (dot <= 0) {
+                            return java.util.stream.Stream.<CodeUnit>empty();
+                        }
+                        String root = id.substring(0, dot);
+                        if (!root.equalsIgnoreCase(query)) {
+                            return java.util.stream.Stream.empty();
+                        }
+                        String parentFqn = cu.packageName() + "." + root;
+                        return analyzer.getDefinitions(parentFqn).stream();
+                    })
+                    .toList();
+
+            if (!additionalParents.isEmpty()) {
+                candidates = java.util.stream.Stream.concat(candidates.stream(), additionalParents.stream())
+                        .limit(5000)
+                        .toList();
+            }
+        }
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
