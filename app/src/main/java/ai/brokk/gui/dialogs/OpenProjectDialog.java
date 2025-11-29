@@ -58,7 +58,6 @@ public class OpenProjectDialog extends JDialog {
             boolean isPrivate) {}
 
     private static final Pattern GITHUB_URL_PATTERN = Pattern.compile("https://github.com/([^/]+)/([^/\\s]+)");
-    private final @Nullable Frame parentFrame;
     private @Nullable Path selectedProjectPath = null;
     private List<GitHubRepoInfo> loadedRepositories = List.of();
 
@@ -67,19 +66,27 @@ public class OpenProjectDialog extends JDialog {
     private int gitHubTabIndex = -1;
     private JPanel gitHubReposPanel;
 
-    // Clone progress state
+    // Clone progress state (initialized in initComponents via helper methods)
+    @SuppressWarnings("NullAway.Init")
     private JProgressBar cloneProgressBar;
+
+    @SuppressWarnings("NullAway.Init")
     private JLabel cloneStatusLabel;
+
+    @SuppressWarnings("NullAway.Init")
     private MaterialButton cancelCloneButton;
+
+    @SuppressWarnings("NullAway.Init")
     private JPanel cloneProgressPanel;
+
+    @SuppressWarnings("NullAway.Init")
     private MaterialButton cloneFromGitButton;
+
+    @SuppressWarnings("NullAway.Init")
     private JButton cloneFromGitHubButton;
 
     @Nullable
     private Future<?> cloneTaskFuture;
-
-    @Nullable
-    private volatile Path cloneTargetDirectory;
 
     @Nullable
     private CancellableProgressMonitor cloneProgressMonitor;
@@ -88,7 +95,6 @@ public class OpenProjectDialog extends JDialog {
 
     public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
-        this.parentFrame = parent;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         initComponents();
         pack();
@@ -726,8 +732,6 @@ public class OpenProjectDialog extends JDialog {
         final var repoName = extractRepoName(normalizedUrl);
         final var directory = Paths.get(dir).resolve(repoName);
 
-        // Store target directory for cleanup on cancel
-        cloneTargetDirectory = directory;
         cloneCancelled = false;
         cloneProgressMonitor = new CancellableProgressMonitor();
 
@@ -749,7 +753,6 @@ public class OpenProjectDialog extends JDialog {
             @Override
             protected void done() {
                 var wasCancelled = cloneCancelled;
-                cloneTargetDirectory = null;
                 cloneTaskFuture = null;
                 cloneCancelled = false;
                 cloneProgressMonitor = null;

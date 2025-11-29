@@ -456,7 +456,7 @@ public final class GlobalUiSettings {
     }
 
     public static void saveLastCloneDirectory(String directory) {
-        if (directory == null || directory.isBlank()) return;
+        if (directory.isBlank()) return;
         var props = loadProps();
         props.setProperty(KEY_CLONE_DIRECTORY, directory);
         saveProps(props);
