@@ -516,8 +516,7 @@ public final class WorkspacePrompts {
         allContents.addAll(renderedReadOnly.images);
 
         var readOnlyUserMessage = UserMessage.from(allContents);
-        return List.of(
-                readOnlyUserMessage, new AiMessage("Thank you for the read-only Workspace fragments."));
+        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only Workspace fragments."));
     }
 
     // --- Helper rendering utilities (copied and adapted from original CodePrompts) ---

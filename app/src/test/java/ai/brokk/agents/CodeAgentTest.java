@@ -1187,11 +1187,10 @@ class CodeAgentTest {
         // reliably include the read-only content for the test.
         var editFrag = new ContextFragment.ProjectPathFragment(editable, cm);
         var roPpf = new ContextFragment.ProjectPathFragment(roFile, cm);
-        var summaryFrag = new ContextFragment.SummaryFragment(cm, roFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+        var summaryFrag =
+                new ContextFragment.SummaryFragment(cm, roFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
 
-        var ctx = newContext()
-                .addPathFragments(List.of(editFrag, roPpf))
-                .addVirtualFragments(List.of(summaryFrag));
+        var ctx = newContext().addPathFragments(List.of(editFrag, roPpf)).addVirtualFragments(List.of(summaryFrag));
         ctx = ctx.setReadonly(roPpf, true);
 
         // Ensure context fragments have resolved
@@ -1216,7 +1215,8 @@ class CodeAgentTest {
         assertEquals(request, msgsNoChanged.get(msgsNoChanged.size() - 1));
 
         // 3) some message should contain the read-only file name
-        boolean containsRo = msgsNoChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(roFile.getFileName()));
+        boolean containsRo =
+                msgsNoChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(roFile.getFileName()));
         assertTrue(containsRo, "Expected read-only fragment content to appear in messages when no changed files");
 
         // Collect messages with the editable file listed as changed
@@ -1230,8 +1230,11 @@ class CodeAgentTest {
                 new ViewingPolicy(TaskResult.Type.CODE));
 
         // 4) ensure editable file name appears when it is provided as changed
-        boolean containsEditable = msgsWithChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(editable.getFileName()));
-        assertTrue(containsEditable, "Expected editable fragment content to appear in messages when it's listed as changed");
+        boolean containsEditable =
+                msgsWithChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(editable.getFileName()));
+        assertTrue(
+                containsEditable,
+                "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
         var toc = WorkspacePrompts.formatCodeToc(ctx, Set.of());
