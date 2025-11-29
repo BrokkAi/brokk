@@ -28,6 +28,7 @@ import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.PagedIterable;
 
 /**
  * Handles GitHub authentication and API calls. This class is stateful and holds a connection to a specific repository.
@@ -717,6 +718,30 @@ public class GitHubAuth {
     public List<GHPullRequestCommitDetail> listPullRequestCommits(int prNumber) throws IOException {
         var pr = getGhRepository().getPullRequest(prNumber);
         return pr.listCommits().toList();
+    }
+
+    /**
+     * Returns a paginated iterable of issues for the connected repository.
+     * Use this for streaming pagination to avoid loading all issues at once.
+     *
+     * @param state The issue state filter (OPEN, CLOSED, or ALL)
+     * @param pageSize Number of issues per page
+     * @return A PagedIterable that fetches issues lazily page by page
+     */
+    public PagedIterable<GHIssue> listIssuesPaginated(GHIssueState state, int pageSize) throws IOException {
+        return getGhRepository().queryIssues().state(state).pageSize(pageSize).list();
+    }
+
+    /**
+     * Returns a paginated iterable of pull requests for the connected repository.
+     * Use this for streaming pagination to avoid loading all PRs at once.
+     *
+     * @param state The PR state filter (OPEN, CLOSED, or ALL)
+     * @param pageSize Number of PRs per page
+     * @return A PagedIterable that fetches PRs lazily page by page
+     */
+    public PagedIterable<GHPullRequest> listPullRequestsPaginated(GHIssueState state, int pageSize) throws IOException {
+        return getGhRepository().queryPullRequests().state(state).list().withPageSize(pageSize);
     }
 
     /**

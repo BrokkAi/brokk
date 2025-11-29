@@ -18,6 +18,8 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.SlidingWindowState;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.GitHubFilterOptions;
@@ -110,6 +112,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
     private List<IssueHeader> displayedIssues = new ArrayList<>();
 
+    // Sliding window pagination state
+    private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
+
+    private volatile @Nullable Iterator<List<IssueHeader>> activeIssueIterator;
+    private long searchGeneration = 0;
+
+    private MaterialButton loadMoreButton;
+
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
@@ -181,19 +191,29 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
+        // ── Load More button ─────────────────────────────────────────────────────
+        loadMoreButton = new MaterialButton();
+        loadMoreButton.setText("Load more");
+        loadMoreButton.setToolTipText("Load more issues");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.addActionListener(e -> loadMoreIssues());
+
         // ── Refresh button ──────────────────────────────────────────────────────
-        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
-        MaterialButton refreshButton = new MaterialButton(); // Unicode clockwise arrow
+        MaterialButton refreshButton = new MaterialButton();
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
-        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
-        // Slightly enlarge the glyph so it is more legible than default-size text
+        refreshButton.setMargin(new Insets(2, 2, 2, 2));
         refreshButton.setFont(
                 refreshButton.getFont().deriveFont(refreshButton.getFont().getSize() * 1.25f));
         refreshButton.setToolTipText("Refresh");
         refreshButton.addActionListener(e -> updateIssueList());
-        searchPanel.add(refreshButton, BorderLayout.EAST);
+
+        // Panel to hold both buttons on the right
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        buttonPanel.add(loadMoreButton);
+        buttonPanel.add(refreshButton);
+        searchPanel.add(buttonPanel, BorderLayout.EAST);
 
         // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
@@ -278,53 +298,76 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(filterLabel);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
-        if (this.issueService instanceof JiraIssueService) {
-            resolutionFilter =
-                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
-            resolutionFilter.setToolTipText("Filter by Jira issue resolution");
-            resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-            // API call needed when resolution changes
-            resolutionFilter.addPropertyChangeListener("value", e -> updateIssueList());
-            filtersContainer.add(resolutionFilter); // Add to filtersContainer
-            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+        var project = contextManager.getProject();
 
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
+        if (this.issueService instanceof JiraIssueService) {
+            String savedResolution = project.getUiFilterProperty("issues.resolution");
+            String defaultResolution = savedResolution != null ? savedResolution : "Unresolved";
+            var jiraResolutionFilter = new FilterBox(
+                    this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), defaultResolution);
+            jiraResolutionFilter.setToolTipText("Filter by Jira issue resolution");
+            jiraResolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
+            jiraResolutionFilter.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.resolution", jiraResolutionFilter.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(jiraResolutionFilter);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            resolutionFilter = jiraResolutionFilter;
+
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, savedStatus);
             statusFilter.setToolTipText("Filter by Jira issue status");
         } else { // GitHub or default
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            String defaultStatus = savedStatus != null ? savedStatus : "Open";
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, defaultStatus);
             statusFilter.setToolTipText("Filter by GitHub issue status");
         }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch and subsequent processing.
+            project.setUiFilterProperty("issues.status", statusFilter.getSelected());
             updateIssueList();
         });
         filtersContainer.add(statusFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        authorFilter =
-                new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
+        String savedAuthor = project.getUiFilterProperty("issues.author");
+        authorFilter = new FilterBox(
+                this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"), savedAuthor);
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        authorFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.author", authorFilter.getSelected());
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(authorFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        labelFilter =
-                new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
+        String savedLabel = project.getUiFilterProperty("issues.label");
+        labelFilter = new FilterBox(
+                this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"), savedLabel);
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        labelFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.label", labelFilter.getSelected());
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(labelFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
+        String savedAssignee = project.getUiFilterProperty("issues.assignee");
         assigneeFilter = new FilterBox(
-                this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
+                this.chrome,
+                "Assignee",
+                () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
+                savedAssignee);
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        assigneeFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("issues.assignee", assigneeFilter.getSelected());
+            triggerClientSideFilterUpdate();
+        });
         filtersContainer.add(assigneeFilter);
 
         // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
@@ -787,42 +830,50 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return false;
     }
 
-    /** Fetches open GitHub issues and populates the issue table. */
+    /** Fetches GitHub issues with batch pagination and populates the issue table. */
     private void updateIssueList() {
+        assert SwingUtilities.isEventDispatchThread();
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
 
-        searchBox.setLoading(true, "Searching issues");
+        searchBox.setLoading(true, "Loading issues...");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.setEnabled(false);
+
+        final long capturedGeneration = ++searchGeneration;
+
+        SwingUtilities.invokeLater(() -> {
+            slidingWindow.clear();
+            activeIssueIterator = null;
+            allIssuesFromApi.clear();
+            displayedIssues.clear();
+            issueTableModel.setRowCount(0);
+        });
+
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
-            List<IssueHeader> fetchedIssueHeaders;
             try {
-                // Read filter values on EDT or before submitting task. searchBox can be null during early init.
+                // Read filter values
                 final String currentSearchQuery = searchBox.getText().strip();
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
-                final String authorVal =
-                        getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
-                final String labelVal = getBaseFilterValue(labelFilter.getSelected()); // For GitHub server-side search
-                final String assigneeVal =
-                        getBaseFilterValue(assigneeFilter.getSelected()); // For GitHub server-side search
+                final String authorVal = getBaseFilterValue(authorFilter.getSelected());
+                final String labelVal = getBaseFilterValue(labelFilter.getSelected());
+                final String assigneeVal = getBaseFilterValue(assigneeFilter.getSelected());
 
                 FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
                     String resolutionVal = (resolutionFilter != null)
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
-                    // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
                     logger.debug(
                             "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
                             statusVal,
                             resolutionVal,
                             queryForApi);
-                } else { // GitHub or default
-                    // For GitHub, all filters including query are passed for server-side search if query is present.
-                    // If query is null, service handles client-side filtering for author/label/assignee.
+                } else {
                     apiFilterOptions =
                             new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                     logger.debug(
@@ -834,35 +885,153 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                             queryForApi);
                 }
 
-                fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
-                logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
+                // Create new iterator and load first batch
+                var pageIterator = this.issueService.listIssuesPaginated(
+                        apiFilterOptions, StreamingPaginationHelper.DEFAULT_PAGE_SIZE, Integer.MAX_VALUE);
+
+                var result = StreamingPaginationHelper.loadPrebatchedBatch(
+                        pageIterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                // Store iterator for "Load more"
+                activeIssueIterator = pageIterator;
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+
+                    var sortedItems = new ArrayList<>(result.items());
+                    sortedItems.sort(Comparator.comparing(
+                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+
+                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+
+                    if (!sortedItems.isEmpty()) {
+                        issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
+                    }
+                });
+
             } catch (Exception ex) {
+                activeIssueIterator = null;
                 if (wasCancellation(ex)) {
-                    // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
-                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration == searchGeneration) {
+                            searchBox.setLoading(false, "");
+                        }
+                    });
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
                     SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration != searchGeneration) {
+                            return;
+                        }
+                        slidingWindow.clear();
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
                         disableIssueActionsAndClearDetails();
-                        searchBox.setLoading(false, ""); // Stop loading on error
+                        searchBox.setLoading(false, "");
+                        loadMoreButton.setVisible(false);
                     });
                 }
-                return null;
             }
-
-            if (Thread.currentThread().isInterrupted()) {
-                // If interrupted after successful fetch but before processing, ensure loading is stopped.
-                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-                return null;
-            }
-            // Perform filtering and display processing in the background
-            processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
         });
         trackCancellableFuture(currentSearchFuture);
+    }
+
+    /** Loads the next batch of issues when user clicks "Load more". */
+    private void loadMoreIssues() {
+        if (activeIssueIterator == null || !slidingWindow.hasMore()) {
+            return;
+        }
+
+        var iterator = activeIssueIterator;
+        final long capturedGeneration = searchGeneration;
+        loadMoreButton.setEnabled(false);
+        searchBox.setLoading(true, "Loading more issues...");
+
+        var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
+            try {
+                var result =
+                        StreamingPaginationHelper.loadPrebatchedBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    var sortedItems = new ArrayList<>(result.items());
+                    sortedItems.sort(Comparator.comparing(
+                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+
+                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+
+            } catch (Exception ex) {
+                if (!wasCancellation(ex)) {
+                    logger.error("Failed to load more issues", ex);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration == searchGeneration) {
+                        searchBox.setLoading(false, "");
+                        loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    }
+                });
+            }
+            return null;
+        });
+        trackCancellableFuture(future);
+    }
+
+    /** Updates the table model from displayedIssues. Must be called on EDT. */
+    private void updateTableFromDisplayedIssues() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Remember selection
+        int selectedRow = issueTable.getSelectedRow();
+        String selectedId = null;
+        if (selectedRow >= 0 && selectedRow < displayedIssues.size()) {
+            selectedId = displayedIssues.get(selectedRow).id();
+        }
+
+        issueTableModel.setRowCount(0);
+        if (displayedIssues.isEmpty()) {
+            disableIssueActions();
+        } else {
+            var today = LocalDate.now(ZoneId.systemDefault());
+            for (var header : displayedIssues) {
+                String updated = header.updated() == null
+                        ? ""
+                        : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
+                issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
+            }
+
+            // Restore selection if possible
+            if (selectedId != null) {
+                for (int i = 0; i < displayedIssues.size(); i++) {
+                    if (displayedIssues.get(i).id().equals(selectedId)) {
+                        issueTable.setRowSelectionInterval(i, i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (issueTable.getSelectedRow() == -1) {
+            disableIssueActions();
+        }
     }
 
     private void triggerClientSideFilterUpdate() {
@@ -873,106 +1042,59 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             return;
         }
         searchBox.setLoading(true, "Filtering issues");
-        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
+        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi);
+        final long capturedGeneration = searchGeneration; // Capture to detect stale results
 
         contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
-            logger.debug(
-                    "Client-side filter update triggered. Processing {} issues from current API list.",
-                    currentIssuesToFilter.size());
-            processAndDisplayWorker(
-                    currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
-            return null;
-        });
-    }
+            logger.debug("Client-side filter update triggered. Processing {} issues.", currentIssuesToFilter.size());
 
-    private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
-        if (Thread.currentThread().isInterrupted()) {
-            // Ensure searchBox loading state is reset correctly on the EDT.
-            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-            return;
-        }
-        // This method runs on a background thread.
-        logger.debug(
-                "processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}",
-                sourceList.size(),
-                isFullUpdate);
+            // Read filter values
+            String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
+            String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
+            String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
 
-        // Read filter values. These are assumed to be safe to read from a background thread
-        // as FilterBox.getSelected() should be a simple getter.
-        String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
-        String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
-        String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
-        logger.debug(
-                "processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
-                selectedAuthorActual,
-                selectedLabelActual,
-                selectedAssigneeActual);
-
-        List<IssueHeader> filteredIssues = new ArrayList<>();
-        // Guard against null sourceList
-        for (var header : sourceList) {
-            boolean matches = true;
-            if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
-                matches = false;
-            }
-            if (matches && selectedLabelActual != null) {
-                if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
+            // Apply client-side filters
+            List<IssueHeader> filteredIssues = new ArrayList<>();
+            for (var header : currentIssuesToFilter) {
+                boolean matches = true;
+                if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
                     matches = false;
                 }
-            }
-            if (matches && selectedAssigneeActual != null) {
-                if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
-                    matches = false;
+                if (matches && selectedLabelActual != null) {
+                    if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
+                        matches = false;
+                    }
+                }
+                if (matches && selectedAssigneeActual != null) {
+                    if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
+                        matches = false;
+                    }
+                }
+                if (matches) {
+                    filteredIssues.add(header);
                 }
             }
-            if (matches) {
-                filteredIssues.add(header);
-            }
-        }
-        logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
 
-        // Sort issues by update date, newest first
-        filteredIssues.sort(
-                Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-        logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
+            // Sort by update date, newest first
+            filteredIssues.sort(
+                    Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
 
-        // Data for EDT update
-        final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
+            final List<IssueHeader> finalFiltered = filteredIssues;
+            SwingUtilities.invokeLater(() -> {
+                // Check if a new search was started while we were filtering
+                if (capturedGeneration != searchGeneration) {
+                    return; // Stale result, discard
+                }
 
-        SwingUtilities.invokeLater(() -> {
-            // This part runs on the EDT
-            logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate) {
-                allIssuesFromApi = new ArrayList<>(sourceList);
+                displayedIssues = finalFiltered;
+                updateTableFromDisplayedIssues();
+                searchBox.setLoading(false, "");
                 logger.debug(
-                        "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
+                        "Client-side filter complete. Showing {} of {} issues.",
+                        displayedIssues.size(),
                         allIssuesFromApi.size());
-                // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
-                // when the user interacts with them.
-            }
-            displayedIssues = finalFilteredIssuesForDisplay;
-            logger.debug("processAndDisplayWorker (EDT): Set displayedIssues with {} issues.", displayedIssues.size());
-
-            // Update table model
-            issueTableModel.setRowCount(0);
-            if (displayedIssues.isEmpty()) {
-                disableIssueActions();
-            } else {
-                var today = LocalDate.now(ZoneId.systemDefault());
-                for (var header : displayedIssues) {
-                    String updated = header.updated() == null
-                            ? ""
-                            : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
-                    issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
-                }
-            }
-
-            // Manage button states based on selection
-            if (issueTable.getSelectedRow() == -1) {
-                disableIssueActions();
-            }
-            searchBox.setLoading(false, ""); // Stop loading after UI updates
-            logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
+            });
+            return null;
         });
     }
 

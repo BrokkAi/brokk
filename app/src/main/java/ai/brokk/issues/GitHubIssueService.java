@@ -5,14 +5,17 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.MarkdownImageParser;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -25,6 +28,7 @@ import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHUser;
+import org.kohsuke.github.PagedIterator;
 
 public class GitHubIssueService implements IssueService {
     private static final Logger logger = LogManager.getLogger(GitHubIssueService.class);
@@ -224,6 +228,102 @@ public class GitHubIssueService implements IssueService {
     public List<String> listAvailableStatuses() {
         // GitHub issues primarily use "Open" and "Closed" states.
         return List.of("Open", "Closed");
+    }
+
+    @Override
+    public Iterator<List<IssueHeader>> listIssuesPaginated(FilterOptions rawFilterOptions, int pageSize, int maxTotal)
+            throws IOException {
+        if (!(rawFilterOptions instanceof GitHubFilterOptions filterOptions)) {
+            throw new IllegalArgumentException("GitHubIssueService requires GitHubFilterOptions, got "
+                    + rawFilterOptions.getClass().getName());
+        }
+
+        String queryText = filterOptions.query();
+
+        // For search queries, fall back to non-paginated (search API has different pagination)
+        if (queryText != null && !queryText.isBlank()) {
+            logger.debug("Search query present, falling back to non-paginated listIssues for query: '{}'", queryText);
+            var all = listIssues(filterOptions);
+            var limited = all.size() > maxTotal ? all.subList(0, maxTotal) : all;
+            return List.of(limited).iterator();
+        }
+
+        // Use paginated API for non-search queries
+        GHIssueState apiState = parseIssueState(filterOptions.status());
+        var pagedIterable = getAuth().listIssuesPaginated(apiState, pageSize);
+        PagedIterator<GHIssue> ghIterator = pagedIterable.iterator();
+
+        // Client-side filters to apply
+        String authorFilter = filterOptions.author();
+        String labelFilter = filterOptions.label();
+        String assigneeFilter = filterOptions.assignee();
+
+        return new Iterator<>() {
+            private int totalFetched = 0;
+
+            @Override
+            public boolean hasNext() {
+                return totalFetched < maxTotal && ghIterator.hasNext();
+            }
+
+            @Override
+            public List<IssueHeader> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+
+                List<IssueHeader> page = new ArrayList<>();
+                try {
+                    // Fetch next page worth of items
+                    while (ghIterator.hasNext() && page.size() < pageSize && totalFetched < maxTotal) {
+                        GHIssue ghIssue = ghIterator.next();
+
+                        // Skip PRs and apply client-side filters
+                        if (ghIssue.isPullRequest()) {
+                            continue;
+                        }
+                        if (!matchesAuthor(ghIssue, authorFilter)) {
+                            continue;
+                        }
+                        if (!matchesLabel(ghIssue, labelFilter)) {
+                            continue;
+                        }
+                        if (!matchesAssignee(ghIssue, assigneeFilter)) {
+                            continue;
+                        }
+
+                        var header = mapToIssueHeader(ghIssue);
+                        if (header != null) {
+                            page.add(header);
+                            totalFetched++;
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    // PagedIterator wraps IOExceptions in RuntimeException
+                    if (e.getCause() instanceof IOException) {
+                        throw new UncheckedIOException((IOException) e.getCause());
+                    }
+                    throw e;
+                }
+
+                logger.debug("Fetched page with {} issues, total so far: {}", page.size(), totalFetched);
+                return page;
+            }
+        };
+    }
+
+    private GHIssueState parseIssueState(@Nullable String status) {
+        if (status == null || status.equalsIgnoreCase("ALL") || status.isBlank()) {
+            return GHIssueState.ALL;
+        }
+        return switch (status.toUpperCase(Locale.ROOT)) {
+            case "OPEN" -> GHIssueState.OPEN;
+            case "CLOSED" -> GHIssueState.CLOSED;
+            default -> {
+                logger.warn("Unrecognized status filter '{}', defaulting to ALL.", status);
+                yield GHIssueState.ALL;
+            }
+        };
     }
 
     private ImmutableList<Comment> mapToComments(List<GHIssueComment> ghComments) {
