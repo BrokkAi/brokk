@@ -302,34 +302,9 @@ public final class WorkspacePrompts {
         var readOnlyFragments =
                 ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
 
-        // Combine summary fragments always
-        var summaryFragments = readOnlyFragments.stream()
-                .filter(ContextFragment.SummaryFragment.class::isInstance)
-                .map(ContextFragment.SummaryFragment.class::cast)
-                .toList();
-
-        var otherFragments = readOnlyFragments.stream()
-                .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
-                .toList();
-
-        var renderedReadOnly = formatWithPolicy(otherFragments, viewingPolicy);
+        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
         var readOnlyText = new StringBuilder(renderedReadOnly.text);
         var allImages = new ArrayList<>(renderedReadOnly.images);
-
-        if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
-            var combinedBlock =
-                    """
-                    <api_summaries fragmentid="api_summaries">
-                    %s
-                    </api_summaries>
-                    """
-                            .formatted(summaryText);
-            if (!renderedReadOnly.text.isEmpty()) {
-                readOnlyText.append("\n\n");
-            }
-            readOnlyText.append(combinedBlock).append("\n\n");
-        }
 
         // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include
         // it)
@@ -418,19 +393,18 @@ public final class WorkspacePrompts {
                 .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
                 .toList();
 
-        return buildEditableInternal(changedEditable, ctx.getBuildFragment().orElse(null), true, viewingPolicy);
+        return buildEditableInternal(changedEditable, ctx.getBuildFragment().orElse(null), true);
     }
 
     private static List<ChatMessage> buildEditableAll(Context ctx, ViewingPolicy viewingPolicy) {
         var editableFragments = ctx.getEditableFragments().toList();
-        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null), false, viewingPolicy);
+        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null), false);
     }
 
     private static List<ChatMessage> buildEditableInternal(
             List<ContextFragment> editableFragments,
             @Nullable ContextFragment buildFragment,
-            boolean highlightChanged,
-            ViewingPolicy viewingPolicy) {
+            boolean highlightChanged) {
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {
             // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
@@ -463,7 +437,7 @@ public final class WorkspacePrompts {
             } else {
                 editableSectionTemplate =
                         """
-                                  <workspace_editable_unchanged>
+                                  <workspace_editable>
                                   Here are the EDITABLE files and code fragments in your Workspace.
                                   This is *the only context in the Workspace to which you should make changes*.
 
@@ -471,7 +445,7 @@ public final class WorkspacePrompts {
                                   Any other messages in the chat may contain outdated versions of the files' contents.
 
                                   %s
-                                  </workspace_editable_unchanged>
+                                  </workspace_editable>
                                   """;
             }
 
@@ -515,41 +489,15 @@ public final class WorkspacePrompts {
         var readOnlyFragments =
                 ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
 
-        var summaryFragments = readOnlyFragments.stream()
-                .filter(ContextFragment.SummaryFragment.class::isInstance)
-                .map(ContextFragment.SummaryFragment.class::cast)
-                .toList();
+        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
 
-        var otherFragments = readOnlyFragments.stream()
-                .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
-                .toList();
-
-        var renderedReadOnly = formatWithPolicy(otherFragments, viewingPolicy);
-        var readOnlyText = new StringBuilder(renderedReadOnly.text);
-        var allImages = new ArrayList<>(renderedReadOnly.images);
-
-        if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
-            var combinedBlock =
-                    """
-                    <api_summaries fragmentid="api_summaries">
-                    %s
-                    </api_summaries>
-                    """
-                            .formatted(summaryText);
-            if (!renderedReadOnly.text.isEmpty()) {
-                readOnlyText.append("\n\n");
-            }
-            readOnlyText.append(combinedBlock).append("\n\n");
-        }
-
-        if (readOnlyText.isEmpty() && allImages.isEmpty()) {
+        if (renderedReadOnly.text.isEmpty() && renderedReadOnly.images.isEmpty()) {
             return List.of();
         }
 
         var combinedText = new StringBuilder();
 
-        if (!readOnlyText.isEmpty()) {
+        if (!renderedReadOnly.text.isEmpty()) {
             String readOnlySection =
                     """
                           <workspace_readonly>
@@ -559,17 +507,17 @@ public final class WorkspacePrompts {
                           %s
                           </workspace_readonly>
                           """
-                            .formatted(readOnlyText.toString().trim());
+                            .formatted(renderedReadOnly.text.trim());
             combinedText.append(readOnlySection.trim());
         }
 
         var allContents = new ArrayList<Content>();
         allContents.add(new TextContent(combinedText.toString().trim()));
-        allContents.addAll(allImages);
+        allContents.addAll(renderedReadOnly.images);
 
         var readOnlyUserMessage = UserMessage.from(allContents);
         return List.of(
-                readOnlyUserMessage, new AiMessage("Thank you for the read-only and unchanged editable context."));
+                readOnlyUserMessage, new AiMessage("Thank you for the read-only Workspace fragments."));
     }
 
     // --- Helper rendering utilities (copied and adapted from original CodePrompts) ---
@@ -582,6 +530,49 @@ public final class WorkspacePrompts {
             this.text = text;
             this.images = images;
         }
+    }
+
+    /**
+     * Renders readonly fragments into a RenderedContent with combined summary fragments.
+     *
+     * Always partitions readonly fragments into SummaryFragments and others:
+     * - Non-summary fragments are formatted with the viewing policy
+     * - Summary fragments are combined into a single <api_summaries> block
+     * - All images are collected and returned
+     *
+     * @param readOnly     readonly fragments to render
+     * @param vp           viewing policy for visibility control
+     * @return RenderedContent with formatted text and images
+     */
+    private static RenderedContent renderReadOnlyFragments(List<ContextFragment> readOnly, ViewingPolicy vp) {
+        var summaryFragments = readOnly.stream()
+                .filter(ContextFragment.SummaryFragment.class::isInstance)
+                .map(ContextFragment.SummaryFragment.class::cast)
+                .toList();
+
+        var otherFragments = readOnly.stream()
+                .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                .toList();
+
+        var renderedOther = formatWithPolicy(otherFragments, vp);
+        var textBuilder = new StringBuilder(renderedOther.text);
+
+        if (!summaryFragments.isEmpty()) {
+            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var combinedBlock =
+                    """
+                    <api_summaries fragmentid="api_summaries">
+                    %s
+                    </api_summaries>
+                    """
+                            .formatted(summaryText);
+            if (!renderedOther.text.isEmpty()) {
+                textBuilder.append("\n\n");
+            }
+            textBuilder.append(combinedBlock);
+        }
+
+        return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
     private static RenderedContent formatWithPolicy(List<ContextFragment> fragments, ViewingPolicy vp) {
