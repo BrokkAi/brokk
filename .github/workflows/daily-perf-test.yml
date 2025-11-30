@@ -97,7 +97,7 @@ jobs:
       - name: Run benchmark on HEAD (3 iterations with 1 warm-up)
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
-          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-head-iter" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - name: Clean build artifacts
         if: steps.check_commits.outputs.should_skip == 'false'
@@ -110,13 +110,13 @@ jobs:
       - name: Run benchmark on BASE (3 iterations with 1 warm-up)
         if: steps.check_commits.outputs.should_skip == 'false'
         run: |
-          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/report-base-iter" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/base" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - name: Compare results
         if: steps.check_commits.outputs.should_skip == 'false'
         id: compare
         run: |
-          summary_json=$(python3 "${{ env.CI_TOOLS }}/compare-perf-results.py" --format=json "${{ env.REPORT_ROOT }}"/report-base-* "${{ env.REPORT_ROOT }}"/report-head-*)
+          summary_json=$(python3 "${{ env.CI_TOOLS }}/compare-perf-results.py" --format=json "${{ env.REPORT_ROOT }}/base" "${{ env.REPORT_ROOT }}/head")
           echo "$summary_json" | tee "${{ env.REPORT_ROOT }}/summary.json"
           # Expose granular variables for Slack Workflow
           echo "ok=$(echo "$summary_json" | jq -r '.ok')" >> $GITHUB_OUTPUT
