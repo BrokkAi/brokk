@@ -386,25 +386,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        // Auto-detect and set vendor for other models
-        var quickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
-        var quickEditConfig = chrome.getProject().getMainProject().getQuickEditModelConfig();
-        var quickestConfig = chrome.getProject().getMainProject().getQuickestModelConfig();
-        var scanConfig = chrome.getProject().getMainProject().getScanModelConfig();
-
-        String detectedVendor = "Default"; // default
-        if (scanConfig.name().equals(Service.GPT_5_MINI)
-                && quickConfig.name().equals(Service.GPT_5_NANO)
-                && quickEditConfig.name().equals(Service.GPT_5_NANO)
-                && quickestConfig.name().equals(Service.GPT_5_NANO)) {
-            detectedVendor = "OpenAI";
-        } else if (scanConfig.name().equals(Service.HAIKU_4_5)
-                && quickConfig.name().equals(Service.HAIKU_4_5)
-                && quickEditConfig.name().equals(Service.HAIKU_4_5)
-                && quickestConfig.name().equals(Service.HAIKU_4_5)) {
-            detectedVendor = "Anthropic";
-        }
-
         // Build vendor list based on model availability
         var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
@@ -419,12 +400,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Rebuild combo with available vendors
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Select Default (or detected vendor if it's in the available list)
-        if (vendors.contains(detectedVendor)) {
-            otherModelsVendorCombo.setSelectedItem(detectedVendor);
+        // Apply persisted preference if present and valid; otherwise fall back to Default
+        String persistedVendor = MainProject.getOtherModelsVendorPreference();
+        String vendorToSelect;
+        if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+            vendorToSelect = persistedVendor;
         } else {
-            otherModelsVendorCombo.setSelectedItem("Default");
+            vendorToSelect = "Default";
         }
+        otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
         // Hide vendor row if only one option remains
         boolean hideVendorRow = vendors.size() <= 1;
@@ -2134,6 +2118,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
+        // Persist selected vendor preference for "other models" regardless of choice
+        MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
+
         // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
         if ("OpenAI".equals(selectedVendor)) {
             chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
@@ -2146,7 +2133,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
         }
-        // For "Default", do nothing (leave current values intact)
+        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;

@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -275,8 +276,32 @@ public class GitLogTab extends JPanel implements ThemeAware {
             if (!e.getValueIsAdjusting() && remoteBranchTable.getSelectedRow() != -1) {
                 String branchName = (String) remoteBranchTableModel.getValueAt(remoteBranchTable.getSelectedRow(), 0);
                 branchTable.clearSelection();
+                // Show commits immediately from local cache
                 updateCommitsForBranch(branchName);
-                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField();
+                // Then check/fetch in background and refresh if updates found
+                var ref = RemoteBranchRef.parse(branchName);
+                if (ref != null) {
+                    contextManager.submitBackgroundTask("Checking " + branchName, () -> {
+                        try {
+                            if (getRepo().remote().branchNeedsFetch(ref.remoteName(), ref.branchName())) {
+                                logger.info(
+                                        "Fetching branch '{}' from remote '{}' (has updates)",
+                                        ref.branchName(),
+                                        ref.remoteName());
+                                getRepo().remote().fetchBranch(ref.remoteName(), ref.branchName());
+                                // Refresh commits after fetch
+                                SwingUtilities.invokeLater(() -> updateCommitsForBranch(branchName));
+                            } else {
+                                logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
+                            }
+                        } catch (Exception ex) {
+                            logger.warn("Failed to check/fetch branch '{}': {}", branchName, ex.getMessage());
+                            logger.debug("Full exception for branch '{}' check/fetch failure", branchName, ex);
+                        }
+                        return null;
+                    });
+                }
             }
         });
 
@@ -723,8 +748,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
                 if (!localBranches.contains(branchName)) {
                     // If it's not a known local branch, assume it's remote or needs tracking.
-                    if (branchName.contains("/")) {
-                        localTrackingName = branchName.substring(branchName.indexOf('/') + 1);
+                    var ref = RemoteBranchRef.parse(branchName);
+                    if (ref != null) {
+                        localTrackingName = ref.branchName();
+                        // Fetch the branch before checkout if needed
+                        if (getRepo().remote().branchNeedsFetch(ref.remoteName(), ref.branchName())) {
+                            logger.info(
+                                    "Fetching branch '{}' from remote '{}' (has updates)",
+                                    ref.branchName(),
+                                    ref.remoteName());
+                            getRepo().remote().fetchBranch(ref.remoteName(), ref.branchName());
+                        } else {
+                            logger.debug("Skipping fetch for '{}' (already up-to-date)", branchName);
+                        }
                     }
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.showNotification(
