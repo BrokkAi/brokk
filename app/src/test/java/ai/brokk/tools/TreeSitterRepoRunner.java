@@ -174,6 +174,16 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     private int maxFiles = 1000;
 
     @CommandLine.Option(
+            names = {"-wi", "--warm-up-iterations"},
+            description = "Number of warm-up iterations to run before measurement (default: 0)")
+    private int warmupIterations = 0;
+
+    @CommandLine.Option(
+            names = {"-i", "--iterations"},
+            description = "Number of measured iterations to execute (default: 1)")
+    private int iterations = 1;
+
+    @CommandLine.Option(
             names = "--output",
             description = "Output directory for results (default: " + DEFAULT_OUTPUT_DIR + ")")
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
@@ -205,6 +215,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             new CommandLine(this).usage(System.out);
             return 1;
         }
+
+        // Normalize iteration options
+        if (warmupIterations < 0) warmupIterations = 0;
+        if (iterations < 1) iterations = 1;
 
         try {
             if (cleanupReports) {
@@ -275,9 +289,6 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     private void runFullBaselines() throws Exception {
         System.out.println("Running comprehensive baselines...");
 
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var results = new BaselineResults();
-
         // Test each project with primary language (ordered by complexity)
         var projectTests = new LinkedHashMap<String, Language>();
         projectTests.put("kafka", Languages.JAVA); // Start with medium Java project
@@ -290,13 +301,34 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         projectTests.put("llvm", Languages.C_CPP); // Large C++ complexity
         projectTests.put("chromium", Languages.C_CPP); // Largest - expect failure/OOM
 
+        // Discover once per (project, language) and perform warm-ups
+        var discoveries = new LinkedHashMap<String, FileDiscoveryResult>();
         for (var entry : projectTests.entrySet()) {
             String project = entry.getKey();
             Language language = entry.getValue();
-            runAndRecordBaseline(project, language, results, timestamp);
+
+            var discovery = getProjectFiles(project, language, maxFiles);
+            discoveries.put(keyOf(project, language), discovery);
+
+            // Warm-ups (no recording/reporting)
+            runWarmups(project, language, discovery);
         }
 
-        saveFinalReports(results, timestamp);
+        // Measured iterations: produce a fresh set of timestamped result files per iteration
+        for (int iter = 1; iter <= iterations; iter++) {
+            var timestamp = timestampNow();
+            var results = new BaselineResults();
+
+            for (var entry : projectTests.entrySet()) {
+                String project = entry.getKey();
+                Language language = entry.getValue();
+
+                var discovery = discoveries.get(keyOf(project, language));
+                runAndRecordBaseline(project, language, discovery, results, timestamp);
+            }
+
+            saveFinalReports(results, timestamp);
+        }
     }
 
     private void runAndRecordBaseline(String project, Language language, BaselineResults results, String timestamp) {
@@ -356,6 +388,98 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             try {
                 var failedResult = new BaselineResult(
                         0, 0, Duration.ZERO, 0, 0, true, e.getMessage(), 0, 0, Duration.ZERO, 0, null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        }
+    }
+
+    // Overload that uses already-discovered files (avoids rediscovery per iteration)
+    private void runAndRecordBaseline(
+            String project,
+            Language language,
+            FileDiscoveryResult discovery,
+            BaselineResults results,
+            String timestamp) {
+        System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
+
+        try {
+            System.out.println("Project path: " + getProjectPath(project));
+            var result = runProjectBaseline(project, language, discovery);
+            results.addResult(project, language, result);
+
+            // Write incremental reports immediately
+            try {
+                results.saveIncrementalResult(project, language, result, outputDir, timestamp);
+                System.out.println("📊 Incremental results saved");
+            } catch (Exception e) {
+                System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
+            }
+
+            // Print immediate results
+            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Total time: %.2f seconds%n",
+                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+
+            if (result.failed) {
+                System.out.println("❌ Analysis failed: " + result.failureReason);
+                results.recordFailure(project, language, result.failureReason);
+            } else {
+                System.out.println("✓ Analysis completed successfully");
+            }
+
+        } catch (OutOfMemoryError e) {
+            System.out.println("❌ OutOfMemoryError - scalability limit reached");
+            results.recordOOM(project, language, maxFiles);
+            // Write incremental results for OOM failure
+            try {
+                var failedResult = new BaselineResult(
+                        maxFiles,
+                        0,
+                        Duration.ZERO,
+                        0,
+                        0,
+                        true,
+                        "OutOfMemoryError",
+                        0,
+                        0,
+                        discovery.discoveryTime(),
+                        discovery.totalMatched(),
+                        null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.out.println("❌ Failed: " + e.getMessage());
+            results.recordError(project, language, e.getMessage());
+            // Write incremental results for general failure
+            try {
+                var failedResult = new BaselineResult(
+                        0,
+                        0,
+                        Duration.ZERO,
+                        0,
+                        0,
+                        true,
+                        e.getMessage(),
+                        0,
+                        0,
+                        discovery.discoveryTime(),
+                        discovery.totalMatched(),
+                        null);
                 results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
                 System.out.println("📊 Incremental failure result saved");
             } catch (Exception ex) {
@@ -551,35 +675,45 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             System.out.println("  ...");
         }
 
-        try {
-            var result = runProjectBaseline(projectKey, testLanguage, discovery);
+        // Warm-ups (no recording/reporting)
+        runWarmups(projectKey, testLanguage, discovery);
 
-            var target = testProject != null ? testProject : testDirectory.toString();
-            System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
-            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-            System.out.printf(
-                    Locale.ROOT,
-                    "Total time: %.2f seconds%n",
-                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
-            System.out.printf(
-                    Locale.ROOT,
-                    "Memory per file: %.1f KB%n",
-                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+        // Measured iterations
+        for (int iter = 1; iter <= iterations; iter++) {
+            try {
+                var result = runProjectBaseline(projectKey, testLanguage, discovery);
 
-            // Print stage timing diagram if --stats flag is set
-            if (showStats && result.stageTiming != null) {
-                System.out.println();
-                System.out.println(generateStagingDiagram(result.stageTiming));
-            }
+                var target = testProject != null ? testProject : testDirectory.toString();
+                if (iterations > 1) {
+                    System.out.printf("Run %d/%d%n", iter, iterations);
+                }
+                System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
+                System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+                System.out.printf(
+                        Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+                System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+                System.out.printf(
+                        Locale.ROOT,
+                        "Total time: %.2f seconds%n",
+                        (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+                System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+                System.out.printf(
+                        Locale.ROOT,
+                        "Memory per file: %.1f KB%n",
+                        result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
 
-        } catch (Exception e) {
-            var target = testProject != null ? testProject : testDirectory.toString();
-            System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
-            if (verbose) {
-                e.printStackTrace();
+                // Print stage timing diagram if --stats flag is set
+                if (showStats && result.stageTiming != null) {
+                    System.out.println();
+                    System.out.println(generateStagingDiagram(result.stageTiming));
+                }
+
+            } catch (Exception e) {
+                var target = testProject != null ? testProject : testDirectory.toString();
+                System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
+                if (verbose) {
+                    e.printStackTrace();
+                }
             }
         }
     }
@@ -590,7 +724,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         logEntries.add("Running memory stress test...");
 
         // Timestamp for the output filename
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        var timestamp = timestampNow();
 
         // Determine project and language based on CLI inputs or defaults
         var project = (testProject != null) ? testProject : "chromium";
@@ -719,18 +853,30 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     private void multiLanguageAnalysis() throws Exception {
         System.out.println("Running multi-language analysis...");
 
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var results = new BaselineResults();
-
         // Test Chromium with multiple languages
         var project = "chromium";
         var languages = List.of(Languages.C_CPP, Languages.JAVASCRIPT, Languages.PYTHON);
 
+        // Discover once per language and perform warm-ups
+        var discoveries = new LinkedHashMap<Language, FileDiscoveryResult>();
         for (Language language : languages) {
-            runAndRecordBaseline(project, language, results, timestamp);
+            var discovery = getProjectFiles(project, language, maxFiles);
+            discoveries.put(language, discovery);
+            runWarmups(project, language, discovery);
         }
 
-        saveFinalReports(results, timestamp);
+        // Measured iterations: produce a fresh set of timestamped result files per iteration
+        for (int iter = 1; iter <= iterations; iter++) {
+            var timestamp = timestampNow();
+            var results = new BaselineResults();
+
+            for (Language language : languages) {
+                var discovery = discoveries.get(language);
+                runAndRecordBaseline(project, language, discovery, results, timestamp);
+            }
+
+            saveFinalReports(results, timestamp);
+        }
     }
 
     private FileDiscoveryResult getProjectFiles(String projectName, Language language, int maxFiles)
@@ -1015,6 +1161,8 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             System.out.printf("Directory     : %s%n", testDirectory.toAbsolutePath());
         }
         System.out.printf("Max files     : %d%n", maxFiles);
+        System.out.printf("Warm-ups      : %d%n", warmupIterations);
+        System.out.printf("Iterations    : %d%n", iterations);
         System.out.printf("Memory profile: %s%n", memoryProfiling ? "ENABLED" : "disabled");
         System.out.println("Output dir    : " + outputDir.toAbsolutePath());
         System.out.println("=".repeat(80));
@@ -1022,6 +1170,14 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
     private void ensureOutputDirectory() throws IOException {
         Files.createDirectories(outputDir);
+    }
+
+    private static String timestampNow() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS"));
+    }
+
+    private static String keyOf(String project, Language language) {
+        return project + "|" + language.internalName();
     }
 
     private void cleanupReportsDirectory() throws IOException {
@@ -1076,6 +1232,25 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
         // Implementation for summary printing
         System.out.println("Baseline execution completed. Check output files for details.");
+    }
+
+    // Warm-up runner that does not record or report results
+    private void runWarmups(String project, Language language, FileDiscoveryResult discovery) {
+        if (warmupIterations <= 0) {
+            return;
+        }
+        for (int i = 1; i <= warmupIterations; i++) {
+            if (verbose) {
+                System.out.printf("Warm-up %d/%d for %s (%s)%n", i, warmupIterations, project, language);
+            }
+            try {
+                runProjectBaseline(project, language, discovery);
+            } catch (Exception e) {
+                if (verbose) {
+                    System.err.println("Warm-up failed: " + e.getMessage());
+                }
+            }
+        }
     }
 
     // Helper classes
