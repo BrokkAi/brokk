@@ -17,7 +17,6 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
-import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -71,11 +70,6 @@ public class CodeAgent {
     // A "global" for current task Context. Updated mid-task with new files and build status.
     private Context context;
 
-    // Per-task conversation state fields (initialized at start of runTaskInternal)
-    String currentUserInput = "";
-    String accumulatedReasoning = "";
-    int lastCompactedMessageCount = 0;
-
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
@@ -87,12 +81,6 @@ public class CodeAgent {
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager, null);
     }
-
-    /**
-     * Helper record + factory to allow tests to verify the initial per-task state without constructing a full agent.
-     */
-    record PerTaskState(
-            @Nullable String currentUserInput, String accumulatedReasoning, int lastCompactedMessageCount) {}
 
     public enum Option {
         DEFER_BUILD
@@ -146,11 +134,6 @@ public class CodeAgent {
         // Seed the local Context reference for this task
         context = initialContext;
 
-        // Initialize per-task conversation state fields
-        this.currentUserInput = userInput;
-        this.accumulatedReasoning = "";
-        this.lastCompactedMessageCount = 0;
-
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
@@ -177,8 +160,8 @@ public class CodeAgent {
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
                 context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
-        // FSM state
-        var cs = new ConversationState(taskMessages, nextRequest, 0);
+        // FSM state - include original goal for build-retry compaction
+        var cs = new ConversationState(taskMessages, nextRequest, 0, userInput.trim());
         var es = new EditState(
                 blocks,
                 0,
@@ -214,32 +197,20 @@ public class CodeAgent {
                 break;
             }
 
-            // Before each LLM request, append a workspace TOC reminder to the current round's UserMessage.
-            var baseRequest = requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM");
-            boolean showBuildStatusInWorkspace = !es.hasAttemptedBuild();
-            var tocReminder =
-                    """
-            Reminder: here is a list of the full contents of the Workspace that you can refer to above:
-            %s
-            """
-                            .formatted(WorkspacePrompts.formatCodeToc(
-                                    context, es.changedFiles(), showBuildStatusInWorkspace));
-            var augmentedText = Messages.getText(baseRequest) + "\n\n" + tocReminder;
-            var augmentedRequest = new UserMessage(augmentedText);
-            cs = new ConversationState(cs.taskMessages(), augmentedRequest, cs.turnStartIndex());
-
             // Make the LLM request
             StreamingResult streamingResult;
             try {
                 var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
+                boolean showBuildStatusInWorkspace = !es.hasAttemptedBuild();
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
-                        requireNonNull(cs.nextRequest()),
+                        requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         viewingPolicy,
                         userInput.trim(),
+                        es.changedFiles(),
                         showBuildStatusInWorkspace);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
@@ -755,12 +726,16 @@ public class CodeAgent {
                     %s
                     </original_goal>
                     """
-                            .formatted(buildError, currentUserInput);
+                            .formatted(buildError, cs.originalGoal());
             UserMessage nextRequest = CodePrompts.instance.codeRequest(
                     context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
-            // Compact conversation into a concise summary for the build step, if possible.
-            var compactedMessages = compactConversationForBuild(cs);
-            var newCs = new ConversationState(compactedMessages, nextRequest, compactedMessages.size());
+            // Compact conversation into a concise summary for the build step
+            var compactedCs = cs.compactForBuildRetry();
+            var newCs = new ConversationState(
+                    compactedCs.taskMessages(),
+                    nextRequest,
+                    compactedCs.taskMessages().size(),
+                    cs.originalGoal());
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
@@ -1203,8 +1178,55 @@ public class CodeAgent {
      * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
      * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
+     *
+     * @param originalGoal the user's original goal/instructions, preserved for build-retry compaction
      */
-    record ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
+    record ConversationState(
+            List<ChatMessage> taskMessages,
+            @Nullable UserMessage nextRequest,
+            int turnStartIndex,
+            String originalGoal) {
+
+        /** Convenience constructor for when originalGoal isn't yet known (backward compat). */
+        ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
+            this(taskMessages, nextRequest, turnStartIndex, "");
+        }
+        /**
+         * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
+         * and return a minimal conversation of [originalGoal, accumulated reasoning].
+         *
+         * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
+         */
+        ConversationState compactForBuildRetry() {
+            if (originalGoal.isBlank()) {
+                return this;
+            }
+
+            var segments = new ArrayList<String>();
+            for (ChatMessage m : taskMessages) {
+                if (m instanceof AiMessage ai) {
+                    String seg = ai.reasoningContent();
+                    if (seg == null || seg.isBlank()) {
+                        seg = CodePrompts.redactAiMessage(ai, EditBlockParser.instance)
+                                .map(AiMessage::text)
+                                .orElse("");
+                    }
+                    if (!seg.isBlank()) {
+                        segments.add(seg);
+                    }
+                }
+            }
+
+            if (segments.isEmpty()) {
+                return this;
+            }
+
+            var compactedMessages = new ArrayList<ChatMessage>();
+            compactedMessages.add(new UserMessage(originalGoal));
+            compactedMessages.add(new AiMessage(String.join("\n\n", segments)));
+            return new ConversationState(compactedMessages, nextRequest, compactedMessages.size(), originalGoal);
+        }
+
         /**
          * Replace all messages in the current turn (starting from turnStartIndex) with: - the original starting
          * UserMessage of the turn - a single synthetic AiMessage summarizing the edits.
@@ -1245,7 +1267,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(msgs, nextRequest, msgs.size());
+            return new ConversationState(msgs, nextRequest, msgs.size(), originalGoal);
         }
     }
 
@@ -1612,60 +1634,5 @@ public class CodeAgent {
                 throw new RuntimeException(e);
             }
         }
-    }
-
-    /**
-     * Compact the current conversation for build-time feedback:
-     *
-     * - Scans cs.taskMessages() starting at lastCompactedMessageCount.
-     * - For each new AiMessage, appends ai.reasoningContent() when non-blank, otherwise falls back to a redaction of
-     *   the AiMessage text via CodePrompts.redactAiMessage(...).
-     * - Appends joined segments to this.accumulatedReasoning and updates lastCompactedMessageCount.
-     * - If currentUserInput is non-blank and accumulatedReasoning is non-blank, returns
-     *   [ new UserMessage(currentUserInput), new AiMessage(accumulatedReasoning) ].
-     * - If currentUserInput is non-blank but accumulatedReasoning is blank, returns an empty list.
-     * - Otherwise returns an empty list (unchanged conversation should not be compacted).
-     */
-    List<ChatMessage> compactConversationForBuild(ConversationState cs) {
-        var msgs = cs.taskMessages();
-        int start = Math.max(0, lastCompactedMessageCount);
-        var segments = new ArrayList<String>();
-        for (int i = start; i < msgs.size(); i++) {
-            ChatMessage m = msgs.get(i);
-            if (m instanceof AiMessage ai) {
-                String seg = ai.reasoningContent();
-                if (seg == null || seg.isBlank()) {
-                    seg = CodePrompts.redactAiMessage(ai, EditBlockParser.instance)
-                            .map(AiMessage::text)
-                            .orElse("");
-                }
-                if (!seg.isBlank()) {
-                    segments.add(seg);
-                }
-            }
-        }
-
-        if (!segments.isEmpty()) {
-            var joined = String.join("\n\n", segments);
-            if (this.accumulatedReasoning.isBlank()) {
-                this.accumulatedReasoning = joined;
-            } else {
-                this.accumulatedReasoning = this.accumulatedReasoning + "\n\n" + joined;
-            }
-        }
-
-        this.lastCompactedMessageCount = msgs.size();
-
-        if (!currentUserInput.isBlank()) {
-            if (!this.accumulatedReasoning.isBlank()) {
-                var outMsgs = new ArrayList<ChatMessage>();
-                outMsgs.add(new UserMessage(currentUserInput));
-                outMsgs.add(new AiMessage(this.accumulatedReasoning));
-                return outMsgs;
-            } else {
-                return new ArrayList<>();
-            }
-        }
-        return new ArrayList<>();
     }
 }

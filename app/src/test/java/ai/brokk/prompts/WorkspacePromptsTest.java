@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -118,6 +119,26 @@ class WorkspacePromptsTest {
         assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
         assertEquals(fragB, sorted.get(1), "Middle file B should be second");
         assertEquals(fragC, sorted.get(2), "Newest file C should be last");
+    }
+
+    @Test
+    void testFormatTocConsolidatesFormats() throws IOException {
+        var file = createTestFile("test.java", "class Test {}");
+        cm.addEditableFile(file);
+
+        var ctx = new Context(cm, null);
+        var frag = new ContextFragment.ProjectPathFragment(file, cm);
+        ctx = ctx.addPathFragments(List.of(frag));
+
+        // Without changed files - should show single editable section
+        String tocNoChanges = WorkspacePrompts.formatToc(ctx, null, false);
+        assertTrue(tocNoChanges.contains("<workspace_editable>"), "Should have single editable section");
+        assertFalse(tocNoChanges.contains("<workspace_editable_unchanged>"), "Should not split when no changedFiles");
+
+        // With changed files - should split into changed/unchanged
+        String tocWithChanges = WorkspacePrompts.formatToc(ctx, Set.of(file), false);
+        assertTrue(tocWithChanges.contains("<workspace_editable_changed>"), "Should have changed section");
+        assertFalse(tocWithChanges.contains("<workspace_editable_unchanged>"), "File is changed, no unchanged section");
     }
 
     @Test

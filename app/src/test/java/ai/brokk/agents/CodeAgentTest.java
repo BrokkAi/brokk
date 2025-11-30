@@ -857,6 +857,7 @@ class CodeAgentTest {
                 nextRequest,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(nextRequest),
+                changedFiles,
                 false);
 
         boolean found = messages.stream()
@@ -1232,13 +1233,19 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request),
+                Set.of(),
                 false);
 
         // 1) first message is SystemMessage
         assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
 
-        // 2) last message should be the request we provided (same instance is appended)
-        assertEquals(request, msgsNoChanged.get(msgsNoChanged.size() - 1));
+        // 2) last message should be the augmented request (original text + TOC reminder)
+        var lastMsg = msgsNoChanged.get(msgsNoChanged.size() - 1);
+        assertInstanceOf(UserMessage.class, lastMsg);
+        String lastMsgText = Messages.getText(lastMsg);
+        assertTrue(
+                lastMsgText.contains(Messages.getText(request)), "Last message should contain original request text");
+        assertTrue(lastMsgText.contains("<workspace_toc>"), "Last message should contain TOC reminder");
 
         // 3) some message should contain the read-only file name
         boolean containsRo =
@@ -1254,6 +1261,7 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request),
+                Set.of(editable),
                 false);
 
         // 4) ensure editable file name appears when it is provided as changed
@@ -1264,7 +1272,7 @@ class CodeAgentTest {
                 "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatCodeToc(ctx, Set.of(), false);
+        var toc = WorkspacePrompts.formatToc(ctx, Set.of(), false);
         var tocReminder =
                 """
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
@@ -1285,7 +1293,7 @@ class CodeAgentTest {
     }
 
     @Test
-    void compactConversationForBuildAggregatesReasoningAndProducesSyntheticTurn() {
+    void compactForBuildRetryAggregatesReasoningAndProducesSyntheticTurn() {
         // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)
         List<ChatMessage> msgs = new ArrayList<>();
         msgs.add(new UserMessage("original user"));
@@ -1293,26 +1301,25 @@ class CodeAgentTest {
         msgs.add(AiMessage.from("", "")); // blank reasoningContent and blank text -> should be skipped
         msgs.add(AiMessage.from("ai text 3", "reason-3"));
 
-        var cs = new CodeAgent.ConversationState(msgs, null, 0);
+        // Create ConversationState with original goal
+        var cs = new CodeAgent.ConversationState(msgs, null, 0, "my-user-goal");
 
-        // Initialize the CodeAgent's instance state to prepare for compaction
-        codeAgent.currentUserInput = "my-user-goal";
-        codeAgent.accumulatedReasoning = "";
-        codeAgent.lastCompactedMessageCount = 1; // scan from the first AiMessage
+        // Call the pure compaction method
+        var compactedCs = cs.compactForBuildRetry();
 
-        var compactedCs = codeAgent.compactConversationForBuild(cs);
-
-        // After compaction, accumulated reasoning should have both non-blank reasoning segments joined.
-        String expectedAccumulated = "reason-1\n\nreason-3";
-        assertEquals(expectedAccumulated, codeAgent.accumulatedReasoning);
-
-        // The compacted ConversationState should be [ UserMessage(userInput), AiMessage(accumulatedReasoning) ]
+        // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
         var compactedMessages = compactedCs.taskMessages();
         assertEquals(2, compactedMessages.size());
         assertInstanceOf(UserMessage.class, compactedMessages.get(0));
         assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
         assertInstanceOf(AiMessage.class, compactedMessages.get(1));
+
+        // Both non-blank reasoning segments should be joined
+        String expectedAccumulated = "reason-1\n\nreason-3";
         assertEquals(expectedAccumulated, ((AiMessage) compactedMessages.get(1)).text());
+
+        // Original goal should be preserved
+        assertEquals("my-user-goal", compactedCs.originalGoal());
     }
 
     @Test
@@ -1331,6 +1338,7 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 "My special goal text",
+                Set.of(),
                 false);
 
         // First message should be the system message; ensure it contains the goal block with original text.

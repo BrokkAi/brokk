@@ -200,7 +200,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, WorkspacePrompts.formatGroupedToc(cm.liveContext()), workspaceWarning);
+                .formatted(goal, WorkspacePrompts.formatToc(cm.liveContext()), workspaceWarning);
     }
 
     /**

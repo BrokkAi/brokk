@@ -11,6 +11,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.util.Messages;
 import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -202,6 +203,7 @@ public abstract class CodePrompts {
             UserMessage request,
             ViewingPolicy viewingPolicy,
             String goal,
+            Set<ProjectFile> changedFiles,
             boolean includeBuildStatus) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
@@ -214,7 +216,17 @@ public abstract class CodePrompts {
         messages.addAll(prologue);
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
-        messages.add(request);
+
+        // Append TOC reminder to the request
+        var tocReminder =
+                """
+
+                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+                %s
+                """
+                        .formatted(WorkspacePrompts.formatToc(ctx, changedFiles, includeBuildStatus));
+        var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
+        messages.add(augmentedRequest);
 
         return messages;
     }
