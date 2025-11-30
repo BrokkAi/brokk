@@ -14,9 +14,11 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -49,9 +51,31 @@ public final class WorkspacePrompts {
      */
     public record CodeAgentMessages(List<ChatMessage> workspace, @Nullable String buildFailure) {}
 
+    /**
+     * Sorts editable fragments by the minimum file modification time (mtime) across their associated files.
+     * - Fragments with no files or inaccessible mtimes are given an mtime of 0 and will appear first.
+     * - Sorting is ascending (oldest first, newest last).
+     *
+     * @param editableFragments stream of editable fragments (typically from {@link Context#getEditableFragments()})
+     * @return stream of fragments sorted by min mtime
+     */
+    public static Stream<ContextFragment> sortByMtime(Stream<ContextFragment> editableFragments) {
+        return editableFragments.sorted(Comparator.comparingLong(cf -> cf.files().stream()
+                .mapToLong(pf -> {
+                    try {
+                        return pf.mtime();
+                    } catch (IOException e) {
+                        logger.warn("Could not get mtime for file in fragment [{}]; using 0", cf.shortDescription(), e);
+                        return 0L;
+                    }
+                })
+                .min()
+                .orElse(0L)));
+    }
+
     public static String formatGroupedToc(Context ctx) {
         var editableContents =
-                ctx.getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+                sortByMtime(ctx.getEditableFragments()).map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var buildFragment = ctx.getBuildFragment();
@@ -108,7 +132,7 @@ public final class WorkspacePrompts {
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
 
-        var editableFragments = ctx.getEditableFragments().toList();
+        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
 
         List<ContextFragment> editableUnchanged;
         List<ContextFragment> editableChanged;
@@ -315,7 +339,7 @@ public final class WorkspacePrompts {
     }
 
     private static List<ChatMessage> buildEditableAll(Context ctx) {
-        var editableFragments = ctx.getEditableFragments().toList();
+        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         @Nullable ContextFragment buildFragment = ctx.getBuildFragment().orElse(null);
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {

@@ -377,40 +377,11 @@ public class Context {
     }
 
     /**
-     * Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last
+     * Returns editable fragments.
      */
     public Stream<ContextFragment> getEditableFragments() {
-        // Helper record for associating a fragment with its mtime for safe sorting and filtering
-        record EditableFileWithMtime(ContextFragment.ProjectPathFragment fragment, long mtime) {}
-
-        Stream<ContextFragment.ProjectPathFragment> sortedProjectFiles = fragments.stream()
-                .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                .map(ContextFragment.ProjectPathFragment.class::cast)
-                .map(pf -> {
-                    try {
-                        return new EditableFileWithMtime(pf, pf.file().mtime());
-                    } catch (IOException e) {
-                        logger.warn(
-                                "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                pf.shortDescription(),
-                                e);
-                        return new EditableFileWithMtime(pf, -1L);
-                    }
-                })
-                .filter(mf -> mf.mtime() >= 0)
-                .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
-                .map(EditableFileWithMtime::fragment);
-
-        Stream<ContextFragment> otherEditablePathFragments = fragments.stream()
-                .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
-
-        Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> f.getType().isVirtual() && f.getType().isEditable());
-
-        return Streams.concat(
-                        editableVirtuals,
-                        otherEditablePathFragments,
-                        sortedProjectFiles.map(ContextFragment.class::cast))
+        return fragments.stream()
+                .filter(cf -> cf.getType().isEditable())
                 .filter(cf -> !markedReadonlyFragments.contains(cf));
     }
 

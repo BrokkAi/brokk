@@ -90,6 +90,55 @@ class WorkspacePromptsTest {
         assertEquals(1, count, "Should have exactly one build status block in the combined workspace");
     }
 
+    @Test
+    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime() throws IOException, InterruptedException {
+        // Create three test files with distinct mtimes
+        var fileA = createTestFile("src/A.java", "class A {}");
+        Thread.sleep(1100); // ensure different mtime granularity across platforms
+
+        var fileB = createTestFile("src/B.java", "class B {}");
+        Thread.sleep(1100);
+
+        var fileC = createTestFile("src/C.java", "class C {}");
+
+        // Create fragments in reverse order (C, B, A) to verify sorting reorders them
+        var fragC = new ContextFragment.ProjectPathFragment(fileC, cm);
+        var fragB = new ContextFragment.ProjectPathFragment(fileB, cm);
+        var fragA = new ContextFragment.ProjectPathFragment(fileA, cm);
+
+        var ctx = new Context(cm, null).addPathFragments(List.of(fragC, fragB, fragA));
+
+        // Sort and verify order is by mtime (oldest A, then B, then newest C)
+        var sorted = WorkspacePrompts.sortEditableFragmentsByMtime(ctx.getEditableFragments()).toList();
+
+        assertEquals(3, sorted.size(), "All three fragments should be present");
+        assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
+        assertEquals(fragB, sorted.get(1), "Middle file B should be second");
+        assertEquals(fragC, sorted.get(2), "Newest file C should be last");
+    }
+
+    @Test
+    void testSortEditableFragmentsByMtimePreservesNonProjectFragmentOrder() throws IOException {
+        var file = createTestFile("file.txt", "content");
+        cm.addEditableFile(file);
+
+        // Create an editable virtual fragment (UsageFragment) and a project path fragment
+        var virtualFrag = new ContextFragment.UsageFragment(cm, "com.example.SomeTarget");
+        var projectFrag = new ContextFragment.ProjectPathFragment(file, cm);
+
+        var ctx = new Context(cm, null)
+                .addPathFragments(List.of(projectFrag))
+                .addVirtualFragment(virtualFrag);
+
+        // Sort and verify virtual fragment stays first
+        var sorted = WorkspacePrompts.sortEditableFragmentsByMtime(ctx.getEditableFragments()).toList();
+
+        assertEquals(2, sorted.size());
+        assertTrue(sorted.get(0) instanceof ContextFragment.UsageFragment,
+                "Editable virtual fragment should remain first");
+        assertEquals(projectFrag, sorted.get(1), "Project fragment should be second");
+    }
+
     // Helper method to create test files
     private ai.brokk.analyzer.ProjectFile createTestFile(String relativePath, String content) {
         try {

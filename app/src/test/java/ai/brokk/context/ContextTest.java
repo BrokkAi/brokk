@@ -91,54 +91,6 @@ class ContextTest {
         assertEquals(1, ctx.virtualFragments().count(), "Duplicate virtual fragments should be deduped by id/source");
     }
 
-    @Test
-    void testEditableFragmentsOrderingAndReadOnlyFilter() throws Exception {
-        // Prepare path files with distinct mtimes
-        var pfA = new ProjectFile(tempDir, "src/A.java");
-        Files.createDirectories(pfA.absPath().getParent());
-        Files.writeString(pfA.absPath(), "class A {}");
-        Thread.sleep(1100); // ensure different mtime granularity across platforms
-
-        var pfB = new ProjectFile(tempDir, "src/B.java");
-        Files.createDirectories(pfB.absPath().getParent());
-        Files.writeString(pfB.absPath(), "class B {}");
-
-        var projectFragA = new ContextFragment.ProjectPathFragment(pfA, contextManager);
-        var projectFragB = new ContextFragment.ProjectPathFragment(pfB, contextManager);
-
-        // Other editable path fragment
-        var extPath = tempDir.resolve("external.txt");
-        Files.writeString(extPath, "external");
-        var extFrag = new ContextFragment.ExternalPathFragment(new ExternalFile(extPath), contextManager);
-
-        // Editable virtual: CodeFragment
-        var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream()
-                .findFirst()
-                .orElseThrow();
-        var codeFrag = new ContextFragment.CodeFragment(contextManager, cu);
-
-        var ctx = new Context(contextManager, "init")
-                .addPathFragments(List.of(projectFragA, projectFragB))
-                .addPathFragments(List.of(extFrag))
-                .addVirtualFragment(codeFrag);
-
-        // Order: editable virtuals first (CodeFragment), then other editable path fragments (External),
-        // then project path fragments ordered by mtime (older A then newer B).
-        var editable = ctx.getEditableFragments().toList();
-        assertEquals(4, editable.size(), "All editable fragments should be present before read-only filtering");
-        assertTrue(editable.get(0) instanceof ContextFragment.CodeFragment, "Editable virtuals should come first");
-        assertTrue(
-                editable.get(1) instanceof ContextFragment.ExternalPathFragment, "Other editable path fragments next");
-        assertEquals(projectFragA, editable.get(2), "Older project file should come before newer");
-        assertEquals(projectFragB, editable.get(3), "Newer project file should be last");
-
-        // Mark CodeFragment as read-only and verify it drops from editable
-        var ctx2 = ctx.setReadonly(codeFrag, true);
-        var editable2 = ctx2.getEditableFragments().toList();
-        assertEquals(3, editable2.size(), "Read-only fragments should be filtered out");
-        assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragment.CodeFragment));
-        assertTrue(ctx2.isMarkedReadonly(codeFrag), "Read-only state should be tracked");
-    }
 
     @Test
     void testRemoveFragmentsClearsReadOnlyAndAllowsReAdd() throws Exception {
