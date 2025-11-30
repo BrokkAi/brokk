@@ -144,13 +144,6 @@ jobs:
           echo "time_change_str=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.change_str // empty')" >> $GITHUB_OUTPUT
           echo "time_status=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status // empty')" >> $GITHUB_OUTPUT
           echo "time_status_emoji=$(echo "$summary_json" | jq -r '.metrics.analysis_time_seconds.status_emoji // empty')" >> $GITHUB_OUTPUT
-          # Memory per File
-          echo "mem_base=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.base_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_head=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.head_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_change_pct=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.change_pct // empty')" >> $GITHUB_OUTPUT
-          echo "mem_change_str=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.change_str // empty')" >> $GITHUB_OUTPUT
-          echo "mem_status=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.status // empty')" >> $GITHUB_OUTPUT
-          echo "mem_status_emoji=$(echo "$summary_json" | jq -r '.metrics.memory_per_file_kb.status_emoji // empty')" >> $GITHUB_OUTPUT
           # Files per Second
           echo "fps_base=$(echo "$summary_json" | jq -r '.metrics.files_per_second.base_str // empty')" >> $GITHUB_OUTPUT
           echo "fps_head=$(echo "$summary_json" | jq -r '.metrics.files_per_second.head_str // empty')" >> $GITHUB_OUTPUT
@@ -180,12 +173,6 @@ jobs:
               "time_status": "${{ steps.compare.outputs.time_status }}",
               "time_status_emoji": "${{ steps.compare.outputs.time_status_emoji }}",
 
-              "mem_base": "${{ steps.compare.outputs.mem_base }}",
-              "mem_head": "${{ steps.compare.outputs.mem_head }}",
-              "mem_change_pct": "${{ steps.compare.outputs.mem_change_pct }}",
-              "mem_change_str": "${{ steps.compare.outputs.mem_change_str }}",
-              "mem_status": "${{ steps.compare.outputs.mem_status }}",
-              "mem_status_emoji": "${{ steps.compare.outputs.mem_status_emoji }}",
 
               "fps_base": "${{ steps.compare.outputs.fps_base }}",
               "fps_head": "${{ steps.compare.outputs.fps_head }}",
