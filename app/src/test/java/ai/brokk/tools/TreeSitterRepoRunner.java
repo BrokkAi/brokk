@@ -17,31 +17,36 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import picocli.CommandLine;
 
 /**
- * Simplified baseline measurement utility for TreeSitter performance analysis. Compatible with master branch - uses
- * basic caching and simplified metrics.
+ * Simplified baseline measurement utility for TreeSitter performance analysis.
+ * Now uses picocli for CLI parsing (modeled after BrokkCli).
  *
- * <p>Usage: java TreeSitterRepoRunner [options] <command>
+ * Usage:
+ *   java TreeSitterRepoRunner <command> [options]
  *
- * <p>Commands: setup-projects Download/clone all test projects run-baselines Execute full baseline suite test-project
- * Test specific project: --project <name> --language <lang> memory-stress Memory stress test with increasing file
- * counts multi-language Multi-language analysis on same project
- *
- * <p>Options: --project <name> Specific project (chromium, llvm, vscode, etc.) --language <lang> Language to analyze
- * (cpp, java, typescript, etc.) --directory <path> Custom directory to analyze (use absolute paths) --max-files <count>
- * Maximum files to process (default: 1000) --output <path> Output directory for results (default:
- * build/reports/treesitter-baseline) --memory-profile Enable detailed memory profiling --stress-test Run until
- * OutOfMemoryError to find limits --json Output results in JSON format --verbose Enable verbose logging --show-details
- * Show symbols found in each file
+ * Commands:
+ *   setup-projects    Download/clone all test projects
+ *   run-baselines     Execute full baseline suite
+ *   test-project      Test specific project
+ *   memory-stress     Memory stress test with increasing file counts
+ *   multi-language    Multi-language analysis on same project
+ *   cleanup           Clean up report files from output directory
+ *   help              Show usage
  */
-public class TreeSitterRepoRunner {
+@CommandLine.Command(
+        name = "TreeSitterRepoRunner",
+        mixinStandardHelpOptions = true,
+        description = "TreeSitter Performance Baseline Measurement (Simplified)")
+public class TreeSitterRepoRunner implements Callable<Integer> {
 
     private static final String PROJECTS_DIR = "../test-projects";
     private static final String DEFAULT_OUTPUT_DIR = "build/reports/treesitter-baseline";
@@ -50,6 +55,9 @@ public class TreeSitterRepoRunner {
      * Base directory where test projects are stored. Defaults to {@link #PROJECTS_DIR} but may be overridden with the
      * --projects-dir CLI option.
      */
+    @CommandLine.Option(
+            names = "--projects-dir",
+            description = "Base directory for cloned projects (default: " + PROJECTS_DIR + ")")
     private Path projectsBaseDir = Paths.get(PROJECTS_DIR).toAbsolutePath().normalize();
 
     // Project configurations for real-world testing
@@ -139,32 +147,66 @@ public class TreeSitterRepoRunner {
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
 
+    @CommandLine.Option(
+            names = {"--memory-profile", "--memory"},
+            description = "Enable detailed memory profiling")
     private boolean memoryProfiling = false;
+
+    @CommandLine.Option(names = "--stress-test", description = "Run until OutOfMemoryError to find limits")
     private boolean stressTest = false;
+
+    @CommandLine.Option(names = "--json", description = "Output results in JSON format")
     private boolean jsonOutput = false;
+
+    @CommandLine.Option(names = "--verbose", description = "Enable verbose logging")
     private boolean verbose = false;
+
+    @CommandLine.Option(names = "--show-details", description = "Show symbols found in each file")
     private boolean showDetails = false;
+
+    @CommandLine.Option(names = "--stats", description = "Show stage timing diagram (if supported)")
     private boolean showStats = false;
+
+    @CommandLine.Option(names = "--cleanup", description = "Clean up reports before running command")
     private boolean cleanupReports = false;
+
+    @CommandLine.Option(names = "--max-files", description = "Maximum files to process (default: 1000)")
     private int maxFiles = 1000;
+
+    @CommandLine.Option(
+            names = "--output",
+            description = "Output directory for results (default: " + DEFAULT_OUTPUT_DIR + ")")
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
+
+    @CommandLine.Option(names = "--project", description = "Specific project to test")
     private @Nullable String testProject = null;
+
+    @CommandLine.Option(
+            names = "--language",
+            description = "Language to analyze (java, typescript, cpp, etc.)",
+            converter = LanguageTypeConverter.class)
     private @Nullable Language testLanguage = null;
+
+    @CommandLine.Option(names = "--directory", description = "Custom directory to analyze (use absolute paths)")
     private @Nullable Path testDirectory = null;
 
+    @CommandLine.Parameters(index = "0", description = "Command to run")
+    private @Nullable String command;
+
     public static void main(String[] args) {
-        new TreeSitterRepoRunner().run(args);
+        int exitCode = new CommandLine(new TreeSitterRepoRunner()).execute(args);
+        System.exit(exitCode);
     }
 
-    private void run(String[] args) {
-        if (args.length == 0) {
-            printUsage();
-            System.exit(1);
+    @Override
+    public Integer call() {
+        if (command == null) {
+            // Picocli should enforce arity=1, but double-check for safety
+            new CommandLine(this).usage(System.out);
+            return 1;
         }
 
         try {
-            String command = parseArgumentsAndGetCommand(args);
-
             if (cleanupReports) {
                 cleanupReportsDirectory();
                 if (!"cleanup".equals(command)) {
@@ -183,25 +225,26 @@ public class TreeSitterRepoRunner {
                 case "multi-language" -> multiLanguageAnalysis();
                 case "cleanup" -> {
                     System.out.println("✓ Reports directory cleaned");
-                    return;
+                    return 0;
                 }
                 case "help" -> {
-                    printUsage();
-                    return;
+                    new CommandLine(this).usage(System.out);
+                    return 0;
                 }
                 default -> {
                     System.err.println("Unknown command: " + command);
-                    printUsage();
-                    System.exit(1);
+                    new CommandLine(this).usage(System.out);
+                    return 1;
                 }
             }
 
+            return 0;
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             if (verbose) {
                 e.printStackTrace();
             }
-            System.exit(1);
+            return 1;
         }
     }
 
@@ -958,67 +1001,6 @@ public class TreeSitterRepoRunner {
         return baseCandidate;
     }
 
-    private String parseArgumentsAndGetCommand(String[] args) {
-        String command = null;
-
-        for (int i = 0; i < args.length; i++) {
-            String arg = args[i];
-
-            // Check if this is a command (not starting with --)
-            if (!arg.startsWith("--")) {
-                command = arg;
-                continue;
-            }
-
-            // Parse options
-            switch (arg) {
-                case "--max-files" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        maxFiles = Integer.parseInt(args[++i]);
-                    }
-                }
-                case "--output" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        outputDir = Paths.get(args[++i]);
-                    }
-                }
-                case "--project" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testProject = args[++i];
-                    }
-                }
-                case "--language" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testLanguage = Languages.valueOf(args[++i].toUpperCase(Locale.ROOT));
-                    }
-                }
-                case "--projects-dir" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        projectsBaseDir = Paths.get(args[++i]).toAbsolutePath().normalize();
-                    }
-                }
-                case "--directory" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testDirectory = Paths.get(args[++i]).toAbsolutePath().normalize();
-                    }
-                }
-                case "--memory-profile", "--memory" -> memoryProfiling = true;
-                case "--stress-test" -> stressTest = true;
-                case "--json" -> jsonOutput = true;
-                case "--verbose" -> verbose = true;
-                case "--show-details" -> showDetails = true;
-                case "--stats" -> showStats = true;
-                case "--cleanup" -> cleanupReports = true;
-            }
-        }
-
-        if (command == null) {
-            throw new IllegalArgumentException("No command specified");
-        }
-
-        return command;
-    }
-
     private void printStartupBanner(String command) {
         System.out.println("=".repeat(80));
         System.out.println("TreeSitterRepoRunner starting (Simplified Version)");
@@ -1071,37 +1053,6 @@ public class TreeSitterRepoRunner {
         } else {
             System.out.println("📭 No report files found to clean in " + outputDir.toAbsolutePath());
         }
-    }
-
-    private void printUsage() {
-        System.out.println(
-                """
-            TreeSitterRepoRunner - TreeSitter Performance Baseline Measurement (Simplified)
-
-            Usage: java TreeSitterRepoRunner [options] <command>
-
-            Commands:
-              setup-projects    Download/clone all test projects
-              run-baselines     Execute full baseline suite
-              test-project      Test specific project
-              memory-stress     Memory stress test with increasing file counts (supports --project, --language, --directory)
-              multi-language    Multi-language analysis on same project
-              cleanup           Clean up report files from output directory
-
-            Options:
-              --max-files <n>   Maximum files to process (default: 1000)
-              --output <path>   Output directory (default: baseline-results)
-              --projects-dir <path>  Base directory for cloned projects (default: ../test-projects)
-              --directory <path>     Custom directory to analyze (use absolute paths)
-              --project <name>       Specific project to test
-              --language <lang>      Language to analyze (java, typescript, cpp, etc.)
-              --memory-profile  Enable detailed memory profiling
-              --stress-test     Run until OutOfMemoryError
-              --json            Output in JSON format
-              --verbose         Enable verbose logging
-              --show-details    Show symbols found in each file
-              --cleanup         Clean up reports before running command
-            """);
     }
 
     private void printBaselineSummary(BaselineResults results) {
@@ -1464,6 +1415,19 @@ public class TreeSitterRepoRunner {
         @Override
         public Set<ProjectFile> getAllFiles() {
             return files;
+        }
+    }
+
+    // Type converter to map --language values to the project's Language enum implementation.
+    public static class LanguageTypeConverter implements CommandLine.ITypeConverter<Language> {
+        @Override
+        public Language convert(String value) {
+            try {
+                return Languages.valueOf(value.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                throw new CommandLine.TypeConversionException(
+                        "Invalid language: " + value + ". Supported: java, typescript, cpp, javascript, python");
+            }
         }
     }
 
