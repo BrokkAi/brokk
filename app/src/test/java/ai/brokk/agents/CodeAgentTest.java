@@ -383,8 +383,10 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) resultFail;
         assertTrue(retryStep.es().lastBuildError().contains("Detailed build error output"));
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild()); // Reset
+        String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
         assertTrue(
-                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("The build failed"));
+                nextReqText.contains("<build_output>") && nextReqText.contains("<goal>"),
+                "Expected build-failure prompt to include <build_output> and <goal> blocks");
 
         // Second run - build should succeed
         // We must manually create a new state that simulates new edits having been applied,
@@ -814,9 +816,8 @@ class CodeAgentTest {
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
 
-    // Ensure that build errors recorded in Context are surfaced in the workspace prompt
     @Test
-    void testBuildErrorIsIncludedInWorkspacePrompt() throws InterruptedException {
+    void testBuildErrorIsNotIncludedInWorkspacePrompt() throws InterruptedException {
         var ctx = newContext().withBuildResult(false, "Simulated build error for prompt");
         var prologue = List.<ChatMessage>of();
         var taskMessages = new ArrayList<ChatMessage>();
@@ -830,15 +831,14 @@ class CodeAgentTest {
                 taskMessages,
                 nextRequest,
                 changedFiles,
-                new ViewingPolicy(TaskResult.Type.CODE));
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(nextRequest));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
                 .anyMatch(text -> text.contains("Simulated build error for prompt"));
 
-        assertTrue(
-                found,
-                "Workspace messages for the LLM should include the latest build error text from Context.withBuildResult");
+        assertFalse(found, messages.toString());
     }
 
     // REQ-1: requestPhase with partial response + error should continue, not exit fatally
@@ -1206,7 +1206,8 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 Set.of(),
-                new ViewingPolicy(TaskResult.Type.CODE));
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(request));
 
         // 1) first message is SystemMessage
         assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
@@ -1227,7 +1228,8 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 Set.of(editable),
-                new ViewingPolicy(TaskResult.Type.CODE));
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(request));
 
         // 4) ensure editable file name appears when it is provided as changed
         boolean containsEditable =
@@ -1255,5 +1257,57 @@ class CodeAgentTest {
         // This duplicates the earlier test name to ensure test runner uniqueness is unaffected.
         // The meaningful behavior is covered by the other test above.
         assertTrue(true);
+    }
+
+    @Test
+    void compactConversationForBuildAggregatesReasoningAndProducesSyntheticTurn() {
+        // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)
+        List<ChatMessage> msgs = new ArrayList<>();
+        msgs.add(new UserMessage("original user"));
+        msgs.add(AiMessage.from("ai text 1", "reason-1"));
+        msgs.add(AiMessage.from("", "")); // blank reasoningContent and blank text -> should be skipped
+        msgs.add(AiMessage.from("ai text 3", "reason-3"));
+
+        var cs = new CodeAgent.ConversationState(msgs, null, 0);
+
+        // Call test helper with lastCompactedCount = 1 so we scan from the first AiMessage
+        var res = CodeAgent.compactConversationForBuildForTest(cs, "my-user-goal", "", 1);
+
+        // After compaction, accumulated reasoning should have both non-blank reasoning segments joined.
+        String expectedAccumulated = "reason-1\n\nreason-3";
+        assertEquals(expectedAccumulated, res.accumulatedReasoning());
+
+        // The compacted ConversationState should be [ UserMessage(userInput), AiMessage(accumulatedReasoning) ]
+        var compactedMessages = res.cs().taskMessages();
+        assertEquals(2, compactedMessages.size());
+        assertInstanceOf(UserMessage.class, compactedMessages.get(0));
+        assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
+        assertInstanceOf(AiMessage.class, compactedMessages.get(1));
+        assertEquals(expectedAccumulated, ((AiMessage) compactedMessages.get(1)).text());
+    }
+
+    @Test
+    void testCollectCodeMessages_goalIncluded() throws InterruptedException {
+        var consoleIO = new TestConsoleIO();
+        var project = new TestProject(projectRoot, Languages.JAVA);
+        var cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
+        var ctx = new Context(cm, null);
+
+        var request = new UserMessage("Please fix this");
+        var messages = CodePrompts.instance.collectCodeMessages(
+                new ai.brokk.Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                Set.of(),
+                new ViewingPolicy(TaskResult.Type.CODE),
+                "My special goal text");
+
+        // First message should be the system message; ensure it contains the goal block with original text.
+        ChatMessage system = messages.get(0);
+        String sysText = Messages.getText(system);
+        assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
+        assertTrue(sysText.contains("My special goal text"), "Goal text should appear inside the <goal> block");
     }
 }

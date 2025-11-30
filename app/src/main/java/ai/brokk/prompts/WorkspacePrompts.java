@@ -27,7 +27,7 @@ import org.jetbrains.annotations.Nullable;
  * This class now exposes simple static helpers instead of a builder:
  * - {@link #getMessagesInAddedOrder(Context, ViewingPolicy)}
  * - {@link #getMessagesGroupedByMutability(Context, ViewingPolicy)}
- * - {@link #getMessagesForCodeAgent(Context, ViewingPolicy, Set)}
+ * - {@link #getMessagesForCodeAgent(Context, ViewingPolicy)}
  *
  * The helpers always:
  * - combine summary fragments into a single api_summaries block,
@@ -43,11 +43,11 @@ public final class WorkspacePrompts {
     }
 
     /**
-     * Record containing both views that CodeAgent needs:
-     * - readOnlyPlusUntouched: read-only fragments and untouched editable fragments
-     * - editableChanged: editable fragments that intersect the changed files plus build status
+     * Record containing the single workspace view and optional build failure text.
+     * - workspace: combined messages (read-only + editable + build status as applicable)
+     * - buildFailure: formatted build fragment text if present, otherwise null
      */
-    public record CodeAgentMessages(List<ChatMessage> readOnlyPlusUntouched, List<ChatMessage> editableChanged) {}
+    public record CodeAgentMessages(List<ChatMessage> workspace, @Nullable String buildFailure) {}
 
     public static String formatGroupedToc(Context ctx) {
         var editableContents =
@@ -219,9 +219,24 @@ public final class WorkspacePrompts {
      * {@code <workspace>} block.
      */
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
-        // Compose read-only (without build fragment) + all editable + build status into a single <workspace> message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy);
-        var editableMessages = buildEditableAll(ctx, viewingPolicy);
+        // Public entry point keeps the original behavior: include the build fragment contents.
+        return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
+    }
+
+    /**
+     * Internal helper that allows callers to choose whether the build fragment contents
+     * are included in the workspace view.
+     *
+     * @param includeBuildFragment if true, include the build fragment as part of the read-only
+     *                             workspace text; if false, omit it (but callers may still
+     *                             show high-level build status separately).
+     */
+    private static List<ChatMessage> getMessagesGroupedByMutability(
+            Context ctx, ViewingPolicy viewingPolicy, boolean includeBuildFragment) {
+        // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
+        // message
+        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, includeBuildFragment);
+        var editableMessages = buildEditableAll(ctx);
 
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();
@@ -286,125 +301,26 @@ public final class WorkspacePrompts {
      *
      * @param ctx           current context
      * @param viewingPolicy viewing policy (controls StringFragment visibility)
-     * @param changedFiles  editable project files that have changed in this task
      * @return record with both the read-only-plus-untouched view and the editable-changed view
      */
-    public static CodeAgentMessages getMessagesForCodeAgent(
-            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
-        var readOnlyPlusUntouched = buildReadOnlyPlusUntouched(ctx, viewingPolicy, changedFiles);
-        var editableChanged = buildEditableChanged(ctx, viewingPolicy, changedFiles);
-        return new CodeAgentMessages(readOnlyPlusUntouched, editableChanged);
+    public static CodeAgentMessages getMessagesForCodeAgent(Context ctx, ViewingPolicy viewingPolicy) {
+        // For CodeAgent, we do NOT want the full build fragment contents in the workspace,
+        // only the high-level build status snippet. The detailed build output will be
+        // passed separately in the nextRequest prompt.
+        var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, false);
+        var buildFailure = ctx.getBuildFragment()
+                .map(ContextFragment.VirtualFragment::format)
+                .orElse(null);
+        return new CodeAgentMessages(workspace, buildFailure);
     }
 
-    private static List<ChatMessage> buildReadOnlyPlusUntouched(
-            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
-        var buildFragment = ctx.getBuildFragment().orElse(null);
-        var readOnlyFragments =
-                ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
-
-        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
-        var readOnlyText = new StringBuilder(renderedReadOnly.text);
-        var allImages = new ArrayList<>(renderedReadOnly.images);
-
-        // Include build fragment when changedFiles is empty (avoid duplication when EDITABLE_CHANGED will also include
-        // it)
-        if (buildFragment != null && changedFiles.isEmpty()) {
-            if (!readOnlyText.isEmpty()) {
-                readOnlyText.append("\n\n");
-            }
-            var buildStatusText =
-                    """
-                    <workspace_build_status>
-                    The build including the above workspace contents is currently failing.
-                    %s
-                    </workspace_build_status>
-                    """
-                            .formatted(buildFragment.format());
-            readOnlyText.append(buildStatusText);
-        }
-
-        // Untouched editable: only when changedFiles is non-empty
-        String untouchedSection = "";
+    private static List<ChatMessage> buildEditableAll(Context ctx) {
         var editableFragments = ctx.getEditableFragments().toList();
-        var untouchedEditable = editableFragments.stream()
-                .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
-                .toList();
-
-        if (!untouchedEditable.isEmpty()) {
-            var renderedUntouched = formatWithPolicy(untouchedEditable, viewingPolicy);
-            if (!renderedUntouched.text.isEmpty()) {
-                untouchedSection =
-                        """
-                        <workspace_editable_unchanged>
-                        Here are EDITABLE files and code fragments that have not been changed yet in this task.
-
-                        %s
-                        </workspace_editable_unchanged>
-                        """
-                                .formatted(renderedUntouched.text);
-            }
-            allImages.addAll(renderedUntouched.images);
-        }
-
-        if (readOnlyText.isEmpty() && untouchedSection.isBlank() && allImages.isEmpty()) {
-            return List.of();
-        }
-
-        var combinedText = new StringBuilder();
-
-        if (!readOnlyText.isEmpty()) {
-            String readOnlySection =
-                    """
-                          <workspace_readonly>
-                          Here are the READ ONLY files and code fragments in your Workspace.
-                          Do not edit this code! Images will be included separately if present.
-
-                          %s
-                          </workspace_readonly>
-                          """
-                            .formatted(readOnlyText.toString().trim());
-            combinedText.append(readOnlySection.trim());
-        }
-
-        if (!untouchedSection.isBlank()) {
-            if (!combinedText.isEmpty()) {
-                combinedText.append("\n\n");
-            }
-            combinedText.append(untouchedSection.trim());
-        }
-
-        var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(combinedText.toString().trim()));
-        allContents.addAll(allImages);
-
-        var readOnlyUserMessage = UserMessage.from(allContents);
-        return List.of(
-                readOnlyUserMessage, new AiMessage("Thank you for the read-only and unchanged editable context."));
-    }
-
-    private static List<ChatMessage> buildEditableChanged(
-            Context ctx, ViewingPolicy viewingPolicy, Set<ProjectFile> changedFiles) {
-        if (changedFiles.isEmpty()) {
-            return List.of();
-        }
-
-        var allEditable = ctx.getEditableFragments().toList();
-        var changedEditable = allEditable.stream()
-                .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
-                .toList();
-
-        return buildEditableInternal(changedEditable, ctx.getBuildFragment().orElse(null), true);
-    }
-
-    private static List<ChatMessage> buildEditableAll(Context ctx, ViewingPolicy viewingPolicy) {
-        var editableFragments = ctx.getEditableFragments().toList();
-        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null), false);
+        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null));
     }
 
     private static List<ChatMessage> buildEditableInternal(
-            List<ContextFragment> editableFragments,
-            @Nullable ContextFragment buildFragment,
-            boolean highlightChanged) {
+            List<ContextFragment> editableFragments, @Nullable ContextFragment buildFragment) {
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {
             // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
@@ -422,32 +338,18 @@ public final class WorkspacePrompts {
 
         if (!editableTextFragments.isEmpty()) {
             String editableSectionTemplate;
-            if (highlightChanged) {
-                editableSectionTemplate =
-                        """
-                                  <workspace_editable_changed>
-                                  Here are the EDITABLE files and code fragments in your Workspace that have been CHANGED so far in this task.
+            editableSectionTemplate =
+                    """
+                            <workspace_editable>
+                            Here are the EDITABLE files and code fragments in your Workspace.
+                            This is *the only context in the Workspace to which you should make changes*.
 
-                                  *Trust this message as the true contents of these files!*
-                                  Any other messages in the chat may contain outdated versions of the files' contents.
+                            *Trust this message as the true contents of these files!*
+                            Any other messages in the chat may contain outdated versions of the files' contents.
 
-                                  %s
-                                  </workspace_editable_changed>
-                                  """;
-            } else {
-                editableSectionTemplate =
-                        """
-                                  <workspace_editable>
-                                  Here are the EDITABLE files and code fragments in your Workspace.
-                                  This is *the only context in the Workspace to which you should make changes*.
-
-                                  *Trust this message as the true contents of these files!*
-                                  Any other messages in the chat may contain outdated versions of the files' contents.
-
-                                  %s
-                                  </workspace_editable>
-                                  """;
-            }
+                            %s
+                            </workspace_editable>
+                            """;
 
             String editableText = editableSectionTemplate.formatted(
                     editableTextFragments.toString().trim());
@@ -463,19 +365,15 @@ public final class WorkspacePrompts {
                     """
                     <workspace_build_status>
                     The build including the above workspace contents is currently failing.
-                    %s
                     </workspace_build_status>
-                    """
-                            .formatted(buildFragment.format());
+                    """;
             combinedText.append(buildStatusText);
         }
 
         var messages = new ArrayList<ChatMessage>();
         if (!combinedText.isEmpty()) {
             var userMessage = new UserMessage(combinedText.toString());
-            String ack = highlightChanged
-                    ? "Thank you for the changed editable context and build status."
-                    : "Thank you for the editable context and build status.";
+            String ack = "Thank you for the editable context and build status.";
             messages.add(userMessage);
             messages.add(new AiMessage(ack));
         }
@@ -483,11 +381,13 @@ public final class WorkspacePrompts {
         return messages;
     }
 
-    private static List<ChatMessage> buildReadOnlyForContents(Context ctx, ViewingPolicy viewingPolicy) {
-        // Build read-only section without including the build fragment
+    private static List<ChatMessage> buildReadOnlyForContents(
+            Context ctx, ViewingPolicy viewingPolicy, boolean includeBuildFragment) {
+        // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
-        var readOnlyFragments =
-                ctx.getReadonlyFragments().filter(f -> f != buildFragment).toList();
+        var readOnlyFragments = ctx.getReadonlyFragments()
+                .filter(f -> includeBuildFragment || f != buildFragment)
+                .toList();
 
         var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
 

@@ -210,26 +210,24 @@ public abstract class CodePrompts {
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles,
-            ViewingPolicy viewingPolicy)
+            ViewingPolicy viewingPolicy,
+            String goal)
             throws InterruptedException {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
 
-        messages.add(systemMessage(ctx, reminder));
+        // Use goal-aware system message
+        messages.add(systemMessage(ctx, reminder, goal));
 
-        // Read-only + untouched-editable message (CodeAgent wants summaries combined; changedFiles controls untouched)
-        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy, changedFiles);
-        messages.addAll(codeAgentWorkspace.readOnlyPlusUntouched());
+        // Combined workspace message for CodeAgent (single combined workspace list including build status)
+        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy);
+        messages.addAll(codeAgentWorkspace.workspace());
 
         messages.addAll(prologue);
 
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
-        if (!changedFiles.isEmpty()) {
-            // Changed editable + build status
-            messages.addAll(codeAgentWorkspace.editableChanged());
-        }
         messages.add(request);
 
         return messages;
@@ -295,24 +293,49 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    protected SystemMessage systemMessage(Context ctx, String reminder) {
+    // New goal-aware overload. If goal is non-blank, append a <goal>...</goal> block after <style_guide>.
+    protected SystemMessage systemMessage(
+            Context ctx, String reminder, @org.jetbrains.annotations.Nullable String goal) {
         var resolvedGuide = StyleGuideResolver.resolve(ctx);
         var styleGuide =
                 resolvedGuide.isBlank() ? ctx.getContextManager().getProject().getStyleGuide() : resolvedGuide;
 
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), styleGuide)
-                        .trim();
+        final String text;
+        if (goal == null || goal.isBlank()) {
+            text =
+                    """
+              <instructions>
+              %s
+              </instructions>
+              <style_guide>
+              %s
+              </style_guide>
+              """
+                            .formatted(systemIntro(reminder), styleGuide)
+                            .trim();
+        } else {
+            text =
+                    """
+              <instructions>
+              %s
+              </instructions>
+              <style_guide>
+              %s
+              </style_guide>
+              <goal>
+              %s
+              </goal>
+              """
+                            .formatted(systemIntro(reminder), styleGuide, goal)
+                            .trim();
+        }
 
         return new SystemMessage(text);
+    }
+
+    // Backwards-compatible helper kept for existing call sites that don't supply a goal.
+    protected SystemMessage systemMessage(Context ctx, String reminder) {
+        return systemMessage(ctx, reminder, null);
     }
 
     public String systemIntro(String reminder) {
