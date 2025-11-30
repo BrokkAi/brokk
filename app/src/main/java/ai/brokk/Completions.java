@@ -264,7 +264,7 @@ public class Completions {
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
                         .thenComparingInt(ScoredItem::tiebreakScore)
-                        .thenComparing(sc -> extractShort.apply(sc.source())))
+                        .thenComparing(Comparator.comparing(scoredItem -> extractShort.apply(scoredItem.source())))
                 .toList();
 
         // Find the lowest (best) score among the "short" matches
