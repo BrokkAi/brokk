@@ -91,7 +91,8 @@ class WorkspacePromptsTest {
     }
 
     @Test
-    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime() throws IOException, InterruptedException {
+    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime()
+            throws IOException, InterruptedException {
         // Create three test files with distinct mtimes
         var fileA = createTestFile("src/A.java", "class A {}");
         Thread.sleep(1100); // ensure different mtime granularity across platforms
@@ -109,7 +110,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm, null).addPathFragments(List.of(fragC, fragB, fragA));
 
         // Sort and verify order is by mtime (oldest A, then B, then newest C)
-        var sorted = WorkspacePrompts.sortEditableFragmentsByMtime(ctx.getEditableFragments()).toList();
+        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(3, sorted.size(), "All three fragments should be present");
         assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
@@ -126,16 +127,14 @@ class WorkspacePromptsTest {
         var virtualFrag = new ContextFragment.UsageFragment(cm, "com.example.SomeTarget");
         var projectFrag = new ContextFragment.ProjectPathFragment(file, cm);
 
-        var ctx = new Context(cm, null)
-                .addPathFragments(List.of(projectFrag))
-                .addVirtualFragment(virtualFrag);
+        var ctx = new Context(cm, null).addPathFragments(List.of(projectFrag)).addVirtualFragment(virtualFrag);
 
         // Sort and verify virtual fragment stays first
-        var sorted = WorkspacePrompts.sortEditableFragmentsByMtime(ctx.getEditableFragments()).toList();
+        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(2, sorted.size());
-        assertTrue(sorted.get(0) instanceof ContextFragment.UsageFragment,
-                "Editable virtual fragment should remain first");
+        assertInstanceOf(
+                ContextFragment.UsageFragment.class, sorted.get(0), "Editable virtual fragment should remain first");
         assertEquals(projectFrag, sorted.get(1), "Project fragment should be second");
     }
 

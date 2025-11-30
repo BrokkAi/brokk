@@ -144,8 +144,7 @@ public abstract class CodePrompts {
         return """
                 %s
                 %s
-                """
-                .formatted(baseReminder, MARKDOWN_REMINDER);
+                """.formatted(baseReminder, MARKDOWN_REMINDER);
     }
 
     public String architectReminder() {

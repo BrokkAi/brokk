@@ -74,8 +74,9 @@ public final class WorkspacePrompts {
     }
 
     public static String formatGroupedToc(Context ctx) {
-        var editableContents =
-                sortByMtime(ctx.getEditableFragments()).map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var editableContents = sortByMtime(ctx.getEditableFragments())
+                .map(ContextFragment::formatToc)
+                .collect(Collectors.joining("\n"));
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
         var buildFragment = ctx.getBuildFragment();

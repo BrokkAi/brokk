@@ -764,9 +764,7 @@ public class CodeAgent {
             UserMessage nextRequest = CodePrompts.instance.codeRequest(
                     context, buildPrmopt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
             var newCs = new ConversationState(
-                    cs.taskMessages(),
-                    nextRequest,
-                    cs.taskMessages().size());
+                    cs.taskMessages(), nextRequest, cs.taskMessages().size());
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
