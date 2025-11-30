@@ -144,14 +144,6 @@ public abstract class CodePrompts {
         return """
                 %s
                 %s
-
-                <flow>
-                Your conversation with the User will be structured as follows:
-                1. Unchanged Workspace contents
-                2. Your conversation history
-                3. The current version of any files changed during the session
-                4. The User's instructions for the current turn
-                </flow>
                 """
                 .formatted(baseReminder, MARKDOWN_REMINDER);
     }

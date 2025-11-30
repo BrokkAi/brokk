@@ -751,21 +751,21 @@ public class CodeAgent {
             }
             var buildPrmopt =
                     """
-                    The build failed. Please fix the issues reported below so the project can be built successfully.
-
+                    The build failed. Please fix the issues reported here in service of the original goal.
                     <build_output>
                     %s
                     </build_output>
 
-                    <goal>
+                    <original_goal>
                     %s
-                    </goal>
+                    </original_goal>
                     """
                             .formatted(buildError, currentUserInput);
-            UserMessage nextRequestForBuildFailure = new UserMessage(buildPrmopt);
+            UserMessage nextRequest = CodePrompts.instance.codeRequest(
+                    context, buildPrmopt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
             var newCs = new ConversationState(
                     cs.taskMessages(),
-                    nextRequestForBuildFailure,
+                    nextRequest,
                     cs.taskMessages().size());
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
