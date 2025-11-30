@@ -75,10 +75,9 @@ public class CodeAgent {
     private Context context;
 
     // Per-task conversation state fields (initialized at start of runTaskInternal)
-    private String currentUserInput = "";
-
-    private String accumulatedReasoning = "";
-    private int lastCompactedMessageCount = 0;
+    String currentUserInput = "";
+    String accumulatedReasoning = "";
+    int lastCompactedMessageCount = 0;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -1678,62 +1677,4 @@ public class CodeAgent {
         return cs;
     }
 
-    /**
-     * Test helpers so unit-tests can exercise compaction and prompt formatting without instantiating a full agent.
-     */
-    @VisibleForTesting
-    static record CompactResult(ConversationState cs, String accumulatedReasoning, int lastCompactedMessageCount) {}
-
-    @VisibleForTesting
-    static CompactResult compactConversationForBuildForTest(
-            ConversationState cs,
-            @Nullable String currentUserInput,
-            String accumulatedReasoning,
-            int lastCompactedCount) {
-        var msgs = cs.taskMessages();
-        int start = Math.max(0, lastCompactedCount);
-        var segments = new ArrayList<String>();
-        for (int i = start; i < msgs.size(); i++) {
-            ChatMessage m = msgs.get(i);
-            if (m instanceof AiMessage ai) {
-                String seg = ai.reasoningContent();
-                if (seg == null || seg.isBlank()) {
-                    seg = CodePrompts.redactAiMessage(ai, EditBlockParser.instance)
-                            .map(AiMessage::text)
-                            .orElse("");
-                }
-                if (seg != null && !seg.isBlank()) {
-                    segments.add(seg);
-                }
-            }
-        }
-
-        String newAccum = accumulatedReasoning;
-        if (!segments.isEmpty()) {
-            var joined = String.join("\n\n", segments);
-            if (newAccum == null || newAccum.isBlank()) {
-                newAccum = joined;
-            } else {
-                newAccum = newAccum + "\n\n" + joined;
-            }
-        }
-
-        int newLast = msgs.size();
-
-        if (currentUserInput != null && !currentUserInput.isBlank()) {
-            if (newAccum != null && !newAccum.isBlank()) {
-                var outMsgs = new ArrayList<ChatMessage>();
-                outMsgs.add(new UserMessage(currentUserInput));
-                outMsgs.add(new AiMessage(newAccum));
-                return new CompactResult(
-                        new ConversationState(outMsgs, cs.nextRequest(), cs.turnStartIndex()), newAccum, newLast);
-            } else {
-                return new CompactResult(
-                        new ConversationState(new ArrayList<>(), cs.nextRequest(), cs.turnStartIndex()),
-                        newAccum == null ? "" : newAccum,
-                        newLast);
-            }
-        }
-        return new CompactResult(cs, newAccum == null ? "" : newAccum, newLast);
-    }
 }

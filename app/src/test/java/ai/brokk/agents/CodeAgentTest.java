@@ -1270,15 +1270,19 @@ class CodeAgentTest {
 
         var cs = new CodeAgent.ConversationState(msgs, null, 0);
 
-        // Call test helper with lastCompactedCount = 1 so we scan from the first AiMessage
-        var res = CodeAgent.compactConversationForBuildForTest(cs, "my-user-goal", "", 1);
+        // Initialize the CodeAgent's instance state to prepare for compaction
+        codeAgent.currentUserInput = "my-user-goal";
+        codeAgent.accumulatedReasoning = "";
+        codeAgent.lastCompactedMessageCount = 1; // scan from the first AiMessage
+
+        var compactedCs = codeAgent.compactConversationForBuild(cs);
 
         // After compaction, accumulated reasoning should have both non-blank reasoning segments joined.
         String expectedAccumulated = "reason-1\n\nreason-3";
-        assertEquals(expectedAccumulated, res.accumulatedReasoning());
+        assertEquals(expectedAccumulated, codeAgent.accumulatedReasoning);
 
         // The compacted ConversationState should be [ UserMessage(userInput), AiMessage(accumulatedReasoning) ]
-        var compactedMessages = res.cs().taskMessages();
+        var compactedMessages = compactedCs.taskMessages();
         assertEquals(2, compactedMessages.size());
         assertInstanceOf(UserMessage.class, compactedMessages.get(0));
         assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
