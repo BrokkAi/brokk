@@ -856,7 +856,8 @@ class CodeAgentTest {
                 taskMessages,
                 nextRequest,
                 new ViewingPolicy(TaskResult.Type.CODE),
-                Messages.getText(nextRequest));
+                Messages.getText(nextRequest),
+                false);
 
         boolean found = messages.stream()
                 .map(Messages::getText)
@@ -1230,7 +1231,8 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
-                Messages.getText(request));
+                Messages.getText(request),
+                false);
 
         // 1) first message is SystemMessage
         assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
@@ -1251,7 +1253,8 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
-                Messages.getText(request));
+                Messages.getText(request),
+                false);
 
         // 4) ensure editable file name appears when it is provided as changed
         boolean containsEditable =
@@ -1327,7 +1330,8 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
-                "My special goal text");
+                "My special goal text",
+                false);
 
         // First message should be the system message; ensure it contains the goal block with original text.
         ChatMessage system = messages.get(0);

@@ -15,6 +15,7 @@ import ai.brokk.util.Messages;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,16 +92,17 @@ class WorkspacePromptsTest {
     }
 
     @Test
-    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime()
-            throws IOException, InterruptedException {
-        // Create three test files with distinct mtimes
+    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime() throws IOException {
+        // Create three test files
         var fileA = createTestFile("src/A.java", "class A {}");
-        Thread.sleep(1100); // ensure different mtime granularity across platforms
-
         var fileB = createTestFile("src/B.java", "class B {}");
-        Thread.sleep(1100);
-
         var fileC = createTestFile("src/C.java", "class C {}");
+
+        // Explicitly set mtimes to ensure ordering: A oldest, then B, then C newest
+        long baseMillis = System.currentTimeMillis() - 10_000L;
+        Files.setLastModifiedTime(projectRoot.resolve("src/A.java"), FileTime.fromMillis(baseMillis));
+        Files.setLastModifiedTime(projectRoot.resolve("src/B.java"), FileTime.fromMillis(baseMillis + 1_000L));
+        Files.setLastModifiedTime(projectRoot.resolve("src/C.java"), FileTime.fromMillis(baseMillis + 2_000L));
 
         // Create fragments in reverse order (C, B, A) to verify sorting reorders them
         var fragC = new ContextFragment.ProjectPathFragment(fileC, cm);

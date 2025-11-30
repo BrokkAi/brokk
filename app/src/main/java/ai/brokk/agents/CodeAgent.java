@@ -49,7 +49,6 @@ import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
@@ -61,10 +60,8 @@ public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
     private static final int MAX_PARSE_ATTEMPTS = 3;
 
-    @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
-    @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
 
     final IContextManager contextManager;
@@ -94,7 +91,6 @@ public class CodeAgent {
     /**
      * Helper record + factory to allow tests to verify the initial per-task state without constructing a full agent.
      */
-    @VisibleForTesting
     record PerTaskState(
             @Nullable String currentUserInput, String accumulatedReasoning, int lastCompactedMessageCount) {}
 
@@ -688,9 +684,6 @@ public class CodeAgent {
     }
 
     Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
-        // Compact conversation into a concise summary for the build step, if possible.
-        cs = compactConversationForBuild(cs);
-
         // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
         if (es.blocksAppliedWithoutBuild() == 0) {
             reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
@@ -751,7 +744,7 @@ public class CodeAgent {
                         TaskResult.StopReason.BUILD_ERROR,
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
-            var buildPrmopt =
+            var buildPrompt =
                     """
                     The build failed. Please fix the issues reported here in service of the original goal.
                     <build_output>
@@ -764,9 +757,10 @@ public class CodeAgent {
                     """
                             .formatted(buildError, currentUserInput);
             UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                    context, buildPrmopt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
-            var newCs = new ConversationState(
-                    cs.taskMessages(), nextRequest, cs.taskMessages().size());
+                    context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+            // Compact conversation into a concise summary for the build step, if possible.
+            var compactedMessages = compactConversationForBuild(cs);
+            var newCs = new ConversationState(compactedMessages, nextRequest, compactedMessages.size());
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
@@ -892,7 +886,6 @@ public class CodeAgent {
      * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
      * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
      */
-    @VisibleForTesting
     static final Set<Integer> LOCAL_ONLY_IDS = Set.of(
             IProblem.UninitializedLocalVariable, // PJ-9
             IProblem.RedefinedLocal, // PJ-20
@@ -922,7 +915,6 @@ public class CodeAgent {
             IProblem.CannotThrowNull,
             IProblem.MethodReturnsVoid);
 
-    @VisibleForTesting
     static final Set<Integer> METHOD_LOCAL_IDS = Set.of(
             // Parameter / applicability for calls (e.g., ThreadLocal.withInitial(() -> { }))
             IProblem.ParameterMismatch, // PJ-16
@@ -938,7 +930,6 @@ public class CodeAgent {
             IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod // PJ-18
             );
 
-    @VisibleForTesting
     static final Set<Integer> BLACKLIST_CATS = Set.of(
             CategorizedProblem.CAT_IMPORT, // PJ-4
             CategorizedProblem.CAT_MODULE, // exercised implicitly by PJ-11 classpath ignore
@@ -954,7 +945,6 @@ public class CodeAgent {
             CategorizedProblem.CAT_UNCHECKED_RAW // PJ-5/7/8/12/19 (type/import/classpath noise ignored)
             );
 
-    @VisibleForTesting
     static final Set<Integer> CROSS_FILE_INFERENCE_IDS = Set.of(
             IProblem.MissingTypeInLambda,
             IProblem.CannotInferElidedTypes,
@@ -969,7 +959,6 @@ public class CodeAgent {
      * present, we treat the CU as having "shaky type info" and suppress diagnostics that depend on precise symbol
      * resolution.
      */
-    @VisibleForTesting
     static final Set<Integer> RESOLUTION_NOISE_IDS = Set.of(
             IProblem.UndefinedType,
             IProblem.UndefinedMethod,
@@ -986,7 +975,6 @@ public class CodeAgent {
      * Diagnostics that require stable type info and should be suppressed when the CU shows resolution/inference noise.
      * Includes method applicability/override errors and foreach target/type errors.
      */
-    @VisibleForTesting
     static final Set<Integer> REQUIRES_STABLE_TYPE_INFO;
 
     static {
@@ -999,7 +987,6 @@ public class CodeAgent {
     }
 
     /** Decide if a JDT problem should be recorded by the pre-build Java parse step. */
-    @VisibleForTesting
     static boolean shouldKeepJavaProblem(
             int id, boolean isError, @Nullable Integer categoryId, boolean hasShakyTypeInfo) {
         // 0) If type info is shaky, suppress diagnostics that require stable symbol resolution.
@@ -1361,7 +1348,6 @@ public class CodeAgent {
          * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
          * history compaction without depending on the diff library package structure at compile time.
          */
-        @VisibleForTesting
         List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new ArrayList<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
@@ -1635,13 +1621,12 @@ public class CodeAgent {
      * - For each new AiMessage, appends ai.reasoningContent() when non-blank, otherwise falls back to a redaction of
      *   the AiMessage text via CodePrompts.redactAiMessage(...).
      * - Appends joined segments to this.accumulatedReasoning and updates lastCompactedMessageCount.
-     * - If currentUserInput is non-blank and accumulatedReasoning is non-blank, returns a ConversationState with
-     *   taskMessages() == [ new UserMessage(currentUserInput), new AiMessage(accumulatedReasoning) ] preserving
-     *   the same nextRequest. If currentUserInput is non-blank but accumulatedReasoning is blank, returns an empty
-     *   taskMessages() ConversationState with same nextRequest. Otherwise returns cs unchanged.
+     * - If currentUserInput is non-blank and accumulatedReasoning is non-blank, returns
+     *   [ new UserMessage(currentUserInput), new AiMessage(accumulatedReasoning) ].
+     * - If currentUserInput is non-blank but accumulatedReasoning is blank, returns an empty list.
+     * - Otherwise returns an empty list (unchanged conversation should not be compacted).
      */
-    @VisibleForTesting
-    ConversationState compactConversationForBuild(ConversationState cs) {
+    List<ChatMessage> compactConversationForBuild(ConversationState cs) {
         var msgs = cs.taskMessages();
         int start = Math.max(0, lastCompactedMessageCount);
         var segments = new ArrayList<String>();
@@ -1676,12 +1661,11 @@ public class CodeAgent {
                 var outMsgs = new ArrayList<ChatMessage>();
                 outMsgs.add(new UserMessage(currentUserInput));
                 outMsgs.add(new AiMessage(this.accumulatedReasoning));
-                return new ConversationState(outMsgs, cs.nextRequest(), cs.turnStartIndex());
+                return outMsgs;
             } else {
-                // no reasoning yet but we have a goal; return empty task messages to avoid sending noise
-                return new ConversationState(new ArrayList<>(), cs.nextRequest(), cs.turnStartIndex());
+                return new ArrayList<>();
             }
         }
-        return cs;
+        return new ArrayList<>();
     }
 }

@@ -60,17 +60,29 @@ public final class WorkspacePrompts {
      * @return stream of fragments sorted by min mtime
      */
     public static Stream<ContextFragment> sortByMtime(Stream<ContextFragment> editableFragments) {
-        return editableFragments.sorted(Comparator.comparingLong(cf -> cf.files().stream()
-                .mapToLong(pf -> {
-                    try {
-                        return pf.mtime();
-                    } catch (IOException e) {
-                        logger.warn("Could not get mtime for file in fragment [{}]; using 0", cf.shortDescription(), e);
-                        return 0L;
-                    }
+        // Materialize min mtime for each fragment first to avoid recomputing during sort comparisons.
+        record Key(ContextFragment fragment, long minMtime) {}
+
+        return editableFragments
+                .map(cf -> {
+                    long minMtime = cf.files().stream()
+                            .mapToLong(pf -> {
+                                try {
+                                    return pf.mtime();
+                                } catch (IOException e) {
+                                    logger.warn(
+                                            "Could not get mtime for file in fragment [{}]; using 0",
+                                            cf.shortDescription(),
+                                            e);
+                                    return 0L;
+                                }
+                            })
+                            .min()
+                            .orElse(0L);
+                    return new Key(cf, minMtime);
                 })
-                .min()
-                .orElse(0L)));
+                .sorted(Comparator.comparingLong(k -> k.minMtime))
+                .map(k -> k.fragment);
     }
 
     public static String formatGroupedToc(Context ctx) {
