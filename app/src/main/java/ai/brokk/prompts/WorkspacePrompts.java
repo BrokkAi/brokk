@@ -316,11 +316,7 @@ public final class WorkspacePrompts {
 
     private static List<ChatMessage> buildEditableAll(Context ctx) {
         var editableFragments = ctx.getEditableFragments().toList();
-        return buildEditableInternal(editableFragments, ctx.getBuildFragment().orElse(null));
-    }
-
-    private static List<ChatMessage> buildEditableInternal(
-            List<ContextFragment> editableFragments, @Nullable ContextFragment buildFragment) {
+        @Nullable ContextFragment buildFragment = ctx.getBuildFragment().orElse(null);
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {
             // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
