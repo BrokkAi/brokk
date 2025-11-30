@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -1283,7 +1284,7 @@ public final class MainProject extends AbstractProject {
 
     public static String getTheme() {
         var props = loadGlobalProperties();
-        return props.getProperty("theme", "dark");
+        return props.getProperty("theme", GuiTheme.THEME_DARK_PLUS);
     }
 
     public static void setTheme(String theme) {
