@@ -125,11 +125,15 @@ public final class WorkspacePrompts {
      *   1. READ ONLY fragments
      *   2. EDITABLE fragments that have NOT been changed in this task
      *   3. EDITABLE fragments that HAVE been changed in this task
-     *   4. Build status (if present)
+     *   4. Build status (if present and showBuildStatus is true)
      *
      * All sections are wrapped in a single <workspace_toc> block, and empty sections are omitted.
+     *
+     * @param ctx                the current context
+     * @param changedFiles       files modified in this task
+     * @param showBuildStatus    if true, include build status indicator in TOC; if false, omit
      */
-    public static String formatCodeToc(Context ctx, Set<ProjectFile> changedFiles) {
+    public static String formatCodeToc(Context ctx, Set<ProjectFile> changedFiles, boolean showBuildStatus) {
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
 
@@ -184,8 +188,9 @@ public final class WorkspacePrompts {
                   </workspace_editable_changed>"""
                         .formatted(editableChangedContents);
 
-        var buildStatusSection =
-                buildFragment.isPresent() ? "  <workspace_build_status>(failing)</workspace_build_status>" : "";
+        var buildStatusSection = (showBuildStatus && buildFragment.isPresent())
+                ? "  <workspace_build_status>(failing)</workspace_build_status>"
+                : "";
 
         var parts = new ArrayList<String>();
         if (!readOnlySection.isBlank()) {
@@ -244,24 +249,24 @@ public final class WorkspacePrompts {
      * {@code <workspace>} block.
      */
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
-        // Public entry point keeps the original behavior: include the build fragment contents.
+        // Public entry point keeps the original behavior: show build status in workspace.
         return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
     }
 
     /**
-     * Internal helper that allows callers to choose whether the build fragment contents
-     * are included in the workspace view.
+     * Internal helper that allows callers to choose whether build status appears in the workspace.
      *
-     * @param includeBuildFragment if true, include the build fragment as part of the read-only
-     *                             workspace text; if false, omit it (but callers may still
-     *                             show high-level build status separately).
+     * @param showBuildStatusInWorkspace if true, include build status snippets in workspace sections
+     *                                   (both in read-only fragment and editable sections);
+     *                                   if false, omit all build status from workspace
+     *                                   (it will be shown inline in the request instead).
      */
     private static List<ChatMessage> getMessagesGroupedByMutability(
-            Context ctx, ViewingPolicy viewingPolicy, boolean includeBuildFragment) {
+            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
         // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
         // message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, includeBuildFragment);
-        var editableMessages = buildEditableAll(ctx);
+        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, showBuildStatusInWorkspace);
+        var editableMessages = buildEditableAll(ctx, showBuildStatusInWorkspace);
 
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();
@@ -324,22 +329,24 @@ public final class WorkspacePrompts {
     /**
      * Workspace views used by CodeAgent.
      *
-     * @param ctx           current context
-     * @param viewingPolicy viewing policy (controls StringFragment visibility)
-     * @return record with both the read-only-plus-untouched view and the editable-changed view
+     * @param ctx                       current context
+     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
+     * @param showBuildStatusInWorkspace if true, include build status in workspace sections;
+     *                                  if false, omit from workspace (will be shown inline in request)
+     * @return record with the workspace messages and buildFailure details
      */
-    public static CodeAgentMessages getMessagesForCodeAgent(Context ctx, ViewingPolicy viewingPolicy) {
-        // For CodeAgent, we do NOT want the full build fragment contents in the workspace,
-        // only the high-level build status snippet. The detailed build output will be
-        // passed separately in the nextRequest prompt.
-        var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, false);
+    public static CodeAgentMessages getMessagesForCodeAgent(
+            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
+        // For CodeAgent, the workspace includes build status only if showBuildStatusInWorkspace is true.
+        // The detailed build output is also available separately in buildFailure for inline display.
+        var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
         var buildFailure = ctx.getBuildFragment()
                 .map(ContextFragment.VirtualFragment::format)
                 .orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
-    private static List<ChatMessage> buildEditableAll(Context ctx) {
+    private static List<ChatMessage> buildEditableAll(Context ctx, boolean showBuildStatusInWorkspace) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         @Nullable ContextFragment buildFragment = ctx.getBuildFragment().orElse(null);
         var editableTextFragments = new StringBuilder();
@@ -351,7 +358,8 @@ public final class WorkspacePrompts {
             }
         });
 
-        if (editableTextFragments.isEmpty() && buildFragment == null) {
+        boolean shouldShowBuild = showBuildStatusInWorkspace && buildFragment != null;
+        if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
 
@@ -378,7 +386,7 @@ public final class WorkspacePrompts {
             combinedText.append(editableText);
         }
 
-        if (buildFragment != null) {
+        if (shouldShowBuild) {
             if (!combinedText.isEmpty()) {
                 combinedText.append("\n\n");
             }
@@ -403,11 +411,11 @@ public final class WorkspacePrompts {
     }
 
     private static List<ChatMessage> buildReadOnlyForContents(
-            Context ctx, ViewingPolicy viewingPolicy, boolean includeBuildFragment) {
+            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
-                .filter(f -> includeBuildFragment || f != buildFragment)
+                .filter(f -> showBuildStatusInWorkspace || f != buildFragment)
                 .toList();
 
         var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);

@@ -200,23 +200,18 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles,
             ViewingPolicy viewingPolicy,
-            String goal)
-            throws InterruptedException {
+            String goal,
+            boolean includeBuildStatus) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
+        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy, includeBuildStatus);
 
         // Use goal-aware system message
         messages.add(systemMessage(ctx, reminder, goal));
-
-        // Combined workspace message for CodeAgent (single combined workspace list including build status)
-        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy);
         messages.addAll(codeAgentWorkspace.workspace());
-
         messages.addAll(prologue);
-
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         messages.add(request);
@@ -285,8 +280,7 @@ public abstract class CodePrompts {
     }
 
     // New goal-aware overload. If goal is non-blank, append a <goal>...</goal> block after <style_guide>.
-    protected SystemMessage systemMessage(
-            Context ctx, String reminder, @org.jetbrains.annotations.Nullable String goal) {
+    public SystemMessage systemMessage(Context ctx, String reminder, @org.jetbrains.annotations.Nullable String goal) {
         var resolvedGuide = StyleGuideResolver.resolve(ctx);
         var styleGuide =
                 resolvedGuide.isBlank() ? ctx.getContextManager().getProject().getStyleGuide() : resolvedGuide;
@@ -325,7 +319,7 @@ public abstract class CodePrompts {
     }
 
     // Backwards-compatible helper kept for existing call sites that don't supply a goal.
-    protected SystemMessage systemMessage(Context ctx, String reminder) {
+    public SystemMessage systemMessage(Context ctx, String reminder) {
         return systemMessage(ctx, reminder, null);
     }
 

@@ -120,9 +120,10 @@ class CodeAgentTest {
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
-                new HashSet<>(), // changedFiles
-                new HashMap<>(), // originalFileContents
-                Collections.emptyMap() // javaLintDiagnostics
+                new HashSet<ProjectFile>(), // changedFiles
+                new HashMap<ProjectFile, String>(), // originalFileContents
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(), // javaLintDiagnostics
+                false // hasAttemptedBuild
                 );
     }
 
@@ -401,7 +402,8 @@ class CodeAgentTest {
                 retryStep.es().lastBuildError(),
                 retryStep.es().changedFiles(),
                 retryStep.es().originalFileContents(),
-                retryStep.es().javaLintDiagnostics());
+                retryStep.es().javaLintDiagnostics(),
+                false);
 
         var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -612,9 +614,10 @@ class CodeAgentTest {
                 0,
                 0,
                 "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
+                new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
         var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
@@ -635,9 +638,10 @@ class CodeAgentTest {
                 0,
                 0,
                 "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
+                new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
         var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
@@ -675,7 +679,8 @@ class CodeAgentTest {
                 "", // lastBuildError
                 changedFiles,
                 originalMap,
-                Collections.emptyMap());
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
@@ -706,7 +711,17 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                List.of(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                changedFiles,
+                originalMap,
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -733,7 +748,17 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                List.of(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                changedFiles,
+                originalMap,
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
 
@@ -830,7 +855,6 @@ class CodeAgentTest {
                 prologue,
                 taskMessages,
                 nextRequest,
-                changedFiles,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(nextRequest));
 
@@ -1205,7 +1229,6 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                Set.of(),
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request));
 
@@ -1227,7 +1250,6 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                Set.of(editable),
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request));
 
@@ -1239,7 +1261,7 @@ class CodeAgentTest {
                 "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatCodeToc(ctx, Set.of());
+        var toc = WorkspacePrompts.formatCodeToc(ctx, Set.of(), false);
         var tocReminder =
                 """
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
@@ -1304,7 +1326,6 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                Set.of(),
                 new ViewingPolicy(TaskResult.Type.CODE),
                 "My special goal text");
 

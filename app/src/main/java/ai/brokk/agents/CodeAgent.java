@@ -192,7 +192,8 @@ public class CodeAgent {
                 buildError,
                 changedFiles,
                 originalFileContents,
-                Collections.emptyMap());
+                Collections.emptyMap(),
+                false);
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -219,12 +220,14 @@ public class CodeAgent {
 
             // Before each LLM request, append a workspace TOC reminder to the current round's UserMessage.
             var baseRequest = requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM");
+            boolean showBuildStatusInWorkspace = !es.hasAttemptedBuild();
             var tocReminder =
                     """
             Reminder: here is a list of the full contents of the Workspace that you can refer to above:
             %s
             """
-                            .formatted(WorkspacePrompts.formatCodeToc(context, es.changedFiles()));
+                            .formatted(WorkspacePrompts.formatCodeToc(
+                                    context, es.changedFiles(), showBuildStatusInWorkspace));
             var augmentedText = Messages.getText(baseRequest) + "\n\n" + tocReminder;
             var augmentedRequest = new UserMessage(augmentedText);
             cs = new ConversationState(cs.taskMessages(), augmentedRequest, cs.turnStartIndex());
@@ -239,9 +242,9 @@ public class CodeAgent {
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest()),
-                        es.changedFiles(),
                         viewingPolicy,
-                        userInput.trim());
+                        userInput.trim(),
+                        showBuildStatusInWorkspace);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -1271,7 +1274,8 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
-            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+            boolean hasAttemptedBuild) {
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
@@ -1284,7 +1288,8 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    hasAttemptedBuild);
         }
 
         /**
@@ -1301,7 +1306,8 @@ public class CodeAgent {
                     newBuildError,
                     changedFiles,
                     Map.of(), // Clear per-turn baseline
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    true); // Mark that we've attempted a build
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1329,7 +1335,8 @@ public class CodeAgent {
                     lastBuildError,
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    hasAttemptedBuild);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1342,7 +1349,8 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    diags);
+                    diags,
+                    hasAttemptedBuild);
         }
 
         /**
@@ -1676,5 +1684,4 @@ public class CodeAgent {
         }
         return cs;
     }
-
 }
