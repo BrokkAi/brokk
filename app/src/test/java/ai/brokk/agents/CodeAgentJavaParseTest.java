@@ -34,8 +34,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
-                );
+                new HashMap<>(), // javaLintDiagnostics
+                false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
     }
@@ -178,7 +178,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
+                List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false);
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -449,8 +449,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
-                );
+                new HashMap<>(), // javaLintDiagnostics
+                false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
 
         assertTrue(

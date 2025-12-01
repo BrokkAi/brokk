@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -196,7 +197,13 @@ public final class StyleGuideResolver {
      * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    public static String resolve(List<ProjectFile> files) {
+    static String resolve(List<ProjectFile> files) {
         return new StyleGuideResolver(files).resolveCompositeGuide();
+    }
+
+    public static String resolve(Context ctx) {
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+        return resolve(projectFiles);
     }
 }

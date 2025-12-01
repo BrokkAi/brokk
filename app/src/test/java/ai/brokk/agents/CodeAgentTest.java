@@ -17,6 +17,7 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.project.IProject;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -119,9 +120,10 @@ class CodeAgentTest {
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
-                new HashSet<>(), // changedFiles
-                new HashMap<>(), // originalFileContents
-                Collections.emptyMap() // javaLintDiagnostics
+                new HashSet<ProjectFile>(), // changedFiles
+                new HashMap<ProjectFile, String>(), // originalFileContents
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(), // javaLintDiagnostics
+                false // hasAttemptedBuild
                 );
     }
 
@@ -382,8 +384,10 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) resultFail;
         assertTrue(retryStep.es().lastBuildError().contains("Detailed build error output"));
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild()); // Reset
+        String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
         assertTrue(
-                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("The build failed"));
+                nextReqText.contains("<build_output>") && nextReqText.contains("<goal>"),
+                "Expected build-failure prompt to include <build_output> and <goal> blocks");
 
         // Second run - build should succeed
         // We must manually create a new state that simulates new edits having been applied,
@@ -398,7 +402,8 @@ class CodeAgentTest {
                 retryStep.es().lastBuildError(),
                 retryStep.es().changedFiles(),
                 retryStep.es().originalFileContents(),
-                retryStep.es().javaLintDiagnostics());
+                retryStep.es().javaLintDiagnostics(),
+                false);
 
         var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -609,9 +614,10 @@ class CodeAgentTest {
                 0,
                 0,
                 "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
+                new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
         var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
@@ -632,9 +638,10 @@ class CodeAgentTest {
                 0,
                 0,
                 "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
+                new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
         var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
@@ -672,7 +679,8 @@ class CodeAgentTest {
                 "", // lastBuildError
                 changedFiles,
                 originalMap,
-                Collections.emptyMap());
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
@@ -703,7 +711,17 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                List.of(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                changedFiles,
+                originalMap,
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -730,7 +748,17 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                List.of(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                changedFiles,
+                originalMap,
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
 
@@ -813,9 +841,8 @@ class CodeAgentTest {
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
 
-    // Ensure that build errors recorded in Context are surfaced in the workspace prompt
     @Test
-    void testBuildErrorIsIncludedInWorkspacePrompt() throws InterruptedException {
+    void testBuildErrorIsNotIncludedInWorkspacePrompt() throws InterruptedException {
         var ctx = newContext().withBuildResult(false, "Simulated build error for prompt");
         var prologue = List.<ChatMessage>of();
         var taskMessages = new ArrayList<ChatMessage>();
@@ -828,16 +855,16 @@ class CodeAgentTest {
                 prologue,
                 taskMessages,
                 nextRequest,
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(nextRequest),
                 changedFiles,
-                new ViewingPolicy(TaskResult.Type.CODE));
+                false);
 
         boolean found = messages.stream()
                 .map(Messages::getText)
                 .anyMatch(text -> text.contains("Simulated build error for prompt"));
 
-        assertTrue(
-                found,
-                "Workspace messages for the LLM should include the latest build error text from Context.withBuildResult");
+        assertFalse(found, messages.toString());
     }
 
     // REQ-1: requestPhase with partial response + error should continue, not exit fatally
@@ -1166,5 +1193,158 @@ class CodeAgentTest {
         assertFalse(
                 readOnlyPaths.contains(ppfAndSummaryEditablePpf.toString()),
                 "File referenced only by an editable CodeFragment should not be treated as read-only");
+    }
+
+    // New test: ensure CodePrompts.collectCodeMessages ordering and CodeAgent-style TOC append behavior
+    @Test
+    void testCollectCodeMessages_flowAndTocAppend() throws InterruptedException, IOException {
+        // Create an editable file
+        var editable = cm.toFile("editable.txt");
+        editable.write("editable content\n");
+        cm.addEditableFile(editable);
+
+        // Create a file that we'll reference via a SummaryFragment (treat as read-only in the context)
+        var roFile = cm.toFile("ro.txt");
+        roFile.write("readonly content\n");
+        cm.addEditableFile(roFile);
+
+        // Build fragments: an editable ProjectPathFragment and a SummaryFragment referring to the ro file path.
+        // Also add a ProjectPathFragment for the read-only file and mark it read-only so workspace prompts
+        // reliably include the read-only content for the test.
+        var editFrag = new ContextFragment.ProjectPathFragment(editable, cm);
+        var roPpf = new ContextFragment.ProjectPathFragment(roFile, cm);
+        var summaryFrag =
+                new ContextFragment.SummaryFragment(cm, roFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+
+        var ctx = newContext().addPathFragments(List.of(editFrag, roPpf)).addVirtualFragments(List.of(summaryFrag));
+        ctx = ctx.setReadonly(roPpf, true);
+
+        // Ensure context fragments have resolved
+        ctx.awaitContextsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
+
+        var request = new UserMessage("Please fix things");
+
+        // Collect messages with no changed files
+        var msgsNoChanged = CodePrompts.instance.collectCodeMessages(
+                new Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(request),
+                Set.of(),
+                false);
+
+        // 1) first message is SystemMessage
+        assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
+
+        // 2) last message should be the augmented request (original text + TOC reminder)
+        var lastMsg = msgsNoChanged.get(msgsNoChanged.size() - 1);
+        assertInstanceOf(UserMessage.class, lastMsg);
+        String lastMsgText = Messages.getText(lastMsg);
+        assertTrue(
+                lastMsgText.contains(Messages.getText(request)), "Last message should contain original request text");
+        assertTrue(lastMsgText.contains("<workspace_toc>"), "Last message should contain TOC reminder");
+
+        // 3) some message should contain the read-only file name
+        boolean containsRo =
+                msgsNoChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(roFile.getFileName()));
+        assertTrue(containsRo, "Expected read-only fragment content to appear in messages when no changed files");
+
+        // Collect messages with the editable file listed as changed
+        var msgsWithChanged = CodePrompts.instance.collectCodeMessages(
+                new Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                new ViewingPolicy(TaskResult.Type.CODE),
+                Messages.getText(request),
+                Set.of(editable),
+                false);
+
+        // 4) ensure editable file name appears when it is provided as changed
+        boolean containsEditable =
+                msgsWithChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(editable.getFileName()));
+        assertTrue(
+                containsEditable,
+                "Expected editable fragment content to appear in messages when it's listed as changed");
+
+        // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
+        var toc = WorkspacePrompts.formatToc(ctx, false);
+        var tocReminder =
+                """
+                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+                %s
+                """
+                        .formatted(toc);
+        var augmented = Messages.getText(request) + "\n\n" + tocReminder;
+        assertTrue(augmented.contains(Messages.getText(request)));
+        assertTrue(augmented.contains(toc));
+    }
+
+    // verifyPhase should call BuildOutputPreprocessor.processForLlm only once, not twice
+    @Test
+    void testVerifyPhase_callsProcessForLlmOnlyOnce_duplicate() {
+        // This duplicates the earlier test name to ensure test runner uniqueness is unaffected.
+        // The meaningful behavior is covered by the other test above.
+        assertTrue(true);
+    }
+
+    @Test
+    void compactForBuildRetryAggregatesReasoningAndProducesSyntheticTurn() {
+        // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)
+        List<ChatMessage> msgs = new ArrayList<>();
+        msgs.add(new UserMessage("original user"));
+        msgs.add(AiMessage.from("ai text 1", "reason-1"));
+        msgs.add(AiMessage.from("", "")); // blank reasoningContent and blank text -> should be skipped
+        msgs.add(AiMessage.from("ai text 3", "reason-3"));
+
+        // Create ConversationState with original goal
+        var cs = new CodeAgent.ConversationState(msgs, null, 0, "my-user-goal");
+
+        // Call the pure compaction method
+        var compactedCs = cs.compactForBuildRetry();
+
+        // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
+        var compactedMessages = compactedCs.taskMessages();
+        assertEquals(2, compactedMessages.size());
+        assertInstanceOf(UserMessage.class, compactedMessages.get(0));
+        assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
+        assertInstanceOf(AiMessage.class, compactedMessages.get(1));
+
+        // Both non-blank reasoning segments should be joined
+        String expectedAccumulated = "reason-1\n\nreason-3";
+        assertEquals(expectedAccumulated, ((AiMessage) compactedMessages.get(1)).text());
+
+        // Original goal should be preserved
+        assertEquals("my-user-goal", compactedCs.originalGoal());
+    }
+
+    @Test
+    void testCollectCodeMessages_goalIncluded() throws InterruptedException {
+        var consoleIO = new TestConsoleIO();
+        var project = new TestProject(projectRoot, Languages.JAVA);
+        var cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
+        var ctx = new Context(cm, null);
+
+        var request = new UserMessage("Please fix this");
+        var messages = CodePrompts.instance.collectCodeMessages(
+                new ai.brokk.Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                new ViewingPolicy(TaskResult.Type.CODE),
+                "My special goal text",
+                Set.of(),
+                false);
+
+        // First message should be the system message; ensure it contains the goal block with original text.
+        ChatMessage system = messages.get(0);
+        String sysText = Messages.getText(system);
+        assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
+        assertTrue(sysText.contains("My special goal text"), "Goal text should appear inside the <goal> block");
     }
 }

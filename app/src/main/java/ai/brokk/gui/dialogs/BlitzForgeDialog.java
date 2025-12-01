@@ -13,6 +13,7 @@ import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.BorderUtils;
@@ -25,6 +26,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.github.mustachejava.DefaultMustacheFactory;
@@ -987,9 +989,10 @@ public class BlitzForgeDialog extends JDialog {
                 long workspaceTokens = 0;
                 long workspaceAdd = 0;
                 if (includeWorkspace) {
+                    Context ctx = cm.liveContext();
                     workspaceTokens =
-                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                                    cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                            Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                                    ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     workspaceAdd = workspaceTokens * n;
                 }
 
@@ -1108,9 +1111,9 @@ public class BlitzForgeDialog extends JDialog {
             boolean hadError = false;
             try {
                 // Token counting and message construction happen in this background thread.
-                workspaceTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                                cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                Context ctx = cm.liveContext();
+                workspaceTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                        ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
@@ -1427,7 +1430,7 @@ public class BlitzForgeDialog extends JDialog {
                     }
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
-                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                    list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
@@ -1598,7 +1601,7 @@ public class BlitzForgeDialog extends JDialog {
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
+                    readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
                             context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }

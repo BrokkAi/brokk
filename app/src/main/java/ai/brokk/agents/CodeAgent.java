@@ -48,7 +48,6 @@ import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
@@ -60,10 +59,8 @@ public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
     private static final int MAX_PARSE_ATTEMPTS = 3;
 
-    @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
-    @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
 
     final IContextManager contextManager;
@@ -136,6 +133,7 @@ public class CodeAgent {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
         // Seed the local Context reference for this task
         context = initialContext;
+
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
@@ -162,8 +160,8 @@ public class CodeAgent {
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
                 context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
-        // FSM state
-        var cs = new ConversationState(taskMessages, nextRequest, 0);
+        // FSM state - include original goal for build-retry compaction
+        var cs = new ConversationState(taskMessages, nextRequest, 0, userInput.trim());
         var es = new EditState(
                 blocks,
                 0,
@@ -173,7 +171,8 @@ public class CodeAgent {
                 buildError,
                 changedFiles,
                 originalFileContents,
-                Collections.emptyMap());
+                Collections.emptyMap(),
+                false);
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -202,14 +201,17 @@ public class CodeAgent {
             StreamingResult streamingResult;
             try {
                 var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
+                boolean showBuildStatusInWorkspace = !es.hasAttemptedBuild();
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
+                        viewingPolicy,
+                        userInput.trim(),
                         es.changedFiles(),
-                        viewingPolicy);
+                        showBuildStatusInWorkspace);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -713,12 +715,29 @@ public class CodeAgent {
                         TaskResult.StopReason.BUILD_ERROR,
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
-            // Use processed output for LLM context, but fallback to sanitized if pipeline processing returned empty
-            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt(context));
+            var buildPrompt =
+                    """
+                    The build failed.
+                    Please analyze the error message, review the conversation history for previous attempts,
+                    and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    <build_output>
+                    %s
+                    </build_output>
+
+                    <original_goal>
+                    %s
+                    </original_goal>
+                    """
+                            .formatted(buildError, cs.originalGoal());
+            UserMessage nextRequest = CodePrompts.instance.codeRequest(
+                    context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+            // Compact conversation into a concise summary for the build step
+            var compactedCs = cs.compactForBuildRetry();
             var newCs = new ConversationState(
-                    cs.taskMessages(),
-                    nextRequestForBuildFailure,
-                    cs.taskMessages().size());
+                    compactedCs.taskMessages(),
+                    nextRequest,
+                    compactedCs.taskMessages().size(),
+                    cs.originalGoal());
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
@@ -844,7 +863,6 @@ public class CodeAgent {
      * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
      * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
      */
-    @VisibleForTesting
     static final Set<Integer> LOCAL_ONLY_IDS = Set.of(
             IProblem.UninitializedLocalVariable, // PJ-9
             IProblem.RedefinedLocal, // PJ-20
@@ -874,7 +892,6 @@ public class CodeAgent {
             IProblem.CannotThrowNull,
             IProblem.MethodReturnsVoid);
 
-    @VisibleForTesting
     static final Set<Integer> METHOD_LOCAL_IDS = Set.of(
             // Parameter / applicability for calls (e.g., ThreadLocal.withInitial(() -> { }))
             IProblem.ParameterMismatch, // PJ-16
@@ -890,7 +907,6 @@ public class CodeAgent {
             IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod // PJ-18
             );
 
-    @VisibleForTesting
     static final Set<Integer> BLACKLIST_CATS = Set.of(
             CategorizedProblem.CAT_IMPORT, // PJ-4
             CategorizedProblem.CAT_MODULE, // exercised implicitly by PJ-11 classpath ignore
@@ -906,7 +922,6 @@ public class CodeAgent {
             CategorizedProblem.CAT_UNCHECKED_RAW // PJ-5/7/8/12/19 (type/import/classpath noise ignored)
             );
 
-    @VisibleForTesting
     static final Set<Integer> CROSS_FILE_INFERENCE_IDS = Set.of(
             IProblem.MissingTypeInLambda,
             IProblem.CannotInferElidedTypes,
@@ -921,7 +936,6 @@ public class CodeAgent {
      * present, we treat the CU as having "shaky type info" and suppress diagnostics that depend on precise symbol
      * resolution.
      */
-    @VisibleForTesting
     static final Set<Integer> RESOLUTION_NOISE_IDS = Set.of(
             IProblem.UndefinedType,
             IProblem.UndefinedMethod,
@@ -938,7 +952,6 @@ public class CodeAgent {
      * Diagnostics that require stable type info and should be suppressed when the CU shows resolution/inference noise.
      * Includes method applicability/override errors and foreach target/type errors.
      */
-    @VisibleForTesting
     static final Set<Integer> REQUIRES_STABLE_TYPE_INFO;
 
     static {
@@ -951,7 +964,6 @@ public class CodeAgent {
     }
 
     /** Decide if a JDT problem should be recorded by the pre-build Java parse step. */
-    @VisibleForTesting
     static boolean shouldKeepJavaProblem(
             int id, boolean isError, @Nullable Integer categoryId, boolean hasShakyTypeInfo) {
         // 0) If type info is shaky, suppress diagnostics that require stable symbol resolution.
@@ -1168,8 +1180,55 @@ public class CodeAgent {
      * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
      * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
+     *
+     * @param originalGoal the user's original goal/instructions, preserved for build-retry compaction
      */
-    record ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
+    record ConversationState(
+            List<ChatMessage> taskMessages,
+            @Nullable UserMessage nextRequest,
+            int turnStartIndex,
+            String originalGoal) {
+
+        /** Convenience constructor for when originalGoal isn't yet known (backward compat). */
+        ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
+            this(taskMessages, nextRequest, turnStartIndex, "");
+        }
+        /**
+         * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
+         * and return a minimal conversation of [originalGoal, accumulated reasoning].
+         *
+         * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
+         */
+        ConversationState compactForBuildRetry() {
+            if (originalGoal.isBlank()) {
+                return this;
+            }
+
+            var segments = new ArrayList<String>();
+            for (ChatMessage m : taskMessages) {
+                if (m instanceof AiMessage ai) {
+                    String seg = ai.reasoningContent();
+                    if (seg == null || seg.isBlank()) {
+                        seg = CodePrompts.redactAiMessage(ai, EditBlockParser.instance)
+                                .map(AiMessage::text)
+                                .orElse("");
+                    }
+                    if (!seg.isBlank()) {
+                        segments.add(seg);
+                    }
+                }
+            }
+
+            if (segments.isEmpty()) {
+                return this;
+            }
+
+            var compactedMessages = new ArrayList<ChatMessage>();
+            compactedMessages.add(new UserMessage(originalGoal));
+            compactedMessages.add(new AiMessage(String.join("\n\n", segments)));
+            return new ConversationState(compactedMessages, nextRequest, compactedMessages.size(), originalGoal);
+        }
+
         /**
          * Replace all messages in the current turn (starting from turnStartIndex) with: - the original starting
          * UserMessage of the turn - a single synthetic AiMessage summarizing the edits.
@@ -1210,7 +1269,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(msgs, nextRequest, msgs.size());
+            return new ConversationState(msgs, nextRequest, msgs.size(), originalGoal);
         }
     }
 
@@ -1226,7 +1285,8 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
-            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
+            Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+            boolean hasAttemptedBuild) {
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
@@ -1239,7 +1299,8 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    hasAttemptedBuild);
         }
 
         /**
@@ -1256,7 +1317,8 @@ public class CodeAgent {
                     newBuildError,
                     changedFiles,
                     Map.of(), // Clear per-turn baseline
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    true); // Mark that we've attempted a build
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1284,7 +1346,8 @@ public class CodeAgent {
                     lastBuildError,
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
-                    javaLintDiagnostics);
+                    javaLintDiagnostics,
+                    hasAttemptedBuild);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1297,7 +1360,8 @@ public class CodeAgent {
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
-                    diags);
+                    diags,
+                    hasAttemptedBuild);
         }
 
         /**
@@ -1308,7 +1372,6 @@ public class CodeAgent {
          * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
          * history compaction without depending on the diff library package structure at compile time.
          */
-        @VisibleForTesting
         List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new ArrayList<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
