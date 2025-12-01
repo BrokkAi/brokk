@@ -298,12 +298,11 @@ public class Environment {
                         "git -c user.name=TestUser -c user.email=test@example.com -c commit.gpgsign=false -c safe.directory=* -c core.autocrlf=false commit");
                 logger.debug("Retrying failed git commit with inline config: {}", adjusted);
                 // Re-run adjusted command with same root/env
-                String retryOutput = Environment.instance.runShellCommand(
+                return Environment.instance.runShellCommand(
                         adjusted, root, outputConsumer, timeout, executorConfig, environment, processConsumer);
-                return retryOutput;
             }
             throw new FailureException(
-                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
+                    "process '%s' signaled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
         }
 
         return combinedOutput;
