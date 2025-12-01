@@ -717,7 +717,9 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
-                    The build failed. Please fix the issues reported here in service of the original goal.
+                    The build failed.
+                    Please analyze the error message, review the conversation history for previous attempts,
+                    and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     <build_output>
                     %s
                     </build_output>
