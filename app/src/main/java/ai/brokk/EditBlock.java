@@ -144,8 +144,8 @@ public class EditBlock {
 
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
+            var analyzer = ctx.getContextManager().getAnalyzer();
             try {
-                var analyzer = ctx.getContextManager().getAnalyzer();
                 var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
@@ -166,7 +166,15 @@ public class EditBlock {
                             + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
                     contextManager.reportException(
                             new BrkSnippetNoMatchException(message, ex),
-                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                            Map.of(
+                                    "sourcefile", file.getFileName(),
+                                    "marker", marker,
+                                    "sourceContents", file.read().orElse(""),
+                                    "sourceDeclarations",
+                                            analyzer.getDeclarations(file).stream()
+                                                    .map(CodeUnit::shortName)
+                                                    .sorted()
+                                                    .collect(Collectors.joining(", "))));
                 }
 
                 failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));

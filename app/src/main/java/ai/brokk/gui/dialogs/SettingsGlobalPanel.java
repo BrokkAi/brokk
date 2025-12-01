@@ -144,6 +144,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -238,6 +239,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // EZ-mode skip commit gate
+        skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -386,25 +391,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        // Auto-detect and set vendor for other models
-        var quickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
-        var quickEditConfig = chrome.getProject().getMainProject().getQuickEditModelConfig();
-        var quickestConfig = chrome.getProject().getMainProject().getQuickestModelConfig();
-        var scanConfig = chrome.getProject().getMainProject().getScanModelConfig();
-
-        String detectedVendor = "Default"; // default
-        if (scanConfig.name().equals(Service.GPT_5_MINI)
-                && quickConfig.name().equals(Service.GPT_5_NANO)
-                && quickEditConfig.name().equals(Service.GPT_5_NANO)
-                && quickestConfig.name().equals(Service.GPT_5_NANO)) {
-            detectedVendor = "OpenAI";
-        } else if (scanConfig.name().equals(Service.HAIKU_4_5)
-                && quickConfig.name().equals(Service.HAIKU_4_5)
-                && quickEditConfig.name().equals(Service.HAIKU_4_5)
-                && quickestConfig.name().equals(Service.HAIKU_4_5)) {
-            detectedVendor = "Anthropic";
-        }
-
         // Build vendor list based on model availability
         var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
@@ -419,12 +405,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Rebuild combo with available vendors
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Select Default (or detected vendor if it's in the available list)
-        if (vendors.contains(detectedVendor)) {
-            otherModelsVendorCombo.setSelectedItem(detectedVendor);
+        // Apply persisted preference if present and valid; otherwise fall back to Default
+        String persistedVendor = MainProject.getOtherModelsVendorPreference();
+        String vendorToSelect;
+        if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+            vendorToSelect = persistedVendor;
         } else {
-            otherModelsVendorCombo.setSelectedItem("Default");
+            vendorToSelect = "Default";
         }
+        otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
         // Hide vendor row if only one option remains
         boolean hideVendorRow = vendors.size() <= 1;
@@ -1038,6 +1027,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+
+        skipCommitGateEzCheckbox.setToolTipText(
+                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(skipCommitGateEzCheckbox, gbc);
+
+        advancedModeCheckbox.addActionListener(e -> {
+            boolean advanced = advancedModeCheckbox.isSelected();
+            skipCommitGateEzCheckbox.setVisible(!advanced);
+            panel.revalidate();
+            panel.repaint();
+        });
+
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -2066,6 +2072,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 generalSettings,
                 modelSettings);
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+        GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 
         // Persist force tool emulation immediately so runtime behavior reflects the user's choice.
         MainProject.setForceToolEmulation(forceToolEmulation);
@@ -2134,6 +2141,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
+        // Persist selected vendor preference for "other models" regardless of choice
+        MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
+
         // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
         if ("OpenAI".equals(selectedVendor)) {
             chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
@@ -2146,7 +2156,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
         }
-        // For "Default", do nothing (leave current values intact)
+        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;

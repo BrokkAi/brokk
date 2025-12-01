@@ -38,15 +38,12 @@ public class Messages {
 
     public static List<ChatMessage> forLlm(Collection<ChatMessage> messages) {
         return messages.stream()
-                .map(m -> {
-                    if (m instanceof CustomMessage) {
-                        return new UserMessage(getText(m));
-                    }
-                    if (m instanceof UserMessage um && um.name() != null) {
-                        // strip out the metadata we use for stashing UI action type
-                        return new UserMessage(um.contents());
-                    }
-                    return m;
+                .map(m -> switch (m) {
+                    case CustomMessage cm -> new UserMessage(getText(cm));
+                    // strip out the metadata we use for stashing UI action type
+                    case UserMessage um -> um.name() != null ? new UserMessage(um.contents()) : um;
+                    // We had code here strip out reasoning from AiMessage but that makes CodeAgent worse
+                    default -> m;
                 })
                 .toList();
     }

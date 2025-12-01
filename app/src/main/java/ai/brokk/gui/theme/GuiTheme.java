@@ -70,8 +70,8 @@ public class GuiTheme {
     public static void setupLookAndFeel(String themeName) {
         String effectiveTheme = themeName;
         if (effectiveTheme == null || effectiveTheme.isEmpty()) {
-            logger.warn("Null or empty theme name, defaulting to dark");
-            effectiveTheme = THEME_DARK;
+            logger.warn("Null or empty theme name, defaulting to dark-plus");
+            effectiveTheme = THEME_DARK_PLUS;
         }
 
         String themeFile =
@@ -261,20 +261,75 @@ public class GuiTheme {
                     }
                 };
 
-        var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
-
-        if (inputStream == null) {
-            logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
-            return Optional.empty();
-        }
-
-        try {
-            return Optional.of(Theme.load(inputStream));
+        try (var inputStream = GuiTheme.class.getResourceAsStream(themeResource)) {
+            if (inputStream == null) {
+                logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
+                return Optional.empty();
+            }
+            var theme = Theme.load(inputStream);
+            applyFlatLafColorsToTheme(theme);
+            return Optional.of(theme);
         } catch (IOException e) {
             logger.error(
                     "Could not load {} RSyntaxTextArea theme from {}: {}", themeName, themeResource, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Overrides editor-chrome colors of an RSyntaxTextArea Theme with colors from FlatLaf UIManager.
+     * Syntax token colors are preserved from the XML theme.
+     */
+    private static void applyFlatLafColorsToTheme(Theme theme) {
+        // Editor background - use Brokk.rsyntax_background or Editor.background
+        var bg = ThemeColors.getColor("rsyntax_background");
+        if (bg == null) bg = UIManager.getColor("Editor.background");
+        if (bg != null) theme.bgColor = bg;
+
+        // Selection colors
+        var selBg = UIManager.getColor("*.selectionBackground");
+        if (selBg != null) theme.selectionBG = selBg;
+
+        var selFg = UIManager.getColor("*.selectionForeground");
+        if (selFg != null) theme.selectionFG = selFg;
+
+        // Caret
+        var caret = UIManager.getColor("TextField.caretForeground");
+        if (caret != null) theme.caretColor = caret;
+
+        // Current line highlight - derive from background
+        if (theme.bgColor != null) {
+            int r = theme.bgColor.getRed();
+            int g = theme.bgColor.getGreen();
+            int b = theme.bgColor.getBlue();
+            int delta = isColorDark(theme.bgColor) ? 15 : -15;
+            theme.currentLineHighlight = new Color(clamp(r + delta), clamp(g + delta), clamp(b + delta));
+        }
+
+        // Gutter styling
+        var panelBg = UIManager.getColor("Panel.background");
+        if (panelBg != null) theme.gutterBackgroundColor = panelBg;
+
+        var borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor != null) {
+            theme.gutterBorderColor = borderColor;
+            theme.marginLineColor = borderColor;
+        }
+
+        // Line numbers
+        var lineNumColor = UIManager.getColor("*.disabledForeground");
+        if (lineNumColor != null) theme.lineNumberColor = lineNumColor;
+
+        var fg = UIManager.getColor("*.foreground");
+        if (fg != null) theme.currentLineNumberColor = fg;
+    }
+
+    private static boolean isColorDark(Color c) {
+        return (c.getRed() * 0.299 + c.getGreen() * 0.587 + c.getBlue() * 0.114) < 128;
+    }
+
+    private static int clamp(int v) {
+        return Math.max(0, Math.min(255, v));
     }
 
     /** Applies the syntax theme to every relevant component contained in the supplied frame. */

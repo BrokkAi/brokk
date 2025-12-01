@@ -994,11 +994,16 @@ public abstract class CodePrompts {
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
             searchContents +=
                     """
-           - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
-             `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-             or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
-             existing function's signature, annotations, and body, including any Javadoc; it cannot create new functions.""";
-            hints = "- Use syntax-aware SEARCH when you are rewriting an entire class or function.\n" + hints;
+            - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
+              `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
+              or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
+              EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
+              without an existing one to replace.
+              **IMPORTANT**: The `BRK_` token is NOT part of the file content, it is an entity locator used only in SEARCH.
+              When writing the REPLACE block, do **not** repeat the `BRK_` line.
+              The REPLACE block must contain *only* the valid code (annotations, signature, body) that will overwrite the target.
+            """;
+            hints = "- Use syntax-aware SEARCH when you are replacing an entire class or function.\n" + hints;
         }
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             searchContents +=

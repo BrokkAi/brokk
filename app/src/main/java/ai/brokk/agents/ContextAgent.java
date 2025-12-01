@@ -4,6 +4,7 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
@@ -76,6 +77,7 @@ public class ContextAgent {
     private final String goal;
     private final IAnalyzer analyzer;
     private final StreamingChatModel model;
+    private final IConsoleIO io;
 
     /** Budget for the evaluate-for-relevance stage (uncapped *0.65 of input). */
     private final int evaluationBudget;
@@ -85,9 +87,15 @@ public class ContextAgent {
 
     public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal)
             throws InterruptedException {
+        this(contextManager, model, goal, contextManager.getIo());
+    }
+
+    public ContextAgent(IContextManager contextManager, StreamingChatModel model, String goal, IConsoleIO io)
+            throws InterruptedException {
         this.cm = contextManager;
         this.goal = goal;
         this.model = model;
+        this.io = io;
         this.analyzer = contextManager.getAnalyzer();
 
         // Token budgets
@@ -245,21 +253,28 @@ public class ContextAgent {
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
         // Create Llm instances - only analyzed group streams to UI
-        var filesLlmAnalyzed = cm.getLlm(
-                new Llm.Options(cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
-                        .withForceReasoningEcho()
-                        .withEcho());
+        var filesOpts = new Llm.Options(
+                        cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
+                .withForceReasoningEcho()
+                .withEcho();
+        var filesLlmAnalyzed = cm.getLlm(filesOpts);
+        filesLlmAnalyzed.setOutput(io);
+
         var filesLlmUnanalyzed = cm.getLlm(new Llm.Options(
                 cm.getService().quickestModel(), "ContextAgent Files (Unanalyzed): %s".formatted(goal)));
+        filesLlmUnanalyzed.setOutput(io);
 
-        var llmAnalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
+        var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): %s".formatted(goal))
                 .withForceReasoningEcho()
-                .withEcho());
+                .withEcho();
+        var llmAnalyzed = cm.getLlm(analyzedOpts);
+        llmAnalyzed.setOutput(io);
+
         var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
+        llmUnanalyzed.setOutput(io);
 
         // Show status message based on which groups have work
         int groupCount = (analyzedFiles.isEmpty() ? 0 : 1) + (unAnalyzedFiles.isEmpty() ? 0 : 1);
-        var io = cm.getIo();
         switch (groupCount) {
             case 0 -> {}
             case 1 ->
@@ -335,7 +350,7 @@ public class ContextAgent {
 
         // we streamed the analyzed reasoning; we'll append this afterwards so they don't get mixed together
         if (!unAnalyzedRec.reasoning().isBlank()) {
-            io.llmOutput(
+            this.io.llmOutput(
                     "\n\nUnanalyzed files reasoning:\n\n" + unAnalyzedRec.reasoning(), ChatMessageType.AI, false, true);
         }
 
@@ -713,12 +728,11 @@ public class ContextAgent {
         }
 
         if (showBatch1Reasoning) {
-            cm.getIo()
-                    .llmOutput(
-                            "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
-                            ChatMessageType.AI,
-                            false,
-                            true);
+            this.io.llmOutput(
+                    "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
+                    ChatMessageType.AI,
+                    false,
+                    true);
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
@@ -726,6 +740,9 @@ public class ContextAgent {
                                 cm.getService().quickestModel(), "ContextAgent Files Unanalyzed %s".formatted(goal))
                         .withForceReasoningEcho())
                 : filesLlm;
+        if (showBatch1Reasoning) {
+            filesLlmWithEcho.setOutput(this.io);
+        }
 
         List<Future<LlmRecommendation>> futures;
         try (var executor = AdaptiveExecutor.create(cm.getService(), model, chunks.size())) {
@@ -765,12 +782,11 @@ public class ContextAgent {
         }
 
         if (showBatch1Reasoning) {
-            cm.getIo()
-                    .llmOutput(
-                            "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
-                            ChatMessageType.AI,
-                            false,
-                            true);
+            this.io.llmOutput(
+                    "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
+                    ChatMessageType.AI,
+                    false,
+                    true);
         }
 
         return new LlmRecommendation(
