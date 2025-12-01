@@ -142,10 +142,10 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BaseThemedDialog extends JDialog {
     /**
-     * The panel where subclasses place their UI content.
+     * The panel where callers place their UI content.
      * Uses BorderLayout and occupies the CENTER region of the dialog's contentPane.
      */
-    protected final JPanel contentRoot = new JPanel(new BorderLayout());
+    private final JPanel contentRoot = new JPanel(new BorderLayout());
 
     /**
      * Constructs a BaseThemedDialog with the specified owner, title, and modality.
@@ -191,15 +191,15 @@ public class BaseThemedDialog extends JDialog {
     }
 
     /**
-     * Returns the content root panel where subclasses should place their UI.
+     * Returns the content root panel where callers should place their UI.
      *
      * <p>This panel uses BorderLayout and is located at CENTER of the dialog's
      * contentPane. On macOS, the themed title bar occupies the NORTH region of
      * the contentPane, so placing UI in contentRoot avoids layout conflicts.
      *
-     * @return The panel where subclass UI should be added
+     * @return The panel where dialog UI should be added
      */
-    protected final JPanel getContentRoot() {
+    public final JPanel getContentRoot() {
         return contentRoot;
     }
 

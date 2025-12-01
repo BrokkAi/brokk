@@ -602,11 +602,13 @@ public class OpenProjectDialog extends BaseThemedDialog {
         final var directory = Paths.get(dir);
 
         // 1. Build the modal progress dialog on the EDT
-        final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
+        final var progressDialog = new BaseThemedDialog(parentFrame, "Cloning...");
         var progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
-        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
-        progressDialog.add(progressBar, BorderLayout.CENTER);
+        var root = progressDialog.getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
+        root.add(progressBar, BorderLayout.CENTER);
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(parentFrame);
 

@@ -229,7 +229,7 @@ public class FeedbackDialog extends BaseThemedDialog {
         if (screenshotImage == null) {
             return;
         }
-        var dialog = new JDialog(this, "Screenshot Preview", true);
+        var dialog = new BaseThemedDialog(this, "Screenshot Preview");
         var scaled = screenshotImage.getScaledInstance(
                 screenshotImage.getWidth() / 2, screenshotImage.getHeight() / 2, Image.SCALE_SMOOTH);
         var imgLabel = new JLabel(new ImageIcon(scaled));
@@ -244,7 +244,7 @@ public class FeedbackDialog extends BaseThemedDialog {
             focusColor = new Color(0x8ab4f8);
         }
         imgLabel.setBorder(BorderFactory.createLineBorder(focusColor));
-        dialog.getContentPane().add(new JScrollPane(imgLabel));
+        dialog.getContentRoot().add(new JScrollPane(imgLabel));
         dialog.pack();
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
