@@ -3,6 +3,8 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.BuildInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -11,7 +13,7 @@ import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Native-style “About Brokk” dialog.
+ * Native-style "About Brokk" dialog.
  *
  * <p>• Modeless so the macOS Application menu stays enabled. • Can be invoked from any thread; creation is marshalled
  * to the EDT.
@@ -21,7 +23,23 @@ public final class AboutDialog extends JDialog {
         super(owner, "About Brokk", ModalityType.MODELESS);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setName("aboutDialog");
+
+        // Configure macOS full-window content if supported
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                setTitle(null);
+            }
+        }
+
         buildUi();
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        ThemeTitleBarManager.applyTitleBar(this, "About Brokk");
+
         pack();
         setResizable(false);
         setLocationRelativeTo(owner);
@@ -51,7 +69,10 @@ public final class AboutDialog extends JDialog {
                         .formatted(BuildInfo.version);
         content.add(new JLabel(text), BorderLayout.CENTER);
 
-        add(content);
+        // Ensure content pane uses BorderLayout and add content in CENTER
+        // (title bar will be in NORTH after ThemeTitleBarManager.applyTitleBar)
+        getContentPane().setLayout(new BorderLayout());
+        getContentPane().add(content, BorderLayout.CENTER);
         Chrome.applyIcon(this); // sets Dock/task-bar icon where applicable
 
         // Allow closing with ESC key
