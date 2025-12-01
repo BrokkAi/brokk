@@ -15,7 +15,7 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog that gathers feedback details from the user and sends them through Service.sendFeedback(). */
-public class FeedbackDialog extends JDialog {
+public class FeedbackDialog extends BaseThemedDialog {
     private final Chrome chrome;
     private final JComboBox<CategoryItem> categoryCombo;
     private final JTextArea feedbackArea;
@@ -36,7 +36,7 @@ public class FeedbackDialog extends JDialog {
     }
 
     public FeedbackDialog(Frame owner, Chrome chrome) {
-        super(owner, "Send Feedback", true);
+        super(owner, "Send Feedback");
         this.chrome = chrome;
 
         categoryCombo = new JComboBox<>(new CategoryItem[] {
@@ -144,9 +144,10 @@ public class FeedbackDialog extends JDialog {
         buttons.add(cancelButton);
         buttons.add(sendButton);
 
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(form, BorderLayout.CENTER);
-        getContentPane().add(buttons, BorderLayout.SOUTH);
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(form, BorderLayout.CENTER);
+        root.add(buttons, BorderLayout.SOUTH);
     }
 
     private void send() {
