@@ -132,7 +132,18 @@ async function handleEvent(payload: any): Promise<void> {
 let nextSummaryParseSeq = 2_000_000;
 
 function onLiveSummary(payload: any): void {
-    const { threadId, compressed, summary } = payload;
+    const { compressed, summary, taskSequence } = payload;
+
+    // Get the current live thread's threadId from bubblesStore
+    // The backend sends taskSequence, but we need the frontend's threadId for UI correlation
+    const bubbles = get(bubblesStore);
+    if (bubbles.length === 0) {
+        mainLog.debug('live-summary: no live bubbles to attach summary to');
+        return;
+    }
+    const threadId = bubbles[0].threadId;
+
+    mainLog.debug('live-summary: taskSequence=%d, threadId=%d, compressed=%s', taskSequence, threadId, compressed);
 
     // Clear any previous summary entry for this threadId
     const prevEntry = getSummaryParseEntry(threadId);

@@ -374,13 +374,13 @@ public final class MOPWebViewHost extends JPanel {
         bridge.sendEnvironmentInfo(analyzerReady);
     }
 
-    public void sendLiveSummary(int threadId, boolean compressed, String summary) {
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
             logger.debug("sendLiveSummary ignored; bridge not ready");
             return;
         }
-        bridge.sendLiveSummary(threadId, compressed, summary);
+        bridge.sendLiveSummary(taskSequence, compressed, summary);
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {

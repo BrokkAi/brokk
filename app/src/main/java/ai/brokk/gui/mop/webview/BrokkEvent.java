@@ -86,8 +86,9 @@ public sealed interface BrokkEvent {
     /**
      * Delivers a compressed summary for the live thread.
      * Used when the AI produces a summary for the current live task.
+     * The taskSequence identifies the backend TaskEntry; the frontend maps this to its own threadId.
      */
-    record LiveSummary(int epoch, int threadId, boolean compressed, String summary) implements BrokkEvent {
+    record LiveSummary(int epoch, int taskSequence, boolean compressed, String summary) implements BrokkEvent {
         @Override
         public String getType() {
             return "live-summary";
