@@ -20,7 +20,6 @@ import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -1634,11 +1633,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names from ModelProperties
-        String defaultQuick = ModelProperties.ModelType.QUICK.preferredConfig().name();
-        String defaultQuickEdit = ModelProperties.ModelType.QUICK_EDIT.preferredConfig().name();
-        String defaultQuickest = ModelProperties.ModelType.QUICKEST.preferredConfig().name();
-        String defaultScan = ModelProperties.ModelType.SCAN.preferredConfig().name();
+        // Build dynamic tooltip with current Default model names from MainProject's code-defined defaults
+        String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
+        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
+        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
+        String defaultScan = MainProject.getDefaultScanModelConfig().name();
 
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
@@ -2154,10 +2153,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
         } else if ("Default".equals(selectedVendor)) {
             var mp = chrome.getProject().getMainProject();
-            mp.setQuickModelConfig(ModelProperties.ModelType.QUICK.preferredConfig());
-            mp.setQuickEditModelConfig(ModelProperties.ModelType.QUICK_EDIT.preferredConfig());
-            mp.setQuickestModelConfig(ModelProperties.ModelType.QUICKEST.preferredConfig());
-            mp.setScanModelConfig(ModelProperties.ModelType.SCAN.preferredConfig());
+            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
         }
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
