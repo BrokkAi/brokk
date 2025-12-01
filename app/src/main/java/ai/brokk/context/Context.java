@@ -1010,8 +1010,7 @@ public class Context {
             return context;
         }
 
-        var workspaceFiles = context
-                .fileFragments()
+        var workspaceFiles = context.fileFragments()
                 .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
                 .map(f -> (ContextFragment.ProjectPathFragment) f)
                 .map(ContextFragment.ProjectPathFragment::file)

@@ -62,10 +62,7 @@ public final class ComputedValue<T> {
      * No additional threads are spawned.
      */
     public <U> ComputedValue<U> map(Function<? super T, ? extends U> mapper) {
-        return new ComputedValue<>(
-                name + "-map",
-                futureRef.thenApply(mapper)
-        );
+        return new ComputedValue<>(name + "-map", futureRef.thenApply(mapper));
     }
 
     /**
@@ -75,9 +72,7 @@ public final class ComputedValue<T> {
      */
     public <U> ComputedValue<U> flatMap(Function<? super T, ComputedValue<U>> mapper) {
         return new ComputedValue<>(
-                name + "-flatMap",
-                futureRef.thenCompose(v -> mapper.apply(v).future())
-        );
+                name + "-flatMap", futureRef.thenCompose(v -> mapper.apply(v).future()));
     }
 
     /**

@@ -451,7 +451,8 @@ public class BuildAgent {
      * @return a {@link CompletableFuture} that completes on the background thread.
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
+        return cm.submitBackgroundTask(
+                "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
     /**

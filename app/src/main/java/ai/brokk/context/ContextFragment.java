@@ -419,9 +419,7 @@ public interface ContextFragment {
 
         protected <T> ComputedValue<T> derived(String key, Function<FragmentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
-            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
-                    key,
-                    k -> snapshotCv.map(extractor));
+            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(key, k -> snapshotCv.map(extractor));
             return cv;
         }
 
@@ -781,7 +779,8 @@ public interface ContextFragment {
             var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
             var desc = parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
             var syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            var snapshot = new FragmentSnapshot(desc, shortDesc, content, syntax, Set.of(), Set.of(file), (List<Byte>) null);
+            var snapshot =
+                    new FragmentSnapshot(desc, shortDesc, content, syntax, Set.of(), Set.of(file), (List<Byte>) null);
             return ComputedValue.completed("gff-snap-" + id, snapshot);
         }
 

@@ -1153,8 +1153,7 @@ public class ContextSerializationTest {
         var fragment1 = new ContextFragment.SummaryFragment(
                 mockContextManager, "com.example.TargetClass", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
-        var context1 =
-                new Context(mockContextManager).addFragments(fragment1);
+        var context1 = new Context(mockContextManager).addFragments(fragment1);
         ContextHistory originalHistory1 = new ContextHistory(context1);
 
         Path zipFile1 = tempDir.resolve("test_summary_codeunit_history.zip");
@@ -1446,9 +1445,7 @@ public class ContextSerializationTest {
         var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
         var sf = new ContextFragment.StringFragment(mockContextManager, "s", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(mockContextManager)
-                .addFragments(List.of(ppf))
-                .addFragments(sf);
+        var ctx = new Context(mockContextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         ContextHistory ch = new ContextHistory(ctx);
         Path original = tempDir.resolve("bc_original.zip");
