@@ -587,17 +587,7 @@ public class WorkspaceChip extends JPanel {
     protected void bindComputed() {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment != null) {
-            // Bind to any ComputedValue changes for this fragment.
-            // ComputedSubscription.bind currently takes only (ComputedFragment, JComponent, Runnable)
-            // We still clear metrics when the fragment is explicitly dropped or replaced.
             ComputedSubscription.bind(fragment, this, this::refreshLabelAndTooltip);
-            // Prime key ComputedValues so they resolve off-EDT without blocking.
-            try {
-                fragment.shortDescription().start();
-                fragment.description().start();
-            } catch (Exception ex) {
-                logger.trace("Failed to prime fragment computed values", ex);
-            }
         }
     }
 

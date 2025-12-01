@@ -296,17 +296,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             protected Void doInBackground() {
                 for (var f : frags) {
-                    try {
-                        // Kick off computations eagerly
-                        f.text().start();
-                        f.description().start();
-                        f.files().start();
-                        if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment (non-blocking text path)
-                            tokensForFragment(f);
-                        }
-                    } catch (Exception ignore) {
-                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    if (f.isText() || f.getType().isOutput()) {
+                        // This will compute and cache the token count for the fragment (non-blocking text path)
+                        tokensForFragment(f);
                     }
                 }
                 return null;

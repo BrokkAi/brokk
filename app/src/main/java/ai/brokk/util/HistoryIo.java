@@ -269,9 +269,6 @@ public final class HistoryIo {
                         if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
                             pastedImageFragments.add(aif);
                         } else {
-                            var futureImageBytes = vf.imageBytes();
-                            if (futureImageBytes != null)
-                                futureImageBytes.start(); // ensure this starts for when we need it later
                             imageDomainFragments.add(ff);
                         }
                     }

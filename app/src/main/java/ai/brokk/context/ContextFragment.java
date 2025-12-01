@@ -391,11 +391,9 @@ public interface ContextFragment {
                 String id, IContextManager contextManager, @Nullable FragmentSnapshot initialSnapshot) {
             this.id = id;
             this.contextManager = contextManager;
-            // Avoid autostart here to prevent races with subclass field initialization.
             this.snapshotCv = initialSnapshot != null
                     ? ComputedValue.completed("snap-" + id, initialSnapshot)
-                    : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor(), false);
-            snapshotCv.start();
+                    : new ComputedValue<>("snap-" + id, getFragmentExecutor().submit(this::computeSnapshot));
         }
 
         public void await(Duration timeout) throws InterruptedException {
@@ -423,11 +421,7 @@ public interface ContextFragment {
             @SuppressWarnings("unchecked")
             ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
                     key,
-                    k -> new ComputedValue<>(
-                            id + "-" + k,
-                            () -> extractor.apply(snapshotCv.future().join()),
-                            getFragmentExecutor(),
-                            false));
+                    k -> snapshotCv.map(extractor));
             return cv;
         }
 

@@ -523,7 +523,6 @@ public class Context {
         String actionPrefix = readonly ? "Set Read-Only: " : "Unset Read-Only: ";
 
         var cv = fragment.description();
-        cv.start();
         var actionCf = new CompletableFuture<String>();
         cv.onComplete((label, ex) -> {
             if (ex != null) {
