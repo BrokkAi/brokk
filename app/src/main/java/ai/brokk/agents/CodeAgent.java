@@ -69,7 +69,7 @@ public class CodeAgent {
 
     static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
-    static final int MAX_BUILD_FAILURES = 5;
+    final int MAX_BUILD_FAILURES;
 
     final IContextManager contextManager;
     private final StreamingChatModel model;
@@ -86,6 +86,8 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
+        // free tier models are dumber; cut them off sooner
+        MAX_BUILD_FAILURES = contextManager.getService().isFreeTier(model) ? 3 : 5;
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager, null);
     }

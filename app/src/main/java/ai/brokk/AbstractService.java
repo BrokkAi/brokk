@@ -647,6 +647,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return v instanceof Boolean b && b;
     }
 
+    public boolean isFreeTier(StreamingChatModel model) {
+        return isFreeTier(nameOf(model));
+    }
+
     public StreamingChatModel quickestModel() {
         return quickestModel;
     }
