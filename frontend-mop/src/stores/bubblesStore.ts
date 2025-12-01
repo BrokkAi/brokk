@@ -168,6 +168,14 @@ function finalizeReasoningBubble(b: BubbleState): BubbleState {
 }
 
 /**
+ * Get the current live thread ID.
+ * This is used when processing live summaries that may arrive before bubbles are created.
+ */
+export function getCurrentLiveThreadId(): number {
+    return currentThreadId;
+}
+
+/**
  * Track live task progress. On end (inProgress=false), finalize all bubbles:
  * stop streaming; for reasoning bubbles, mark complete, set duration, and collapse.
  */
