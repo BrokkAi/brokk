@@ -1387,6 +1387,7 @@ public class Llm {
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
+                            || request.toolSpecifications().isEmpty()
                     ? ""
                     : "# Tools:\n\n"
                             + request.toolSpecifications().stream()
