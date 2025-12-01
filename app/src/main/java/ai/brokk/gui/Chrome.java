@@ -141,10 +141,15 @@ public class Chrome
             if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
+
+            // Relax minimum sizes to allow full collapse to compact width
+            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
+            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
+
             leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
-            bottomSplitPane.setDividerLocation(40);
             sidebarCollapsed = true;
+            bottomSplitPane.setDividerLocation(40);
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
@@ -155,6 +160,12 @@ public class Chrome
                         : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(target);
                 sidebarCollapsed = false;
+
+                // Restore minimum sizes for normal operation so min-width clamp is enforced again,
+                // using the current dynamic minimum instead of a hard constant.
+                int minPx = computeMinSidebarWidthPx();
+                leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+                leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
             }
 
             // Refresh Project Files tab badge if that tab was selected
@@ -2915,9 +2926,16 @@ public class Chrome
                 return;
             }
 
+            // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
+            // In that state we do NOT clamp or persist positions, so collapse via tab toggle works.
+            boolean isCollapsedUi =
+                    bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            if (isCollapsedUi) {
+                return;
+            }
+
             // When the sidebar is expanded, clamp the divider so the left drawer
-            // can never be shrunk below the minimum usable width. When collapsed,
-            // we allow the divider to move to the compact (~40px) position.
+            // can never be shrunk below the minimum usable width.
             if (!sidebarCollapsed) {
                 int minWidth = computeMinSidebarWidthPx();
                 if (newPos < minWidth) {
