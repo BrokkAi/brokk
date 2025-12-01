@@ -13,8 +13,8 @@
   import { threadStore } from './stores/threadStore';
   import { historyCollapsedStore } from './stores/historyCollapsedStore';
   import Icon from '@iconify/svelte';
-  import { liveSummaryStore } from './stores/liveSummaryStore';
-  import { summaryParseStore } from './stores/summaryParseStore';
+  import { summaryStore } from './stores/summaryStore';
+  import { getCurrentLiveThreadId } from './stores/bubblesStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -54,15 +54,11 @@
   $: hasHistory = $historyStore.some(t => t.entries.length > 0 || t.summary);
   $: historyTaskCount = $historyStore.filter(t => t.entries.length > 0 || t.summary).length;
 
-  // Live view: check for bubbles and/or legacy summaries
+  // Live view: check for bubbles and/or live summary via summaryParseStore
   $: hasLiveBubbles = $bubblesStore.length > 0;
-  $: liveThreadIdFromBubbles = hasLiveBubbles ? $bubblesStore[0].threadId : undefined;
-  $: liveThreadIdFromSummary = Object.keys($liveSummaryStore).length > 0 
-      ? Number(Object.keys($liveSummaryStore)[0]) 
-      : undefined;
-  $: liveThreadId = liveThreadIdFromBubbles ?? liveThreadIdFromSummary;
-  $: liveSummary = liveThreadId !== undefined ? $liveSummaryStore[liveThreadId] : undefined;
-  $: hasLiveSummaryOnly = !hasLiveBubbles && liveSummary?.compressed && !!liveSummary?.summary;
+  $: liveThreadId = hasLiveBubbles ? $bubblesStore[0].threadId : getCurrentLiveThreadId();
+  $: liveSummaryEntry = liveThreadId !== undefined ? $summaryStore[liveThreadId] : undefined;
+  $: hasLiveSummaryOnly = !hasLiveBubbles && !!liveSummaryEntry?.compressed && !!liveSummaryEntry?.text;
   $: hasLive = hasLiveBubbles || hasLiveSummaryOnly;
 
 
@@ -259,8 +255,8 @@
       <ThreadBlock
         threadId={liveThreadId}
         bubbles={$bubblesStore}
-        compressed={liveSummary?.compressed}
-        summary={liveSummary?.summary}
+        compressed={liveSummaryEntry?.compressed}
+        summary={liveSummaryEntry?.text}
       />
     {/if}
     <Spinner />

@@ -4,7 +4,7 @@ import type {ResultMsg} from '../worker/shared';
 import {parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
-import { setSummaryParseEntry, updateSummaryParseTree, deleteSummaryParseEntry, clearAllSummaryParseEntries, getSummaryParseEntry } from './summaryParseStore';
+import { setSummaryEntry, updateSummaryTree, deleteSummaryEntry, clearAllSummaryEntries, getSummaryEntry } from './summaryStore';
 
 export const historyStore = writable<HistoryTask[]>([]);
 
@@ -29,7 +29,7 @@ function handleParseResult(msg: ResultMsg, threadId: number): void {
 }
 
 function handleSummaryParseResult(msg: ResultMsg, threadId: number): void {
-    updateSummaryParseTree(threadId, msg.tree);
+    updateSummaryTree(threadId, msg.tree);
 }
 
 export function onHistoryEvent(evt: BrokkEvent): void {
@@ -42,12 +42,12 @@ export function onHistoryEvent(evt: BrokkEvent): void {
             case 'history-reset':
                 tasks.forEach(task => {
                     task.entries.forEach(entry => unregister(entry.seq));
-                    const s = getSummaryParseEntry(task.threadId);
+                    const s = getSummaryEntry(task.threadId);
                     if (s) {
                         unregister(s.seq);
                     }
                 });
-                clearAllSummaryParseEntries();
+                clearAllSummaryEntries();
                 threadStore.clearThreadsByType('history');
                 return [];
 
@@ -97,9 +97,10 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 // Parse summary if present and compressed
                 if (evt.compressed && evt.summary) {
                     const summarySeq = nextSummaryParseSeq++;
-                    setSummaryParseEntry(threadId, {
+                    setSummaryEntry(threadId, {
                         seq: summarySeq,
                         text: evt.summary,
+                        compressed: evt.compressed,
                     });
                     register(summarySeq, (msg: ResultMsg) => handleSummaryParseResult(msg, threadId));
                     parse(evt.summary, summarySeq, false, false);
@@ -123,11 +124,11 @@ export function deleteHistoryTaskByThreadId(threadId: number): void {
             window.javaBridge?.deleteHistoryTask?.(task.taskSequence);
             task.entries.forEach(entry => unregister(entry.seq));
             // Unregister summary parse seq and clear the entry
-            const summaryEntry = getSummaryParseEntry(threadId);
+            const summaryEntry = getSummaryEntry(threadId);
             if (summaryEntry) {
                 unregister(summaryEntry.seq);
             }
-            deleteSummaryParseEntry(threadId);
+            deleteSummaryEntry(threadId);
         }
         // notifying backend triggers a history-reset event, which clears the store
         return tasks;
@@ -142,7 +143,7 @@ export function reparseAll(): void {
                 parse(entry.markdown, entry.seq, false, false);
             }
             if (task.compressed && task.summary) {
-                const summaryEntry = getSummaryParseEntry(task.threadId);
+                const summaryEntry = getSummaryEntry(task.threadId);
                 if (summaryEntry) {
                     register(summaryEntry.seq, (msg: ResultMsg) => handleSummaryParseResult(msg, task.threadId));
                     parse(task.summary, summaryEntry.seq, false, false);
