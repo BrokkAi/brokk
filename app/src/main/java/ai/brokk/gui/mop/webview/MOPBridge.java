@@ -230,13 +230,13 @@ public final class MOPBridge {
      * Sends a live summary event to the frontend for the current in-progress task.
      * This allows the frontend to display a summary toggle in the live area.
      *
-     * @param threadId The thread/task identifier
+     * @param taskSequence The backend TaskEntry sequence number
      * @param compressed Whether the task is compressed (AI uses summary)
      * @param summary The summary text
      */
-    public void sendLiveSummary(int threadId, boolean compressed, String summary) {
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
         var e = epoch.incrementAndGet();
-        eventQueue.add(new BrokkEvent.LiveSummary(e, threadId, compressed, summary));
+        eventQueue.add(new BrokkEvent.LiveSummary(e, taskSequence, compressed, summary));
         scheduleSend();
     }
 
