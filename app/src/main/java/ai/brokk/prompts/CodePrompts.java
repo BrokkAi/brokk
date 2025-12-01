@@ -187,7 +187,6 @@ public abstract class CodePrompts {
             UserMessage request,
             ViewingPolicy viewingPolicy,
             String goal,
-            Set<ProjectFile> changedFiles,
             boolean includeBuildStatus) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();

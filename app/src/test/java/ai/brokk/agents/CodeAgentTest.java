@@ -857,7 +857,6 @@ class CodeAgentTest {
                 nextRequest,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(nextRequest),
-                changedFiles,
                 false);
 
         boolean found = messages.stream()
@@ -1233,7 +1232,6 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request),
-                Set.of(),
                 false);
 
         // 1) first message is SystemMessage
@@ -1261,7 +1259,6 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 Messages.getText(request),
-                Set.of(editable),
                 false);
 
         // 4) ensure editable file name appears when it is provided as changed
@@ -1338,7 +1335,6 @@ class CodeAgentTest {
                 request,
                 new ViewingPolicy(TaskResult.Type.CODE),
                 "My special goal text",
-                Set.of(),
                 false);
 
         // First message should be the system message; ensure it contains the goal block with original text.

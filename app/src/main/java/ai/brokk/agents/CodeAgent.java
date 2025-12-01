@@ -210,7 +210,6 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         viewingPolicy,
                         userInput.trim(),
-                        es.changedFiles(),
                         showBuildStatusInWorkspace);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
