@@ -144,6 +144,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -238,6 +239,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // EZ-mode skip commit gate
+        skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -1022,6 +1027,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+
+        skipCommitGateEzCheckbox.setToolTipText(
+                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(skipCommitGateEzCheckbox, gbc);
+
+        advancedModeCheckbox.addActionListener(e -> {
+            boolean advanced = advancedModeCheckbox.isSelected();
+            skipCommitGateEzCheckbox.setVisible(!advanced);
+            panel.revalidate();
+            panel.repaint();
+        });
+
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -2050,6 +2072,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 generalSettings,
                 modelSettings);
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+        GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 
         // Persist force tool emulation immediately so runtime behavior reflects the user's choice.
         MainProject.setForceToolEmulation(forceToolEmulation);
