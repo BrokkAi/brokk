@@ -63,10 +63,14 @@ import org.jetbrains.annotations.Nullable;
  * automatically restyled all managed dialogs (including those extending BaseThemedDialog).
  * Subclasses do not need to handle theme updates for the title bar.
  *
+ * <p><b>Factory creation:</b> Use {@link Chrome#newThemedDialog(Window, String, boolean)} or
+ * {@link Chrome#newThemedDialog(Window, String)} to create instances via the convenience factory.
+ *
  * @see ThemeTitleBarManager
  * @see Chrome#applyDialogTitleBar(JDialog, String)
+ * @see Chrome#newThemedDialog(Window, String, boolean)
  */
-public abstract class BaseThemedDialog extends JDialog {
+public class BaseThemedDialog extends JDialog {
     /**
      * The panel where subclasses place their UI content.
      * Uses BorderLayout and occupies the CENTER region of the dialog's contentPane.
@@ -86,7 +90,7 @@ public abstract class BaseThemedDialog extends JDialog {
      * @param title The title for the dialog (displayed in title bar on macOS, or native on other platforms)
      * @param modalityType The modality type (APPLICATION_MODAL, MODELESS, etc.)
      */
-    protected BaseThemedDialog(@Nullable Window owner, String title, Dialog.ModalityType modalityType) {
+    public BaseThemedDialog(@Nullable Window owner, String title, Dialog.ModalityType modalityType) {
         super(owner, title, modalityType);
 
         // Set up the dialog's content pane with a BorderLayout structure
@@ -109,7 +113,7 @@ public abstract class BaseThemedDialog extends JDialog {
      * @param owner The parent window
      * @param title The dialog title
      */
-    protected BaseThemedDialog(@Nullable Window owner, String title) {
+    public BaseThemedDialog(@Nullable Window owner, String title) {
         this(owner, title, Dialog.ModalityType.APPLICATION_MODAL);
     }
 

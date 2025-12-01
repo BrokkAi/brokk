@@ -19,6 +19,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
@@ -3961,6 +3962,50 @@ public class Chrome
      */
     public static JDialog newDialog(Window owner, String title) {
         return newDialog(owner, title, true, true);
+    }
+
+    /**
+     * Creates a new BaseThemedDialog with the Brokk icon and optional title bar styling.
+     * This factory method returns a BaseThemedDialog instance that automatically handles
+     * macOS full-window-content configuration and title bar theming through its constructor.
+     * On non-macOS platforms, this behaves identically to a standard JDialog.
+     *
+     * <p><b>Usage:</b> BaseThemedDialog provides a content root panel (via getContentRoot())
+     * where subclasses or callers can add their UI. The title bar is automatically managed
+     * and occupies the NORTH region of the dialog's content pane.
+     *
+     * <p><b>Example:</b>
+     * <pre>
+     * BaseThemedDialog dialog = Chrome.newThemedDialog(parentWindow, "My Dialog", true);
+     * JPanel contentRoot = dialog.getContentRoot();
+     * contentRoot.add(myPanel, BorderLayout.CENTER);
+     * dialog.setSize(800, 600);
+     * dialog.setLocationRelativeTo(parentWindow);
+     * dialog.setVisible(true);
+     * </pre>
+     *
+     * @param owner The parent window for this dialog (may be null for unowned dialogs)
+     * @param title The title for the new dialog (displayed in title bar on macOS, or native on other platforms)
+     * @param modal Whether this dialog should be modal (APPLICATION_MODAL if true, MODELESS if false)
+     * @return A BaseThemedDialog with icon applied and macOS title bar pre-configured
+     */
+    public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title, boolean modal) {
+        Dialog.ModalityType modality = modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS;
+        BaseThemedDialog dialog = new BaseThemedDialog(owner, title, modality);
+        applyIcon(dialog);
+        return dialog;
+    }
+
+    /**
+     * Creates a new modal BaseThemedDialog with the Brokk icon.
+     * Convenience overload for the common case of modal dialogs.
+     *
+     * @param owner The parent window for this dialog
+     * @param title The title for the new dialog
+     * @return A modal BaseThemedDialog with icon applied and macOS title bar pre-configured
+     */
+    public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title) {
+        return newThemedDialog(owner, title, true);
     }
 
     /**
