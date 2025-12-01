@@ -16,6 +16,7 @@
     export let onCopy: ((threadId: number) => void) | undefined;
     export let onDelete: ((threadId: number) => void) | undefined;
     export let onSetViewMode: ((mode: 'messages' | 'summary') => void) | undefined;
+    export let hasMessages: boolean = true;
 
     let copied = false;
     let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -88,7 +89,7 @@
   {/if}
   {msgLabel} • {totalLines} lines
 
-  {#if compressed}
+  {#if compressed && hasMessages}
     <div
       class="segmented-control"
       role="radiogroup"

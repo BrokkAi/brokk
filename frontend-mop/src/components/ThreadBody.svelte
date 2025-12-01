@@ -37,6 +37,7 @@
     export let onSetViewMode: ((mode: 'messages' | 'summary') => void) | undefined;
     export let onCopy: () => void;
     export let onDelete: (threadId: number) => void;
+    export let hasMessages: boolean = true;
 
     // Combine all message bubbles for full-width body rendering
     $: allMessageBubbles = firstMessageBubble
@@ -92,6 +93,7 @@
                 allowDelete={allowDelete}
                 compressed={compressed}
                 showSummaryOnly={showSummary}
+                hasMessages={hasMessages}
                 onCopy={onCopy}
                 onDelete={onDelete}
                 onSetViewMode={onSetViewMode}
