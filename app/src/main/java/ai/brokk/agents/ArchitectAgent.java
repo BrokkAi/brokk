@@ -406,6 +406,7 @@ public class ArchitectAgent {
 
     /**
      * Run the multi-step project loop: plan, choose tools, execute, repeat.
+     *
      * <p>
      * Strategy:
      * 1) Try CodeAgent first with the goal.
