@@ -20,6 +20,7 @@ import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -1633,22 +1634,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names
-        String quickName =
-                chrome.getProject().getMainProject().getQuickModelConfig().name();
-        String quickEditName =
-                chrome.getProject().getMainProject().getQuickEditModelConfig().name();
-        String quickestName =
-                chrome.getProject().getMainProject().getQuickestModelConfig().name();
-        String scanName =
-                chrome.getProject().getMainProject().getScanModelConfig().name();
+        // Build dynamic tooltip with current Default model names from ModelProperties
+        String defaultQuick = ModelProperties.ModelType.QUICK.preferredConfig().name();
+        String defaultQuickEdit = ModelProperties.ModelType.QUICK_EDIT.preferredConfig().name();
+        String defaultQuickest = ModelProperties.ModelType.QUICKEST.preferredConfig().name();
+        String defaultScan = ModelProperties.ModelType.SCAN.preferredConfig().name();
 
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName
-                + "; Scan=" + scanName
+                + "<b>Default:</b> Quick=" + defaultQuick + "; Quick Edit=" + defaultQuickEdit + "; Quickest=" + defaultQuickest
+                + "; Scan=" + defaultScan
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -2155,8 +2152,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else if ("Default".equals(selectedVendor)) {
+            var mp = chrome.getProject().getMainProject();
+            mp.setQuickModelConfig(ModelProperties.ModelType.QUICK.preferredConfig());
+            mp.setQuickEditModelConfig(ModelProperties.ModelType.QUICK_EDIT.preferredConfig());
+            mp.setQuickestModelConfig(ModelProperties.ModelType.QUICKEST.preferredConfig());
+            mp.setScanModelConfig(ModelProperties.ModelType.SCAN.preferredConfig());
         }
-        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
