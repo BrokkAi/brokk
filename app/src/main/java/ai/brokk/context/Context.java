@@ -1009,8 +1009,7 @@ public class Context {
             return context;
         }
 
-        var liveContext = context;
-        var workspaceFiles = liveContext
+        var workspaceFiles = context
                 .fileFragments()
                 .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
                 .map(f -> (ContextFragment.ProjectPathFragment) f)
@@ -1036,7 +1035,7 @@ public class Context {
             }
         }
 
-        return toAdd.isEmpty() ? context : liveContext.addFragments(toAdd);
+        return toAdd.isEmpty() ? context : context.addFragments(toAdd);
     }
 
     /**
