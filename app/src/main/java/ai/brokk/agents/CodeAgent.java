@@ -158,7 +158,6 @@ public class CodeAgent {
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
 
-        String buildError = "";
         var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
@@ -178,7 +177,7 @@ public class CodeAgent {
                 applyFailures,
                 0,
                 blocksAppliedWithoutBuild,
-                buildError,
+                "",
                 changedFiles,
                 originalFileContents,
                 Collections.emptyMap(),
