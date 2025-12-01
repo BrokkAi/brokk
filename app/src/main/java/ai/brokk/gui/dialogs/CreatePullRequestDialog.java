@@ -82,6 +82,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         initializeDialog();
         buildLayout();
+        Chrome.applyDialogTitleBar(this, "Create a Pull Request");
     }
 
     @Nullable
@@ -109,7 +110,6 @@ public class CreatePullRequestDialog extends JDialog {
         if (getContentPane() instanceof JPanel cp) {
             cp.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
         }
-        setLayout(new BorderLayout());
 
         // --- top panel: branch selectors -------------------------------------------------------
         var topPanel = new JPanel(new BorderLayout());
@@ -119,7 +119,6 @@ public class CreatePullRequestDialog extends JDialog {
         // --- title and description panel ----------------------------------------------------
         var prInfoPanel = createPrInfoPanel();
         topPanel.add(prInfoPanel, BorderLayout.CENTER);
-        add(topPanel, BorderLayout.NORTH);
 
         // --- middle: commit browser and file list ---------------------------------------------
         commitBrowserPanel = new GitCommitBrowserPanel(
@@ -139,8 +138,17 @@ public class CreatePullRequestDialog extends JDialog {
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
-        add(middleTabbedPane, BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+
+        // --- root panel to hold all content, leaving BorderLayout.NORTH free for the title bar ---
+        var root = new JPanel(new BorderLayout());
+        root.add(topPanel, BorderLayout.NORTH);
+        root.add(middleTabbedPane, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
+
+        // Add the root panel to the dialog's content pane
+        Container contentPane = getContentPane();
+        contentPane.setLayout(new BorderLayout());
+        contentPane.add(root, BorderLayout.CENTER);
 
         // flow-label updater
         this.flowUpdater = createFlowUpdater();
