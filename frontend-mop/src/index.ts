@@ -14,8 +14,7 @@ import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePat
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
 import { envStore } from './stores/envStore';
-import { setSummaryParseEntry, deleteSummaryParseEntry, getSummaryParseEntry, updateSummaryParseTree, summaryParseStore } from './stores/summaryParseStore';
-import { setLiveSummary, clearAllLiveSummaries } from './stores/liveSummaryStore';
+import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
 
@@ -138,27 +137,25 @@ function onLiveSummary(payload: any): void {
     const threadId = getCurrentLiveThreadId();
 
     // Clear any previous summary entry for this threadId
-    const prevEntry = getSummaryParseEntry(threadId);
+    const prevEntry = getSummaryEntry(threadId);
     if (prevEntry && isRegistered(prevEntry.seq)) {
         unregister(prevEntry.seq);
     }
-    deleteSummaryParseEntry(threadId);
+    deleteSummaryEntry(threadId);
 
     // Create a new sequence number for this summary parse
     const summarySeq = nextSummaryParseSeq++;
 
-    // Store the summary entry in summaryParseStore
-    setSummaryParseEntry(threadId, {
+    // Store the summary entry in summaryParseStore (merged metadata)
+    setSummaryEntry(threadId, {
         seq: summarySeq,
         text: summary,
+        compressed,
     });
-
-    // Store the summary metadata in liveSummaryStore for the UI
-    setLiveSummary(threadId, { compressed, summary });
 
     // Register a parse result handler
     register(summarySeq, (msg: any) => {
-        updateSummaryParseTree(threadId, msg.tree);
+        updateSummaryTree(threadId, msg.tree);
     });
 
     // Trigger parsing with the worker (slow parse, don't update buffer)
@@ -172,7 +169,6 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
-    clearAllLiveSummaries();
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {

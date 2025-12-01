@@ -2,7 +2,7 @@
     import type { BubbleState } from '../types';
     import { threadStore } from '../stores/threadStore';
     import { summaryViewStore } from '../stores/summaryViewStore';
-    import { summaryParseStore } from '../stores/summaryParseStore';
+    import { summaryStore } from '../stores/summaryStore';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
     import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
     import { deleteLiveTaskByThreadId } from '../stores/bubblesStore';
@@ -70,7 +70,7 @@
 
     // Header preview HAST: summary if in summary view, else first message
     $: previewHast = showSummary
-        ? $summaryParseStore[threadId]?.tree
+        ? $summaryStore[threadId]?.tree
         : firstMessageBubble?.hast;
 
     function toggle() {
@@ -146,7 +146,7 @@
             allowDelete={allowDelete}
             compressed={compressed}
             showSummary={showSummary}
-            summaryTree={$summaryParseStore[threadId]?.tree}
+            summaryTree={$summaryStore[threadId]?.tree}
             summaryText={summary}
             firstMessageBubble={firstMessageBubble}
             remainingMessageBubbles={remainingMessageBubbles}

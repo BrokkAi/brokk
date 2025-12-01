@@ -4,8 +4,7 @@ import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
-import { deleteSummaryParseEntry, getSummaryParseEntry } from './summaryParseStore';
-import { deleteLiveSummary } from './liveSummaryStore';
+import { deleteSummaryEntry, getSummaryEntry } from './summaryStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
@@ -22,12 +21,11 @@ export function onBrokkEvent(evt: BrokkEvent): void {
             case 'clear':
                 list.forEach(bubble => unregister(bubble.seq));
                 // Clean up live summary for the current thread before clearing
-                const prevSummaryEntry = getSummaryParseEntry(currentThreadId);
+                const prevSummaryEntry = getSummaryEntry(currentThreadId);
                 if (prevSummaryEntry && isRegistered(prevSummaryEntry.seq)) {
                     unregister(prevSummaryEntry.seq);
                 }
-                deleteSummaryParseEntry(currentThreadId);
-                deleteLiveSummary(currentThreadId);
+                deleteSummaryEntry(currentThreadId);
                 nextBubbleSeq++;
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
@@ -214,12 +212,11 @@ export function deleteLiveTaskByThreadId(threadId: number): void {
         toRemove.forEach(b => unregister(b.seq));
 
         // Clean up live summary for the deleted thread
-        const summaryEntry = getSummaryParseEntry(threadId);
+        const summaryEntry = getSummaryEntry(threadId);
         if (summaryEntry && isRegistered(summaryEntry.seq)) {
             unregister(summaryEntry.seq);
         }
-        deleteSummaryParseEntry(threadId);
-        deleteLiveSummary(threadId);
+        deleteSummaryEntry(threadId);
 
         // If deleting current live thread, reset live state similarly to 'clear'
         if (threadId === currentThreadId) {
