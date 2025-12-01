@@ -943,7 +943,7 @@ public interface ContextFragment {
         }
 
         @Override
-        public @Nullable ComputedValue<byte[]> imageBytes() {
+        public ComputedValue<byte[]> imageBytes() {
             return derived("imageBytes", FragmentSnapshot::imageBytes);
         }
 
@@ -1089,16 +1089,6 @@ public interface ContextFragment {
                     text,
                     descriptionFuture,
                     syntaxStyleFuture);
-        }
-
-        public PasteTextFragment(
-                String id, IContextManager contextManager, String text, Future<String> descriptionFuture) {
-            this(
-                    id,
-                    contextManager,
-                    text,
-                    descriptionFuture,
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
         }
 
         public PasteTextFragment(
