@@ -445,7 +445,7 @@ public class BuildAgent {
     }
 
     /**
-     * Runs {@link #determineVerificationCommand(IContextManager)} on the {@link ContextManager} background pool and
+     * Runs determineVerificationCommand on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
      *
      * @return a {@link CompletableFuture} that completes on the background thread.
