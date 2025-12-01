@@ -847,7 +847,7 @@ public class SearchAgent {
                 %s
                 </goal>
 
-                Review the Workspace above. Remove ALL fragments that are not directly useful for accomplishing the goal.
+                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
                 If the workspace is already well-curated, you're done!
                 """
                         .formatted(goal)));
