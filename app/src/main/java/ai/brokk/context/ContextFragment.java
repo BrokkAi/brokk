@@ -401,20 +401,7 @@ public interface ContextFragment {
         }
 
         public void await(Duration timeout) throws InterruptedException {
-            // Include the snapshot future plus all derived ComputedValues
-            List<CompletableFuture<?>> futures = new ArrayList<>();
-            futures.add(snapshotCv.future());
-            derivedCvs.values().forEach(cv -> futures.add(cv.future()));
-
-            try {
-                CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                        .get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            } catch (TimeoutException te) {
-                logger.warn("Timeout while awaiting fragment {} completion (timeout={})", id, timeout);
-            } catch (ExecutionException ee) {
-                // Underlying computation failed; surface as a warning here.
-                logger.warn("Error while awaiting fragment {} completion", id, ee.getCause());
-            }
+            snapshotCv.await(timeout);
         }
 
         @Override
@@ -443,14 +430,6 @@ public interface ContextFragment {
                             () -> extractor.apply(snapshotCv.future().join()),
                             getFragmentExecutor(),
                             false));
-            return cv;
-        }
-
-        // Helper for methods that don't come from snapshot directly or have different logic
-        protected <T> ComputedValue<T> derived(String key, Supplier<T> supplier) {
-            @SuppressWarnings("unchecked")
-            ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(
-                    key, k -> new ComputedValue<>(id + "-" + k, supplier, getFragmentExecutor(), false));
             return cv;
         }
 
