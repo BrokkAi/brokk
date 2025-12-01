@@ -203,7 +203,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     @CommandLine.Option(names = "--directory", description = "Custom directory to analyze (use absolute paths)")
     private @Nullable Path testDirectory = null;
 
-    @CommandLine.Parameters(index = "0", description = "Command to run")
+    @CommandLine.Parameters(index = "0", arity = "1", description = "Command to run")
     private @Nullable String command;
 
     public static void main(String[] args) {
