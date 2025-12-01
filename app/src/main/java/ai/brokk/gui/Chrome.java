@@ -2923,7 +2923,15 @@ public class Chrome
                 int minWidth = computeMinSidebarWidthPx();
                 if (newPos < minWidth) {
                     // Clamp visually and skip persistence of too-small positions
-                    SwingUtilities.invokeLater(() -> bottomSplitPane.setDividerLocation(minWidth));
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        bottomSplitPane.setDividerLocation(minWidth);
+                    } else {
+                        try {
+                            SwingUtilities.invokeAndWait(() -> bottomSplitPane.setDividerLocation(minWidth));
+                        } catch (InterruptedException | InvocationTargetException ex) {
+                            // Log or handle as appropriate; here we ignore
+                        }
+                    }
                     return;
                 }
             }
