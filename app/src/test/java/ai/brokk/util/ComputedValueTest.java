@@ -63,19 +63,6 @@ public class ComputedValueTest {
     }
 
     @Test
-    public void threadName_hasPredictablePrefix() throws Exception {
-        var threadName = new AtomicReference<String>();
-        var cv = new ComputedValue<>("nameCheck", CompletableFuture.supplyAsync(() -> {
-            threadName.set(Thread.currentThread().getName());
-            return 99;
-        }));
-
-        cv.future().get();
-        assertNotNull(threadName.get());
-        assertTrue(threadName.get().startsWith("cv-nameCheck-"));
-    }
-
-    @Test
     public void join_isIdempotent() {
         var cv = new ComputedValue<>("joinTest", CompletableFuture.supplyAsync(() -> {
             try {

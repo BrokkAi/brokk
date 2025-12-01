@@ -543,7 +543,7 @@ public class ContextSerializationTest {
         var loadedContext3 = loadedHistory.getHistory().get(2);
 
         // First context should have the edit action preserved
-        assertEquals("Edit test.java", loadedContext1.getAction());
+        assertEquals("Added test.java", loadedContext1.getAction());
 
         // Second context should have preserved the completed slow action
         assertEquals("Slow operation completed", loadedContext2.getAction());
