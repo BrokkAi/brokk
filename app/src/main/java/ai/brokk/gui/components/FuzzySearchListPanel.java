@@ -67,7 +67,9 @@ public class FuzzySearchListPanel<T> {
                 if (currentMatcher != null) {
                     var fragments = currentMatcher.getMatchingFragments(text);
                     if (fragments != null && !fragments.isEmpty()) {
-                        setText(highlightMatches(text, fragments));
+                        var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+                        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+                        setText(FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg));
                     }
                 } else {
                     setText(text);
@@ -200,37 +202,6 @@ public class FuzzySearchListPanel<T> {
         }
     }
 
-    private String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
-        fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
-        Color highlightColor = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-        String hexColor = String.format(
-                "#%02x%02x%02x", highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
-        Color fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-        String fgHex = String.format("#%02x%02x%02x", fg.getRed(), fg.getGreen(), fg.getBlue());
-        var result = new StringBuilder("<html>");
-        int lastEnd = 0;
-        for (var range : fragments) {
-            if (range.getStartOffset() > lastEnd) {
-                result.append(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
-            }
-            result.append("<span style='background-color:")
-                    .append(hexColor)
-                    .append(";color:")
-                    .append(fgHex)
-                    .append("'>")
-                    .append(escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())))
-                    .append("</span>");
-            lastEnd = range.getEndOffset();
-        }
-        if (lastEnd < text.length()) {
-            result.append(escapeHtml(text.substring(lastEnd)));
-        }
-        return result.append("</html>").toString();
-    }
-
-    private String escapeHtml(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
 
     /**
      * Sets a listener that is called when an item is selected (via Enter or click).

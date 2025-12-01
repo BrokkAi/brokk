@@ -179,7 +179,9 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 if (matcher != null && text != null) {
                     var fragments = matcher.getMatchingFragments(text);
                     if (fragments != null && !fragments.isEmpty()) {
-                        setText(highlightMatches(text, fragments));
+                        var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+                        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+                        setText(FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg));
                     }
                 }
                 String branchName = (String) table.getValueAt(row, 1);
@@ -1155,37 +1157,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
     }
 
     /**
-     * Highlights matching text fragments using HTML with theme colors.
-     */
-    private static String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
-        fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
-        var highlightColor = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-        var hexColor = String.format(
-                "#%02x%02x%02x", highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
-        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-        var fgHex = String.format("#%02x%02x%02x", fg.getRed(), fg.getGreen(), fg.getBlue());
-
-        var parts = new ArrayList<String>();
-        int lastEnd = 0;
-        for (var range : fragments) {
-            if (range.getStartOffset() > lastEnd) {
-                parts.add(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
-            }
-            parts.add("<span style='background-color:" + hexColor + ";color:" + fgHex + "'>"
-                    + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())) + "</span>");
-            lastEnd = range.getEndOffset();
-        }
-        if (lastEnd < text.length()) {
-            parts.add(escapeHtml(text.substring(lastEnd)));
-        }
-        return "<html>" + String.join("", parts) + "</html>";
-    }
-
-    private static String escapeHtml(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
-
-    /**
      * Creates a DocumentListener that calls the given action on any text change.
      */
     private static DocumentListener createFilterListener(Runnable filterAction) {
@@ -1214,7 +1185,9 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 if (matcher != null && text != null) {
                     var fragments = matcher.getMatchingFragments(text);
                     if (fragments != null && !fragments.isEmpty()) {
-                        setText(highlightMatches(text, fragments));
+                        var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+                        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+                        setText(FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg));
                     }
                 }
                 setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
