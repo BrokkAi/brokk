@@ -146,7 +146,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     .orElse(bands.getLast()); // fallback to last band if no match
         }
 
-        public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
+        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens) {
             var promptTokens = uncachedInputTokens + cachedTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
