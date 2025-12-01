@@ -1,6 +1,5 @@
 package ai.brokk.prompts;
 
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
@@ -16,7 +15,6 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -83,16 +81,15 @@ public final class WorkspacePrompts {
     /**
      * Unified workspace table of contents.
      *
-     * When changedFiles is non-null and non-empty, organizes editable fragments into:
-     *   - EDITABLE fragments that have NOT been changed in this task
-     *   - EDITABLE fragments that HAVE been changed in this task
-     * Otherwise, shows all editable fragments in a single section.
+     * Shows:
+     *   - READ ONLY fragments (if any)
+     *   - All EDITABLE fragments in a single section
+     * Optionally appends a simple build status indicator.
      *
-     * @param ctx                the current context
-     * @param changedFiles       files modified in this task (null or empty for non-CodeAgent callers)
-     * @param showBuildStatus    if true, include build status indicator in TOC; if false, omit
+     * @param ctx             the current context
+     * @param showBuildStatus if true, include build status indicator in TOC; if false, omit
      */
-    public static String formatToc(Context ctx, @Nullable Set<ProjectFile> changedFiles, boolean showBuildStatus) {
+    public static String formatToc(Context ctx, boolean showBuildStatus) {
         var readOnlyContents =
                 ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
 
@@ -113,48 +110,16 @@ public final class WorkspacePrompts {
             parts.add(readOnlySection);
         }
 
-        // Split editables into changed/unchanged only when changedFiles is provided and non-empty
-        boolean splitEditables = changedFiles != null && !changedFiles.isEmpty();
-        if (splitEditables) {
-            var unchanged = editableFragments.stream()
-                    .filter(f -> f.files().stream().noneMatch(changedFiles::contains))
-                    .map(ContextFragment::formatToc)
-                    .collect(Collectors.joining("\n"));
-            var changed = editableFragments.stream()
-                    .filter(f -> f.files().stream().anyMatch(changedFiles::contains))
-                    .map(ContextFragment::formatToc)
-                    .collect(Collectors.joining("\n"));
-
-            if (!unchanged.isBlank()) {
-                parts.add(
-                        """
-                        <workspace_editable_unchanged>
-                        The following EDITABLE fragments have not been changed yet in this task:
-                        %s
-                        </workspace_editable_unchanged>"""
-                                .formatted(unchanged));
-            }
-            if (!changed.isBlank()) {
-                parts.add(
-                        """
-                        <workspace_editable_changed>
-                        The following EDITABLE fragments have been changed so far in this task:
-                        %s
-                        </workspace_editable_changed>"""
-                                .formatted(changed));
-            }
-        } else {
-            var editableContents =
-                    editableFragments.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-            if (!editableContents.isBlank()) {
-                parts.add(
-                        """
-                        <workspace_editable>
-                        The following fragments MAY BE EDITED:
-                        %s
-                        </workspace_editable>"""
-                                .formatted(editableContents));
-            }
+        var editableContents =
+                editableFragments.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        if (!editableContents.isBlank()) {
+            parts.add(
+                    """
+                    <workspace_editable>
+                    The following fragments MAY BE EDITED:
+                    %s
+                    </workspace_editable>"""
+                            .formatted(editableContents));
         }
 
         if (showBuildStatus && buildFragment.isPresent()) {
@@ -168,9 +133,9 @@ public final class WorkspacePrompts {
                 .formatted(String.join("\n", parts));
     }
 
-    /** Convenience overload for callers that don't track changed files. */
+    /** Convenience overload for callers that don't control build-status visibility. */
     public static String formatToc(Context ctx) {
-        return formatToc(ctx, null, true);
+        return formatToc(ctx, true);
     }
 
     /**

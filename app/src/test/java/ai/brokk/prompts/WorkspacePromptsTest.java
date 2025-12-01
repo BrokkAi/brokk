@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -130,15 +129,15 @@ class WorkspacePromptsTest {
         var frag = new ContextFragment.ProjectPathFragment(file, cm);
         ctx = ctx.addPathFragments(List.of(frag));
 
-        // Without changed files - should show single editable section
-        String tocNoChanges = WorkspacePrompts.formatToc(ctx, null, false);
-        assertTrue(tocNoChanges.contains("<workspace_editable>"), "Should have single editable section");
-        assertFalse(tocNoChanges.contains("<workspace_editable_unchanged>"), "Should not split when no changedFiles");
-
-        // With changed files - should split into changed/unchanged
-        String tocWithChanges = WorkspacePrompts.formatToc(ctx, Set.of(file), false);
-        assertTrue(tocWithChanges.contains("<workspace_editable_changed>"), "Should have changed section");
-        assertFalse(tocWithChanges.contains("<workspace_editable_unchanged>"), "File is changed, no unchanged section");
+        // TOC should always show a single editable section and never split by changed/unchanged
+        String toc = WorkspacePrompts.formatToc(ctx, false);
+        assertTrue(toc.contains("<workspace_editable>"), "Should have a single editable section");
+        assertFalse(
+                toc.contains("<workspace_editable_unchanged>"),
+                "Toc should no longer include an 'unchanged' editable section");
+        assertFalse(
+                toc.contains("<workspace_editable_changed>"),
+                "Toc should no longer include a 'changed' editable section");
     }
 
     @Test

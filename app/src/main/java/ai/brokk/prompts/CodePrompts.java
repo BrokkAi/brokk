@@ -224,7 +224,7 @@ public abstract class CodePrompts {
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
                 %s
                 """
-                        .formatted(WorkspacePrompts.formatToc(ctx, changedFiles, includeBuildStatus));
+                        .formatted(WorkspacePrompts.formatToc(ctx, includeBuildStatus));
         var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
         messages.add(augmentedRequest);
 

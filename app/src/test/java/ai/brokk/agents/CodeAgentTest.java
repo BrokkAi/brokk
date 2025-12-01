@@ -1272,7 +1272,7 @@ class CodeAgentTest {
                 "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatToc(ctx, Set.of(), false);
+        var toc = WorkspacePrompts.formatToc(ctx, false);
         var tocReminder =
                 """
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
