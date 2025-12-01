@@ -3,8 +3,6 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.BuildInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
-import ai.brokk.gui.theme.ThemeTitleBarManager;
-import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -18,27 +16,13 @@ import org.jetbrains.annotations.Nullable;
  * <p>• Modeless so the macOS Application menu stays enabled. • Can be invoked from any thread; creation is marshalled
  * to the EDT.
  */
-public final class AboutDialog extends JDialog {
+public final class AboutDialog extends BaseThemedDialog {
     private AboutDialog(@Nullable Window owner) {
-        super(owner, "About Brokk", ModalityType.MODELESS);
+        super(owner, "About Brokk", Dialog.ModalityType.MODELESS);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setName("aboutDialog");
 
-        // Configure macOS full-window content if supported
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-            if (SystemInfo.isJava_17_orLater) {
-                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-            } else {
-                setTitle(null);
-            }
-        }
-
         buildUi();
-
-        // Apply themed title bar on macOS (no-op on other platforms)
-        ThemeTitleBarManager.applyTitleBar(this, "About Brokk");
 
         pack();
         setResizable(false);
@@ -69,10 +53,10 @@ public final class AboutDialog extends JDialog {
                         .formatted(BuildInfo.version);
         content.add(new JLabel(text), BorderLayout.CENTER);
 
-        // Ensure content pane uses BorderLayout and add content in CENTER
-        // (title bar will be in NORTH after ThemeTitleBarManager.applyTitleBar)
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(content, BorderLayout.CENTER);
+        // Add content to the contentRoot managed by BaseThemedDialog
+        var root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(content, BorderLayout.CENTER);
         Chrome.applyIcon(this); // sets Dock/task-bar icon where applicable
 
         // Allow closing with ESC key

@@ -2,8 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.theme.ThemeTitleBarManager;
-import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.BorderLayout;
 import java.awt.Dialog;
 import java.awt.Dimension;
@@ -23,7 +21,7 @@ import org.jetbrains.annotations.Nullable;
  * Modal dialog for EZ-mode auto-play task gating.
  * Prompts user to execute all tasks, clean existing and run, or cancel.
  */
-public final class AutoPlayGateDialog extends JDialog {
+public final class AutoPlayGateDialog extends BaseThemedDialog {
     private final Set<String> incompleteTasks;
     private UserChoice choice = UserChoice.CANCEL;
 
@@ -41,27 +39,14 @@ public final class AutoPlayGateDialog extends JDialog {
         super(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
 
-        // Apply macOS full-window content and transparent title bar
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-            if (SystemInfo.isJava_17_orLater) {
-                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-            } else {
-                setTitle(null);
-            }
-        }
-
         buildUI();
         pack();
         setLocationRelativeTo(owner);
-
-        // Apply themed title bar on macOS (no-op on other platforms)
-        ThemeTitleBarManager.applyTitleBar(this, "Incomplete Tasks");
     }
 
     private void buildUI() {
-        var root = new JPanel(new BorderLayout(8, 8));
+        var root = getContentRoot();
+        root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
@@ -113,10 +98,6 @@ public final class AutoPlayGateDialog extends JDialog {
             dispose();
         });
 
-        // Wrap root panel so that BorderLayout.NORTH is free for the title bar
-        var rootPanel = new JPanel(new BorderLayout());
-        rootPanel.add(root, BorderLayout.CENTER);
-        setContentPane(rootPanel);
         getRootPane().setDefaultButton(executeBtn);
     }
 

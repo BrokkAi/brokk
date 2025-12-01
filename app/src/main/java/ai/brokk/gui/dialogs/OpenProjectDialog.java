@@ -7,10 +7,8 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
-import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -43,7 +41,7 @@ import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class OpenProjectDialog extends JDialog {
+public class OpenProjectDialog extends BaseThemedDialog {
     private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
 
     private static record GitHubRepoInfo(
@@ -65,31 +63,18 @@ public class OpenProjectDialog extends JDialog {
     private JPanel gitHubReposPanel;
 
     public OpenProjectDialog(@Nullable Frame parent) {
-        super(parent, "Open Project", true);
+        super(parent, "Open Project", Dialog.ModalityType.APPLICATION_MODAL);
         this.parentFrame = parent;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-
-        // Apply macOS full-window content and transparent title bar
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-            if (SystemInfo.isJava_17_orLater) {
-                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-            } else {
-                setTitle(null);
-            }
-        }
 
         initComponents();
         pack();
         setLocationRelativeTo(parent);
-
-        // Apply themed title bar on macOS (no-op on other platforms)
-        ThemeTitleBarManager.applyTitleBar(this, "Open Project");
     }
 
     private void initComponents() {
-        var mainPanel = new JPanel(new BorderLayout());
+        var mainPanel = getContentRoot();
+        mainPanel.setLayout(new BorderLayout());
 
         var leftPanel = new JPanel();
         leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
@@ -139,8 +124,6 @@ public class OpenProjectDialog extends JDialog {
 
         mainPanel.add(leftPanel, BorderLayout.WEST);
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
-
-        setContentPane(mainPanel);
     }
 
     @Nullable

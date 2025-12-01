@@ -16,11 +16,9 @@ import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
-import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -53,7 +51,7 @@ import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
-public class SessionsDialog extends JDialog {
+public class SessionsDialog extends BaseThemedDialog {
     private static final int SEARCH_DEBOUNCE_DELAY = 300;
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -89,20 +87,9 @@ public class SessionsDialog extends JDialog {
     private @Nullable Context selectedActivityContext;
 
     public SessionsDialog(Chrome chrome, ContextManager contextManager) {
-        super(chrome.getFrame(), "Manage Sessions", true);
+        super(chrome.getFrame(), "Manage Sessions", Dialog.ModalityType.APPLICATION_MODAL);
         this.chrome = chrome;
         this.contextManager = contextManager;
-
-        // Apply macOS full-window content and transparent title bar
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-            if (SystemInfo.isJava_17_orLater) {
-                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-            } else {
-                setTitle(null);
-            }
-        }
 
         initializeComponents();
         layoutComponents();
@@ -113,9 +100,6 @@ public class SessionsDialog extends JDialog {
         setSize(1400, 800);
         setLocationRelativeTo(chrome.getFrame());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-
-        // Apply themed title bar on macOS (no-op on other platforms)
-        ThemeTitleBarManager.applyTitleBar(this, "Manage Sessions");
     }
 
     private void initializeComponents() {
@@ -237,7 +221,8 @@ public class SessionsDialog extends JDialog {
     }
 
     private void layoutComponents() {
-        setLayout(new BorderLayout());
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
 
         // Create sessions panel
         JPanel sessionsPanel = new JPanel(new BorderLayout());
@@ -293,9 +278,9 @@ public class SessionsDialog extends JDialog {
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
         buttonPanel.add(closeButton);
 
-        // Add components to dialog
-        add(mainSplit, BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+        // Add components to contentRoot
+        root.add(mainSplit, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
     }
 
     private void setupEventHandlers() {

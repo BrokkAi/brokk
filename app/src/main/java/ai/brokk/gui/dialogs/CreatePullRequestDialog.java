@@ -36,7 +36,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.jetbrains.annotations.Nullable;
 
-public class CreatePullRequestDialog extends JDialog {
+public class CreatePullRequestDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(CreatePullRequestDialog.class);
     private static final int PROJECT_FILE_MODEL_COLUMN_INDEX = 2;
 
@@ -74,7 +74,7 @@ public class CreatePullRequestDialog extends JDialog {
             Chrome chrome,
             ContextManager contextManager,
             @Nullable String preselectedSourceBranch) {
-        super(owner, "Create a Pull Request", false);
+        super(owner, "Create a Pull Request", Dialog.ModalityType.MODELESS);
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.workflowService = new GitWorkflow(contextManager);
@@ -82,7 +82,6 @@ public class CreatePullRequestDialog extends JDialog {
 
         initializeDialog();
         buildLayout();
-        Chrome.applyDialogTitleBar(this, "Create a Pull Request");
     }
 
     @Nullable
@@ -107,9 +106,9 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void buildLayout() {
-        if (getContentPane() instanceof JPanel cp) {
-            cp.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
-        }
+        var root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
 
         // --- top panel: branch selectors -------------------------------------------------------
         var topPanel = new JPanel(new BorderLayout());
@@ -139,16 +138,10 @@ public class CreatePullRequestDialog extends JDialog {
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
 
-        // --- root panel to hold all content, leaving BorderLayout.NORTH free for the title bar ---
-        var root = new JPanel(new BorderLayout());
+        // --- add all content to the root panel managed by BaseThemedDialog ---
         root.add(topPanel, BorderLayout.NORTH);
         root.add(middleTabbedPane, BorderLayout.CENTER);
         root.add(buttonPanel, BorderLayout.SOUTH);
-
-        // Add the root panel to the dialog's content pane
-        Container contentPane = getContentPane();
-        contentPane.setLayout(new BorderLayout());
-        contentPane.add(root, BorderLayout.CENTER);
 
         // flow-label updater
         this.flowUpdater = createFlowUpdater();
