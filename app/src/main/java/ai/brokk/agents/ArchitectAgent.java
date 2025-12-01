@@ -342,7 +342,7 @@ public class ArchitectAgent {
             searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
-            // threadlocal
+            // thread-local
             threadlocalSearchResult.set(result);
 
             if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
