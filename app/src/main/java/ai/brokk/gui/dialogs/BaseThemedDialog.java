@@ -18,10 +18,58 @@ import org.jetbrains.annotations.Nullable;
  * - Place their UI in the protected contentRoot panel without touching BorderLayout.NORTH
  * - Automatically benefit from macOS full-window-content theming and future theme updates
  *
+ * <p><b>Opting into theming:</b> All new Brokk dialogs should normally follow one of two patterns:
+ * <ul>
+ *   <li><b>Extend BaseThemedDialog directly:</b> For reusable or complex dialogs (e.g., SettingsDialog,
+ *     AboutDialog), create a dedicated subclass that calls the {@code super(owner, title, modality)}
+ *     constructor and builds UI within {@code getContentRoot()}.
+ *   <li><b>Use {@link Chrome#newThemedDialog(Window, String, boolean)} factory:</b> For one-off or
+ *     simple dialogs, use the factory method and build UI directly on the returned instance.
+ * </ul>
+ * <p>Legacy dialogs that still extend {@code JDialog} may instead call
+ * {@link Chrome#newDialog(Window, String, boolean, boolean)} or
+ * {@link Chrome#applyDialogTitleBar(JDialog, String)} / {@link ThemeTitleBarManager#applyTitleBar(JDialog, String)}
+ * directly. However, this is considered a migration/edge path; new work should prefer BaseThemedDialog.
+ * <p>Important: Subclasses must <b>not</b> set Apple client properties
+ * ({@code apple.awt.fullWindowContent}, {@code apple.awt.transparentTitleBar}) or call
+ * {@link ThemeTitleBarManager} directly. All macOS configuration is handled by BaseThemedDialog's
+ * constructor and {@code applyThemedTitleBar()} method.
+ *
  * <p><b>Layout structure:</b> The dialog's contentPane uses BorderLayout:
  * - NORTH: Reserved for the themed title bar (added by ThemeTitleBarManager on macOS only)
  * - CENTER: The contentRoot panel where subclasses place their UI
  * - Other regions: Available for subclass use if needed
+ *
+ * <p><b>Content root vs contentPane:</b> BaseThemedDialog reserves {@code BorderLayout.NORTH}
+ * of the content pane for the custom title bar on macOS. Dialog UI <b>must</b> be added to
+ * {@code contentRoot} (via {@link #getContentRoot()}) which lives in {@code BorderLayout.CENTER},
+ * and <b>never</b> directly to {@code getContentPane()}.
+ * <p>Subclasses must <b>never</b> add components to {@code BorderLayout.NORTH} of the dialog's
+ * content pane, or they will conflict with the title bar injected by ThemeTitleBarManager.
+ * <p>Correct pattern (do this):
+ * <pre>
+ * public class MyDialog extends BaseThemedDialog {
+ *     public MyDialog(Window owner) {
+ *         super(owner, "My Dialog", Dialog.ModalityType.APPLICATION_MODAL);
+ *         buildLayout();
+ *     }
+ *
+ *     private void buildLayout() {
+ *         JPanel root = getContentRoot();
+ *         root.setLayout(new BorderLayout());
+ *         root.add(headerPanel, BorderLayout.NORTH);
+ *         root.add(mainPanel, BorderLayout.CENTER);
+ *         root.add(buttonPanel, BorderLayout.SOUTH);
+ *     }
+ * }
+ * </pre>
+ * <p>Anti-pattern (do NOT do this):
+ * <pre>
+ * // Wrong: adds header to content pane NORTH, which conflicts with the title bar
+ * getContentPane().add(headerPanel, BorderLayout.NORTH);
+ * // Correct: add header to contentRoot instead
+ * getContentRoot().add(headerPanel, BorderLayout.NORTH);
+ * </pre>
  *
  * <p><b>macOS behavior:</b> On macOS with FlatLaf full-window-content support:
  * - Sets apple.awt.fullWindowContent and apple.awt.transparentTitleBar properties
@@ -66,6 +114,28 @@ import org.jetbrains.annotations.Nullable;
  * <p><b>Factory creation:</b> Use {@link Chrome#newThemedDialog(Window, String, boolean)} or
  * {@link Chrome#newThemedDialog(Window, String)} to create instances via the convenience factory.
  *
+ * <p><b>Manual verification (for debugging):</b> To inspect a running BaseThemedDialog and verify
+ * correct configuration, you can check these properties at runtime:
+ * <pre>
+ * BaseThemedDialog dialog = Chrome.newThemedDialog(frame, "Test", true);
+ *
+ * // Check the content pane layout
+ * Container cp = dialog.getContentPane();
+ * LayoutManager layout = cp.getLayout();
+ * System.out.println("Layout: " + layout.getClass().getSimpleName()); // should print "BorderLayout"
+ *
+ * // On macOS, inspect the NORTH component (should be the custom title bar)
+ * if (SystemInfo.isMacOS && layout instanceof BorderLayout bl) {
+ *     Component north = bl.getLayoutComponent(BorderLayout.NORTH);
+ *     Component center = bl.getLayoutComponent(BorderLayout.CENTER);
+ *     System.out.println("NORTH: " + (north != null ? north.getClass().getSimpleName() : "null"));
+ *     System.out.println("CENTER: " + (center != null ? center.getClass().getSimpleName() : "null"));
+ *     // Expected on macOS: NORTH = "JPanel" (title bar), CENTER = "JPanel" (contentRoot)
+ * } else {
+ *     System.out.println("(Not on macOS; native title bar is used instead)");
+ * }
+ * </pre>
+ *
  * @see ThemeTitleBarManager
  * @see Chrome#applyDialogTitleBar(JDialog, String)
  * @see Chrome#newThemedDialog(Window, String, boolean)
@@ -93,16 +163,19 @@ public class BaseThemedDialog extends JDialog {
     public BaseThemedDialog(@Nullable Window owner, String title, Dialog.ModalityType modalityType) {
         super(owner, title, modalityType);
 
-        // Set up the dialog's content pane with a BorderLayout structure
-        // NORTH is reserved for the title bar (on macOS)
-        // CENTER holds the contentRoot where subclasses place their UI
+        // Set up the dialog's content pane with a BorderLayout structure.
+        // This is intentional: NORTH is reserved for the custom title bar (on macOS),
+        // while CENTER holds contentRoot where subclasses place their UI.
+        // Subclasses must never add components to BorderLayout.NORTH directly.
         Container contentPane = getContentPane();
         contentPane.setLayout(new BorderLayout());
 
         // Add the contentRoot to CENTER; subclasses will populate it
         contentPane.add(contentRoot, BorderLayout.CENTER);
 
-        // Apply macOS theming (or no-op on non-macOS)
+        // Apply macOS-specific theming: sets apple.awt.* properties, hides the native title,
+        // and delegates to ThemeTitleBarManager to attach the custom Swing title bar.
+        // Subclasses must not duplicate this logic or set apple.awt.* properties directly.
         applyThemedTitleBar(title);
     }
 

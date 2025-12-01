@@ -3925,7 +3925,18 @@ public class Chrome
 
     /**
      * Creates a new themed JDialog with the Brokk icon set properly and optional title bar styling.
-     * On macOS, configures full-window content and transparent title bar to match frame behavior.
+     * This is a lower-level helper that configures icons and (optionally) attaches a themed title bar,
+     * but does not provide the {@code contentRoot} abstraction offered by {@link BaseThemedDialog}.
+     *
+     * <p><b>Prefer {@link BaseThemedDialog} / {@link #newThemedDialog(Window, String, boolean)} for new dialogs.</b>
+     * Use this method only for:
+     * <ul>
+     *   <li>Legacy or third-party dialogs that cannot extend BaseThemedDialog</li>
+     *   <li>Special layout cases requiring direct content pane manipulation</li>
+     *   <li>Dialogs where you explicitly do not want a themed title bar</li>
+     * </ul>
+     *
+     * <p>On macOS, configures full-window content and transparent title bar to match frame behavior.
      * On other platforms, creates a standard dialog.
      *
      * @param owner The parent window for this dialog (may be null for unowned dialogs)
@@ -3965,29 +3976,65 @@ public class Chrome
     }
 
     /**
-     * Creates a new BaseThemedDialog with the Brokk icon and optional title bar styling.
-     * This factory method returns a BaseThemedDialog instance that automatically handles
+     * Creates a new {@link BaseThemedDialog} with the Brokk icon and optional title bar styling.
+     * This factory method returns a {@code BaseThemedDialog} instance that automatically handles
      * macOS full-window-content configuration and title bar theming through its constructor.
-     * On non-macOS platforms, this behaves identically to a standard JDialog.
+     * On non-macOS platforms, this behaves identically to a standard {@link JDialog}.
      *
-     * <p><b>Usage:</b> BaseThemedDialog provides a content root panel (via getContentRoot())
-     * where subclasses or callers can add their UI. The title bar is automatically managed
-     * and occupies the NORTH region of the dialog's content pane.
+     * <p><b>Usage:</b> {@link BaseThemedDialog} provides a content root panel via
+     * {@link BaseThemedDialog#getContentRoot() getContentRoot()} where callers can add their UI.
+     * The custom title bar (on macOS) is automatically managed and occupies the
+     * {@code BorderLayout.NORTH} region of the dialog's content pane, while the content root
+     * occupies {@code BorderLayout.CENTER}. All dialog UI should be added to the content root,
+     * not directly to {@code getContentPane()}.</p>
      *
-     * <p><b>Example:</b>
+     * <p><b>When to use:</b></p>
+     * <ul>
+     *   <li><b>Use this factory</b> when you need a one-off or simple dialog and do not want
+     *       to declare a dedicated subclass. Build the UI directly into
+     *       {@code dialog.getContentRoot()}.</li>
+     *   <li><b>Prefer a dedicated subclass</b> of {@code BaseThemedDialog} for complex or
+     *       reusable dialogs (for example, Settings or About dialogs). In that case call the
+     *       {@code BaseThemedDialog} constructor from your subclass and build the layout in
+     *       {@code getContentRoot()} instead of using this factory.</li>
+     *   <li>The older {@link #newDialog(Window, String, boolean, boolean)} factory returns a
+     *       plain {@link JDialog}. It is appropriate for legacy or third-party dialogs that
+     *       cannot extend {@code BaseThemedDialog}, or when you explicitly do not want a
+     *       themed title bar.</li>
+     * </ul>
+     *
+     * <p><b>Example (factory usage):</b></p>
      * <pre>
      * BaseThemedDialog dialog = Chrome.newThemedDialog(parentWindow, "My Dialog", true);
      * JPanel contentRoot = dialog.getContentRoot();
-     * contentRoot.add(myPanel, BorderLayout.CENTER);
+     * contentRoot.setLayout(new BorderLayout());
+     * contentRoot.add(myHeaderPanel, BorderLayout.NORTH);
+     * contentRoot.add(myContentPanel, BorderLayout.CENTER);
+     * contentRoot.add(myButtonPanel, BorderLayout.SOUTH);
      * dialog.setSize(800, 600);
      * dialog.setLocationRelativeTo(parentWindow);
      * dialog.setVisible(true);
      * </pre>
      *
-     * @param owner The parent window for this dialog (may be null for unowned dialogs)
-     * @param title The title for the new dialog (displayed in title bar on macOS, or native on other platforms)
-     * @param modal Whether this dialog should be modal (APPLICATION_MODAL if true, MODELESS if false)
-     * @return A BaseThemedDialog with icon applied and macOS title bar pre-configured
+     * <p><b>Manual verification (optional):</b> To sanity-check a dialog created by this
+     * factory at runtime you can inspect its layout structure:</p>
+     * <pre>
+     * BaseThemedDialog d = Chrome.newThemedDialog(owner, "Test Dialog", true);
+     * Container cp = d.getContentPane();
+     * System.out.println(cp.getLayout()); // should print "BorderLayout"
+     *
+     * if (cp.getLayout() instanceof BorderLayout bl) {
+     *     System.out.println("NORTH = " + bl.getLayoutComponent(BorderLayout.NORTH));
+     *     System.out.println("CENTER = " + bl.getLayoutComponent(BorderLayout.CENTER));
+     * }
+     * </pre>
+     *
+     * @param owner the parent window for this dialog (may be {@code null} for unowned dialogs)
+     * @param title the title for the new dialog (displayed in the custom title bar on macOS,
+     *              or native title bar on other platforms)
+     * @param modal whether this dialog should be modal (APPLICATION_MODAL if {@code true},
+     *              MODELESS if {@code false})
+     * @return a {@code BaseThemedDialog} with icon applied and macOS title bar pre-configured
      */
     public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title, boolean modal) {
         Dialog.ModalityType modality = modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS;
@@ -3997,12 +4044,18 @@ public class Chrome
     }
 
     /**
-     * Creates a new modal BaseThemedDialog with the Brokk icon.
-     * Convenience overload for the common case of modal dialogs.
+     * Creates a new modal {@link BaseThemedDialog} with the Brokk icon.
      *
-     * @param owner The parent window for this dialog
-     * @param title The title for the new dialog
-     * @return A modal BaseThemedDialog with icon applied and macOS title bar pre-configured
+     * <p>This is a convenience overload for the common case of modal dialogs and is
+     * equivalent to calling
+     * {@link #newThemedDialog(Window, String, boolean) newThemedDialog(owner, title, true)}.
+     * See that method for detailed behavior, usage guidelines, and manual verification
+     * hints.</p>
+     *
+     * @param owner the parent window for this dialog
+     * @param title the title for the new dialog
+     * @return a modal {@code BaseThemedDialog} with icon applied and macOS title bar
+     *         pre-configured
      */
     public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title) {
         return newThemedDialog(owner, title, true);
