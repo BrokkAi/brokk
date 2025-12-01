@@ -15,7 +15,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
-public class CreateBranchDialog extends JDialog {
+public class CreateBranchDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(CreateBranchDialog.class);
 
     private final ContextManager contextManager;
@@ -30,7 +30,7 @@ public class CreateBranchDialog extends JDialog {
 
     public CreateBranchDialog(
             Frame owner, ContextManager contextManager, Chrome chrome, String commitId, String shortCommitId) {
-        super(owner, "Create Branch from Commit " + shortCommitId, true);
+        super(owner, "Create Branch from Commit " + shortCommitId);
         this.contextManager = contextManager;
         this.chrome = chrome;
         this.commitId = commitId;
@@ -74,7 +74,9 @@ public class CreateBranchDialog extends JDialog {
 
     private void layoutComponents() {
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setLayout(new BorderLayout(10, 10));
+        
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
 
         JPanel formPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -109,8 +111,8 @@ public class CreateBranchDialog extends JDialog {
             }
         });
 
-        add(formPanel, BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+        root.add(formPanel, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
     }
 
     private String performBasicBranchNameSanitization(String proposedName) {

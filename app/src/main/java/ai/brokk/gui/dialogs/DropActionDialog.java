@@ -9,7 +9,6 @@ import java.awt.GridLayout;
 import java.awt.Point;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
-import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
@@ -17,14 +16,14 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog to choose the action for dropped files: Edit, Read, or Summarize. */
-public final class DropActionDialog extends JDialog {
+public final class DropActionDialog extends BaseThemedDialog {
     private final boolean allowSummarize;
 
     @Nullable
     private WorkspacePanel.ContextAction selected = WorkspacePanel.ContextAction.EDIT;
 
     private DropActionDialog(Frame owner, boolean allowSummarize) {
-        super(owner, "Add to Workspace", true);
+        super(owner, "Add to Workspace");
         this.allowSummarize = allowSummarize;
         buildUi();
         pack();
@@ -71,7 +70,10 @@ public final class DropActionDialog extends JDialog {
 
         var scroll = new JScrollPane(mainPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
-        setContentPane(scroll);
+        
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(scroll, BorderLayout.CENTER);
     }
 
     /**
