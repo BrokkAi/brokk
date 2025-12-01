@@ -65,6 +65,7 @@
   $: hasLiveSummaryOnly = !hasLiveBubbles && liveSummary?.compressed && !!liveSummary?.summary;
   $: hasLive = hasLiveBubbles || hasLiveSummaryOnly;
 
+
   // Toggle handlers for collapse control
   function toggleHistoryCollapsed() {
     historyCollapsedStore.update(v => !v);
