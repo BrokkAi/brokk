@@ -6,9 +6,11 @@ import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -41,6 +43,17 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setSize(1100, 600);
         setLocationRelativeTo(owner);
+
+        // Apply macOS full-window content and transparent title bar
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                setTitle(null);
+            }
+        }
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
 
@@ -108,6 +121,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(tabbedPane, BorderLayout.CENTER);
         getContentPane().add(buttonPanel, BorderLayout.SOUTH);
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        ThemeTitleBarManager.applyTitleBar(this, "Settings");
 
         // Load settings in background and populate UI when done
         loadSettingsInBackground();
@@ -317,6 +333,17 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);
 
+        // Apply macOS full-window content and transparent title bar
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                dialog.setTitle(null);
+            }
+        }
+
         // Create a temporary SettingsProjectPanel just for its DataRetentionPanel inner class logic
         // This is a bit of a workaround to reuse the panel logic.
         var tempProjectPanelForRetention =
@@ -376,7 +403,17 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        dialog.setContentPane(contentPanel);
+        // Wrap contentPanel in a root panel so the title bar and content do not compete
+        // for the same BorderLayout.NORTH slot
+        var rootPanel = new JPanel(new BorderLayout());
+        rootPanel.add(contentPanel, BorderLayout.CENTER);
+        dialog.setContentPane(rootPanel);
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        // ThemeTitleBarManager will add the title bar to rootPanel at NORTH,
+        // while contentPanel remains in CENTER with its own internal BorderLayout
+        ThemeTitleBarManager.applyTitleBar(dialog, "Data Retention Policy Required");
+
         okButtonDialog.requestFocusInWindow();
         dialog.setVisible(true);
 
