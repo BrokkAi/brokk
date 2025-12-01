@@ -29,7 +29,6 @@ export type BrokkEvent =
   | {
       type: 'live-summary';
       epoch: number;
-      threadId: number;
       compressed: boolean;
       summary: string;
     };
