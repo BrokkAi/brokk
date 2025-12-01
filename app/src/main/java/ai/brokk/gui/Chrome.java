@@ -680,7 +680,6 @@ public class Chrome
         bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
         bottomSplitPane.setRightComponent(outputStackSplit);
         // Let the left side drive the minimum width for the whole sidebar region
-        bottomSplitPane.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         // Ensure the right stack can shrink enough so the sidebar can grow
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
