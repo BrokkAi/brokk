@@ -238,7 +238,8 @@ public class FuzzyMatcher {
      * @param highlightFg Foreground color for highlighted text
      * @return HTML string with highlighted matches
      */
-    public static String toHighlightedHtml(String text, List<TextRange> fragments, Color highlightBg, Color highlightFg) {
+    public static String toHighlightedHtml(
+            String text, List<TextRange> fragments, Color highlightBg, Color highlightFg) {
         fragments.sort(Comparator.comparingInt(TextRange::getStartOffset));
         var hexBg = String.format("#%02x%02x%02x", highlightBg.getRed(), highlightBg.getGreen(), highlightBg.getBlue());
         var hexFg = String.format("#%02x%02x%02x", highlightFg.getRed(), highlightFg.getGreen(), highlightFg.getBlue());
@@ -249,8 +250,8 @@ public class FuzzyMatcher {
             if (range.getStartOffset() > lastEnd) {
                 parts.add(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
             }
-            parts.add("<span style='background-color:" + hexBg + ";color:" + hexFg + "'>" +
-                      escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())) + "</span>");
+            parts.add("<span style='background-color:" + hexBg + ";color:" + hexFg + "'>"
+                    + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())) + "</span>");
             lastEnd = range.getEndOffset();
         }
         if (lastEnd < text.length()) {

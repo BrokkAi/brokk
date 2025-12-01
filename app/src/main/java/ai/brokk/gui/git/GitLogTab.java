@@ -197,8 +197,10 @@ public class GitLogTab extends JPanel implements ThemeAware {
         // Add search field above local branch table
         localBranchSearchField = new JTextField();
         localBranchSearchField.putClientProperty("JTextField.placeholderText", "Search...");
-        localBranchSearchField.getDocument().addDocumentListener(
-                createFilterListener(() -> localBranchTableModel.filterRows(localBranchSearchField.getText())));
+        localBranchSearchField
+                .getDocument()
+                .addDocumentListener(
+                        createFilterListener(() -> localBranchTableModel.filterRows(localBranchSearchField.getText())));
         localBranchPanel.add(localBranchSearchField, BorderLayout.NORTH);
         localBranchPanel.add(new JScrollPane(branchTable), BorderLayout.CENTER);
 
@@ -222,14 +224,18 @@ public class GitLogTab extends JPanel implements ThemeAware {
         remoteBranchTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         // Add cell renderer with fuzzy highlighting for remote branches
-        remoteBranchTable.getColumnModel().getColumn(0).setCellRenderer(
-                createFuzzyHighlightRenderer(remoteBranchWrapper::getCurrentMatcher));
+        remoteBranchTable
+                .getColumnModel()
+                .getColumn(0)
+                .setCellRenderer(createFuzzyHighlightRenderer(remoteBranchWrapper::getCurrentMatcher));
 
         // Add search field above remote branch table
         remoteBranchSearchField = new JTextField();
         remoteBranchSearchField.putClientProperty("JTextField.placeholderText", "Search...");
-        remoteBranchSearchField.getDocument().addDocumentListener(
-                createFilterListener(() -> remoteBranchWrapper.filter(remoteBranchSearchField.getText())));
+        remoteBranchSearchField
+                .getDocument()
+                .addDocumentListener(
+                        createFilterListener(() -> remoteBranchWrapper.filter(remoteBranchSearchField.getText())));
         remoteBranchPanel.add(remoteBranchSearchField, BorderLayout.NORTH);
         remoteBranchPanel.add(new JScrollPane(remoteBranchTable), BorderLayout.CENTER);
 
@@ -256,14 +262,17 @@ public class GitLogTab extends JPanel implements ThemeAware {
         tagsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         // Add cell renderer with fuzzy highlighting for tags
-        tagsTable.getColumnModel().getColumn(0).setCellRenderer(
-                createFuzzyHighlightRenderer(tagsWrapper::getCurrentMatcher));
+        tagsTable
+                .getColumnModel()
+                .getColumn(0)
+                .setCellRenderer(createFuzzyHighlightRenderer(tagsWrapper::getCurrentMatcher));
 
         // Add search field above tags table
         tagsSearchField = new JTextField();
         tagsSearchField.putClientProperty("JTextField.placeholderText", "Search...");
-        tagsSearchField.getDocument().addDocumentListener(
-                createFilterListener(() -> tagsWrapper.filter(tagsSearchField.getText())));
+        tagsSearchField
+                .getDocument()
+                .addDocumentListener(createFilterListener(() -> tagsWrapper.filter(tagsSearchField.getText())));
         tagsPanel.add(tagsSearchField, BorderLayout.NORTH);
         tagsPanel.add(new JScrollPane(tagsTable), BorderLayout.CENTER);
 
@@ -1162,11 +1171,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
     private static DocumentListener createFilterListener(Runnable filterAction) {
         return new DocumentListener() {
             @Override
-            public void insertUpdate(DocumentEvent e) { filterAction.run(); }
+            public void insertUpdate(DocumentEvent e) {
+                filterAction.run();
+            }
+
             @Override
-            public void removeUpdate(DocumentEvent e) { filterAction.run(); }
+            public void removeUpdate(DocumentEvent e) {
+                filterAction.run();
+            }
+
             @Override
-            public void changedUpdate(DocumentEvent e) { filterAction.run(); }
+            public void changedUpdate(DocumentEvent e) {
+                filterAction.run();
+            }
         };
     }
 

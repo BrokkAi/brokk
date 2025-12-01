@@ -202,7 +202,6 @@ public class FuzzySearchListPanel<T> {
         }
     }
 
-
     /**
      * Sets a listener that is called when an item is selected (via Enter or click).
      */
