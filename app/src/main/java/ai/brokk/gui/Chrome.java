@@ -2928,8 +2928,7 @@ public class Chrome
 
             // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
             // In that state we do NOT clamp or persist positions, so collapse via tab toggle works.
-            boolean isCollapsedUi =
-                    bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
             if (isCollapsedUi) {
                 return;
             }
