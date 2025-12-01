@@ -353,23 +353,6 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     *  Eagerly start async computations for this fragment.
-     */
-    default void startAll() {
-        shortDescription().start();
-        description().start();
-        text().start();
-        syntaxStyle().start();
-        sources().start();
-        files().start();
-        format().start();
-        var ib = imageBytes();
-        if (ib != null) {
-            ib.start();
-        }
-    }
-
-    /**
      * Marker for fragments whose identity is dynamic (numeric, session-local).
      * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
      */
@@ -429,6 +412,7 @@ public interface ContextFragment {
             this.snapshotCv = initialSnapshot != null
                     ? ComputedValue.completed("snap-" + id, initialSnapshot)
                     : new ComputedValue<>("snap-" + id, this::computeSnapshot, getFragmentExecutor(), false);
+            snapshotCv.start();
         }
 
         public void await(Duration timeout) throws InterruptedException {
@@ -543,30 +527,6 @@ public interface ContextFragment {
                     </fragment>
                     """
                     .formatted(s.description(), id(), s.text());
-        }
-
-        @Override
-        public void startAll() {
-            // Eagerly create common derived CVs so they are present in the map and can be started.
-            description();
-            shortDescription();
-            text();
-            syntaxStyle();
-            sources();
-            files();
-            format();
-            var ib = imageBytes(); // may be null for non-image fragments
-
-            // Start the primary snapshot first.
-            snapshotCv.start();
-
-            // Start all derived CVs that have been created (including subclass-specific ones).
-            derivedCvs.forEach((k, v) -> v.start());
-
-            // Start image bytes if present (ensures it's started even if not yet in the map).
-            if (ib != null) {
-                ib.start();
-            }
         }
 
         // Common hasSameSource implementation (identity for dynamic, override for others)
@@ -728,7 +688,6 @@ public interface ContextFragment {
                             ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
                             : null);
             this.file = file;
-            startAll();
         }
 
         @Override
@@ -930,7 +889,6 @@ public interface ContextFragment {
                     contextManager,
                     snapshotText != null ? decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
             this.file = file;
-            startAll();
         }
 
         @Override
@@ -988,7 +946,6 @@ public interface ContextFragment {
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
             super(id, contextManager);
             this.file = file;
-            startAll();
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
@@ -1229,7 +1186,6 @@ public interface ContextFragment {
             this.text = text;
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
-            startAll();
         }
 
         @Override
@@ -1296,7 +1252,6 @@ public interface ContextFragment {
             super(id, contextManager);
             this.image = image;
             this.descriptionFuture = descriptionFuture;
-            startAll();
         }
 
         @Nullable
@@ -1483,7 +1438,6 @@ public interface ContextFragment {
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
-            startAll();
         }
 
         private static FragmentSnapshot decodeFrozen(String targetIdentifier, byte[] bytes) {
@@ -1600,7 +1554,6 @@ public interface ContextFragment {
                                     contextManager.getAnalyzerUninterrupted())
                             : null);
             this.fullyQualifiedName = fullyQualifiedName;
-            startAll();
         }
 
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1633,7 +1586,6 @@ public interface ContextFragment {
             super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
             this.fullyQualifiedName = unit.fqName();
             this.preResolvedUnit = unit;
-            startAll();
         }
 
         @Override
@@ -1715,7 +1667,6 @@ public interface ContextFragment {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
-            startAll();
         }
 
         @Override
@@ -1867,7 +1818,6 @@ public interface ContextFragment {
             super(id, contextManager);
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
-            startAll();
         }
 
         @Override

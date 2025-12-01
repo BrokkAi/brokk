@@ -60,8 +60,6 @@ public final class ComputedSubscription {
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
     public static void bind(ContextFragment fragment, JComponent owner, Runnable uiUpdate) {
-        fragment.startAll();
-
         // Helper to run UI update, coalesced onto EDT
         final boolean[] scheduled = {false};
         Runnable scheduleUpdate = () -> {
