@@ -219,7 +219,6 @@ public class SearchAgent {
                 .count();
     }
 
-    @Blocking
     private TaskResult executeInternal() throws InterruptedException {
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
@@ -1232,7 +1231,6 @@ public class SearchAgent {
         metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
-    @Blocking
     private void recordFinalWorkspaceState() {
         metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
@@ -1247,7 +1245,6 @@ public class SearchAgent {
                 || f.getType() == ContextFragment.FragmentType.SKELETON;
     }
 
-    @Blocking
     private Set<ProjectFile> getWorkspaceFileSet() {
         // Allow time to compute
         try {
@@ -1265,7 +1262,6 @@ public class SearchAgent {
         return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
-    @Blocking
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         // Allow time to compute
         try {
@@ -1300,7 +1296,7 @@ public class SearchAgent {
                 .map(f -> (ContextFragment.StringFragment) f)
                 .filter(sf ->
                         sf.specialType().isPresent() && !sf.specialType().get().droppable())
-                .map(sf -> "- " + sf.description() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
+                .map(sf -> "- " + sf.description().join() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
                 .sorted()
                 .toList();
 
