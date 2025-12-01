@@ -502,7 +502,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("sonnet") || modelName.contains("gemini-2.5-pro"));
+        return !modelName.contains("gpt-5");
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
