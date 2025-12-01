@@ -749,12 +749,13 @@ public interface ContextFragment {
 
         @Override
         public ComputedValue<Set<CodeUnit>> sources() {
+            // Treat historical content as potentially different from current; don't claim sources
             return ComputedValue.completed(Set.of());
         }
 
         @Override
         public ComputedValue<Set<ProjectFile>> files() {
-            return ComputedValue.completed(Set.of());
+            return ComputedValue.completed(Set.of(file));
         }
 
         @Override
@@ -780,7 +781,8 @@ public interface ContextFragment {
             var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
             var desc = parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
             var syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            return ComputedValue.completed("gff-snap-" + id, new FragmentSnapshot(desc, shortDesc, content, syntax));
+            var snapshot = new FragmentSnapshot(desc, shortDesc, content, syntax, Set.of(), Set.of(file), (List<Byte>) null);
+            return ComputedValue.completed("gff-snap-" + id, snapshot);
         }
 
         @Override
