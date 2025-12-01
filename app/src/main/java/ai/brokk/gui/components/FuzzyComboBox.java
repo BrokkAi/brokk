@@ -3,6 +3,7 @@ package ai.brokk.gui.components;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -19,6 +20,7 @@ public class FuzzyComboBox<T> extends JPanel {
     private final Function<T, String> displayMapper;
     private final MaterialButton button;
     private @Nullable T selectedItem;
+    private @Nullable Consumer<T> selectionChangeListener;
 
     /**
      * Creates a new FuzzyComboBox with the given items.
@@ -107,6 +109,16 @@ public class FuzzyComboBox<T> extends JPanel {
     public void setSelectedItem(@Nullable T item) {
         this.selectedItem = item;
         button.setText(item != null ? displayMapper.apply(item) : "");
+        if (selectionChangeListener != null && item != null) {
+            selectionChangeListener.accept(item);
+        }
+    }
+
+    /**
+     * Sets a listener that is called when the selected item changes.
+     */
+    public void setSelectionChangeListener(@Nullable Consumer<T> listener) {
+        this.selectionChangeListener = listener;
     }
 
     @Override
