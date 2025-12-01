@@ -4,10 +4,13 @@ import ai.brokk.Brokk;
 import ai.brokk.BuildInfo;
 import ai.brokk.GitHubAuth;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -65,9 +68,24 @@ public class OpenProjectDialog extends JDialog {
         super(parent, "Open Project", true);
         this.parentFrame = parent;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+        // Apply macOS full-window content and transparent title bar
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                setTitle(null);
+            }
+        }
+
         initComponents();
         pack();
         setLocationRelativeTo(parent);
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        ThemeTitleBarManager.applyTitleBar(this, "Open Project");
     }
 
     private void initComponents() {

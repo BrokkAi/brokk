@@ -16,9 +16,11 @@ import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
+import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -91,6 +93,17 @@ public class SessionsDialog extends JDialog {
         this.chrome = chrome;
         this.contextManager = contextManager;
 
+        // Apply macOS full-window content and transparent title bar
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                setTitle(null);
+            }
+        }
+
         initializeComponents();
         layoutComponents();
         setupEventHandlers();
@@ -100,6 +113,9 @@ public class SessionsDialog extends JDialog {
         setSize(1400, 800);
         setLocationRelativeTo(chrome.getFrame());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        ThemeTitleBarManager.applyTitleBar(this, "Manage Sessions");
     }
 
     private void initializeComponents() {

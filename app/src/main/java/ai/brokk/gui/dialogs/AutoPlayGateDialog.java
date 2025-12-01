@@ -2,6 +2,8 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.BorderLayout;
 import java.awt.Dialog;
 import java.awt.Dimension;
@@ -38,9 +40,24 @@ public final class AutoPlayGateDialog extends JDialog {
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
         super(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
+
+        // Apply macOS full-window content and transparent title bar
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+            if (SystemInfo.isJava_17_orLater) {
+                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+            } else {
+                setTitle(null);
+            }
+        }
+
         buildUI();
         pack();
         setLocationRelativeTo(owner);
+
+        // Apply themed title bar on macOS (no-op on other platforms)
+        ThemeTitleBarManager.applyTitleBar(this, "Incomplete Tasks");
     }
 
     private void buildUI() {
@@ -96,7 +113,10 @@ public final class AutoPlayGateDialog extends JDialog {
             dispose();
         });
 
-        setContentPane(root);
+        // Wrap root panel so that BorderLayout.NORTH is free for the title bar
+        var rootPanel = new JPanel(new BorderLayout());
+        rootPanel.add(root, BorderLayout.CENTER);
+        setContentPane(rootPanel);
         getRootPane().setDefaultButton(executeBtn);
     }
 
