@@ -868,7 +868,6 @@ public class SearchAgent {
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Callers should invoke this before calling execute() if they want the initial context scan.
      * Updates the SearchAgent's internal Context, and also returns it.
-     * Scans the initial context using ContextAgent and adds recommendations to the workspace.
      * <p>
      * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
      * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
