@@ -9,15 +9,14 @@ export const liveSummaryStore = writable<Record<number, LiveSummaryEntry>>({});
 
 export function setLiveSummary(threadId: number, entry: LiveSummaryEntry): void {
   liveSummaryStore.update(store => {
-    store[threadId] = entry;
-    return store;
+    return { ...store, [threadId]: entry };
   });
 }
 
 export function deleteLiveSummary(threadId: number): void {
   liveSummaryStore.update(store => {
-    delete store[threadId];
-    return store;
+    const { [threadId]: _, ...rest } = store;
+    return rest;
   });
 }
 

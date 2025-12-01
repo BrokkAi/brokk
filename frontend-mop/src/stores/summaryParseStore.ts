@@ -11,15 +11,14 @@ export const summaryParseStore = writable<Record<number, SummaryParseEntry>>({})
 
 export function setSummaryParseEntry(threadId: number, entry: SummaryParseEntry): void {
   summaryParseStore.update(store => {
-    store[threadId] = entry;
-    return store;
+    return { ...store, [threadId]: entry };
   });
 }
 
 export function updateSummaryParseTree(threadId: number, tree: ResultMsg['tree']): void {
   summaryParseStore.update(store => {
     if (store[threadId]) {
-      store[threadId].tree = tree;
+      return { ...store, [threadId]: { ...store[threadId], tree } };
     }
     return store;
   });
@@ -27,8 +26,8 @@ export function updateSummaryParseTree(threadId: number, tree: ResultMsg['tree']
 
 export function deleteSummaryParseEntry(threadId: number): void {
   summaryParseStore.update(store => {
-    delete store[threadId];
-    return store;
+    const { [threadId]: _, ...rest } = store;
+    return rest;
   });
 }
 

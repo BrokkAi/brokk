@@ -81,6 +81,8 @@ public final class MOPWebViewHost extends JPanel {
         record HistoryReset() implements HostCommand {}
 
         record HistoryTask(TaskEntry entry) implements HostCommand {}
+
+        record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -375,12 +377,9 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
-        var bridge = bridgeRef.get();
-        if (bridge == null) {
-            logger.debug("sendLiveSummary ignored; bridge not ready");
-            return;
-        }
-        bridge.sendLiveSummary(taskSequence, compressed, summary);
+        sendOrQueue(
+                new HostCommand.LiveSummary(taskSequence, compressed, summary),
+                bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
@@ -541,6 +540,8 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.Clear ignored -> bridge.clear();
                     case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();
                     case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
+                    case HostCommand.LiveSummary ls ->
+                        bridge.sendLiveSummary(ls.taskSequence(), ls.compressed(), ls.summary());
                 }
             });
             pendingCommands.clear();
