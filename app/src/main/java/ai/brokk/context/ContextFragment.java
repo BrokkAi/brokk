@@ -369,21 +369,6 @@ public interface ContextFragment {
         String contentHash();
     }
 
-    static Set<ProjectFile> parseProjectFiles(String text, IProject project) {
-        var exactMatches = project.getAllFiles().stream()
-                .parallel()
-                .filter(f -> text.contains(f.toString()))
-                .collect(Collectors.toSet());
-        if (!exactMatches.isEmpty()) {
-            return exactMatches;
-        }
-
-        return project.getAllFiles().stream()
-                .parallel()
-                .filter(f -> text.contains(f.getFileName()))
-                .collect(Collectors.toSet());
-    }
-
     static void validateNumericId(String existingId) {
         try {
             int numericId = Integer.parseInt(existingId);
@@ -448,16 +433,6 @@ public interface ContextFragment {
         }
 
         protected abstract FragmentSnapshot computeSnapshot();
-
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            // Default implementation assumes text
-            String text = new String(bytes, StandardCharsets.UTF_8);
-            return new FragmentSnapshot(
-                    description().renderNowOr("(restored)"),
-                    shortDescription().renderNowOr("(restored)"),
-                    text,
-                    syntaxStyle().renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE));
-        }
 
         protected <T> ComputedValue<T> derived(String key, Function<FragmentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
@@ -892,11 +867,6 @@ public interface ContextFragment {
         }
 
         @Override
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(file, bytes);
-        }
-
-        @Override
         public ExternalFile file() {
             return file;
         }
@@ -991,22 +961,6 @@ public interface ContextFragment {
                 // ignore
             }
 
-            return new FragmentSnapshot(
-                    desc,
-                    file.getFileName(),
-                    "[Image content provided out of band]",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(),
-                    (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
-                    bytes);
-        }
-
-        @Override
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            String desc = file.toString();
-            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                desc = "%s [%s]".formatted(file.getFileName(), pf.getParent());
-            }
             return new FragmentSnapshot(
                     desc,
                     file.getFileName(),
@@ -1298,18 +1252,6 @@ public interface ContextFragment {
         }
 
         @Override
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return new FragmentSnapshot(
-                    "Pasted image",
-                    "Pasted image",
-                    "[Image content provided out of band]",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(),
-                    Set.of(),
-                    bytes);
-        }
-
-        @Override
         public @Nullable ComputedValue<byte[]> imageBytes() {
             return derived("imageBytes", FragmentSnapshot::imageBytes);
         }
@@ -1447,11 +1389,6 @@ public interface ContextFragment {
         }
 
         @Override
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(targetIdentifier, bytes);
-        }
-
-        @Override
         public FragmentType getType() {
             return FragmentType.USAGE;
         }
@@ -1575,11 +1512,6 @@ public interface ContextFragment {
             }
 
             return new FragmentSnapshot(desc, fullyQualifiedName, text, syntax, units, files, (List<Byte>) null);
-        }
-
-        @Override
-        protected FragmentSnapshot decodeFrozen(byte[] bytes) {
-            return decodeFrozen(fullyQualifiedName, bytes, getAnalyzer());
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -1985,8 +1917,6 @@ public interface ContextFragment {
     class TaskFragment extends AbstractStaticFragment implements OutputFragment {
         private final List<ChatMessage> messages;
         private final boolean escapeHtml;
-
-        // EditBlockParser removed as it was unused in original
 
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
             this(contextManager, messages, description, true);
